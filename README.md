@@ -37,6 +37,13 @@ tools/                  integration generators and import helpers
 
 Runtime folders such as `data/`, `output/`, generated reports, snapshots, databases and local `.env` files are intentionally ignored by Git.
 
+## Developer Documentation
+
+- [Development Guide](docs/DEVELOPMENT.md): setup, code style, workflows, tests and release process.
+- [API and Architecture Overview](docs/API_OVERVIEW.md): backend layout, request flow, auth model and important endpoints.
+- [Production Baseline](docs/PRODUCTION_BASELINE.md): operational assumptions for Linux/Docker deployments.
+- [Security Notes](docs/SECURITY.md): practical rules for secrets, runtime data and repository hygiene.
+
 ## Requirements
 
 - Python 3.11 recommended.
@@ -154,10 +161,11 @@ The application exposes:
 
 ## Common Commands
 
-Run syntax validation:
+Run import/syntax validation:
 
 ```bash
-python -B -m py_compile app/main.py app/core/*.py app/api/endpoints/*.py app/services/*.py app/services/camsnapshot/*.py
+python -B -c "import app.main; print('app.main ok')"
+node -e "new Function(require('fs').readFileSync('web/static/app.js','utf8')); console.log('app.js syntax ok')"
 ```
 
 Clean generated artifacts:
