@@ -41,6 +41,7 @@ Pastas de execução como `data/`, `output/`, relatórios gerados, snapshots, ba
 
 - [Guia de Desenvolvimento](docs/DEVELOPMENT.md): setup, fluxo de trabalho, validações e processo de release.
 - [Visão de API e Arquitetura](docs/API_OVERVIEW.md): organização do backend, autenticação, tenants e principais endpoints.
+- [Stack Completa Docker](docs/PLATFORM_STACK.md): SightOps, PostgreSQL, Zabbix e Grafana em uma única composição.
 - [Baseline de Produção](docs/PRODUCTION_BASELINE.md): premissas operacionais para deploy Linux/Docker.
 - [Notas de Segurança](docs/SECURITY.md): regras práticas para segredos, dados runtime e higiene do repositório.
 

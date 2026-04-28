@@ -1,0 +1,6 @@
+services:
+  cam-snapshot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${CAM_SNAPSHOT_IMAGE:-ghcr.io/easytecnologias/cam-snapshot-web:local}
