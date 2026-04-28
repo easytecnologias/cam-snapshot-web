@@ -1,5 +1,7 @@
 # SightOps Cam Snapshot
 
+Instalação rápida em servidor Ubuntu: veja [docs/INSTALACAO_RAPIDA_UBUNTU.md](docs/INSTALACAO_RAPIDA_UBUNTU.md).
+
 SightOps Cam Snapshot é uma plataforma web de operação para equipes de CFTV, redes e infraestrutura. O sistema inventaria câmeras IP, DVRs e NVRs, captura evidências visuais, cruza informações com OLTs e switches, e gera relatórios técnicos para uso em campo, auditoria e gestão.
 
 O projeto combina uma API FastAPI, uma interface web leve, deploy com Docker, suporte a PostgreSQL, autenticação multiempresa, isolamento por tenant, health checks e ferramentas auxiliares para integrações com ImgBB, MikroTik Netwatch, Zabbix, Grafana e mapas KMZ/GeoJSON.
