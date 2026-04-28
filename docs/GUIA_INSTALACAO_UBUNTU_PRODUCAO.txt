@@ -1,0 +1,471 @@
+GUIA DE INSTALACAO EM PRODUCAO
+SightOps Cam Snapshot + PostgreSQL + Zabbix + Grafana + Portainer
+
+Este guia foi feito para instalar o ambiente completo em um servidor Ubuntu
+recem-instalado.
+
+Repositorio:
+https://github.com/easytecnologias/cam-snapshot-web.git
+
+
+1. PREMISSAS
+------------
+
+Voce precisa de:
+
+- Servidor Ubuntu limpo.
+- Acesso SSH ao servidor.
+- Usuario com permissao sudo.
+- Internet no servidor.
+- IP do servidor em maos.
+
+Neste guia, sempre que aparecer IP_DO_SERVIDOR, troque pelo IP real.
+
+Exemplo:
+
+IP_DO_SERVIDOR=10.10.12.7
+
+
+2. ATUALIZAR O SERVIDOR
+-----------------------
+
+Execute:
+
+sudo apt update
+sudo apt upgrade -y
+sudo reboot
+
+Depois do reboot, conecte novamente via SSH.
+
+
+3. INSTALAR PACOTES BASICOS
+---------------------------
+
+sudo apt install -y ca-certificates curl gnupg git nano ufw
+
+
+4. INSTALAR DOCKER OFICIAL
+--------------------------
+
+Criar diretorio de chaves:
+
+sudo install -m 0755 -d /etc/apt/keyrings
+
+Baixar chave GPG do Docker:
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+Ajustar permissao:
+
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+Adicionar repositorio Docker:
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+Instalar Docker:
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+Ativar Docker:
+
+sudo systemctl enable --now docker
+
+Testar:
+
+sudo docker version
+sudo docker compose version
+
+
+5. LIBERAR DOCKER PARA O USUARIO ATUAL
+--------------------------------------
+
+sudo usermod -aG docker $USER
+
+Depois saia do SSH e entre novamente.
+
+Teste:
+
+docker ps
+
+Se funcionar sem sudo, esta correto.
+
+
+6. CONFIGURAR FIREWALL
+----------------------
+
+Liberar portas principais:
+
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 3000/tcp
+sudo ufw allow 8081/tcp
+sudo ufw allow 10051/tcp
+sudo ufw allow 9000/tcp
+sudo ufw allow 9443/tcp
+sudo ufw enable
+
+Verificar:
+
+sudo ufw status
+
+Portas usadas:
+
+80    - SightOps Web
+3000  - Grafana
+8081  - Zabbix Web
+10051 - Zabbix Server
+9000  - Portainer HTTP
+9443  - Portainer HTTPS
+
+
+7. INSTALAR PORTAINER
+---------------------
+
+Criar volume:
+
+docker volume create portainer_data
+
+Subir Portainer:
+
+docker run -d \
+  --name portainer \
+  --restart=unless-stopped \
+  -p 9000:9000 \
+  -p 9443:9443 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data \
+  portainer/portainer-ce:latest
+
+Acessar:
+
+http://IP_DO_SERVIDOR:9000
+
+Ou:
+
+https://IP_DO_SERVIDOR:9443
+
+Na primeira entrada, crie o usuario administrador do Portainer.
+
+
+8. CRIAR PASTA DE INSTALACAO
+----------------------------
+
+sudo mkdir -p /opt/sightops
+sudo chown -R $USER:$USER /opt/sightops
+cd /opt/sightops
+
+
+9. CLONAR O PROJETO
+-------------------
+
+git clone https://github.com/easytecnologias/cam-snapshot-web.git
+cd cam-snapshot-web
+
+
+10. CRIAR ARQUIVO DE AMBIENTE
+-----------------------------
+
+cp .env.platform.example .env.platform
+nano .env.platform
+
+Edite principalmente:
+
+TZ=America/Sao_Paulo
+APP_ENV=production
+ENABLE_DOCS=0
+AUTH_REQUIRED=1
+AUTH_LEGACY_OPEN=0
+
+SIGHTOPS_HTTP_PORT=80
+ZABBIX_WEB_PORT=8081
+ZABBIX_SERVER_PORT=10051
+GRAFANA_PORT=3000
+
+ALLOWED_ORIGINS=http://IP_DO_SERVIDOR
+TRUSTED_PROXIES=127.0.0.1
+
+SIGHTOPS_DB_PASSWORD=SENHA_FORTE_SIGHTOPS
+ZABBIX_DB_PASSWORD=SENHA_FORTE_ZABBIX
+GRAFANA_ADMIN_PASSWORD=SENHA_FORTE_GRAFANA
+
+Exemplo:
+
+ALLOWED_ORIGINS=http://10.10.12.7
+
+Importante:
+
+- Troque todas as senhas.
+- Nao use senhas padrao em producao.
+- Guarde o arquivo .env.platform com cuidado.
+
+
+11. SUBIR A STACK COMPLETA
+--------------------------
+
+Este comando sobe:
+
+- Cam Snapshot Web
+- PostgreSQL do SightOps
+- Nginx
+- Zabbix Server
+- Zabbix Web
+- PostgreSQL do Zabbix
+- Zabbix Agent 2
+- Grafana
+
+Execute:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  up -d --build
+
+
+12. VERIFICAR CONTAINERS
+------------------------
+
+docker ps
+
+Voce deve ver containers parecidos com:
+
+sightops-api
+sightops-nginx
+sightops-postgres
+zabbix-postgres
+zabbix-server
+zabbix-web
+zabbix-agent2
+grafana
+portainer
+
+
+13. ACESSAR OS SERVICOS
+-----------------------
+
+Substitua IP_DO_SERVIDOR pelo IP real.
+
+SightOps:
+http://IP_DO_SERVIDOR/
+
+Grafana:
+http://IP_DO_SERVIDOR:3000/
+
+Zabbix:
+http://IP_DO_SERVIDOR:8081/
+
+Portainer:
+http://IP_DO_SERVIDOR:9000/
+
+
+14. LOGIN INICIAL
+-----------------
+
+SightOps:
+
+Usuario: admin_teste
+Senha: admin_teste
+
+Depois de entrar, troque a senha.
+
+Grafana:
+
+Usuario: admin
+Senha: a senha definida em GRAFANA_ADMIN_PASSWORD
+
+Zabbix:
+
+Usuario: Admin
+Senha: zabbix
+
+Depois de entrar, troque a senha.
+
+Portainer:
+
+Usuario: criado na primeira entrada
+Senha: criada na primeira entrada
+
+
+15. COMANDOS UTEIS
+------------------
+
+Ver containers:
+
+docker ps
+
+Ver todos os containers, inclusive parados:
+
+docker ps -a
+
+Logs da API:
+
+docker logs -f sightops-api
+
+Logs do Nginx:
+
+docker logs -f sightops-nginx
+
+Logs do Zabbix:
+
+docker logs -f zabbix-server
+
+Logs do Grafana:
+
+docker logs -f grafana
+
+Reiniciar a stack:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  restart
+
+Parar a stack:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  down
+
+Subir novamente:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  up -d
+
+
+16. ATUALIZAR O SISTEMA
+-----------------------
+
+cd /opt/sightops/cam-snapshot-web
+git pull
+
+Recriar containers:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  up -d --build
+
+
+17. BACKUP BASICO
+-----------------
+
+Criar pasta de backup:
+
+sudo mkdir -p /opt/sightops/backups
+
+Backup da pasta do projeto:
+
+tar -czf /opt/sightops/backups/cam-snapshot-web-$(date +%Y%m%d-%H%M%S).tar.gz \
+  -C /opt/sightops cam-snapshot-web
+
+Backup frio dos volumes:
+
+cd /opt/sightops/cam-snapshot-web
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  down
+
+sudo tar -czf /opt/sightops/backups/docker-volumes-$(date +%Y%m%d-%H%M%S).tar.gz \
+  /var/lib/docker/volumes
+
+Subir novamente:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  up -d
+
+
+18. INSTALACAO PELO PORTAINER
+-----------------------------
+
+Tambem e possivel instalar a stack pelo Portainer.
+
+Passos:
+
+1. Acesse:
+
+   http://IP_DO_SERVIDOR:9000
+
+2. Entre no ambiente local.
+
+3. Va em:
+
+   Stacks
+
+4. Clique em:
+
+   Add stack
+
+5. Nome da stack:
+
+   sightops-platform
+
+6. Escolha:
+
+   Repository
+
+7. Repository URL:
+
+   https://github.com/easytecnologias/cam-snapshot-web.git
+
+8. Branch:
+
+   main
+
+9. Compose path:
+
+   docker-compose.platform.yml
+
+10. Adicione as variaveis de ambiente conforme .env.platform.example.
+
+11. Clique em:
+
+   Deploy the stack
+
+Observacao:
+
+Esse modo usa imagem pronta se CAM_SNAPSHOT_IMAGE estiver apontando para
+um registry. Para primeira instalacao, o modo via terminal com build local
+e mais simples.
+
+
+19. COMANDO PRINCIPAL PARA REPLICAR
+-----------------------------------
+
+Sempre que instalar em servidor novo, o comando principal e:
+
+docker compose --env-file .env.platform \
+  -f docker-compose.platform.yml \
+  -f docker-compose.platform.build.yml \
+  up -d --build
+
+
+20. CHECKLIST FINAL
+-------------------
+
+Antes de considerar a instalacao pronta, confira:
+
+[ ] Docker instalado.
+[ ] Portainer acessivel.
+[ ] Projeto em /opt/sightops/cam-snapshot-web.
+[ ] Arquivo .env.platform configurado.
+[ ] Stack rodando.
+[ ] SightOps abre na porta 80.
+[ ] Grafana abre na porta 3000.
+[ ] Zabbix abre na porta 8081.
+[ ] Senhas padrao trocadas.
+[ ] Backup definido.
+
+
+FIM DO GUIA
