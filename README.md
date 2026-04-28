@@ -1,67 +1,67 @@
 # SightOps Cam Snapshot
 
-SightOps Cam Snapshot is a FastAPI-based operations console for CCTV and network teams. It inventories IP cameras, DVRs and NVRs, captures visual evidence, enriches assets with OLT/switch data, and exports reports for field and management workflows.
+SightOps Cam Snapshot é uma plataforma web de operação para equipes de CFTV, redes e infraestrutura. O sistema inventaria câmeras IP, DVRs e NVRs, captura evidências visuais, cruza informações com OLTs e switches, e gera relatórios técnicos para uso em campo, auditoria e gestão.
 
-The project includes a backend API, a browser UI, Docker deployment files, PostgreSQL support, tenant-aware storage, authentication, health checks, and helper tools for integrations such as ImgBB, MikroTik Netwatch, Zabbix, Grafana and KMZ/GeoJSON maps.
+O projeto combina uma API FastAPI, uma interface web leve, deploy com Docker, suporte a PostgreSQL, autenticação multiempresa, isolamento por tenant, health checks e ferramentas auxiliares para integrações com ImgBB, MikroTik Netwatch, Zabbix, Grafana e mapas KMZ/GeoJSON.
 
-## Main Features
+## Principais Recursos
 
-- Camera inventory by IP, range or CIDR.
-- Snapshot capture for IP cameras, DVR channels and NVR channels.
-- Multi-tenant authentication with roles: `viewer`, `operator`, `admin` and `owner`.
-- Tenant-aware inventory, report logo, snapshot and KMZ storage.
-- PostgreSQL or SQLite runtime storage.
-- Live scan progress through WebSocket endpoints.
-- Maintenance actions for supported cameras, including ping, reboot, rename, NTP, PTZ and password workflows.
-- OLT and switch enrichment for network context.
-- PDF, XLSX, KMZ, Grafana, Zabbix and MikroTik helper exports.
-- Docker Compose deployment with Nginx reverse proxy and health checks.
+- Inventário de câmeras por IP, intervalo ou CIDR.
+- Captura de snapshot para câmeras IP, canais de DVR e canais de NVR.
+- Autenticação multiempresa com perfis `viewer`, `operator`, `admin` e `owner`.
+- Isolamento por tenant para inventários, snapshots, logos, relatórios e configurações.
+- Persistência em PostgreSQL ou SQLite.
+- Acompanhamento de varreduras em tempo real via WebSocket.
+- Rotinas de manutenção para câmeras compatíveis, incluindo ping, reboot, renomeação, NTP, PTZ e troca de senha.
+- Enriquecimento com dados de OLT e switches gerenciáveis.
+- Exportações e integrações para PDF, XLSX, KMZ, Grafana, Zabbix e MikroTik.
+- Deploy com Docker Compose, Nginx como proxy reverso e health checks.
 
-## Project Structure
+## Estrutura Do Projeto
 
 ```text
 app/
-  api/endpoints/        FastAPI route modules
-  core/                 settings, security, observability and path helpers
-  services/             inventory, scans, reports, storage and device services
-  cli/tools/            command-line utilities
+  api/endpoints/        Rotas HTTP e WebSocket organizadas por domínio
+  core/                 Configurações, segurança, observabilidade e paths
+  services/             Regras de negócio, integrações e persistência
+  cli/tools/            Ferramentas de linha de comando
 web/
-  pages/                HTML pages served by the backend
-  static/               shared JavaScript and CSS
-deploy/nginx/           Nginx reverse proxy configuration
-config/                 example input files
-docs/                   architecture, security and deployment notes
-scripts/                cleanup and support scripts
-tools/                  integration generators and import helpers
+  pages/                Páginas HTML servidas pelo backend
+  static/               JavaScript e CSS compartilhados
+deploy/nginx/           Configuração do Nginx
+config/                 Arquivos de exemplo
+docs/                   Documentação técnica, segurança e produção
+scripts/                Scripts de limpeza e manutenção
+tools/                  Geradores e auxiliares de integração
 ```
 
-Runtime folders such as `data/`, `output/`, generated reports, snapshots, databases and local `.env` files are intentionally ignored by Git.
+Pastas de execução como `data/`, `output/`, relatórios gerados, snapshots, bancos de dados e arquivos `.env` locais são ignorados de propósito pelo Git.
 
-## Developer Documentation
+## Documentação Técnica
 
-- [Development Guide](docs/DEVELOPMENT.md): setup, code style, workflows, tests and release process.
-- [API and Architecture Overview](docs/API_OVERVIEW.md): backend layout, request flow, auth model and important endpoints.
-- [Production Baseline](docs/PRODUCTION_BASELINE.md): operational assumptions for Linux/Docker deployments.
-- [Security Notes](docs/SECURITY.md): practical rules for secrets, runtime data and repository hygiene.
+- [Guia de Desenvolvimento](docs/DEVELOPMENT.md): setup, fluxo de trabalho, validações e processo de release.
+- [Visão de API e Arquitetura](docs/API_OVERVIEW.md): organização do backend, autenticação, tenants e principais endpoints.
+- [Baseline de Produção](docs/PRODUCTION_BASELINE.md): premissas operacionais para deploy Linux/Docker.
+- [Notas de Segurança](docs/SECURITY.md): regras práticas para segredos, dados runtime e higiene do repositório.
 
-## Requirements
+## Requisitos
 
-- Python 3.11 recommended.
-- Docker and Docker Compose for production-style deployment.
-- `ffmpeg` for live/snapshot workflows that depend on video streams.
-- PostgreSQL 16 when using the Compose stack.
+- Python 3.11 recomendado.
+- Docker e Docker Compose para deploy completo.
+- `ffmpeg` para fluxos que dependem de vídeo/snapshot.
+- PostgreSQL 16 ao usar a stack Docker Compose.
 
-Python dependencies are listed in `requirements.txt`.
+As dependências Python ficam em `requirements.txt`.
 
-## Local Setup
+## Instalação Local
 
-Create a local environment file:
+Crie o arquivo de ambiente local:
 
 ```bash
 cp .env.example .env
 ```
 
-Install dependencies and run the API:
+Instale as dependências e suba a API:
 
 ```bash
 python -m venv .venv
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-On Windows PowerShell:
+No Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -79,119 +79,123 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open `http://localhost:8000`.
+Acesse:
+
+```text
+http://localhost:8000
+```
 
 ## Docker Compose
 
-For a complete stack with API, Nginx and PostgreSQL:
+Para subir a stack completa com API, Nginx e PostgreSQL:
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-The default Compose layout exposes:
+O layout padrão expõe:
 
 - Web/Nginx: `http://localhost`
-- API container: `127.0.0.1:8000`
+- API: `127.0.0.1:8000`
 - PostgreSQL: `127.0.0.1:5432`
 
-Before using this in production, edit `.env` and set real passwords, hostnames and origins.
+Antes de usar em produção, edite o `.env` e configure senhas fortes, domínio real e origens permitidas.
 
-## Configuration
+## Configuração
 
-Important environment variables:
+Variáveis importantes:
 
-| Variable | Purpose |
+| Variável | Finalidade |
 | --- | --- |
-| `APP_ENV` | Runtime mode, usually `development` or `production`. |
-| `ENABLE_DOCS` | Enables `/docs`, `/redoc` and `/openapi.json`. Keep disabled in production unless needed. |
-| `DATABASE_BACKEND` | `sqlite` or `postgres`. |
-| `DATABASE_URL` | Full database URL. If empty, the app builds one from host/user/password variables. |
-| `DATA_DIR` | Runtime data directory. Defaults to `data`. |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins. Avoid `*` in production. |
-| `AUTH_ENABLED` | Enables authentication layer. |
-| `AUTH_REQUIRED` | Requires login for protected API routes. |
-| `AUTH_LEGACY_OPEN` | Legacy compatibility flag. Use `0` in production. |
-| `AUTH_TOKEN_TTL_HOURS` | Access token lifetime. |
-| `IMGBB_API_KEY` | Optional ImgBB API key for snapshot publishing. |
+| `APP_ENV` | Ambiente de execução, normalmente `development` ou `production`. |
+| `ENABLE_DOCS` | Habilita `/docs`, `/redoc` e `/openapi.json`. Em produção, mantenha `0` salvo necessidade explícita. |
+| `DATABASE_BACKEND` | Define `sqlite` ou `postgres`. |
+| `DATABASE_URL` | URL completa do banco. Se vazia, o app monta usando host, usuário e senha. |
+| `DATA_DIR` | Diretório de dados runtime. Padrão: `data`. |
+| `ALLOWED_ORIGINS` | Origens CORS separadas por vírgula. Evite `*` em produção. |
+| `AUTH_ENABLED` | Ativa a camada de autenticação. |
+| `AUTH_REQUIRED` | Exige login nas rotas protegidas da API. |
+| `AUTH_LEGACY_OPEN` | Compatibilidade com rotas legadas. Use `0` em produção. |
+| `AUTH_TOKEN_TTL_HOURS` | Tempo de vida dos tokens de acesso. |
+| `IMGBB_API_KEY` | Chave opcional para publicação de snapshots no ImgBB. |
 
-Never commit `.env`, databases, generated reports, snapshots or customer inventory files.
+Nunca versione `.env`, bancos de dados, relatórios gerados, snapshots ou inventários de clientes.
 
-## Initial Authentication
+## Autenticação Inicial
 
-When the auth database has no users, bootstrap the first admin:
+Quando o banco de autenticação ainda não possui usuários, crie o primeiro administrador:
 
 ```bash
 curl -X POST http://localhost:8000/api/auth/bootstrap-admin \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"change-this-password\",\"tenant_slug\":\"default\",\"tenant_name\":\"Default\"}"
+  -d "{\"username\":\"admin\",\"password\":\"troque-esta-senha\",\"tenant_slug\":\"default\",\"tenant_name\":\"Default\"}"
 ```
 
-Then log in:
+Depois faça login:
 
 ```bash
 curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"change-this-password\",\"label\":\"web\"}"
+  -d "{\"username\":\"admin\",\"password\":\"troque-esta-senha\",\"label\":\"web\"}"
 ```
 
-Use the returned bearer token in authenticated API calls.
+Use o bearer token retornado nas chamadas autenticadas.
 
 ## Health Checks
 
-The application exposes:
+A aplicação expõe:
 
-- `GET /api/system/health/live` for process liveness.
-- `GET /api/system/health/ready` for database/runtime readiness.
-- `GET /api/system/info` for non-secret runtime information.
+- `GET /api/system/health/live` para verificar se o processo está vivo.
+- `GET /api/system/health/ready` para verificar banco e dependências runtime.
+- `GET /api/system/info` para informações não sensíveis do ambiente.
 
-## Production Checklist
+## Checklist De Produção
 
-- Set `APP_ENV=production`.
-- Set `ENABLE_DOCS=0`.
-- Set `AUTH_ENABLED=1`, `AUTH_REQUIRED=1` and `AUTH_LEGACY_OPEN=0`.
-- Replace every default password in `.env`.
-- Restrict `ALLOWED_ORIGINS` to the real application domain.
-- Keep API port `8000` bound to localhost or an internal network.
-- Serve public traffic through Nginx or another reverse proxy.
-- Keep `.env` permissions restricted, for example `chmod 600 .env`.
-- Keep `data/` and `output/` backed up, but outside Git.
-- Use Git tags/releases instead of editing production code directly.
+- Configure `APP_ENV=production`.
+- Configure `ENABLE_DOCS=0`.
+- Use `AUTH_ENABLED=1`, `AUTH_REQUIRED=1` e `AUTH_LEGACY_OPEN=0`.
+- Troque todas as senhas padrão do `.env`.
+- Restrinja `ALLOWED_ORIGINS` ao domínio real da aplicação.
+- Mantenha a porta `8000` restrita a localhost ou rede interna.
+- Exponha o sistema publicamente apenas via Nginx ou proxy reverso equivalente.
+- Restrinja permissões do `.env`, por exemplo `chmod 600 .env`.
+- Faça backup de `data/` e `output/`, mas mantenha essas pastas fora do Git.
+- Faça deploy a partir de commits/tags revisados, não de edições manuais em produção.
 
-## Common Commands
+## Comandos Úteis
 
-Run import/syntax validation:
+Validação rápida de import/sintaxe:
 
 ```bash
 python -B -c "import app.main; print('app.main ok')"
 node -e "new Function(require('fs').readFileSync('web/static/app.js','utf8')); console.log('app.js syntax ok')"
 ```
 
-Clean generated artifacts:
+Limpeza de artefatos gerados:
 
 ```bash
 ./scripts/maintenance/cleanup.sh --dry-run
 ./scripts/maintenance/cleanup.sh --force
 ```
 
-Windows:
+No Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\maintenance\cleanup.ps1 -DryRun
 powershell -ExecutionPolicy Bypass -File .\scripts\maintenance\cleanup.ps1 -Force
 ```
 
-## Security Notes
+## Notas De Segurança
 
-This application handles camera credentials, bearer tokens, network inventory, snapshots and operational reports. Treat the host and the runtime data directory as sensitive infrastructure.
+Esta aplicação manipula credenciais de câmeras, bearer tokens, inventário de rede, snapshots e relatórios operacionais. Trate o host e o diretório de dados como infraestrutura sensível.
 
-- Do not store real credentials in source files.
-- Do not commit `.env`, `data/`, `output/`, snapshots, PDFs or database files.
-- Rotate credentials if a local environment file was ever exposed.
-- Prefer private GitHub repositories for operational deployments.
-- Review generated exports before sharing them outside the operations team.
+- Não grave credenciais reais em arquivos de código.
+- Não versione `.env`, `data/`, `output/`, snapshots, PDFs ou bancos de dados.
+- Rotacione credenciais caso um arquivo local tenha sido exposto.
+- Prefira repositórios privados para deployments operacionais.
+- Revise exportações antes de compartilhá-las fora da equipe responsável.
 
-## License
+## Licença
 
-See `LICENSE`.
+Consulte o arquivo `LICENSE`.
