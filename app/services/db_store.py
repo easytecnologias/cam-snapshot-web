@@ -902,10 +902,19 @@ def save_app_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True}
 
 
+def _legacy_state_import_enabled() -> bool:
+    raw = str(os.getenv("ENABLE_LEGACY_STATE_IMPORT", "")).strip().lower()
+    if raw:
+        return raw in ("1", "true", "yes", "on")
+    return str(os.getenv("APP_ENV", "")).strip().lower() not in ("production", "prod")
+
+
 def load_olt_cpe_state() -> Dict[str, Any]:
     state = get_json_state("olt_cpe_macs", None)
     if isinstance(state, dict):
         return state
+    if not _legacy_state_import_enabled():
+        return {}
     p = DATA_DIR / "olt-cpe-macs.json"
     try:
         if p.exists():
@@ -937,6 +946,8 @@ def load_switch_mac_state() -> Dict[str, Any]:
     state = get_json_state("switch_mac_table", None)
     if isinstance(state, dict):
         return state
+    if not _legacy_state_import_enabled():
+        return {}
     p = DATA_DIR / "switch-mac-table.json"
     try:
         if p.exists():
