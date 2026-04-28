@@ -1,0 +1,174 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>SightOps - Grafana</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css?v=84" />
+</head>
+<body>
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Grafana</div>
+      <div class="topbar-sub">Dashboards e integracoes</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Grafana</div>
+        <div class="title-sub">Abrir o dashboard e/ou importar automaticamente pelo Scripts</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="inventory" aria-expanded="false">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory" hidden>
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<a class="nav-item active" href="grafana.html">Grafana</a>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+<a class="nav-subitem" href="kmz.html">Mapas</a>
+<a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="operations" aria-expanded="false">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations" hidden>
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+</nav>
+</header>
+<main>
+  <section class="tab-view active">
+    <div class="card">
+      <div class="card-title">Dashboard</div>
+      <div class="card-sub">
+        Para importar automaticamente o dashboard <code>Cameras - Status</code>, use a aba <b>Integracoes</b> a <b>Grafana</b>
+        (ou marque a opao aDepois do Zabbix, importar dashboard no Grafanaa).
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="gf-open-url">Grafana URL</label>
+          <input id="gf-open-url" type="text" placeholder="http://10.10.12.50:3000" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="gf-open-dash">Dashboard UID (opcional)</label>
+          <input id="gf-open-dash" type="text" placeholder="cams_status_top10_v1_12col" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button class="btn-primary" id="btn-gf-open" type="button">Abrir no navegador</button>
+        <span class="muted">Abre uma nova aba. Se informar o UID, j abre direto no dashboard.</span>
+      </div>
+
+      <div class="field" style="margin-top:16px;">
+        <label>Preview (iframe)</label>
+        <div class="muted" style="margin-bottom:8px;">Se o Grafana estiver com autenticacao, pode bloquear o iframe. Nesse caso use Abrir no navegador.</div>
+        <iframe id="gf-iframe" style="width:100%; height:70vh; border:1px solid var(--border); border-radius:12px;"></iframe>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+(function(){
+  const byId = (id) => document.getElementById(id);
+  const btn = byId('btn-gf-open');
+  const inpUrl = byId('gf-open-url');
+  const inpUid = byId('gf-open-dash');
+  const frame = byId('gf-iframe');
+
+  function buildUrl(){
+    const base = (inpUrl.value || '').trim().replace(/\/+$/,'');
+    const uid = (inpUid.value || '').trim();
+    if (!base) return '';
+    if (!uid) return base;
+    return base + '/d/' + encodeURIComponent(uid);
+  }
+
+  function syncIframe(){
+    const u = buildUrl();
+    frame.src = u;
+  }
+
+  if (btn) btn.addEventListener('click', function(){
+    const u = buildUrl();
+    if (!u) return;
+    window.open(u, '_blank', 'noopener');
+  });
+
+  inpUrl.addEventListener('change', syncIframe);
+  inpUid.addEventListener('change', syncIframe);
+})();
+</script>
+  <script src="/static/app.js?v=96"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

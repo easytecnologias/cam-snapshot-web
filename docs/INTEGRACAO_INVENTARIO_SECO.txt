@@ -1,0 +1,154 @@
+
+ADDON: INVENTÁRIO SECO (SEM MEXER NO SEU FRONTEND)
+
+A ideia aqui é NÃO estragar suas abas nem o layout que você já gosta.
+Este pacote só adiciona:
+
+  - tools/inventory_dry.py  → wrapper para camsnapshot.cli
+  - este arquivo de instruções (docs/INTEGRACAO_INVENTARIO_SECO.txt)
+
+PASSO 1 — COPIAR O SCRIPT
+-------------------------
+
+1. Copie o arquivo:
+
+   tools/inventory_dry.py
+
+   para dentro da pasta do SEU projeto web, no mesmo lugar onde já existem
+   outros scripts (por exemplo: C:\\PROJETOS\\cam-snapshot-web\\tools).
+
+PASSO 2 — API (FASTAPI) MÍNIMA
+------------------------------
+
+No SEU api.py (o que você já usa com:
+
+   uvicorn app.main:app --reload
+
+adicione o seguinte trecho:
+
+1) No topo, depois dos imports (onde já aparece BaseModel), você pode
+   reaproveitar ou criar uma classe específica:
+
+   from pydantic import BaseModel
+   import sys, os, subprocess
+
+   class InventoryDryRequest(BaseModel):
+       alvo: str
+       usuario: str
+       senha: str
+       fast: bool = True
+
+2) Mais embaixo, crie o endpoint (NÃO apague nada do que você já tem):
+
+   @app.post("/api/inventory-dry")
+   async def inventory_dry(req: InventoryDryRequest):
+       """
+       Inventário seco: só IP/MAC/modelo (sem snapshot, sem upload).
+       Usa o wrapper tools/inventory_dry.py.
+       """
+       base_dir = os.path.dirname(__file__)
+       script_path = os.path.join(base_dir, "tools", "inventory_dry.py")
+       if not os.path.exists(script_path):
+           return {
+               "success": False,
+               "stderr": "inventory_dry.py não encontrado em tools/",
+               "stdout": "",
+               "cmd": "",
+               "returncode": -1,
+           }
+
+       saida_dir = os.path.join(base_dir, "saida")
+       os.makedirs(saida_dir, exist_ok=True)
+       out_csv = os.path.join(saida_dir, "cam-inventory-dry.csv")
+
+       cmd = [
+           sys.executable,
+           script_path,
+           "--alvo", req.alvo,
+           "--usuario", req.usuario,
+           "--senha", req.senha,
+           "--out", out_csv,
+       ]
+       if req.fast:
+           cmd.append("--fast")
+
+       completed = subprocess.run(
+           cmd,
+           capture_output=True,
+           text=True,
+           check=False,
+       )
+
+       return {
+           "success": completed.returncode == 0,
+           "cmd": " ".join(cmd),
+           "stdout": completed.stdout,
+           "stderr": completed.stderr,
+           "returncode": completed.returncode,
+           "out_csv": out_csv,
+       }
+
+PASSO 3 — “NOVA CAIXINHA INVENTÁRIO” NO FRONT
+---------------------------------------------
+
+Aqui é onde cada projeto seu é diferente.
+
+A ideia é:
+
+  - NÃO MEXER nas abas.
+  - NÃO MEXER nos componentes que você já tem.
+  - Só adicionar uma caixinha nova aonde você achar melhor
+    (por exemplo, junto das caixinhas já existentes no Inventário).
+
+Se hoje você tem, por exemplo, um botão que chama o inventário completo:
+
+   fetch("/api/scan", {...})
+
+Você pode duplicar esse comportamento e criar um novo:
+
+   fetch("/api/inventory-dry", {...})
+
+Exemplo genérico de JS, que você pode adaptar para o seu layout:
+
+   async function rodarInventarioSeco() {
+       const payload = {
+           alvo: document.getElementById("alvo").value,
+           usuario: document.getElementById("usuario").value,
+           senha: document.getElementById("senha").value,
+           fast: document.getElementById("fast").checked,
+       };
+
+       const logEl = document.getElementById("log-inventory-dry");
+       logEl.textContent = "Chamando /api/inventory-dry ...\\n";
+
+       const resp = await fetch("/api/inventory-dry", {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify(payload),
+       });
+
+       const data = await resp.json();
+       logEl.textContent += JSON.stringify(data, null, 2);
+   }
+
+No HTML, você só cria um botão/caixinha no MESMO estilo que já existe
+(no seu layout atual) apontando para essa função:
+
+   <button onclick="rodarInventarioSeco()">Inventário seco</button>
+
+Ou, se você usa checkboxes em pipeline, basta adicionar um passo a mais
+no pipeline chamando /api/inventory-dry antes do resto, sem alterar
+nenhuma das outras abas.
+
+RESUMO
+------
+
+- Este ZIP NÃO substitui seu projeto.
+- Ele só entrega:
+  - Um script novo (inventory_dry.py).
+  - Um endpoint novo que você cola no seu api.py.
+  - Um exemplo de JS para você integrar em QUALQUER caixinha/aba
+    que já exista.
+
+Assim você mantém 100% do seu frontend do jeito que já estava e ganha
+apenas o recurso extra de “Inventário seco” para usar como quiser.

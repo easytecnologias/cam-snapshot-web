@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+failed=0
+
+scan() {
+  pattern="$1"
+  name="$2"
+  if git diff --cached -G"$pattern" --name-only | grep -E '.' >/dev/null 2>&1; then
+    echo "ERROR: possible secret detected ($name). Remove it before committing."
+    git diff --cached -G"$pattern"
+    failed=1
+  fi
+}
+
+scan "IMGBB_API_KEY\s*=\s*[A-Za-z0-9_-]{12,}" "ImgBB API key"
+scan "TELEGRAM_BOT_TOKEN\s*=\s*[A-Za-z0-9:_-]{20,}" "Telegram Bot Token"
+scan "[0-9]{8,10}:[A-Za-z0-9_-]{30,}" "Telegram-style token"
+scan "BEGIN\s+PRIVATE\s+KEY" "private key"
+
+if [ "$failed" -eq 1 ]; then
+  echo "Commit aborted by pre-commit hook."
+  exit 1
+fi

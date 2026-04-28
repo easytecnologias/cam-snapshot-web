@@ -1,0 +1,353 @@
+﻿<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<title>SightOps - Integracoes</title>
+<meta content="width=device-width,initial-scale=1.0" name="viewport"/>
+<link href="/static/style.css?v=84" rel="stylesheet"/>
+</head>
+<body>
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Integracoes</div>
+      <div class="topbar-sub">Ferramentas auxiliares</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+<div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Plataforma operacional para inventario, manutencao e evidencias.</div>
+      </div>
+    </div>
+</div>
+<nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="inventory" aria-expanded="false">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory" hidden>
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle active" type="button" data-nav-group="integrations" aria-expanded="true">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations">
+<a class="nav-subitem" href="kmz.html">Mapas</a>
+<a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="operations" aria-expanded="false">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations" hidden>
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+</nav>
+</header>
+<main>
+<section class="tab-view active" id="tab-scripts">
+<div class="card">
+<div class="card-title" id="scripts-page-title">Integracoes</div>
+<div class="card-sub" id="scripts-page-sub">
+        Ferramentas para integrar Mikrotik, Zabbix e Grafana ao inventario.
+      </div>
+<div class="field">
+<label for="scripts-mode">Modulo</label>
+<select id="scripts-mode" class="input">
+  <option value="netwatch">Mikrotik (Netwatch / Telegram)</option>
+  <option value="zabbix">Zabbix (Telegram)</option>
+  <option value="grafana">Grafana (Importar dashboard)</option>
+</select>
+</div>
+<span id="mikrotik" style="position:relative; top:-80px;"></span>
+<div id="panel-netwatch">
+<div class="field-row">
+<div class="field">
+<label for="script-site">Site</label>
+<select id="script-site" class="input">
+  <option value="">Todos os sites</option>
+</select>
+</div>
+</div>
+<div class="field-row">
+<div class="field">
+<label for="script-token">Token do bot Telegram</label>
+<input autocomplete="off" id="script-token" placeholder="8364...:XXXXXXXX" type="text"/>
+</div>
+<div class="field">
+<label for="script-chat">Chat ID (grupo/canal)</label>
+<input autocomplete="off" id="script-chat" placeholder="-4597..." type="text"/>
+</div>
+</div>
+<div class="field-row">
+<div class="field">
+<label for="script-interval">Intervalo Netwatch</label>
+<input autocomplete="off" id="script-interval" type="text" value="1m"/>
+</div>
+<div class="field">
+<label for="script-timeout">Timeout</label>
+<input autocomplete="off" id="script-timeout" type="text" value="2s"/>
+</div>
+</div>
+<div class="actions-row">
+<button class="btn-primary" id="btn-netwatch" type="button">
+          Gerar script Netwatch (.rsc)
+        </button>
+<button class="btn-secondary" id="btn-netwatch-download" type="button" style="display:none;">
+          Baixar arquivo .rsc
+        </button>
+<button type="button" class="btn-ghost" id="btn-clear-netwatch">Limpar campos</button>
+<span class="muted">
+          O arquivo <code>saida/netwatch_setup.rsc</code> sera gerado na pasta do projeto.
+        </span>
+</div>
+<!-- [OK] Banner sucesso (AGOR fica abaixo do botao, nao no topo) -->
+
+<div class="olt-done-banner" id="scripts-success-banner" style="display:none;">
+<div class="olt-done-banner-inner">
+<div id="scripts-success-text">[OK] <strong>Script gerado.</strong></div>
+<button class="btn-secondary btn-small" id="btn-scripts-success-close" type="button">Fechar</button>
+</div>
+</div>
+
+</div>
+
+<span id="zabbix" style="position:relative; top:-80px;"></span>
+<div id="panel-zabbix" style="display:none;">
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-url">Zabbix URL</label>
+      <input autocomplete="off" id="zbx-url" placeholder="http://ip/zabbix/api_jsonrpc.php" type="text"/>
+    </div>
+    <div class="field">
+      <label for="zbx-user">Usuario</label>
+      <input autocomplete="off" id="zbx-user" placeholder="Admin" type="text"/>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-pass">Senha</label>
+      <input autocomplete="off" id="zbx-pass" placeholder="senha" type="password"/>
+    </div>
+    <div class="field">
+      <label for="zbx-group">Grupo</label>
+      <input autocomplete="off" id="zbx-group" type="text" value="Cameras"/>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-template">Template</label>
+      <select id="zbx-template" class="input">
+        <option value="Template Module ICMP Ping" selected>Template Cameras</option>
+        <option value="Template Cam-Snapshot DVR Channel">Template DVR</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="zbx-source">Origem do inventario</label>
+      <select id="zbx-source" class="input">
+        <option value="ip">Cameras IP</option>
+        <option value="dvr">DVR</option>
+        <option value="nvr" selected>NVR</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-site">Site (opcional)</label>
+      <select id="zbx-site" class="input">
+        <option value="">Todos os sites</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="field-row" id="zbx-dvr-creds" style="display:none;">
+    <div class="field">
+      <label for="zbx-dvr-user">Usuario DVR/NVR</label>
+      <input autocomplete="off" id="zbx-dvr-user" type="text" value="admin"/>
+    </div>
+    <div class="field">
+      <label for="zbx-dvr-pass">Senha DVR/NVR</label>
+      <input autocomplete="off" id="zbx-dvr-pass" type="password" placeholder="senha do DVR"/>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-auto-tg">Telegram automatico</label>
+      <div class="checkbox-row">
+        <input checked id="zbx-auto-tg" type="checkbox"/>
+        <span class="muted">Criar MediaType + usuario + action no Zabbix (1 clique)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="zbx-tg-token">Token do bot Telegram</label>
+      <input autocomplete="off" id="zbx-tg-token" placeholder="8364...:XXXXXXXX" type="text"/>
+    </div>
+    <div class="field">
+      <label for="zbx-tg-chat">Chat ID (grupo/canal)</label>
+      <input autocomplete="off" id="zbx-tg-chat" placeholder="-4597..." type="text"/>
+    </div>
+  </div>
+
+  <div class="actions-row">
+    <button class="btn-primary" id="btn-zabbix" type="button">
+      Gerar Zabbix + Telegram
+    </button>
+<button type="button" class="btn-ghost" id="btn-clear-zabbix">Limpar campos</button>
+    <span class="muted">
+      Vai criar/atualizar hosts do inventario e configurar alertas no Telegram via Zabbix.
+    </span>
+  </div>
+
+  <div class="field" style="margin-top:12px;">
+    <label>Depois do Zabbix, importar dashboard no Grafana (opcional)</label>
+    <div class="checkbox-row">
+      <input id="zbx-after-grafana" type="checkbox"/>
+      <span class="muted">Se marcar, ele ja envia o JSON do dashboard para o Grafana</span>
+    </div>
+  </div>
+
+  <div id="panel-zabbix-grafana" style="display:none; margin-top:10px;">
+    <div class="field-row">
+      <div class="field">
+        <label for="gf-url">Grafana URL</label>
+        <input autocomplete="off" id="gf-url" placeholder="http://10.10.12.50:3000" type="text"/>
+      </div>
+      <div class="field">
+        <label for="gf-folder">Folder UID (opcional)</label>
+        <input autocomplete="off" id="gf-folder" placeholder="" type="text"/>
+      </div>
+    </div>
+    <div class="field">
+      <label for="gf-key">Grafana API Key</label>
+      <input autocomplete="off" id="gf-key" placeholder="eyJrIjoi..." type="password"/>
+      <div class="muted" style="margin-top:6px;">
+        Crie em: <code>Grafana a Administration a API keys</code> (precisa permissao para criar dashboard).
+      </div>
+    </div>
+  </div>
+</div>
+
+<span id="grafana" style="position:relative; top:-80px;"></span>
+<span id="grafana" style="position:relative; top:-80px;"></span>
+<div id="panel-grafana" style="display:none;">
+  <div class="field-row">
+    <div class="field">
+      <label for="gf-url-only">Grafana URL</label>
+      <input autocomplete="off" id="gf-url-only" placeholder="http://10.10.12.50:3000" type="text"/>
+    </div>
+    <div class="field">
+      <label for="gf-folder-only">Folder UID (opcional)</label>
+      <input autocomplete="off" id="gf-folder-only" placeholder="" type="text"/>
+    </div>
+  </div>
+  <div class="field">
+    <label for="gf-key-only">Grafana API Key</label>
+    <input autocomplete="off" id="gf-key-only" placeholder="eyJrIjoi..." type="password"/>
+  </div>
+  <div class="actions-row">
+    <button class="btn-primary" id="btn-grafana" type="button">Importar dashboard no Grafana</button>
+<button type="button" class="btn-ghost" id="btn-clear-grafana">Limpar campos</button>
+    <span class="muted">Importa/atualiza o dashboard <code>Cameras - Status</code> via API do Grafana.</span>
+  </div>
+</div>
+
+
+<div class="field" style="margin-top:16px;">
+<label for="log-netwatch">Log dos scripts</label>
+<pre class="log-box" id="log-netwatch"></pre>
+</div>
+</div>
+</section>
+</main>
+
+
+<!-- Modal: confirmar limpeza de campos -->
+<div class="inv-modal-backdrop" id="clear-modal-backdrop" aria-hidden="true">
+  <div class="inv-modal" style="width:min(560px,96vw); height:auto; max-height:80vh;">
+    <div class="inv-modal-header">
+      <div style="font-weight:700;">Limpar campos</div>
+      <button class="btn-ghost" id="btn-clear-close" type="button">Fechar</button>
+    </div>
+    <div class="inv-modal-body">
+      <div id="clear-modal-text" class="muted" style="font-size:14px; line-height:1.4;">
+        Tem certeza que deseja limpar os campos?
+      </div>
+      <div class="actions-row" style="justify-content:flex-end; margin-top:14px;">
+        <button class="btn-secondary" id="btn-clear-cancel" type="button">Cancelar</button>
+        <button class="btn-primary" id="btn-clear-confirm" type="button">Limpar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=99"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

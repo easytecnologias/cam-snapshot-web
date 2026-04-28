@@ -1,0 +1,669 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>SightOps - Operacoes DVR</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css?v=88" />
+</head>
+<body>
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Operacoes > DVR</div>
+      <div class="topbar-sub">Mesmo fluxo visual das Operacoes IP, orientado por canal DVR</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Acoes e status em lote para canais de DVR</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="inventory" aria-expanded="false">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory" hidden>
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+      <a class="nav-subitem" href="kmz.html">Mapas</a>
+      <a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="operations" aria-expanded="true">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations">
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem active" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <section class="tab-view active" id="tab-maintenance-dvr">
+    <div class="card">
+      <div class="maint-toolbar maint-toolbar-compact">
+        <div class="maint-toolbar-left">
+          <div class="field w-240">
+            <label for="maintenance-dvr-search">Buscar</label>
+            <input id="maintenance-dvr-search" type="text" placeholder="Host, canal, titulo, modelo, MAC..." />
+          </div>
+          <div class="field w-180">
+            <label for="maintenance-dvr-filter">Filtro</label>
+            <select id="maintenance-dvr-filter">
+              <option value="all">Todos</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+              <option value="sem_camera">Sem camera</option>
+              <option value="camera_offline">Camera offline</option>
+            </select>
+          </div>
+          <div class="field w-180">
+            <label for="maintenance-dvr-site">Site</label>
+            <select id="maintenance-dvr-site">
+              <option value="">Todos os sites</option>
+            </select>
+          </div>
+        </div>
+        <div class="maint-toolbar-right">
+          <div class="field w-140">
+            <label for="dvr-user">Usuario DVR</label>
+            <input id="dvr-user" type="text" value="admin" />
+          </div>
+          <div class="field w-160">
+            <label for="dvr-pass">Senha DVR</label>
+            <input id="dvr-pass" type="password" value="" />
+          </div>
+          <div class="field w-110">
+            <label for="dvr-port">Porta HTTP</label>
+            <input id="dvr-port" type="number" value="80" min="1" max="65535" />
+          </div>
+          <div class="field w-110">
+            <label for="dvr-timeout">Timeout (s)</label>
+            <input id="dvr-timeout" type="number" value="6" min="1" max="20" />
+          </div>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-reload">Atualizar agora</button>
+        </div>
+      </div>
+
+      <div class="maint-flowbar">
+        <div class="maint-flow-left">
+          <div class="pill small"><span>Exibindo: <strong id="maintenance-dvr-visible-count">0</strong></span></div>
+          <div class="pill small"><span>Selecionadas: <strong id="maintenance-dvr-selected-inline">0</strong></span></div>
+          <div class="pill small"><span>ImgBB ao atualizar snapshot <input id="dvr-opt-imgbb" type="checkbox" style="margin-left:6px;"></span></div>
+        </div>
+        <div class="maint-flow-right">
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-select-visible">Selecionar visiveis</button>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-select-online">Selecionar online</button>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-clear-selection">Limpar selecao</button>
+          <button type="button" class="btn-primary btn-small" id="maintenance-dvr-rename">Renomear</button>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-ip">Trocar IP</button>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-dvr-ntp">NTP</button>
+          <button type="button" class="btn-danger btn-small" id="maintenance-dvr-reboot">Reboot</button>
+        </div>
+      </div>
+
+      <div class="maint-stats" style="margin-top:14px; margin-bottom:14px;">
+        <div class="maint-stat" id="maint-dvr-stat-online-card">
+          <div class="maint-stat-title">CANAIS ONLINE</div>
+          <div class="maint-stat-value" id="maint-dvr-stat-online">0</div>
+        </div>
+        <div class="maint-stat" id="maint-dvr-stat-offline-card">
+          <div class="maint-stat-title">CANAIS OFFLINE</div>
+          <div class="maint-stat-value" id="maint-dvr-stat-offline">0</div>
+        </div>
+        <div class="maint-stat" id="maint-dvr-stat-total-card">
+          <div class="maint-stat-title">TOTAL DE CANAIS</div>
+          <div class="maint-stat-value" id="maint-dvr-stat-total">0</div>
+        </div>
+      </div>
+
+      <div id="maintenance-dvr-empty" class="muted" style="font-size:12px; display:none; margin-top:12px;">
+        Inventario DVR vazio. Rode uma leitura em <strong>Inventario > DVR</strong>.
+      </div>
+      <div id="maintenance-dvr-grid" class="maint-grid" style="margin-top:12px;"></div>
+    </div>
+  </section>
+</main>
+
+<!-- Live (RTSP dentro do SightOps-web) -->
+<div id="maint-live-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal modal-live" id="maint-live-content">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="maint-live-title">Live</div>
+        <div class="modal-sub" id="maint-live-sub">RTSP a MJPEG (browser)</div>
+      </div>
+      <div class="live-header-actions">
+        <button type="button" class="live-nav" id="maint-live-prev" title="Anterior">&lt;</button>
+        <button type="button" class="live-nav" id="maint-live-next" title="Proxima">&gt;</button>
+        <button type="button" class="live-quality" id="maint-live-quality" title="Qualidade (HD/SD)">HD</button>
+        <button type="button" class="live-quality" id="maint-live-ptz-toggle" title="Mostrar/ocultar PTZ">PTZ</button>
+        <button type="button" class="live-zoom" id="maint-live-zoomout" title="Zoom -">-</button>
+        <button type="button" class="live-zoom" id="maint-live-zoomin" title="Zoom +">+</button>
+        <button type="button" class="live-zoom" id="maint-live-zoomreset" title="Reset zoom">100%</button>
+        <button type="button" class="live-fullscreen" id="maint-live-fullscreen" title="Fullscreen">[]</button>
+        <button type="button" class="modal-close" id="maint-live-close">x</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="muted" id="maint-live-hint" style="margin-bottom:10px;">
+        Dica: se ficar preto, confirme usuario/senha e se o ffmpeg esta instalado no servidor.
+      </div>
+      <div class="live-player" id="maint-live-player">
+        <img id="maint-live-img" alt="Live" />
+        <div id="maint-live-ptz" class="maint-live-ptz" style="display:none;">
+          <div class="maint-live-ptz-head">
+            <strong>PTZ</strong>
+            <span class="muted" id="maint-live-ptz-status">Detectando...</span>
+          </div>
+          <div class="maint-live-ptz-grid">
+            <button type="button" class="live-ptz-btn" id="maint-ptz-up" title="Cima">&#9650;</button>
+            <button type="button" class="live-ptz-btn" id="maint-ptz-left" title="Esquerda">&#9664;</button>
+            <button type="button" class="live-ptz-btn" id="maint-ptz-stop" title="Parar">S</button>
+            <button type="button" class="live-ptz-btn" id="maint-ptz-right" title="Direita">&#9654;</button>
+            <button type="button" class="live-ptz-btn" id="maint-ptz-down" title="Baixo">&#9660;</button>
+          </div>
+          <div class="maint-live-ptz-zoom">
+            <button type="button" class="live-ptz-btn" id="maint-ptz-zoomin" title="Zoom in">+</button>
+            <button type="button" class="live-ptz-btn" id="maint-ptz-zoomout" title="Zoom out">-</button>
+            <input id="maint-ptz-speed" type="range" min="1" max="8" value="4" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ip-drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
+<aside id="ip-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-title-wrap">
+      <div class="drawer-title" id="ip-drawer-title">Camera</div>
+      <div class="drawer-sub" id="ip-drawer-sub">IP: -</div>
+    </div>
+    <button type="button" class="drawer-close" id="ip-drawer-close" aria-label="Fechar">x</button>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-kv">
+      <div class="drawer-kv-row"><span class="k">Status</span><span class="v" id="ip-drawer-status">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Titulo</span><span class="v" id="ip-drawer-name">-</span></div>
+      <div class="drawer-kv-row"><span class="k">MAC</span><span class="v" id="ip-drawer-mac">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Modelo</span><span class="v" id="ip-drawer-model">-</span></div>
+    </div>
+    <div class="drawer-image-wrap">
+      <img id="ip-drawer-img" alt="Snapshot" class="drawer-img" />
+      <div class="drawer-img-overlay">
+        <div class="drawer-img-overlay-title" id="ip-drawer-overlay-title">-</div>
+        <div class="drawer-img-overlay-time" id="ip-drawer-overlay-time">-</div>
+      </div>
+      <div class="drawer-img-hint muted" id="ip-drawer-img-hint">Carregando snapshot...</div>
+    </div>
+    <div class="drawer-actions">
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-refresh">Atualizar</button>
+      <a class="btn-secondary btn-small" id="ip-drawer-open" href="#" target="_blank" rel="noopener">Abrir</a>
+      <button type="button" class="btn-primary btn-small" id="ip-drawer-ping">Testar ping</button>
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-clear">Limpar</button>
+    </div>
+    <div class="drawer-output" id="ip-drawer-output"></div>
+  </div>
+</aside>
+
+<div id="snapshot-cred-backdrop" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="snapshot-cred-title">
+    <div class="modal-header">
+      <div id="snapshot-cred-title" style="font-weight:700;">Atualizar snapshot</div>
+      <button type="button" class="drawer-close" id="snapshot-cred-close" aria-label="Fechar">x</button>
+    </div>
+    <div class="modal-body">
+      <div class="muted" id="snapshot-cred-sub" style="margin-bottom:12px;">Informe usuario e senha para capturar um snapshot novo.</div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="snapshot-cred-user">Usuario</label>
+          <input id="snapshot-cred-user" type="text" class="input" placeholder="admin" />
+        </div>
+        <div class="field">
+          <label for="snapshot-cred-pass">Senha</label>
+          <input id="snapshot-cred-pass" class="input" type="password" placeholder="********" />
+        </div>
+      </div>
+      <div class="actions-row" style="justify-content:flex-end; margin-top:14px;">
+        <button type="button" class="btn-secondary" id="snapshot-cred-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="snapshot-cred-ok">Atualizar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=96"></script>
+<script>
+(function(){
+  var rows = [];
+  var filtered = [];
+  var selected = new Set();
+  var maintenanceSite = '';
+  var byId = function(id){ return document.getElementById(id); };
+  var trim = function(v){ return (v == null ? '' : String(v)).trim(); };
+  var normStatus = function(v){ v = trim(v).toLowerCase(); return v || 'offline'; };
+  var rowKey = function(r){ return trim(r.host) + ':' + String(parseInt(r.http_port || 80, 10)) + '/ch' + String(parseInt(r.channel || 0, 10)); };
+
+  function creds(){
+    return {
+      user: trim((byId('dvr-user') || {}).value || 'admin') || 'admin',
+      password: String((byId('dvr-pass') || {}).value || ''),
+      http_port: parseInt((byId('dvr-port') || {}).value || '80', 10) || 80
+    };
+  }
+
+  function api(url, payload){
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){ return { ok: r.ok, data: j }; });
+    });
+  }
+
+  function openRowDrawer(r){
+    if (!window.openInventoryIpDrawer) return;
+    var cam = {
+      source: 'dvr',
+      ip: trim(r.host),
+      host: trim(r.host),
+      channel: parseInt(r.channel || 1, 10) || 1,
+      http_port: parseInt(r.http_port || 80, 10) || 80,
+      status: trim(r.status || ''),
+      title: trim(r.title || ('Canal ' + r.channel)),
+      modelo: trim(r.modelo || ''),
+      mac: trim(r.mac || ''),
+      snapshot_url: trim(r.snapshot_url || ''),
+      imgbb_url: trim(r.imgbb_url || '')
+    };
+    window.openInventoryIpDrawer(cam);
+  }
+
+  function openRowLive(r, explicitIndex){
+    if (!window.openMaintLiveModal) return;
+    var cam = {
+      source: 'dvr',
+      ip: trim(r.host),
+      name: trim(r.title || ('Canal ' + r.channel)),
+      title: trim(r.title || ('Canal ' + r.channel)),
+      channel: parseInt(r.channel || 1, 10) || 1,
+      fab: trim(r.fabricante || r.vendor || ''),
+      model: trim(r.modelo || r.model || ''),
+      rtsp_port: parseInt(r.rtsp_port || 554, 10) || 554
+    };
+    if (typeof explicitIndex === 'number' && isFinite(explicitIndex)) {
+      window.openMaintLiveModal(cam, explicitIndex);
+    } else {
+      window.openMaintLiveModal(cam);
+    }
+  }
+
+  function rtspUrl(r){
+    var c = creds();
+    var host = trim(r.host);
+    var ch = parseInt(r.channel || 1, 10) || 1;
+    var u = encodeURIComponent(c.user || 'admin');
+    var p = encodeURIComponent(c.password || '');
+    return 'rtsp://' + u + ':' + p + '@' + host + ':554/cam/realmonitor?channel=' + ch + '&subtype=0';
+  }
+
+  function updateCounters(){
+    var online = 0, offline = 0, total = rows.length;
+    rows.forEach(function(r){
+      var s = normStatus(r.status);
+      if (s === 'online') online++; else offline++;
+    });
+    if (byId('maint-dvr-stat-total')) byId('maint-dvr-stat-total').textContent = String(total);
+    if (byId('maint-dvr-stat-online')) byId('maint-dvr-stat-online').textContent = String(online);
+    if (byId('maint-dvr-stat-offline')) byId('maint-dvr-stat-offline').textContent = String(Math.max(0, offline));
+    try {
+      var mode = trim((byId('maintenance-dvr-filter') || {}).value || 'all');
+      if (byId('maint-dvr-stat-online-card')) byId('maint-dvr-stat-online-card').classList.toggle('is-active', mode === 'online');
+      if (byId('maint-dvr-stat-offline-card')) byId('maint-dvr-stat-offline-card').classList.toggle('is-active', mode === 'offline');
+      if (byId('maint-dvr-stat-total-card')) byId('maint-dvr-stat-total-card').classList.toggle('is-active', mode === 'all');
+    } catch (_) {}
+    if (byId('maintenance-dvr-visible-count')) byId('maintenance-dvr-visible-count').textContent = String(filtered.length);
+    if (byId('maintenance-dvr-selected-inline')) byId('maintenance-dvr-selected-inline').textContent = String(selected.size);
+  }
+
+  function applyFilters(){
+    var q = trim((byId('maintenance-dvr-search') || {}).value || '').toLowerCase();
+    var mode = trim((byId('maintenance-dvr-filter') || {}).value || 'all');
+    filtered = rows.filter(function(r){
+      var s = normStatus(r.status);
+      if (mode === 'online' && s !== 'online') return false;
+      if (mode === 'offline' && s === 'online') return false;
+      if (mode === 'sem_camera' && s !== 'sem_camera') return false;
+      if (mode === 'camera_offline' && s !== 'camera_offline') return false;
+      if (!q) return true;
+      var txt = [r.host, r.channel, r.title, r.modelo, r.mac, s].join(' ').toLowerCase();
+      return txt.indexOf(q) >= 0;
+    });
+    render();
+  }
+
+  function render(){
+    var grid = byId('maintenance-dvr-grid');
+    var empty = byId('maintenance-dvr-empty');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!filtered.length){
+      if (empty) empty.style.display = 'block';
+      updateCounters();
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    try {
+      window.__maintLastRendered = filtered.map(function(r){
+        return {
+          source: 'dvr',
+          ip: trim(r.host),
+          name: trim(r.title || ('Canal ' + r.channel)),
+          title: trim(r.title || ('Canal ' + r.channel)),
+          channel: parseInt(r.channel || 1, 10) || 1,
+          fab: trim(r.fabricante || r.vendor || ''),
+          model: trim(r.modelo || r.model || ''),
+          rtsp_port: parseInt(r.rtsp_port || 554, 10) || 554
+        };
+      });
+    } catch (_) {}
+
+    filtered.forEach(function(r, idx){
+      var key = rowKey(r);
+      var card = document.createElement('div');
+      card.className = 'maint-card';
+      var imgWrap = document.createElement('div');
+      imgWrap.className = 'maint-img';
+      var img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = 'Snapshot CH ' + String(r.channel || '');
+      img.src = trim(r.imgbb_url || r.snapshot_url || '');
+      imgWrap.appendChild(img);
+      var sel = document.createElement('input');
+      sel.type = 'checkbox';
+      sel.className = 'maint-select';
+      sel.checked = selected.has(key);
+      sel.addEventListener('click', function(ev){ ev.stopPropagation(); });
+      sel.addEventListener('change', function(){
+        if (sel.checked) selected.add(key); else selected.delete(key);
+        updateCounters();
+      });
+      imgWrap.appendChild(sel);
+      var kebab = document.createElement('button');
+      kebab.type = 'button';
+      kebab.className = 'maint-kebab';
+      var menu = document.createElement('div');
+      menu.className = 'maint-menu';
+      function menuBtn(label, cls, fn){
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'menu-item' + (cls ? (' ' + cls) : '');
+        b.textContent = label;
+        b.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); fn(); menu.classList.remove('open'); });
+        menu.appendChild(b);
+      }
+      menuBtn('Abrir snapshot', '', function(){ openRowDrawer(r); });
+      menuBtn('Live (RTSP)', '', function(){ openRowLive(r, idx); });
+      menuBtn('Abrir URL RTSP', '', function(){ try { window.open(rtspUrl(r), '_blank'); } catch (_) {} });
+      menuBtn('Renomear canal', '', function(){ renameOne(r); });
+      menuBtn('Trocar IP DVR', '', function(){ changeIpHosts([trim(r.host)]); });
+      menuBtn('NTP DVR', '', function(){ ntpHosts([trim(r.host)]); });
+      menuBtn('Reboot DVR', 'danger', function(){ rebootHosts([trim(r.host)]); });
+      kebab.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); menu.classList.toggle('open'); });
+      imgWrap.appendChild(kebab);
+      imgWrap.appendChild(menu);
+      var meta = document.createElement('div');
+      meta.className = 'maint-meta';
+      var top = document.createElement('div');
+      top.className = 'maint-top';
+      var t = document.createElement('div');
+      t.className = 'maint-title';
+      t.textContent = 'CH ' + String(parseInt(r.channel || 0, 10)).padStart(2, '0') + ' - ' + trim(r.title || '');
+      var s = normStatus(r.status);
+      var pill = document.createElement('div');
+      pill.className = 'maint-pill ' + (s === 'online' ? 'ok' : 'bad');
+      pill.textContent = (s === 'online' ? 'ONLINE' : s.toUpperCase());
+      top.appendChild(t);
+      top.appendChild(pill);
+      var sub = document.createElement('div');
+      sub.className = 'maint-sub';
+      sub.textContent = 'DVR: ' + trim(r.host) + ':' + String(parseInt(r.http_port || 80, 10)) + '  -  MAC: ' + trim(r.mac || '-') + '  -  Modelo: ' + trim(r.modelo || '-');
+      meta.appendChild(top);
+      meta.appendChild(sub);
+      card.appendChild(imgWrap);
+      card.appendChild(meta);
+      card.addEventListener('click', function(ev){
+        if (ev.target && ev.target.closest && (ev.target.closest('.maint-select') || ev.target.closest('.maint-kebab') || ev.target.closest('.maint-menu'))) return;
+        openRowLive(r, idx);
+      });
+      grid.appendChild(card);
+    });
+    updateCounters();
+  }
+
+  function selectedRows(){
+    var map = {};
+    rows.forEach(function(r){ map[rowKey(r)] = r; });
+    var out = [];
+    selected.forEach(function(k){ if (map[k]) out.push(map[k]); });
+    return out;
+  }
+
+  function selectedHosts(){
+    var hs = {};
+    selectedRows().forEach(function(r){ hs[trim(r.host)] = true; });
+    return Object.keys(hs).filter(Boolean);
+  }
+
+  function currentSite(){ return maintenanceSite || ''; }
+
+  function loadSiteOptions(){
+    var sel = byId('maintenance-dvr-site');
+    if (!sel) return Promise.resolve();
+    return fetch('/api/db/sites?source=dvr&_=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        var sites = (j && j.ok && Array.isArray(j.sites)) ? j.sites : [];
+        var cur = trim(sel.value || '');
+        sel.innerHTML = '<option value=\"\">Todos os sites</option>';
+        sites.forEach(function(s){
+          var name = trim((s && s.name) || '');
+          if (!name) return;
+          var opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+        if (cur) sel.value = cur;
+        maintenanceSite = trim(sel.value || '');
+      })
+      .catch(function(){});
+  }
+
+  function requireCreds(){
+    var c = creds();
+    if (!c.user || !c.password){ alert('Informe usuario e senha do DVR no topo.'); return null; }
+    return c;
+  }
+
+  function renameOne(r){
+    var c = requireCreds(); if (!c) return;
+    var title = prompt('Novo nome para canal ' + r.channel + ':', trim(r.title || ''));
+    if (title == null) return;
+    title = trim(title);
+    if (!title) return;
+    api('/api/dvr/channel/rename', {
+      ip: trim(r.host), user: c.user, password: c.password, http_port: parseInt(r.http_port || c.http_port, 10) || c.http_port,
+      channel: parseInt(r.channel || 1, 10) || 1, title: title, timeout_sec: parseFloat((byId('dvr-timeout') || {}).value || '6') || 6
+    }).then(function(res){ if (!res.ok || !res.data || res.data.ok !== true) throw new Error((res.data && (res.data.detail || res.data.error)) || 'falha'); return loadInventory(); })
+      .catch(function(e){ alert('Falha ao renomear: ' + (e && e.message ? e.message : e)); });
+  }
+
+  function renameSelected(){
+    var c = requireCreds(); if (!c) return;
+    var sel = selectedRows();
+    if (!sel.length){ alert('Selecione ao menos um canal.'); return; }
+    var prefix = prompt('Prefixo para renomear canais selecionados (ex.: PONTE-):', '');
+    if (prefix == null) return;
+    prefix = trim(prefix);
+    if (!prefix){ alert('Prefixo vazio.'); return; }
+    var start = parseInt(prompt('Numero inicial:', '1') || '1', 10);
+    if (!isFinite(start) || start < 0) start = 1;
+    (async function(){
+      for (var i = 0; i < sel.length; i++){
+        var r = sel[i];
+        var title = prefix + (start + i);
+        await api('/api/dvr/channel/rename', {
+          ip: trim(r.host), user: c.user, password: c.password, http_port: parseInt(r.http_port || c.http_port, 10) || c.http_port,
+          channel: parseInt(r.channel || 1, 10) || 1, title: title, timeout_sec: parseFloat((byId('dvr-timeout') || {}).value || '6') || 6
+        });
+      }
+      loadInventory();
+    })().catch(function(e){ alert('Falha no renomear em lote: ' + (e && e.message ? e.message : e)); });
+  }
+
+  function changeIpHosts(hosts){
+    var c = requireCreds(); if (!c) return;
+    hosts = (hosts || []).filter(Boolean);
+    if (!hosts.length){ alert('Selecione ao menos um canal.'); return; }
+    var uniq = Array.from(new Set(hosts));
+    if (uniq.length !== 1){ alert('Selecione canais de apenas 1 DVR para trocar IP.'); return; }
+    var oldIp = uniq[0];
+    var newIp = trim(prompt('Novo IP do DVR ' + oldIp + ':', oldIp) || '');
+    if (!newIp || newIp === oldIp) return;
+    api('/api/dvr/change_ip', { ip: oldIp, user: c.user, password: c.password, http_port: c.http_port, new_ip: newIp })
+      .then(function(res){ if (!res.ok || !res.data || res.data.ok !== true) throw new Error((res.data && (res.data.detail || res.data.error)) || 'falha'); loadInventory(); })
+      .catch(function(e){ alert('Falha ao trocar IP: ' + (e && e.message ? e.message : e)); });
+  }
+
+  function ntpHosts(hosts){
+    var c = requireCreds(); if (!c) return;
+    hosts = (hosts || []).filter(Boolean);
+    if (!hosts.length){ alert('Selecione ao menos um canal.'); return; }
+    var server = trim(prompt('Servidor NTP (ex.: a.st1.ntp.br):', 'a.st1.ntp.br') || '');
+    if (!server) return;
+    var uniq = Array.from(new Set(hosts));
+    (async function(){
+      for (var i = 0; i < uniq.length; i++){
+        await api('/api/dvr/ntp', { ip: uniq[i], user: c.user, password: c.password, http_port: c.http_port, address: server, port: 123, timezone: 22, update_period: 60 });
+      }
+      loadInventory();
+    })().catch(function(e){ alert('Falha ao configurar NTP: ' + (e && e.message ? e.message : e)); });
+  }
+
+  function rebootHosts(hosts){
+    var c = requireCreds(); if (!c) return;
+    hosts = (hosts || []).filter(Boolean);
+    if (!hosts.length){ alert('Selecione ao menos um canal.'); return; }
+    var uniq = Array.from(new Set(hosts));
+    if (!confirm('Reiniciar DVR(s): ' + uniq.join(', ') + '?')) return;
+    (async function(){
+      for (var i = 0; i < uniq.length; i++){
+        await api('/api/dvr/reboot', { ip: uniq[i], user: c.user, password: c.password, http_port: c.http_port });
+      }
+      alert('Comando de reboot enviado.');
+    })().catch(function(e){ alert('Falha ao reiniciar: ' + (e && e.message ? e.message : e)); });
+  }
+
+  function loadInventory(){
+    var qs = '?_=' + Date.now();
+    if (currentSite()) qs += '&site=' + encodeURIComponent(currentSite());
+    return fetch('/api/dvr/inventory' + qs)
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        rows = Array.isArray(j.inventory) ? j.inventory.slice() : [];
+        rows.sort(function(a,b){
+          var ah = trim(a.host), bh = trim(b.host);
+          if (ah < bh) return -1; if (ah > bh) return 1;
+          return (parseInt(a.channel || 0, 10) || 0) - (parseInt(b.channel || 0, 10) || 0);
+        });
+        applyFilters();
+      });
+  }
+
+  document.addEventListener('click', function(ev){
+    if (!ev.target || !ev.target.closest || ev.target.closest('.maint-menu') || ev.target.closest('.maint-kebab')) return;
+    Array.prototype.forEach.call(document.querySelectorAll('.maint-menu.open'), function(m){ m.classList.remove('open'); });
+  });
+
+  byId('maintenance-dvr-search') && byId('maintenance-dvr-search').addEventListener('input', applyFilters);
+  byId('maintenance-dvr-filter') && byId('maintenance-dvr-filter').addEventListener('change', applyFilters);
+  byId('maintenance-dvr-site') && byId('maintenance-dvr-site').addEventListener('change', function(){
+    maintenanceSite = trim((byId('maintenance-dvr-site') || {}).value || '');
+    loadInventory();
+  });
+  byId('maint-dvr-stat-online-card') && byId('maint-dvr-stat-online-card').addEventListener('click', function(){
+    if (byId('maintenance-dvr-filter')) byId('maintenance-dvr-filter').value = 'online';
+    applyFilters();
+  });
+  byId('maint-dvr-stat-offline-card') && byId('maint-dvr-stat-offline-card').addEventListener('click', function(){
+    if (byId('maintenance-dvr-filter')) byId('maintenance-dvr-filter').value = 'offline';
+    applyFilters();
+  });
+  byId('maint-dvr-stat-total-card') && byId('maint-dvr-stat-total-card').addEventListener('click', function(){
+    if (byId('maintenance-dvr-filter')) byId('maintenance-dvr-filter').value = 'all';
+    applyFilters();
+  });
+  byId('maintenance-dvr-reload') && byId('maintenance-dvr-reload').addEventListener('click', loadInventory);
+  byId('maintenance-dvr-select-visible') && byId('maintenance-dvr-select-visible').addEventListener('click', function(){ filtered.forEach(function(r){ selected.add(rowKey(r)); }); render(); });
+  byId('maintenance-dvr-select-online') && byId('maintenance-dvr-select-online').addEventListener('click', function(){ filtered.filter(function(r){ return normStatus(r.status) === 'online'; }).forEach(function(r){ selected.add(rowKey(r)); }); render(); });
+  byId('maintenance-dvr-clear-selection') && byId('maintenance-dvr-clear-selection').addEventListener('click', function(){ selected.clear(); render(); });
+  byId('maintenance-dvr-rename') && byId('maintenance-dvr-rename').addEventListener('click', renameSelected);
+  byId('maintenance-dvr-ip') && byId('maintenance-dvr-ip').addEventListener('click', function(){ changeIpHosts(selectedHosts()); });
+  byId('maintenance-dvr-ntp') && byId('maintenance-dvr-ntp').addEventListener('click', function(){ ntpHosts(selectedHosts()); });
+  byId('maintenance-dvr-reboot') && byId('maintenance-dvr-reboot').addEventListener('click', function(){ rebootHosts(selectedHosts()); });
+
+  loadSiteOptions().finally(function(){ loadInventory(); });
+})();
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+

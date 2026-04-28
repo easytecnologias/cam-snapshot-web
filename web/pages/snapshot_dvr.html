@@ -1,0 +1,156 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>SightOps - Fotos</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css?v=84">
+</head>
+<body data-snapshot-source="dvr">
+
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Inventario > Fotos DVR</div>
+      <div class="topbar-sub">Captura e evidencias</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Plataforma operacional para inventario, manutencao e evidencias.</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="inventory" aria-expanded="true">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory">
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label active">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child active" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+<a class="nav-subitem" href="kmz.html">Mapas</a>
+<a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="operations" aria-expanded="false">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations" hidden>
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+</nav>
+</header>
+
+<main>
+  <!-- SNAPSHOT TAB (agora pagina propria) -->
+  <section class="tab-view active" id="tab-snapshot">
+    <div class="card">
+      <div id="snapshot-miniaturas-pane">
+        <div class="card-title">Miniaturas - DVR</div>
+        <div class="card-sub">
+          Miniaturas nesta pagina: <strong><span id="snapshot-miniaturas-count">0</span></strong></div>
+        <div id="snapshot-miniaturas-grid" class="snapshot-grid">
+          <div class="muted" id="snapshot-miniaturas-empty" style="font-size:12px;">
+            Carregando miniaturas...
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Modal de visualizacao de miniatura (snapshot) -->
+<div id="snapshot-modal-backdrop" class="snapshot-modal-backdrop">
+  <div class="snapshot-modal" role="dialog" aria-modal="true">
+    <div class="snapshot-modal-header">
+      <div>
+        <div id="snapshot-modal-title" class="snapshot-modal-title">Camera</div>
+        <div id="snapshot-modal-sub" class="snapshot-modal-sub"></div>
+      </div>
+      <button
+        type="button"
+        class="snapshot-modal-close"
+        id="snapshot-modal-close"
+        aria-label="Fechar visualizacao">
+        x
+      </button>
+    </div>
+    <div class="snapshot-modal-image-wrapper">
+      <button type="button" class="snapshot-modal-nav snapshot-modal-prev" id="snapshot-modal-prev" aria-label="Anterior">&lt;</button>
+      <img id="snapshot-modal-image" class="snapshot-modal-image" alt="Snapshot em destaque">
+      <button type="button" class="snapshot-modal-nav snapshot-modal-next" id="snapshot-modal-next" aria-label="Proxima">&gt;</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=96"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

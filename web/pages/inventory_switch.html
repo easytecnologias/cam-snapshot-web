@@ -1,0 +1,739 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>SightOps - Inventario</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css?v=84" />
+</head>
+
+<body data-inventory-view="switch">
+
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Cameras IP Switch</div>
+      <div class="topbar-sub">Varredura, filtros e casamento com informacoes do switch gerenciavel</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleInventoryPanel()" aria-label="Mostrar/ocultar painel de varredura" title="Varredura">+</button>
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Plataforma operacional para inventario, manutencao e evidencias.</div>
+      </div>
+    </div>
+  </div>
+
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="inventory" aria-expanded="true">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory">
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child active" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+<a class="nav-subitem" href="kmz.html">Mapas</a>
+<a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="operations" aria-expanded="false">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations" hidden>
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+</nav>
+</header>
+
+<main>
+  <section class="tab-view active is-collapsed" id="tab-inventory">
+    <div class="inventory-split">
+
+      <!-- ===== COLUN ESQUERD ===== -->
+      <div class="inventory-left">
+        <div class="card primary">
+            <div class="card-title">Nova varredura</div>
+          <div class="card-sub">Informe o alvo ou reutilize o Ultimo inventario.</div>
+
+          <form id="scan-form" novalidate>
+
+            <!-- CONFIG DO SCAN -->
+          <div class="scan-group">
+            <div class="scan-group-title">Configuracao do scan</div>
+
+            <div class="field">
+              <label for="target">Target (CIDR, range ou IP)</label>
+              <input id="target" name="target" type="text" placeholder="10.10.8.68-10.10.8.72" />
+            </div>
+
+            <div class="scan-credentials-row">
+              <div class="field">
+                <label for="user">Usuario</label>
+                <input id="user" name="user" type="text" value="admin" />
+            </div>
+
+            <div class="field">
+              <label for="password">Senha</label>
+              <input id="password" name="password" type="password" />
+            </div>
+          </div>
+
+
+              <div class="check-row">
+                <input type="checkbox" id="opt-snapshot" checked />
+                <label for="opt-snapshot">Capture snapshot (precisa user/senha)</label>
+              </div>
+
+              
+
+              <div class="check-row">
+                <input type="checkbox" id="opt-nat-mode" />
+                <label for="opt-nat-mode">Modo NAT (identificar por IP:PORTA, nao mesclar por MAC)</label>
+              </div>
+
+              <div class="check-row">
+                <input type="checkbox" id="opt-set-local" />
+                <label for="opt-set-local">Definir <b>Local</b> para todas as cameras desta rodada</label>
+              </div>
+
+              <div class="field" id="local-field" style="display:none; margin-top:6px;">
+                <label for="local-name">Local</label>
+                <input id="local-name" type="text" placeholder="Ex: PERUCABA" />
+              </div>
+
+              <div class="actions-row">
+                <button type="submit" class="btn-primary" id="btn-run">
+                  <span class="icon">&gt;</span>
+                  <span>Iniciar varredura</span>
+                </button>
+              </div>
+
+              <div id="run-status" class="status-line"></div>
+
+              <div class="progress-container" id="scan-progress" aria-hidden="true">
+                <div class="progress-fill" id="scan-progress-fill"></div>
+              </div>
+              <div class="progress-label" id="scan-progress-label"></div>
+            </div>
+
+            <!-- OPCOES DO INVENTARIO -->
+            <div class="scan-group">
+              <div class="scan-group-title">Opcoes do inventario</div>
+
+              <div class="checks-group">
+                <div class="check-row">
+                  <input type="checkbox" id="opt-imgbb" />
+                  <label for="opt-imgbb">Upload to ImgBB</label>
+                </div>
+
+                <!-- Configuracao rapida do ImgBB (aparece quando Reuse + ImgBB estao marcados) -->
+                <div id="imgbb-settings-panel" class="inline-settings" style="display:none;">
+                  <div class="inline-settings-head">
+                    <div class="inline-settings-title">ImgBB</div>
+                    <div id="imgbb-configured-pill" class="pill" style="display:none;">Configurado</div>
+                  </div>
+
+                  <div id="imgbb-settings-view-configured" style="display:none;" class="inline-settings-body">
+                    <div class="inline-settings-row">
+                      <div class="inline-settings-muted">
+                        API Key salva (<span id="imgbb-key-masked">****</span>)
+                      </div>
+                      <button type="button" class="btn-secondary btn-sm" id="btn-imgbb-edit">Alterar</button>
+                    </div>
+                  </div>
+
+                  <div id="imgbb-settings-view-edit" class="inline-settings-body">
+                    <div class="field" style="margin-top:6px;">
+                      <label for="imgbb-api-key">API Key</label>
+                      <input id="imgbb-api-key" type="password" placeholder="Cole sua ImgBB API key" autocomplete="off" />
+                      <div class="inline-settings-help"> chave  salva no backend (nao fica exposta no navegador).</div>
+                    </div>
+
+                    <div class="inline-settings-actions">
+                      <button type="button" class="btn-secondary btn-sm" id="btn-imgbb-test">Testar</button>
+                      <button type="button" class="btn-primary btn-sm" id="btn-imgbb-save">Salvar</button>
+                    </div>
+
+                    <div id="imgbb-settings-status" class="status-line" style="margin-top:6px;"></div>
+                  </div>
+                </div>
+
+                <div class="check-row">
+                  <input type="checkbox" id="opt-switch-enrich" checked />
+                  <label for="opt-switch-enrich">Enriquecer inventario com dados do Switch Gerenciavel</label>
+                </div>
+
+                <div class="check-row">
+                  <input type="checkbox" id="opt-excel" />
+                  <label for="opt-excel">Generate spreadsheet (Excel)</label>
+                </div>
+
+                <div class="check-row">
+                  <input type="checkbox" id="opt-reuse" />
+                  <label for="opt-reuse">Reuse last inventory (nao rescanear)</label>
+                </div>
+
+                <div class="check-row">
+                  <input type="checkbox" id="opt-ia" />
+                  <label for="opt-ia">Run image health AI</label>
+                </div>
+              </div>
+              <div class="scan-actions" style="margin-top:10px;">
+                <button type="button" id="btn-refresh-inventory-left" class="btn-primary" style="width:100%;">Atualizar inventario</button>
+              </div>
+</div>
+
+            <!-- (Removido) Correao do inventario: a "Configuracao do scan" j cobre este fluxo -->
+
+          </form>
+        </div>
+      </div>
+
+      <!-- ===== COLUN DIREIT ===== -->
+      <div class="inventory-right">
+        <div class="card secondary">
+          <div class="card-title">Ultimo inventario</div>
+
+          <!-- [OK] FILTRO (DROPDOWN CUSTOM + BUSCA) -->
+          <div class="inv-filter-row inv-filter-row-single">
+            <span class="muted inv-filter-label">Filtro:</span>
+
+            <!-- mantAm o select para compatibilidade com app.js, mas escondido -->
+            <select id="inventory-filter" class="inv-filter-select inv-filter-native" aria-hidden="true" tabindex="-1">
+              <option value="all">Todas</option>
+              <option value="status_offline">Somente Offline</option>
+              <option value="status_auth_failed">Somente Auth failed</option>
+              <option value="status_online">Somente Online</option>
+              <option value="any_missing">Com dados faltando</option>
+              <option value="missing_ip">Faltando IP</option>
+              <option value="missing_mac">Faltando MAC</option>
+              <option value="missing_modelo">Faltando Modelo</option>
+              <option value="missing_titulo">Faltando Titulo</option>
+            </select>
+
+            <!-- dropdown custom (dark, sem afundo estouradoa) -->
+            <div class="inv-dd" id="inv-filter-dd">
+              <button type="button" class="inv-dd-btn" id="inv-filter-btn" aria-haspopup="listbox" aria-expanded="false">
+                Todas <span class="inv-dd-caret">?</span>
+              </button>
+              <div class="inv-dd-menu" id="inv-filter-menu" role="listbox" tabindex="-1" hidden>
+                <button type="button" class="inv-dd-item" data-value="all" role="option">Todas</button>
+                <button type="button" class="inv-dd-item" data-value="status_offline" role="option">Somente Offline</button>
+                <button type="button" class="inv-dd-item" data-value="status_auth_failed" role="option">Somente Auth failed</button>
+                <button type="button" class="inv-dd-item" data-value="status_online" role="option">Somente Online</button>
+                <button type="button" class="inv-dd-item" data-value="any_missing" role="option">Com dados faltando</button>
+                <div class="inv-dd-sep"></div>
+                <button type="button" class="inv-dd-item" data-value="missing_ip" role="option">Faltando IP</button>
+                <button type="button" class="inv-dd-item" data-value="missing_mac" role="option">Faltando MAC</button>
+                <button type="button" class="inv-dd-item" data-value="missing_modelo" role="option">Faltando Modelo</button>
+                <button type="button" class="inv-dd-item" data-value="missing_titulo" role="option">Faltando Titulo</button>
+              </div>
+            </div>
+
+            <span class="muted inv-filter-label">Site:</span>
+            <select id="inventory-site" class="inv-filter-select inv-filter-native" title="Filtrar por site" aria-hidden="true" tabindex="-1">
+              <option value="">Todos os sites</option>
+            </select>
+            <div class="inv-dd" id="inv-site-dd">
+              <button type="button" class="inv-dd-btn" id="inv-site-btn" aria-haspopup="listbox" aria-expanded="false">
+                Todos os sites <span class="inv-dd-caret">?</span>
+              </button>
+              <div class="inv-dd-menu" id="inv-site-menu" role="listbox" tabindex="-1" hidden>
+                <button type="button" class="inv-dd-item" data-value="" role="option">Todos os sites</button>
+              </div>
+            </div>
+
+            <input id="inventory-search" class="inv-filter-search"
+              placeholder="Buscar: IP, nome, range (10.10.8.1-10.10.8.50), CIDR (10.10.8.0/24), lista (10.10.8.10,10.10.8.12)" />
+
+            <button type="button" id="inventory-search-clear" class="btn-secondary inv-filter-clear">Limpar</button>
+          </div>
+
+<div class="table-wrap">
+            <div class="table-overlay" id="inv-overlay">Atualizando inventarioa</div>
+
+            <table id="inv-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="inv-select-all" /></th>
+                  <th>IP</th>
+                  <th>MAC</th>
+                  <th>Fabricante</th>
+                  <th>Modelo</th>
+                  <th>Titulo</th>
+                  <th>Status</th>
+        <th>LOCAL</th>
+                  <th>Switch IP</th>
+                  <th>Switch Porta</th>
+                  <th>Switch VLAN</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-body">
+                <tr><td colspan="11" class="muted">Carregando inventarioa</td></tr>
+              </tbody>
+            </table>
+
+            
+          </div>
+
+          
+
+          <div class="inv-actions">
+            <div class="inv-left">
+              <div id="inv-counter" class="status-line"></div>
+              <div id="inv-stats" class="status-line" style="margin-top:6px;"></div>
+            </div>
+
+            <div class="inv-right">
+              <!-- Backup completo (data/) -->
+              <input id="full-import-file" type="file" accept="application/zip,.zip" style="display:none;" />
+
+              <!-- BotAo compacto "Backup" (abre menu) -->
+              <div class="inv-menu-wrap" id="inv-backup-wrap">
+                <button id="btn-inv-backup" class="btn-primary btn-small" type="button">Backup</button>
+                <div id="inv-backup-menu" class="inv-menu" style="display:none;">
+                  <button id="btn-full-export" class="inv-menu-item" type="button">Baixar backup (ZIP)</button>
+                  <button id="btn-full-import" class="inv-menu-item" type="button">Restaurar backup (ZIP)</button>
+                </div>
+              </div>
+              <button id="btn-inv-pdf-preview" class="btn-primary btn-small" type="button">Preview PDF</button>
+              <button id="btn-inv-pdf" class="btn-primary btn-small" type="button">Relatorio PDF</button>
+              <button id="btn-inv-imgbb" class="btn-primary btn-small" type="button">Atualizar ImgBB</button>
+<button id="btn-inv-clear" class="btn-primary btn-small">Apagar inventario</button>
+              <button id="btn-inv-edit" class="btn-primary btn-small">Editar</button>
+              <button id="btn-inv-save" class="btn-primary btn-small" style="display:none;">Salvar</button>
+              <button id="btn-inv-delete" class="btn-primary btn-small" style="display:none;">Apagar selecionadas</button>
+              <button id="btn-inv-cancel" class="btn-primary btn-small" style="display:none;">Cancelar</button>
+            </div>
+          </div>
+          
+        </div>          
+      </div>
+          
+    </div>
+  </section>
+</main>
+
+<!-- BANNERS -->
+<div id="edit-success-banner" class="olt-done-banner" style="display:none;" onclick="hideEditSuccessBanner()">
+  <div class="olt-done-banner-inner">
+    <span id="edit-success-text">[OK] <strong>Ediao concluAda.</strong></span>
+    <button type="button" onclick="hideEditSuccessBanner(); event.stopPropagation();">Fechar</button>
+  </div>
+</div>
+
+<div id="inv-success-banner" class="olt-done-banner" style="display:none;" onclick="hideInvSuccessBanner()">
+  <div class="olt-done-banner-inner">
+    <span id="inv-success-text">[OK] <strong>Inventario</strong></span>
+    <button type="button" onclick="hideInvSuccessBanner(); event.stopPropagation();">Fechar</button>
+  </div>
+</div>
+
+<!-- Drawer: preview rapida ao clicar no IP -->
+<div id="ip-drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
+<aside id="ip-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-title-wrap">
+      <div class="drawer-title" id="ip-drawer-title">Camera</div>
+      <div class="drawer-sub" id="ip-drawer-sub">IP: -</div>
+    </div>
+    <button type="button" class="drawer-close" id="ip-drawer-close" aria-label="Fechar">x</button>
+  </div>
+
+  <div class="drawer-body">
+    <div class="drawer-kv">
+      <div class="drawer-kv-row"><span class="k">Status</span><span class="v" id="ip-drawer-status">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Titulo</span><span class="v" id="ip-drawer-name">-</span></div>
+      <div class="drawer-kv-row"><span class="k">MAC</span><span class="v" id="ip-drawer-mac">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Modelo</span><span class="v" id="ip-drawer-model">-</span></div>
+    </div>
+
+    <div class="drawer-preview">
+  <img id="ip-drawer-img" alt="Snapshot" class="drawer-img" />
+  <div class="drawer-img-overlay">
+    <div class="drawer-img-overlay-title" id="ip-drawer-overlay-title">-</div>
+    <div class="drawer-img-overlay-time" id="ip-drawer-overlay-time">-</div>
+  </div>
+  <div class="drawer-img-hint muted" id="ip-drawer-img-hint">Carregando snapshot...</div>
+</div>
+
+    <div class="drawer-actions">
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-refresh">Atualizar</button>
+      <a class="btn-secondary btn-small" id="ip-drawer-open" href="#" target="_blank" rel="noopener">Abrir</a>
+      <a class="btn-secondary btn-small" id="ip-drawer-open-ip" href="#" target="_blank" rel="noopener">Web</a>
+      <button type="button" class="btn-primary btn-small" id="ip-drawer-ping">Testar ping</button>
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-ping-stop" disabled>Parar ping</button>
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-clear">Limpar</button>
+    </div>
+
+    <div class="drawer-output" id="ip-drawer-output"></div>
+  </div>
+</aside>
+
+
+<!-- Modal: credenciais para atualizar snapshot (util para NAT / senhas diferentes) -->
+<div id="snapshot-cred-backdrop" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="snapshot-cred-title">
+    <div class="modal-header" style="padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.12); display:flex; align-items:center; justify-content:space-between; gap:12px;">
+      <div id="snapshot-cred-title" style="font-weight:700;">Atualizar snapshot</div>
+      <button type="button" class="drawer-close" id="snapshot-cred-close" aria-label="Fechar">x</button>
+    </div>
+    <div style="padding:14px 16px;">
+      <div class="muted" id="snapshot-cred-sub" style="margin-bottom:12px;">Informe usuario e senha para capturar um snapshot novo.</div>
+
+      <div class="grid-2" style="gap:12px; margin-bottom:12px;">
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Usuario</div>
+          <input id="snapshot-cred-user" type="text" class="input" placeholder="admin" />
+        </div>
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Senha</div>
+          <input id="snapshot-cred-pass" class="input" type="password" placeholder="aaaaaaaa" />
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn-secondary" id="snapshot-cred-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="snapshot-cred-ok">Atualizar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: preview/edicao do relatorio PDF -->
+<div id="pdf-report-backdrop" class="inv-modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="inv-modal" style="width:min(1320px,97vw); height:min(92vh,980px);">
+    <div class="inv-modal-header">
+      <h3>Preview do relatorio PDF</h3>
+      <button type="button" class="drawer-close" id="pdf-report-close" aria-label="Fechar">x</button>
+    </div>
+    <div class="inv-modal-body" style="display:flex; flex-direction:column; gap:12px; height:calc(100% - 64px);">
+      <div class="grid-2" style="gap:12px; align-items:end;">
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Nome da empresa</div>
+          <input id="pdf-report-company" type="text" class="input" placeholder="Ex: SightOps / Perucaba" />
+        </div>
+        <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+          <div>
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Logo (PNG/JPG)</div>
+            <input id="pdf-report-logo-file" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp,image/*" style="display:none;" />
+            <button type="button" class="btn-secondary btn-small" id="btn-pdf-report-logo-pick">Escolher logo</button>
+            <span id="pdf-report-logo-name" class="muted" style="font-size:12px; margin-left:8px;">Nenhum arquivo</span>
+          </div>
+          <button type="button" class="btn-secondary btn-small" id="btn-pdf-report-logo-upload">Enviar logo</button>
+          <button type="button" class="btn-secondary btn-small" id="btn-pdf-report-refresh">Atualizar preview</button>
+          <button type="button" class="btn-primary btn-small" id="btn-pdf-report-download">Baixar PDF</button>
+        </div>
+      </div>
+      <div id="pdf-report-status" class="status-line"></div>
+      <div style="width:100%; height:100%; border:1px solid rgba(148,163,184,.25); border-radius:10px; background:#0a1222; overflow:auto; display:flex; justify-content:center; align-items:flex-start; padding:12px;">
+        <img id="pdf-report-frame" alt="Preview do relatorio PDF" style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.35);" />
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=96"></script>
+
+
+<script>
+(function(){
+  const sel = document.getElementById('inventory-filter');
+  const btn = document.getElementById('inv-filter-btn');
+  const menu = document.getElementById('inv-filter-menu');
+  const dd = document.getElementById('inv-filter-dd');
+  const siteSel = document.getElementById('inventory-site');
+  const siteBtn = document.getElementById('inv-site-btn');
+  const siteMenu = document.getElementById('inv-site-menu');
+  const siteDd = document.getElementById('inv-site-dd');
+
+  function setBtnLabel(){
+    const opt = sel?.querySelector('option[value="' + sel.value + '"]');
+    if (btn) btn.childNodes[0].nodeValue = ((opt ? opt.textContent : 'Todas') + ' ');
+  }
+
+  function openMenu(){
+    if(!menu) return;
+    menu.hidden = false;
+    btn?.setAttribute('aria-expanded','true');
+  }
+  function closeMenu(){
+    if(!menu) return;
+    menu.hidden = true;
+    btn?.setAttribute('aria-expanded','false');
+  }
+  function toggleMenu(){
+    if(!menu) return;
+    if(menu.hidden) openMenu(); else closeMenu();
+  }
+  function setSiteBtnLabel(){
+    const opt = siteSel?.querySelector('option[value="' + siteSel.value + '"]');
+    if (siteBtn) siteBtn.childNodes[0].nodeValue = ((opt ? opt.textContent : 'Todos os sites') + ' ');
+  }
+  function openSiteMenu(){
+    if(!siteMenu) return;
+    siteMenu.hidden = false;
+    siteBtn?.setAttribute('aria-expanded','true');
+  }
+  function closeSiteMenu(){
+    if(!siteMenu) return;
+    siteMenu.hidden = true;
+    siteBtn?.setAttribute('aria-expanded','false');
+  }
+  function toggleSiteMenu(){
+    if(!siteMenu) return;
+    if(siteMenu.hidden) openSiteMenu(); else closeSiteMenu();
+  }
+
+  btn?.addEventListener('click', toggleMenu);
+  siteBtn?.addEventListener('click', toggleSiteMenu);
+
+  menu?.addEventListener('click', (e)=>{
+    const item = e.target.closest('.inv-dd-item');
+    if(!item) return;
+    const v = item.getAttribute('data-value') || 'all';
+    if(sel){
+      sel.value = v;
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+    setBtnLabel();
+    closeMenu();
+  });
+  siteMenu?.addEventListener('click', (e)=>{
+    const item = e.target.closest('.inv-dd-item');
+    if(!item || !siteSel) return;
+    const v = item.getAttribute('data-value') || '';
+    siteSel.value = v;
+    siteSel.dispatchEvent(new Event('change', {bubbles:true}));
+    setSiteBtnLabel();
+    closeSiteMenu();
+  });
+
+  document.addEventListener('click', (e)=>{
+    const t = e.target;
+    if (dd && dd.contains(t)) return;
+    if (siteDd && siteDd.contains(t)) return;
+    closeMenu();
+    closeSiteMenu();
+  });
+
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape') { closeMenu(); closeSiteMenu(); }
+  });
+
+  // ===== Busca avanavancada (nao briga com o filtro do app.js) =====
+  const search = document.getElementById('inventory-search');
+  const clearBtn = document.getElementById('inventory-search-clear');
+
+  function ipToInt(ip){
+    const parts = ip.trim().split('.');
+    if(parts.length !== 4) return null;
+    const nums = parts.map(x => Number(x));
+    if(nums.some(n => !Number.isInteger(n) || n<0 || n>255)) return null;
+    return (((nums[0]<<24) | (nums[1]<<16) | (nums[2]<<8) | nums[3]) >>> 0);
+  }
+  function cidrToRange(cidr){
+    const [ip,bitsStr] = cidr.split('/');
+    const bits = Number(bitsStr);
+    if(!Number.isInteger(bits) || bits<0 || bits>32) return null;
+    const base = ipToInt(ip);
+    if(base === null) return null;
+    const mask = bits === 0 ? 0 : (0xFFFFFFFF << (32 - bits)) >>> 0;
+    const network = (base & mask) >>> 0;
+    const broadcast = (network | (~mask)) >>> 0;
+    return [network, broadcast];
+  }
+  function parseQuery(q){
+    q = (q||'').trim();
+    if(!q) return {t:'empty'};
+
+    // lista por virgula (mista: ips e texto)
+    if(q.includes(',')){
+      const parts = q.split(',').map(s=>s.trim()).filter(Boolean);
+      const ips = new Set(parts.map(ipToInt).filter(v=>v!==null));
+      const texts = parts.filter(x=>ipToInt(x)===null).map(t=>t.toLowerCase());
+      return {t:'list', ips, texts};
+    }
+
+    // range a-b
+    if(q.includes('-')){
+      const [a,b] = q.split('-').map(s=>s.trim());
+      const ia = ipToInt(a), ib = ipToInt(b);
+      if(ia!==null && ib!==null){
+        return {t:'range', a: Math.min(ia,ib), b: Math.max(ia,ib)};
+      }
+    }
+
+    // CIDR
+    if(q.includes('/')){
+      const r = cidrToRange(q);
+      if(r) return {t:'range', a:r[0], b:r[1]};
+    }
+
+    // IP exato
+    const i = ipToInt(q);
+    if(i!==null) return {t:'ip', ip:i};
+
+    // texto
+    return {t:'text', q:q.toLowerCase()};
+  }
+
+  function getRows(){
+    return Array.from(document.querySelectorAll('#inventory-body tr'));
+  }
+  function getRowIp(row){
+    // IP esta na 2a coluna (1a  checkbox)
+    const td = row.querySelector('td:nth-child(2)');
+    if(!td) return null;
+    const raw = td.textContent.trim().split(':')[0];
+    return ipToInt(raw);
+  }
+  function applySearch(){
+    const parsed = parseQuery(search?.value || '');
+    const rows = getRows();
+    for(const row of rows){
+      let ok = true;
+      if(parsed.t === 'ip'){
+        ok = (getRowIp(row) === parsed.ip);
+      }else if(parsed.t === 'range'){
+        const rip = getRowIp(row);
+        ok = (rip !== null && rip >= parsed.a && rip <= parsed.b);
+      }else if(parsed.t === 'list'){
+        const rip = getRowIp(row);
+        const ipOk = (rip !== null && parsed.ips.has(rip));
+        const txt = row.textContent.toLowerCase();
+        const txtOk = parsed.texts.some(t => txt.includes(t));
+        ok = ipOk || txtOk || (parsed.ips.size===0 && parsed.texts.length===0);
+      }else if(parsed.t === 'text'){
+        ok = row.textContent.toLowerCase().includes(parsed.q);
+      }
+      row.classList.toggle('search-hidden', !ok);
+    }
+  }
+
+  search?.addEventListener('input', applySearch);
+  clearBtn?.addEventListener('click', ()=>{ if(search){ search.value=''; applySearch(); } });
+
+  // quando o app.js atualizar a tabela, reaplica busca
+  const tbody = document.querySelector('#inv-table tbody');
+  if(tbody){
+    const mo = new MutationObserver(()=>applySearch());
+    mo.observe(tbody, {childList:true, subtree:false});
+  }
+
+  setBtnLabel();
+  applySearch();
+
+  // ===== Site =====
+  function loadInventorySiteOptions(){
+    if (!siteSel) return Promise.resolve();
+    return fetch('/api/db/sites?source=ip&_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.json().catch(() => ({})))
+      .then(j => {
+        const sites = (j && j.ok && Array.isArray(j.sites)) ? j.sites : [];
+        const cur = (siteSel.value || '').trim();
+        siteSel.innerHTML = '<option value="">Todos os sites</option>';
+        if (siteMenu) siteMenu.innerHTML = '<button type="button" class="inv-dd-item" data-value="" role="option">Todos os sites</button>';
+        sites.forEach(s => {
+          const name = ((s && s.name) || '').trim();
+          if (!name) return;
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          siteSel.appendChild(opt);
+          if (siteMenu) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'inv-dd-item';
+            b.setAttribute('data-value', name);
+            b.setAttribute('role', 'option');
+            b.textContent = name;
+            siteMenu.appendChild(b);
+          }
+        });
+        if (cur) siteSel.value = cur;
+        setSiteBtnLabel();
+      })
+      .catch(() => {});
+  }
+  window.refreshInventorySiteOptions = loadInventorySiteOptions;
+  document.addEventListener('inventory:updated', () => loadInventorySiteOptions());
+
+  if (siteSel){
+    loadInventorySiteOptions();
+    siteSel.addEventListener('change', () => {
+      if (typeof window.loadInventory === 'function') window.loadInventory();
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

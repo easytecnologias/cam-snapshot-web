@@ -1,0 +1,1326 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>SightOps - Inventario DVR</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css?v=84" />
+</head>
+<body>
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Inventario > DVR</div>
+      <div class="topbar-sub">Canais analogicos, snapshots e dados do gravador</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleInventoryPanel()" aria-label="Mostrar/ocultar painel" title="Painel">+</button>
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Inventario dedicado para DVR/NVR.</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="inventory" aria-expanded="true">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory">
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem active" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+      <a class="nav-subitem" href="kmz.html">Mapas</a>
+      <a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="operations" aria-expanded="false">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations" hidden>
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <section class="tab-view active is-collapsed" id="tab-inventory">
+    <div class="inventory-split">
+      <div class="inventory-left">
+        <div class="card primary">
+          <div class="card-title">Nova varredura DVR</div>
+          <div class="card-sub">Mesmo fluxo do Inventario IP: filtre, busque e abra snapshot por canal.</div>
+          <form id="dvr-scan-form" novalidate>
+            <div class="scan-group">
+              <div class="scan-group-title">Configuracao do DVR</div>
+              <div class="field">
+                <label for="dvr-ip">IP do DVR</label>
+                <input id="dvr-ip" type="text" value="10.10.10.123" />
+              </div>
+              <div class="scan-credentials-row">
+                <div class="field">
+                  <label for="dvr-user">Usuario</label>
+                  <input id="dvr-user" type="text" value="admin" />
+                </div>
+                <div class="field">
+                  <label for="dvr-pass">Senha</label>
+                  <input id="dvr-pass" type="password" value="" autocomplete="current-password" />
+                </div>
+              </div>
+              <div class="scan-credentials-row">
+                <div class="field">
+                  <label for="dvr-port">Porta HTTP</label>
+                  <input id="dvr-port" type="number" value="80" min="1" max="65535" />
+                </div>
+                <div class="field">
+                  <label for="dvr-timeout">Timeout (s)</label>
+                  <input id="dvr-timeout" type="number" value="6" min="1" max="20" step="1" />
+                </div>
+                <div class="field">
+                  <label for="dvr-start">Canal inicial</label>
+                  <input id="dvr-start" type="number" value="1" min="1" max="256" />
+                </div>
+                <div class="field">
+                  <label for="dvr-end">Canal final</label>
+                  <input id="dvr-end" type="number" value="32" min="1" max="256" />
+                </div>
+              </div>
+              <div class="actions-row">
+                <button type="submit" class="btn-primary">
+                  <span class="icon">&gt;</span>
+                  <span>Ler DVR e capturar snapshots</span>
+                </button>
+              </div>
+              <div id="dvr-run-status" class="status-line"></div>
+            </div>
+
+            <div class="scan-group">
+              <div class="scan-group-title">Opcoes do inventario</div>
+              <div class="checks-group">
+                <div class="check-row">
+                  <input type="checkbox" id="dvr-opt-reuse" />
+                  <label for="dvr-opt-reuse">Reuse last inventory (nao rescanear)</label>
+                </div>
+                <div class="check-row">
+                  <input type="checkbox" id="dvr-opt-imgbb" />
+                  <label for="dvr-opt-imgbb">Upload to ImgBB</label>
+                </div>
+                <div class="check-row">
+                  <input type="checkbox" id="dvr-opt-set-local" />
+                  <label for="dvr-opt-set-local">Definir <b>Local</b> para todos os canais desta rodada</label>
+                </div>
+                <div class="field" id="dvr-local-field" style="display:none; margin-top:6px;">
+                  <label for="dvr-local-name">Local</label>
+                  <input id="dvr-local-name" type="text" placeholder="Ex: PERUCABA" />
+                </div>
+
+                <!-- Configuracao rapida do ImgBB (DVR): aparece quando Reuse + ImgBB -->
+                <div id="dvr-imgbb-settings-panel" class="inline-settings" style="display:none;">
+                  <div class="inline-settings-head">
+                    <div class="inline-settings-title">ImgBB</div>
+                    <div id="dvr-imgbb-configured-pill" class="pill" style="display:none;">Configurado</div>
+                  </div>
+
+                  <div id="dvr-imgbb-settings-view-configured" style="display:none;" class="inline-settings-body">
+                    <div class="inline-settings-row">
+                      <div class="inline-settings-muted">
+                        API Key salva (<span id="dvr-imgbb-key-masked">****</span>)
+                      </div>
+                      <button type="button" class="btn-secondary btn-sm" id="btn-dvr-imgbb-edit">Alterar</button>
+                    </div>
+                  </div>
+
+                  <div id="dvr-imgbb-settings-view-edit" class="inline-settings-body">
+                    <div class="field" style="margin-top:6px;">
+                      <label for="dvr-imgbb-api-key">API Key</label>
+                      <input id="dvr-imgbb-api-key" type="password" placeholder="Cole sua ImgBB API key" autocomplete="off" />
+                      <div class="inline-settings-help">chave salva no backend (nao fica exposta no navegador).</div>
+                    </div>
+                    <div class="inline-settings-actions">
+                      <button type="button" class="btn-secondary btn-sm" id="btn-dvr-imgbb-test">Testar</button>
+                      <button type="button" class="btn-primary btn-sm" id="btn-dvr-imgbb-save">Salvar</button>
+                    </div>
+                    <div id="dvr-imgbb-settings-status" class="status-line" style="margin-top:6px;"></div>
+                  </div>
+                </div>
+
+                <div class="check-row">
+                  <input type="checkbox" id="dvr-opt-only-online" />
+                  <label for="dvr-opt-only-online">Mostrar somente canais online apos leitura</label>
+                </div>
+                <div class="check-row">
+                  <input type="checkbox" id="dvr-opt-hide-sem-camera" />
+                  <label for="dvr-opt-hide-sem-camera">Ocultar canais sem camera apos leitura</label>
+                </div>
+              </div>
+              <div class="scan-actions" style="margin-top:10px;">
+                <button type="button" id="btn-dvr-refresh-left" class="btn-primary" style="width:100%;">Atualizar inventario</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="inventory-right">
+        <div class="card secondary">
+          <div class="card-title">Ultimo inventario DVR</div>
+
+          <div class="inv-filter-row">
+            <span class="muted inv-filter-label">Filtro:</span>
+            <select id="dvr-filter" class="inv-filter-select inv-filter-native" aria-hidden="true" tabindex="-1">
+              <option value="all">Todas</option>
+              <option value="status_offline">Somente Offline</option>
+              <option value="status_online">Somente Online</option>
+              <option value="status_sem_camera">Somente Sem camera</option>
+              <option value="any_missing">Com dados faltando</option>
+              <option value="missing_mac">Faltando MAC</option>
+              <option value="missing_modelo">Faltando Modelo</option>
+              <option value="missing_titulo">Faltando Titulo</option>
+            </select>
+            <div class="inv-dd" id="dvr-filter-dd">
+              <button type="button" class="inv-dd-btn" id="dvr-filter-btn" aria-haspopup="listbox" aria-expanded="false">
+                Todas <span class="inv-dd-caret">?</span>
+              </button>
+              <div class="inv-dd-menu" id="dvr-filter-menu" role="listbox" tabindex="-1" hidden>
+                <button type="button" class="inv-dd-item" data-value="all" role="option">Todas</button>
+                <button type="button" class="inv-dd-item" data-value="status_offline" role="option">Somente Offline</button>
+                <button type="button" class="inv-dd-item" data-value="status_online" role="option">Somente Online</button>
+                <button type="button" class="inv-dd-item" data-value="status_sem_camera" role="option">Somente Sem camera</button>
+                <button type="button" class="inv-dd-item" data-value="any_missing" role="option">Com dados faltando</button>
+                <div class="inv-dd-sep"></div>
+                <button type="button" class="inv-dd-item" data-value="missing_mac" role="option">Faltando MAC</button>
+                <button type="button" class="inv-dd-item" data-value="missing_modelo" role="option">Faltando Modelo</button>
+                <button type="button" class="inv-dd-item" data-value="missing_titulo" role="option">Faltando Titulo</button>
+              </div>
+            </div>
+            <select id="dvr-site" class="inv-filter-select inv-filter-native" title="Filtrar por site" aria-hidden="true" tabindex="-1">
+              <option value="">Todos os sites</option>
+            </select>
+            <div class="inv-dd" id="dvr-site-dd">
+              <button type="button" class="inv-dd-btn" id="dvr-site-btn" aria-haspopup="listbox" aria-expanded="false">
+                Todos os sites <span class="inv-dd-caret">?</span>
+              </button>
+              <div class="inv-dd-menu" id="dvr-site-menu" role="listbox" tabindex="-1" hidden>
+                <button type="button" class="inv-dd-item" data-value="" role="option">Todos os sites</button>
+              </div>
+            </div>
+            <input id="dvr-search" class="inv-filter-search" placeholder="Buscar: host, canal, titulo, mac, modelo..." />
+            <button type="button" id="dvr-search-clear" class="btn-secondary inv-filter-clear">Limpar</button>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-overlay" id="dvr-overlay">Atualizando inventario DVR...</div>
+            <table id="dvr-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="dvr-select-all" /></th>
+                  <th>Host</th>
+                  <th>Canal</th>
+                  <th>Titulo</th>
+                  <th>Local</th>
+                  <th>Status</th>
+                  <th>MAC DVR</th>
+                  <th>Modelo</th>
+                  <th>Serial</th>
+                </tr>
+              </thead>
+              <tbody id="dvr-body">
+                <tr><td colspan="9" class="muted">Carregando inventario DVR...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="inv-actions">
+            <div class="inv-left">
+              <div id="dvr-counter" class="status-line"></div>
+              <div id="dvr-stats" class="status-line" style="margin-top:6px;"></div>
+            </div>
+            <div class="inv-right">
+              <button id="btn-dvr-reload" class="btn-primary btn-small" type="button">Atualizar</button>
+              <button id="btn-dvr-pdf-preview" class="btn-primary btn-small" type="button">Preview PDF</button>
+              <button id="btn-dvr-pdf" class="btn-primary btn-small" type="button">Relatorio PDF</button>
+              <button id="btn-dvr-imgbb" class="btn-primary btn-small" type="button">Atualizar ImgBB</button>
+              <button id="btn-dvr-clear" class="btn-primary btn-small" type="button">Apagar inventario</button>
+              <button id="btn-dvr-edit" class="btn-primary btn-small" type="button">Editar</button>
+              <button id="btn-dvr-save" class="btn-primary btn-small" type="button" style="display:none;">Salvar</button>
+              <button id="btn-dvr-cancel" class="btn-primary btn-small" type="button" style="display:none;">Cancelar</button>
+            </div>
+          </div>
+          <div id="dvr-batch-local-bar" class="field-row" style="display:none; margin-top:10px;">
+            <div class="field">
+              <label for="dvr-batch-local">Local para selecionadas</label>
+              <input id="dvr-batch-local" type="text" placeholder="Ex.: Clube / Portaria" />
+            </div>
+            <div class="field" style="max-width:220px; display:flex; align-items:flex-end;">
+              <button id="btn-dvr-apply-local" class="btn-secondary btn-small" type="button" style="width:100%;">Aplicar local</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Drawer padrao do inventario (mesmo visual/comportamento da aba Cameras IP) -->
+<div id="ip-drawer-backdrop" class="drawer-backdrop" aria-hidden="true"></div>
+<aside id="ip-drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-header">
+    <div class="drawer-title-wrap">
+      <div class="drawer-title" id="ip-drawer-title">Camera</div>
+      <div class="drawer-sub" id="ip-drawer-sub">IP: -</div>
+    </div>
+    <button type="button" class="drawer-close" id="ip-drawer-close" aria-label="Fechar">x</button>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-kv">
+      <div class="drawer-kv-row"><span class="k">Status</span><span class="v" id="ip-drawer-status">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Titulo</span><span class="v" id="ip-drawer-name">-</span></div>
+      <div class="drawer-kv-row"><span class="k">MAC</span><span class="v" id="ip-drawer-mac">-</span></div>
+      <div class="drawer-kv-row"><span class="k">Modelo</span><span class="v" id="ip-drawer-model">-</span></div>
+    </div>
+    <div class="drawer-preview">
+      <img id="ip-drawer-img" alt="Snapshot" class="drawer-img" />
+      <div class="drawer-img-overlay">
+        <div class="drawer-img-overlay-title" id="ip-drawer-overlay-title">-</div>
+        <div class="drawer-img-overlay-time" id="ip-drawer-overlay-time">-</div>
+      </div>
+      <div class="drawer-img-hint muted" id="ip-drawer-img-hint">Carregando snapshot...</div>
+    </div>
+    <div class="drawer-actions">
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-refresh">Atualizar</button>
+      <a class="btn-secondary btn-small" id="ip-drawer-open" href="#" target="_blank" rel="noopener">Abrir</a>
+      <button type="button" class="btn-primary btn-small" id="ip-drawer-ping">Testar ping</button>
+      <button type="button" class="btn-secondary btn-small" id="ip-drawer-clear">Limpar</button>
+    </div>
+    <div class="drawer-output" id="ip-drawer-output"></div>
+  </div>
+</aside>
+
+<!-- Modal: credenciais para atualizar snapshot (mesmo da aba Cameras IP) -->
+<div id="snapshot-cred-backdrop" class="modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="snapshot-cred-title">
+    <div class="modal-header" style="padding:14px 16px; border-bottom:1px solid rgba(148,163,184,.12); display:flex; align-items:center; justify-content:space-between; gap:12px;">
+      <div id="snapshot-cred-title" style="font-weight:700;">Atualizar snapshot</div>
+      <button type="button" class="drawer-close" id="snapshot-cred-close" aria-label="Fechar">x</button>
+    </div>
+    <div style="padding:14px 16px;">
+      <div class="muted" id="snapshot-cred-sub" style="margin-bottom:12px;">Informe usuario e senha para capturar um snapshot novo.</div>
+      <div class="grid-2" style="gap:12px; margin-bottom:12px;">
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Usuario</div>
+          <input id="snapshot-cred-user" type="text" class="input" placeholder="admin" />
+        </div>
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Senha</div>
+          <input id="snapshot-cred-pass" class="input" type="password" placeholder="Informe a senha" autocomplete="current-password" />
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" class="btn-secondary" id="snapshot-cred-cancel">Cancelar</button>
+        <button type="button" class="btn-primary" id="snapshot-cred-ok">Atualizar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: preview/edicao do relatorio PDF DVR -->
+<div id="dvr-report-backdrop" class="inv-modal-backdrop" style="display:none" aria-hidden="true">
+  <div class="inv-modal" style="width:min(1320px,97vw); height:min(92vh,980px);">
+    <div class="inv-modal-header">
+      <h3>Preview do relatorio PDF (DVR)</h3>
+      <button type="button" class="drawer-close" id="dvr-report-close" aria-label="Fechar">x</button>
+    </div>
+    <div class="inv-modal-body" style="display:flex; flex-direction:column; gap:12px; height:calc(100% - 64px);">
+      <div class="grid-2" style="gap:12px; align-items:end;">
+        <div>
+          <div class="muted" style="font-size:12px; margin-bottom:6px;">Nome da empresa</div>
+          <input id="dvr-report-company" type="text" class="input" placeholder="Ex: SightOps / Perucaba" />
+        </div>
+        <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+          <div>
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Logo (PNG/JPG)</div>
+            <input id="dvr-report-logo-file" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp,image/*" style="display:none;" />
+            <button type="button" class="btn-secondary btn-small" id="btn-dvr-report-logo-pick">Escolher logo</button>
+            <span id="dvr-report-logo-name" class="muted" style="font-size:12px; margin-left:8px;">Nenhum arquivo</span>
+          </div>
+          <button type="button" class="btn-secondary btn-small" id="btn-dvr-report-logo-upload">Enviar logo</button>
+          <button type="button" class="btn-secondary btn-small" id="btn-dvr-report-refresh">Atualizar preview</button>
+          <button type="button" class="btn-primary btn-small" id="btn-dvr-report-download">Baixar PDF</button>
+        </div>
+      </div>
+      <div id="dvr-report-status" class="status-line"></div>
+      <div style="width:100%; height:100%; border:1px solid rgba(148,163,184,.25); border-radius:10px; background:#0a1222; overflow:auto; display:flex; justify-content:center; align-items:flex-start; padding:12px;">
+        <img id="dvr-report-frame" alt="Preview do relatorio PDF DVR" style="max-width:100%; height:auto; border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.35);" />
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=96"></script>
+<script>
+(function(){
+  function byId(id){ return document.getElementById(id); }
+  function safe(v){ return (v == null ? '' : String(v)); }
+  function trim(v){ return safe(v).trim(); }
+  function esc(s){
+    return safe(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function normStatus(v){
+    v = trim(v).toLowerCase();
+    if (v === 'online' || v === 'up' || v === 'ok') return 'online';
+    if (v === 'camera_offline' || v === 'camera offline') return 'offline';
+    if (v === 'sem_camera' || v === 'sem camera' || v === 'no_camera' || v === 'no camera') return 'offline';
+    if (v === 'offline' || v === 'down' || v === 'off') return 'offline';
+    return v || 'unknown';
+  }
+
+  var dvrRowsCache = [];
+  var dvrFilterMode = 'all';
+  var dvrEditing = false;
+  var dvrImgbbProgressTimer = null;
+  var dvrCurrentSite = '';
+
+  function setRunStatus(msg){ var el = byId('dvr-run-status'); if (el) el.textContent = msg || ''; }
+  function setCounter(msg){ var el = byId('dvr-counter'); if (el) el.textContent = msg || ''; }
+  function currentSite(){ return dvrCurrentSite || ''; }
+
+  function loadSiteOptions(){
+    var sel = byId('dvr-site');
+    var siteMenu = byId('dvr-site-menu');
+    if (!sel) return Promise.resolve();
+    return fetch('/api/db/sites?source=dvr&_=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        var sites = (j && j.ok && Array.isArray(j.sites)) ? j.sites : [];
+        var cur = trim(sel.value || '');
+        sel.innerHTML = '<option value="">Todos os sites</option>';
+        if (siteMenu) siteMenu.innerHTML = '<button type="button" class="inv-dd-item" data-value="" role="option">Todos os sites</button>';
+        sites.forEach(function(s){
+          var name = trim((s && s.name) || '');
+          if (!name) return;
+          var opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+          if (siteMenu){
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'inv-dd-item';
+            b.setAttribute('data-value', name);
+            b.setAttribute('role', 'option');
+            b.textContent = name;
+            siteMenu.appendChild(b);
+          }
+        });
+        if (cur) sel.value = cur;
+        dvrCurrentSite = trim(sel.value || '');
+        if (typeof window.dvrSetSiteBtnLabel === 'function') window.dvrSetSiteBtnLabel();
+      })
+      .catch(function(){});
+  }
+
+  function stopImgbbProgressPolling(){
+    if (dvrImgbbProgressTimer){
+      clearInterval(dvrImgbbProgressTimer);
+      dvrImgbbProgressTimer = null;
+    }
+  }
+
+  function startImgbbProgressPolling(prefix){
+    stopImgbbProgressPolling();
+    var base = trim(prefix || 'ImgBB');
+    function tick(){
+      fetch('/api/dvr/imgbb/progress?_=' + Date.now(), { cache: 'no-store' })
+        .then(function(r){
+          if (r && r.status === 404){
+            setRunStatus(base + ': enviando... (progresso detalhado indisponivel neste backend)');
+            stopImgbbProgressPolling();
+            return null;
+          }
+          return r.json().catch(function(){ return {}; });
+        })
+        .then(function(j){
+          if (!j) return;
+          if (!j || j.ok !== true) return;
+          var total = parseInt(j.total || 0, 10) || 0;
+          var done = parseInt(j.done || 0, 10) || 0;
+          var success = parseInt(j.success || 0, 10) || 0;
+          var failed = parseInt(j.failed || 0, 10) || 0;
+          var pct = parseInt(j.percent || 0, 10) || 0;
+          if (j.running) {
+            setRunStatus(base + ': ' + done + '/' + total + ' (' + pct + '%)  OK=' + success + '  ERRO=' + failed);
+          } else if (j.finished && total > 0) {
+            var endMsg = base + ' finalizado: ' + done + '/' + total + '  OK=' + success + '  ERRO=' + failed;
+            if (j.last_error) endMsg += ' | ultimo erro: ' + j.last_error;
+            setRunStatus(endMsg);
+            stopImgbbProgressPolling();
+          }
+        })
+        .catch(function(){});
+    }
+    tick();
+    dvrImgbbProgressTimer = setInterval(tick, 900);
+  }
+
+  function setDvrEditMode(on){
+    dvrEditing = !!on;
+    var bEdit = byId('btn-dvr-edit');
+    var bSave = byId('btn-dvr-save');
+    var bCancel = byId('btn-dvr-cancel');
+    var bClear = byId('btn-dvr-clear');
+    var batchBar = byId('dvr-batch-local-bar');
+    var batchInput = byId('dvr-batch-local');
+    if (bEdit) bEdit.style.display = dvrEditing ? 'none' : '';
+    if (bSave) bSave.style.display = dvrEditing ? '' : 'none';
+    if (bCancel) bCancel.style.display = dvrEditing ? '' : 'none';
+    if (bClear) bClear.disabled = dvrEditing;
+    if (batchBar) batchBar.style.display = dvrEditing ? 'flex' : 'none';
+    if (!dvrEditing && batchInput) batchInput.value = '';
+
+    Array.from(document.querySelectorAll('#dvr-body tr')).forEach(function(tr){
+      var txt = tr.querySelector('.dvr-title-text');
+      var inp = tr.querySelector('.dvr-title-input');
+      var txtLocal = tr.querySelector('.dvr-local-text');
+      var inpLocal = tr.querySelector('.dvr-local-input');
+      if (txt) txt.style.display = dvrEditing ? 'none' : '';
+      if (inp) inp.style.display = dvrEditing ? '' : 'none';
+      if (txtLocal) txtLocal.style.display = dvrEditing ? 'none' : '';
+      if (inpLocal) inpLocal.style.display = dvrEditing ? '' : 'none';
+    });
+  }
+
+  function applyBatchLocalToSelected(){
+    var input = byId('dvr-batch-local');
+    var local = trim((input && input.value) || '');
+    if (!local) {
+      alert('Informe um Local para aplicar.');
+      return;
+    }
+    var selected = Array.from(document.querySelectorAll('#dvr-body tr')).filter(function(tr){
+      var cb = tr.querySelector('input.dvr-select');
+      return !!(cb && cb.checked);
+    });
+    if (!selected.length) {
+      alert('Selecione pelo menos 1 canal.');
+      return;
+    }
+    selected.forEach(function(tr){
+      var inp = tr.querySelector('.dvr-local-input');
+      if (inp) inp.value = local;
+    });
+    setRunStatus('Local aplicado em ' + selected.length + ' canal(is). Clique em Salvar para persistir.');
+  }
+
+  function updateStats(){
+    var el = byId('dvr-stats');
+    var rows = Array.from(document.querySelectorAll('#dvr-body tr'));
+    var total = 0, online = 0;
+    rows.forEach(function(r){
+      if (r.style.display === 'none' || r.classList.contains('search-hidden')) return;
+      var st = normStatus(r.dataset.status || '');
+      total += 1;
+      if (st === 'online') online += 1;
+    });
+    if (el) el.textContent = ' Total visiveis: ' + total + '   -    Online: ' + online + '   -    Offline: ' + Math.max(0,total-online);
+  }
+
+  function applyFilters(){
+    var q = trim((byId('dvr-search') || {}).value || '').toLowerCase();
+    var hideSemCam = !!(byId('dvr-opt-hide-sem-camera') && byId('dvr-opt-hide-sem-camera').checked);
+    var tbody = byId('dvr-body');
+    if (!tbody) return;
+    Array.from(tbody.querySelectorAll('tr')).forEach(function(row){
+      var host = trim(row.dataset.host || '');
+      var ch = trim(row.dataset.channel || '');
+      var title = trim(row.dataset.title || '');
+      var local = trim(row.dataset.local || '');
+      var mac = trim(row.dataset.mac || '');
+      var modelo = trim(row.dataset.modelo || '');
+      var status = normStatus(row.dataset.status || '');
+      var show = true;
+      if (dvrFilterMode === 'status_online') show = (status === 'online');
+      else if (dvrFilterMode === 'status_offline') show = (status === 'offline');
+      else if (dvrFilterMode === 'status_sem_camera') show = (trim(row.dataset.status_raw || '').toLowerCase() === 'sem_camera');
+      else if (dvrFilterMode === 'any_missing') show = (!mac || !modelo || !title || !local);
+      else if (dvrFilterMode === 'missing_mac') show = !mac;
+      else if (dvrFilterMode === 'missing_modelo') show = !modelo;
+      else if (dvrFilterMode === 'missing_titulo') show = !title;
+      if (show && hideSemCam && trim(row.dataset.status_raw || '').toLowerCase() === 'sem_camera') {
+        show = false;
+      }
+      if (show && q){
+        var blob = (host + ' ch ' + ch + ' ' + title + ' ' + local + ' ' + mac + ' ' + modelo + ' ' + status).toLowerCase();
+        show = blob.indexOf(q) >= 0;
+      }
+      row.style.display = show ? '' : 'none';
+    });
+    updateStats();
+  }
+
+  function applyPostLoadOptions(){
+    var sel = byId('dvr-filter');
+    var onlyOnline = !!(byId('dvr-opt-only-online') && byId('dvr-opt-only-online').checked);
+    if (sel) {
+      if (onlyOnline) sel.value = 'status_online';
+      else if (!trim(sel.value)) sel.value = 'all';
+    }
+    dvrFilterMode = trim((sel && sel.value) || 'all') || 'all';
+    applyFilters();
+  }
+
+  function render(rows){
+    dvrRowsCache = Array.isArray(rows) ? rows.slice() : [];
+    dvrRowsCache.sort(function(a,b){
+      var ha = trim(a.host), hb = trim(b.host);
+      if (ha !== hb) return ha.localeCompare(hb);
+      return (parseInt(a.channel || 0,10)||0) - (parseInt(b.channel || 0,10)||0);
+    });
+    var body = byId('dvr-body');
+    if (!body) return;
+    body.innerHTML = '';
+    if (!dvrRowsCache.length){
+      body.innerHTML = '<tr><td colspan="9" class="muted">Nenhum canal encontrado no inventario DVR.</td></tr>';
+      setCounter('');
+      updateStats();
+      return;
+    }
+    dvrRowsCache.forEach(function(r){
+      var st = normStatus(r.status);
+      var statusRaw = trim(r.status || '');
+      var statusLabel = statusRaw ? statusRaw.replace(/_/g, ' ') : '';
+      var tr = document.createElement('tr');
+      tr.className = 'inv-row inv-row-' + st;
+      tr.dataset.host = trim(r.host);
+      tr.dataset.channel = String(r.channel || '');
+      tr.dataset.title = trim(r.title);
+      tr.dataset.local = trim(r.local);
+      tr.dataset.mac = trim(r.mac);
+      tr.dataset.modelo = trim(r.modelo);
+      tr.dataset.status = st;
+      tr.dataset.status_raw = statusRaw;
+
+      var chLink = '<a href="#" class="ip-link dvr-channel-link">CH ' + esc(String(r.channel || '')) + '</a>';
+      tr.innerHTML =
+        '<td><input type="checkbox" class="dvr-select" data-host="' + esc(r.host || '') + '" data-channel="' + esc(r.channel || '') + '"></td>' +
+        '<td>' + esc((r.host || '') + ':' + (r.http_port || 80)) + '</td>' +
+        '<td>' + chLink + '</td>' +
+        '<td><span class="dvr-title-text">' + esc(r.title || '') + '</span><input class="dvr-title-input" type="text" style="display:none; width:100%;" value="' + esc(r.title || '') + '"></td>' +
+        '<td><span class="dvr-local-text">' + esc(r.local || '') + '</span><input class="dvr-local-input" type="text" style="display:none; width:100%;" value="' + esc(r.local || '') + '" placeholder="Ex.: Clube / Portaria"></td>' +
+        '<td><span class="inv-status inv-status-' + esc(st) + '">' + esc(statusLabel) + '</span></td>' +
+        '<td>' + esc(r.mac || '') + '</td>' +
+        '<td>' + esc(r.modelo || '') + '</td>' +
+        '<td>' + esc(r.equip_serial || '') + '</td>';
+      var link = tr.querySelector('.dvr-channel-link');
+      if (link){
+        link.addEventListener('click', function(ev){
+          ev.preventDefault();
+          if (typeof openInventoryIpDrawer === 'function') {
+            openInventoryIpDrawer({
+              source: 'dvr',
+              ip: r.host || '',
+              channel: r.channel || '',
+              http_port: r.http_port || 80,
+              status: r.status || '',
+              titulo: (r.channel ? ('CH ' + r.channel + ' - ') : '') + (r.title || ''),
+              mac: r.mac || '',
+              modelo: r.modelo || '',
+              snapshot_url: r.snapshot_url || '',
+              imgbb_url: r.imgbb_url || '',
+              imgbb_thumb_url: r.imgbb_thumb_url || ''
+            });
+          }
+        });
+      }
+      body.appendChild(tr);
+    });
+    setCounter('Canais listados: ' + dvrRowsCache.length);
+    applyFilters();
+    setDvrEditMode(dvrEditing);
+  }
+
+  function setOverlay(show){
+    var el = byId('dvr-overlay');
+    if (!el) return;
+    if (show) el.classList.add('show'); else el.classList.remove('show');
+  }
+
+  function refreshInventorySoon(){
+    fetchInventory();
+    setTimeout(fetchInventory, 700);
+    setTimeout(fetchInventory, 1800);
+  }
+
+  function fetchInventory(){
+    setOverlay(true);
+    var qs = '?_=' + Date.now();
+    if (currentSite()) qs += '&site=' + encodeURIComponent(currentSite());
+    return fetch('/api/dvr/inventory' + qs, { cache: 'no-store' })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+      .then(function(o){
+        if (!o.ok || !o.j || o.j.ok !== true || !Array.isArray(o.j.inventory)) throw new Error('Falha ao carregar inventario DVR');
+        render(o.j.inventory || []);
+        applyPostLoadOptions();
+      })
+      .catch(function(e){
+        var body = byId('dvr-body');
+        if (body) body.innerHTML = '<tr><td colspan="9" class="muted">Erro ao carregar inventario DVR: ' + esc((e&&e.message)||e) + '</td></tr>';
+      })
+      .finally(function(){ setOverlay(false); });
+  }
+  window.dvrReloadInventory = fetchInventory;
+
+  function runScan(ev){
+    if (ev) ev.preventDefault();
+      var payload = {
+        ip: trim((byId('dvr-ip') || {}).value || ''),
+        user: trim((byId('dvr-user') || {}).value || 'admin') || 'admin',
+        password: safe((byId('dvr-pass') || {}).value || ''),
+        http_port: parseInt((byId('dvr-port') || {}).value || '80', 10) || 80,
+        timeout_sec: parseFloat((byId('dvr-timeout') || {}).value || '6') || 6,
+        start_channel: parseInt((byId('dvr-start') || {}).value || '1', 10) || 1,
+        end_channel: parseInt((byId('dvr-end') || {}).value || '32', 10) || 32,
+        imgbb: !!(byId('dvr-opt-imgbb') && byId('dvr-opt-imgbb').checked),
+        set_local: !!(byId('dvr-opt-set-local') && byId('dvr-opt-set-local').checked),
+        local: trim((byId('dvr-local-name') || {}).value || '')
+      };
+    var reuse = !!(byId('dvr-opt-reuse') && byId('dvr-opt-reuse').checked);
+    var doImgBB = !!(byId('dvr-opt-imgbb') && byId('dvr-opt-imgbb').checked);
+    if (reuse) {
+      setRunStatus('Reuse ativo: carregando ultimo inventario DVR...');
+      var applyLocalPromise = Promise.resolve();
+      if (payload.set_local && payload.local) {
+        setRunStatus('Reuse ativo: aplicando local no inventario DVR...');
+        applyLocalPromise = fetch('/api/dvr/local/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ip: payload.ip,
+            http_port: payload.http_port,
+            local: payload.local
+          })
+        })
+        .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+        .then(function(o){
+          if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.detail || o.j.error)) || 'falha ao aplicar local');
+          setRunStatus('Local aplicado em ' + (o.j.updated_rows || 0) + ' canal(is).');
+        });
+      }
+      applyLocalPromise
+      .then(function(){
+      if (doImgBB) {
+        setRunStatus('Reuse + ImgBB: enviando snapshots existentes para ImgBB...');
+        startImgbbProgressPolling('ImgBB (reuse)');
+        fetch('/api/dvr/imgbb/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+          .then(function(o){
+            if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.error || o.j.detail)) || 'falha no upload ImgBB');
+            refreshInventorySoon();
+            var msg = 'ImgBB (reuse) enviado: ' + (o.j.uploaded || 0);
+            if (o.j.error) msg += ' (erro: ' + o.j.error + ')';
+            setRunStatus(msg);
+          })
+          .catch(function(e){
+            setRunStatus('Erro ImgBB (reuse): ' + ((e && e.message) ? e.message : e));
+            refreshInventorySoon();
+          })
+          .finally(function(){
+            stopImgbbProgressPolling();
+          });
+      } else {
+        refreshInventorySoon();
+      }
+      })
+      .catch(function(e){
+        setRunStatus('Erro ao aplicar local: ' + ((e && e.message) ? e.message : e));
+        refreshInventorySoon();
+      });
+      return;
+    }
+    setRunStatus('Lendo DVR e capturando snapshots...');
+    setOverlay(true);
+    fetch('/api/dvr/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j,status:r.status}; }); })
+    .then(function(o){
+      if (!o.ok || !o.j || o.j.ok !== true){
+        throw new Error((o.j && (o.j.detail || o.j.error)) || ('HTTP ' + o.status));
+      }
+      render(o.j.inventory || []);
+      applyPostLoadOptions();
+      refreshInventorySoon();
+      var msg = 'OK. Canais: ' + (o.j.channels_total||0) + ' | online: ' + (o.j.online_channels||0) + ' | offline: ' + (o.j.offline_channels||0);
+      if (payload.imgbb) {
+        msg += ' | ImgBB: ' + (o.j.imgbb_uploaded || 0);
+        if (o.j.imgbb_error) msg += ' (erro: ' + o.j.imgbb_error + ')';
+      }
+      setRunStatus(msg);
+    })
+    .catch(function(e){
+      setRunStatus('Erro: ' + ((e&&e.message) ? e.message : e));
+    })
+    .finally(function(){ setOverlay(false); });
+  }
+
+  function clearInventory(){
+    var selectedSite = trim((byId('dvr-site') || {}).value || '');
+    var msg = selectedSite
+      ? ('Apagar inventario DVR?\nSite: ' + selectedSite + '\nEscopo: somente este site.')
+      : 'Apagar inventario DVR e snapshots locais?\nSite: Todos os sites\nEscopo: todos os sites.';
+    if (!confirm(msg)) return;
+    var url = selectedSite ? ('/api/dvr/clear?site=' + encodeURIComponent(selectedSite)) : '/api/dvr/clear';
+    fetch(url, { method: 'POST' })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+      .then(function(o){
+        if (!o.ok || !o.j || o.j.ok !== true) throw new Error('Falha ao apagar inventario DVR');
+        render([]);
+        setRunStatus(selectedSite ? ('Inventario DVR do site "' + selectedSite + '" apagado.') : 'Inventario DVR apagado.');
+        return fetchInventory();
+      })
+      .catch(function(e){ setRunStatus('Erro ao apagar: ' + ((e&&e.message)?e.message:e)); });
+  }
+
+  function selectedRowsForImgBB(){
+    return Array.from(document.querySelectorAll('#dvr-body input.dvr-select:checked')).map(function(cb){
+      return { host: trim(cb.dataset.host || ''), channel: parseInt(cb.dataset.channel || '0', 10) || 0 };
+    }).filter(function(x){ return x.host && x.channel > 0; });
+  }
+
+  function uploadDvrImgBB(){
+    var btn = byId('btn-dvr-imgbb');
+    var selected = selectedRowsForImgBB();
+    var msg = selected.length
+      ? ('Enviar para ImgBB apenas os ' + selected.length + ' canal(is) selecionados?')
+      : 'Nenhum canal selecionado. Enviar para ImgBB todo o inventario DVR?';
+    if (!confirm(msg)) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+    setRunStatus('Enviando snapshots DVR para ImgBB...');
+    fetch('/api/dvr/imgbb/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected: selected })
+    })
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+    .then(function(o){
+      if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.error || o.j.detail)) || 'falha no upload ImgBB');
+      refreshInventorySoon();
+      var m = 'ImgBB atualizado. Enviadas: ' + (o.j.uploaded || 0) + '.';
+      if (o.j.error) m += ' Erro: ' + o.j.error;
+      setRunStatus(m);
+    })
+    .catch(function(e){ setRunStatus('Erro ImgBB: ' + ((e && e.message) ? e.message : e)); })
+    .finally(function(){ if (btn) { btn.disabled = false; btn.textContent = 'Atualizar ImgBB'; } });
+  }
+
+  function buildDvrReportUrl(base){
+    var site = trim((byId('dvr-site') || {}).value || '');
+    var company = trim((byId('dvr-report-company') || {}).value || '');
+    var qs = ['_=' + Date.now()];
+    if (site) qs.push('site=' + encodeURIComponent(site));
+    if (company) qs.push('company_name=' + encodeURIComponent(company));
+    var url = base + '?' + qs.join('&');
+    return (typeof window.authAppendTokenParam === 'function') ? window.authAppendTokenParam(url) : url;
+  }
+  function exportDvrPdfReport(){
+    var a = document.createElement('a');
+    a.href = buildDvrReportUrl('/api/dvr/report.pdf');
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  function saveDvrReportSettings(){
+    var company = trim((byId('dvr-report-company') || {}).value || '');
+    return fetch('/api/dvr/report/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_name: company })
+    }).catch(function(){});
+  }
+  function refreshDvrPreview(){
+    var img = byId('dvr-report-frame');
+    var st = byId('dvr-report-status');
+    if (!img) return;
+    if (st) st.textContent = 'Gerando preview...';
+    saveDvrReportSettings().then(function(){
+      img.onload = function(){ if (st) st.textContent = 'Preview atualizado.'; };
+      img.onerror = function(){ if (st) st.textContent = 'Erro ao gerar preview.'; };
+      img.src = buildDvrReportUrl('/api/dvr/report/preview.jpg');
+    });
+  }
+  function closeDvrPreview(){ var b = byId('dvr-report-backdrop'); if (b) b.style.display = 'none'; }
+  function openDvrPreview(){
+    var b = byId('dvr-report-backdrop');
+    var st = byId('dvr-report-status');
+    if (!b) return;
+    b.style.display = 'flex';
+    if (st) st.textContent = 'Carregando configuracoes...';
+    fetch('/api/dvr/report/settings?_=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        var el = byId('dvr-report-company');
+        if (el && j && j.company_name) el.value = String(j.company_name);
+        if (st) st.textContent = (j && j.has_logo) ? 'Logo carregada.' : 'Sem logo. Envie uma imagem.';
+      })
+      .catch(function(){ if (st) st.textContent = 'Falha ao carregar configuracoes.'; })
+      .finally(refreshDvrPreview);
+  }
+
+  function saveDvrEdits(){
+    var rows = Array.from(document.querySelectorAll('#dvr-body tr'));
+    var selected = rows.filter(function(tr){
+      var cb = tr.querySelector('input.dvr-select');
+      return !!(cb && cb.checked);
+    });
+    if (!selected.length) {
+      alert('Selecione pelo menos 1 canal para salvar.');
+      return;
+    }
+    if (typeof openSnapshotCredModal !== 'function') {
+      alert('Modal de credenciais indisponivel.');
+      return;
+    }
+    openSnapshotCredModal(
+      trim((byId('dvr-user') || {}).value || 'admin') || 'admin',
+      trim((byId('dvr-ip') || {}).value || ''),
+      'salvar edicoes dos canais DVR',
+      function(user, pass){
+        (async function(){
+          var ok = 0, fail = 0, localOk = 0, localFail = 0;
+          setRunStatus('Salvando edicoes dos canais selecionados...');
+          for (var i = 0; i < selected.length; i++) {
+            var tr = selected[i];
+            var host = trim(tr.dataset.host || '');
+            var channel = parseInt(tr.dataset.channel || '0', 10) || 0;
+            var input = tr.querySelector('.dvr-title-input');
+            var title = trim((input && input.value) || '');
+            var inputLocal = tr.querySelector('.dvr-local-input');
+            var local = trim((inputLocal && inputLocal.value) || '');
+            var titleOrig = trim(tr.dataset.title || '');
+            var localOrig = trim(tr.dataset.local || '');
+            var portCell = (tr.cells && tr.cells[1]) ? trim(tr.cells[1].textContent || '') : '';
+            var port = 80;
+            if (portCell.indexOf(':') >= 0) {
+              var p = parseInt(portCell.split(':')[1] || '80', 10);
+              if (!isNaN(p) && p > 0) port = p;
+            }
+            if (!host || !channel) { fail++; continue; }
+            if (local !== localOrig) {
+              try {
+                var rLocal = await fetch('/api/dvr/channel/local', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ip: host,
+                    http_port: port,
+                    channel: channel,
+                    local: local
+                  })
+                });
+                var jLocal = await rLocal.json().catch(function(){ return {}; });
+                if (!rLocal.ok || !jLocal || jLocal.ok !== true) throw new Error((jLocal && (jLocal.detail || jLocal.error)) || ('HTTP ' + rLocal.status));
+                localOk++;
+              } catch (e) {
+                localFail++;
+              }
+            }
+            if (title && title !== titleOrig) {
+              try {
+                var r = await fetch('/api/dvr/channel/rename', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    ip: host,
+                    user: trim(user || '') || 'admin',
+                    password: String(pass || ''),
+                    http_port: port,
+                    channel: channel,
+                    title: title,
+                    timeout_sec: parseFloat((byId('dvr-timeout') || {}).value || '6') || 6
+                  })
+                });
+                var j = await r.json().catch(function(){ return {}; });
+                if (!r.ok || !j || j.ok !== true) throw new Error((j && (j.detail || j.error)) || ('HTTP ' + r.status));
+                ok++;
+              } catch (e) {
+                fail++;
+              }
+            }
+          }
+          setRunStatus('Edicao concluida. Titulo OK: ' + ok + ' | Titulo Erros: ' + fail + ' | Local OK: ' + localOk + ' | Local Erros: ' + localFail);
+          setDvrEditMode(false);
+          refreshInventorySoon();
+        })();
+      }
+    );
+  }
+
+  function initFilterUI(){
+    var sel = byId('dvr-filter');
+    var btn = byId('dvr-filter-btn');
+    var menu = byId('dvr-filter-menu');
+    var dd = byId('dvr-filter-dd');
+    var siteSel = byId('dvr-site');
+    var siteBtn = byId('dvr-site-btn');
+    var siteMenu = byId('dvr-site-menu');
+    var siteDd = byId('dvr-site-dd');
+    function setBtnLabel(){
+      var opt = sel && sel.querySelector('option[value="' + sel.value + '"]');
+      if (btn && btn.childNodes && btn.childNodes.length) btn.childNodes[0].nodeValue = ((opt ? opt.textContent : 'Todas') + ' ');
+    }
+    function setSiteBtnLabel(){
+      var opt = siteSel && siteSel.querySelector('option[value="' + siteSel.value + '"]');
+      if (siteBtn && siteBtn.childNodes && siteBtn.childNodes.length) siteBtn.childNodes[0].nodeValue = ((opt ? opt.textContent : 'Todos os sites') + ' ');
+    }
+    window.dvrSetSiteBtnLabel = setSiteBtnLabel;
+    function open(){ if(menu){ menu.hidden=false; if(btn) btn.setAttribute('aria-expanded','true'); } }
+    function close(){ if(menu){ menu.hidden=true; if(btn) btn.setAttribute('aria-expanded','false'); } }
+    function openSite(){ if(siteMenu){ siteMenu.hidden=false; if(siteBtn) siteBtn.setAttribute('aria-expanded','true'); } }
+    function closeSite(){ if(siteMenu){ siteMenu.hidden=true; if(siteBtn) siteBtn.setAttribute('aria-expanded','false'); } }
+    if (btn) btn.addEventListener('click', function(){ if(menu && menu.hidden) open(); else close(); });
+    if (siteBtn) siteBtn.addEventListener('click', function(){ if(siteMenu && siteMenu.hidden) openSite(); else closeSite(); });
+    if (menu) menu.addEventListener('click', function(e){
+      var item = e.target.closest('.inv-dd-item');
+      if(!item || !sel) return;
+      sel.value = item.getAttribute('data-value') || 'all';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      setBtnLabel();
+      close();
+    });
+    if (siteMenu) siteMenu.addEventListener('click', function(e){
+      var item = e.target.closest('.inv-dd-item');
+      if(!item || !siteSel) return;
+      siteSel.value = item.getAttribute('data-value') || '';
+      siteSel.dispatchEvent(new Event('change', { bubbles: true }));
+      setSiteBtnLabel();
+      closeSite();
+    });
+    document.addEventListener('click', function(e){
+      if(dd && dd.contains(e.target)) return;
+      if(siteDd && siteDd.contains(e.target)) return;
+      close();
+      closeSite();
+    });
+    document.addEventListener('keydown', function(e){ if(e.key === 'Escape') { close(); closeSite(); } });
+    if (sel) sel.addEventListener('change', function(){ dvrFilterMode = trim(sel.value) || 'all'; applyFilters(); });
+    setBtnLabel();
+    setSiteBtnLabel();
+  }
+
+  function initEvents(){
+    var form = byId('dvr-scan-form');
+    if (form) form.addEventListener('submit', runScan);
+    var reload = byId('btn-dvr-reload');
+    if (reload) reload.addEventListener('click', fetchInventory);
+    var reloadLeft = byId('btn-dvr-refresh-left');
+    if (reloadLeft) reloadLeft.addEventListener('click', function(ev){
+      if(ev) ev.preventDefault();
+      var payload = {
+        ip: trim((byId('dvr-ip') || {}).value || ''),
+        http_port: parseInt((byId('dvr-port') || {}).value || '80', 10) || 80,
+        set_local: !!(byId('dvr-opt-set-local') && byId('dvr-opt-set-local').checked),
+        local: trim((byId('dvr-local-name') || {}).value || '')
+      };
+      var reuse = !!(byId('dvr-opt-reuse') && byId('dvr-opt-reuse').checked);
+      var doImgBB = !!(byId('dvr-opt-imgbb') && byId('dvr-opt-imgbb').checked);
+      var applyLocalPromise = Promise.resolve();
+      if (payload.set_local && payload.local) {
+        setRunStatus('Atualizar inventario: aplicando local...');
+        applyLocalPromise = fetch('/api/dvr/local/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ip: payload.ip,
+            http_port: payload.http_port,
+            local: payload.local
+          })
+        })
+        .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+        .then(function(o){
+          if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.detail || o.j.error)) || 'falha ao aplicar local');
+          setRunStatus('Local aplicado em ' + (o.j.updated_rows || 0) + ' canal(is).');
+        });
+      }
+      applyLocalPromise
+      .then(function(){
+      if (reuse && doImgBB) {
+        setRunStatus('Atualizar inventario (reuse + ImgBB): enviando snapshots...');
+        startImgbbProgressPolling('ImgBB (reuse)');
+        fetch('/api/dvr/imgbb/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+          .then(function(o){
+            if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.error || o.j.detail)) || 'falha no upload ImgBB');
+            refreshInventorySoon();
+            var msg = 'ImgBB (reuse) enviado: ' + (o.j.uploaded || 0);
+            if (o.j.error) msg += ' (erro: ' + o.j.error + ')';
+            setRunStatus(msg);
+          })
+          .catch(function(e){
+            setRunStatus('Erro ImgBB (reuse): ' + ((e && e.message) ? e.message : e));
+            refreshInventorySoon();
+          })
+          .finally(function(){
+            stopImgbbProgressPolling();
+          });
+      } else {
+        refreshInventorySoon();
+      }
+      })
+      .catch(function(e){
+        setRunStatus('Erro ao aplicar local: ' + ((e && e.message) ? e.message : e));
+        refreshInventorySoon();
+      });
+    });
+    var clear = byId('btn-dvr-clear');
+    if (clear) clear.addEventListener('click', clearInventory);
+    var btnImgBB = byId('btn-dvr-imgbb');
+    if (btnImgBB) btnImgBB.addEventListener('click', uploadDvrImgBB);
+    var btnPdf = byId('btn-dvr-pdf');
+    if (btnPdf) btnPdf.addEventListener('click', exportDvrPdfReport);
+    var btnPdfPrev = byId('btn-dvr-pdf-preview');
+    if (btnPdfPrev) btnPdfPrev.addEventListener('click', openDvrPreview);
+    var repClose = byId('dvr-report-close');
+    if (repClose) repClose.addEventListener('click', closeDvrPreview);
+    var repBack = byId('dvr-report-backdrop');
+    if (repBack) repBack.addEventListener('click', function(ev){ if (ev && ev.target === repBack) closeDvrPreview(); });
+    var repRefresh = byId('btn-dvr-report-refresh');
+    if (repRefresh) repRefresh.addEventListener('click', function(ev){ if(ev) ev.preventDefault(); refreshDvrPreview(); });
+    var repDownload = byId('btn-dvr-report-download');
+    if (repDownload) repDownload.addEventListener('click', function(ev){ if(ev) ev.preventDefault(); saveDvrReportSettings().then(exportDvrPdfReport); });
+    var repPick = byId('btn-dvr-report-logo-pick');
+    var repFile = byId('dvr-report-logo-file');
+    var repName = byId('dvr-report-logo-name');
+    if (repPick && repFile) repPick.addEventListener('click', function(ev){ if(ev) ev.preventDefault(); repFile.click(); });
+    if (repFile) repFile.addEventListener('change', function(){
+      var f = (repFile.files && repFile.files[0]) ? repFile.files[0] : null;
+      if (repName) repName.textContent = f ? String(f.name) : 'Nenhum arquivo';
+    });
+    var repUpload = byId('btn-dvr-report-logo-upload');
+    if (repUpload && repFile) repUpload.addEventListener('click', function(ev){
+      if(ev) ev.preventDefault();
+      var st = byId('dvr-report-status');
+      var f = (repFile.files && repFile.files[0]) ? repFile.files[0] : null;
+      if (!f){ if (st) st.textContent = 'Escolha um arquivo de logo primeiro.'; return; }
+      var form = new FormData();
+      form.append('file', f);
+      if (st) st.textContent = 'Enviando logo...';
+      fetch('/api/dvr/report/logo', { method: 'POST', body: form })
+        .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return {ok:r.ok,j:j}; }); })
+        .then(function(o){
+          if (!o.ok || !o.j || o.j.ok !== true) throw new Error((o.j && (o.j.detail || o.j.error)) || 'falha no upload');
+          if (st) st.textContent = 'Logo enviada com sucesso.';
+          refreshDvrPreview();
+        })
+        .catch(function(e){ if (st) st.textContent = 'Erro no upload da logo: ' + ((e && e.message) ? e.message : e); });
+    });
+    var btnEdit = byId('btn-dvr-edit');
+    if (btnEdit) btnEdit.addEventListener('click', function(){ setDvrEditMode(true); });
+    var btnSave = byId('btn-dvr-save');
+    if (btnSave) btnSave.addEventListener('click', saveDvrEdits);
+    var btnCancel = byId('btn-dvr-cancel');
+    if (btnCancel) btnCancel.addEventListener('click', function(){ setDvrEditMode(false); refreshInventorySoon(); });
+    var btnApplyLocal = byId('btn-dvr-apply-local');
+    if (btnApplyLocal) btnApplyLocal.addEventListener('click', applyBatchLocalToSelected);
+
+    var selectAll = byId('dvr-select-all');
+    if (selectAll) selectAll.addEventListener('change', function(e){
+      Array.from(document.querySelectorAll('#dvr-body input.dvr-select')).forEach(function(cb){ cb.checked = !!e.target.checked; });
+    });
+
+    var search = byId('dvr-search');
+    if (search) search.addEventListener('input', applyFilters);
+    var siteSel = byId('dvr-site');
+    if (siteSel) siteSel.addEventListener('change', function(){
+      dvrCurrentSite = trim(siteSel.value || '');
+      fetchInventory();
+    });
+    var searchClear = byId('dvr-search-clear');
+    if (searchClear) searchClear.addEventListener('click', function(){ if(search){ search.value=''; applyFilters(); } });
+
+    var optReuse = byId('dvr-opt-reuse');
+    var btnRefreshLeft = byId('btn-dvr-refresh-left');
+    if (btnRefreshLeft && optReuse) {
+      btnRefreshLeft.disabled = !optReuse.checked;
+      optReuse.addEventListener('change', function(){
+        btnRefreshLeft.disabled = !optReuse.checked;
+      });
+    }
+    var optOnlyOnline = byId('dvr-opt-only-online');
+    if (optOnlyOnline) optOnlyOnline.addEventListener('change', applyPostLoadOptions);
+    var optHideSem = byId('dvr-opt-hide-sem-camera');
+    if (optHideSem) optHideSem.addEventListener('change', applyPostLoadOptions);
+    var optSetLocal = byId('dvr-opt-set-local');
+    var localField = byId('dvr-local-field');
+    if (optSetLocal && localField) {
+      var syncLocal = function(){ localField.style.display = optSetLocal.checked ? 'block' : 'none'; };
+      optSetLocal.addEventListener('change', syncLocal);
+      syncLocal();
+    }
+
+  }
+
+  function initDvrImgBBSettingsInline(){
+    var optImgBB = byId('dvr-opt-imgbb');
+    var optReuse = byId('dvr-opt-reuse');
+    var panel = byId('dvr-imgbb-settings-panel');
+    if (!optImgBB || !optReuse || !panel) return;
+
+    var viewConfigured = byId('dvr-imgbb-settings-view-configured');
+    var viewEdit = byId('dvr-imgbb-settings-view-edit');
+    var pill = byId('dvr-imgbb-configured-pill');
+    var maskedEl = byId('dvr-imgbb-key-masked');
+    var statusEl = byId('dvr-imgbb-settings-status');
+    var inputEl = byId('dvr-imgbb-api-key');
+    var btnSave = byId('btn-dvr-imgbb-save');
+    var btnTest = byId('btn-dvr-imgbb-test');
+    var btnEdit = byId('btn-dvr-imgbb-edit');
+
+    function setBusy(on){
+      var b = !!on;
+      if (btnSave) btnSave.disabled = b;
+      if (btnTest) btnTest.disabled = b;
+      if (btnEdit) btnEdit.disabled = b;
+    }
+    function setStatus(msg){ if (statusEl) statusEl.innerHTML = msg || ''; }
+    function showConfigured(masked){
+      if (viewConfigured) viewConfigured.style.display = '';
+      if (viewEdit) viewEdit.style.display = 'none';
+      if (pill) pill.style.display = '';
+      if (maskedEl) maskedEl.textContent = masked || '****';
+      setStatus('');
+    }
+    function showEdit(){
+      if (viewConfigured) viewConfigured.style.display = 'none';
+      if (viewEdit) viewEdit.style.display = '';
+      if (pill) pill.style.display = 'none';
+      setStatus('');
+      if (inputEl) inputEl.value = '';
+    }
+    function showNotConfigured(){
+      if (viewConfigured) viewConfigured.style.display = 'none';
+      if (viewEdit) viewEdit.style.display = '';
+      if (pill) pill.style.display = 'none';
+    }
+    function renderState(s){
+      if (s && s.configured) showConfigured(s.masked || '****');
+      else showNotConfigured();
+    }
+    function postJson(url, payload){
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+      }).then(function(r){ return r.json().catch(function(){ return {}; }); });
+    }
+    function loadState(){
+      setBusy(true);
+      return fetch('/api/settings/imgbb')
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .then(function(data){ renderState(data || {}); })
+        .catch(function(){ showNotConfigured(); })
+        .finally(function(){ setBusy(false); });
+    }
+    function handleTest(){
+      var key = trim((inputEl && inputEl.value) || '');
+      if (!key){ setStatus('Informe a API key do ImgBB.'); return; }
+      setBusy(true);
+      setStatus('Testando chave...');
+      postJson('/api/settings/imgbb/test', { api_key: key })
+        .then(function(data){
+          if (data && data.ok) setStatus('<span style=\"color:#22c55e\">Chave valida.</span>');
+          else setStatus('Falha no teste: ' + ((data && data.message) || 'erro'));
+        })
+        .catch(function(){ setStatus('Falha no teste da chave.'); })
+        .finally(function(){ setBusy(false); });
+    }
+    function handleSave(){
+      var key = trim((inputEl && inputEl.value) || '');
+      if (!key){ setStatus('Informe a API key do ImgBB.'); return; }
+      setBusy(true);
+      setStatus('Salvando...');
+      postJson('/api/settings/imgbb', { api_key: key, validate: true })
+        .then(function(data){
+          if (data && data.ok) {
+            setStatus('<span style=\"color:#22c55e\">API key salva com sucesso.</span>');
+            showConfigured((data.masked || '****'));
+          } else {
+            setStatus('Falha ao salvar: ' + ((data && data.message) || 'erro'));
+          }
+        })
+        .catch(function(){ setStatus('Falha ao salvar API key.'); })
+        .finally(function(){ setBusy(false); });
+    }
+    function syncVisibility(){
+      var show = !!(optImgBB.checked && optReuse.checked);
+      panel.style.display = show ? '' : 'none';
+      if (show) loadState();
+    }
+
+    if (btnEdit) btnEdit.addEventListener('click', function(){ showEdit(); });
+    if (btnTest) btnTest.addEventListener('click', function(){ handleTest(); });
+    if (btnSave) btnSave.addEventListener('click', function(){ handleSave(); });
+    optImgBB.addEventListener('change', syncVisibility);
+    optReuse.addEventListener('change', syncVisibility);
+    syncVisibility();
+  }
+
+  initFilterUI();
+  initEvents();
+  initDvrImgBBSettingsInline();
+  loadSiteOptions().finally(function(){ fetchInventory(); });
+})();
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

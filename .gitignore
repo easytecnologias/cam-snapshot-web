@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+_tmp_pycache_validate/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Logs
+*.log
+
+# Local configuration and secrets
+*.env
+.env.*
+*.ini
+*.local
+!.env.example
+!.env.*.example
+
+# Editors
+.vscode/
+.idea/
+*.code-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime data and generated artifacts
+data/
+output/
+saida/
+/package-lock.json
+*.xlsx
+*.csv
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.kmz
+*.geojson
+*.bin
+!app/services/camsnapshot/assets/
+!app/services/camsnapshot/assets/**
+
+# Archives and deploy bundles
+*.tar
+*.tar.gz
+*.zip
+
+# Tool caches
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# Backups and temporary files
+*.bak
+*.bak-*
+*.backup
+*_backup_*
+_server_backup_*
+_tmp_*
+*~

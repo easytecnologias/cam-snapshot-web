@@ -1,0 +1,3 @@
+- Não commitar `.env` nem tokens reais.
+- Rotacione chaves se já vazaram (ImgBB/Telegram).
+- Em CI/CD, injete segredos via variáveis do provedor (Secrets).

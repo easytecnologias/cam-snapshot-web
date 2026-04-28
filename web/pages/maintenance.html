@@ -1,0 +1,480 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>SightOps - Operacoes</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<link rel="stylesheet" href="/static/style.css?v=88" />
+</head>
+<body>
+
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div style="display:flex; flex-direction:column; min-width:0;">
+      <div class="topbar-title">SightOps - Operacoes</div>
+      <div class="topbar-sub">Manutencao e automacoes</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9728;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand">
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Console</span>
+        <div class="title-main" style="margin-top:10px;">Operacoes de CFTV</div>
+        <div class="title-sub">Visao operacional das cameras (cards + snapshots)</div>
+      </div>
+    </div>
+  </div>
+
+  <nav>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch Gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="inventory" aria-expanded="false">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory" hidden>
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+            <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+<button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+<a class="nav-subitem" href="kmz.html">Mapas</a>
+<a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="operations" aria-expanded="true">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations">
+      <a class="nav-subitem active" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+</nav>
+</header>
+
+<main>
+  <section class="tab-view active" id="tab-maintenance">
+    <div class="card">
+      <div class="maint-toolbar maint-toolbar-compact">
+        <div class="maint-toolbar-left">
+          <div class="field w-240">
+            <label for="maintenance-search">Buscar</label>
+            <input id="maintenance-search" type="text" placeholder="IP, nome, modelo, MAC..." />
+          </div>
+
+          <div class="field w-160">
+            <label for="maintenance-filter">Filtro</label>
+            <select id="maintenance-filter">
+              <option value="all">Todas</option>
+              <option value="online">Ativas (online)</option>
+              <option value="offline">Inativas (offline)</option>
+            </select>
+          </div>
+          <div class="field w-160">
+            <label for="maintenance-source">Base</label>
+            <select id="maintenance-source">
+              <option value="olt">OLT</option>
+              <option value="switch">Switch</option>
+            </select>
+          </div>
+          <div class="field w-180">
+            <label for="maintenance-site">Site</label>
+            <select id="maintenance-site">
+              <option value="">Todos os sites</option>
+            </select>
+          </div>
+
+          <div class="field w-170">
+            <label for="maintenance-refresh">Auto-atualizar</label>
+            <select id="maintenance-refresh">
+              <option value="">Off</option>
+              <option value="5000">5s</option>
+              <option value="10000">10s</option>
+              <option value="30000">30s</option>
+              <option value="60000">1m</option>
+            </select>
+          </div>
+
+          <div class="field w-180">
+            <label for="maintenance-pingmode">Modo Ping</label>
+            <select id="maintenance-pingmode">
+              <option value="light">Leve (90s)</option>
+              <option value="normal" selected>Normal (30s)</option>
+              <option value="fast">Rapido (10s)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="maint-toolbar-right">
+          <div class="field w-140">
+            <label for="maintenance-user">Usuario</label>
+            <input id="maintenance-user" type="text" placeholder="admin" />
+          </div>
+          <div class="field w-160">
+            <label for="maintenance-pass">Senha</label>
+            <input id="maintenance-pass" type="password" placeholder="" />
+          </div>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-reload">Atualizar agora</button>
+
+          <button type="button" class="btn-primary btn-small" id="maintenance-batch">Acoes em lote</button>
+
+          <div class="pill small">
+            <div class="pill-dot"></div>
+            <span>Cameras: <strong id="maintenance-count">0</strong></span><span id="maintenance-progress" class="muted" style="margin-left:10px;font-size:12px;"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="maint-flowbar">
+        <div class="maint-flow-left">
+          <div class="pill small"><span>Exibindo: <strong id="maintenance-visible-count">0</strong></span></div>
+          <div class="pill small"><span>Selecionadas: <strong id="maintenance-selected-inline">0</strong></span></div>
+        </div>
+        <div class="maint-flow-right">
+          <button type="button" class="btn-secondary btn-small" id="maintenance-select-visible">Selecionar visiveis</button>
+          <button type="button" class="btn-secondary btn-small" id="maintenance-select-online">Selecionar online</button>
+          <button type="button" class="btn-primary btn-small" id="maintenance-open-batch" disabled>Abrir lote</button>
+        </div>
+      </div>
+
+      <div class="maint-guide" id="maint-guide">
+        <div class="maint-guide-item" id="maint-guide-step1">
+          <span class="dot"></span>
+          1) Selecionar cameras
+          <strong id="maint-guide-sel">0</strong>
+        </div>
+        <div class="maint-guide-item" id="maint-guide-step2">
+          <span class="dot"></span>
+          2) Credenciais
+          <strong id="maint-guide-cred">pendente</strong>
+        </div>
+        <div class="maint-guide-item" id="maint-guide-step3">
+          <span class="dot"></span>
+          3) Acao
+          <strong id="maint-guide-action">rename</strong>
+        </div>
+      </div>
+
+      <div class="maint-console" id="maint-console">
+        <div class="maint-console-head">
+          <div class="maint-console-title">Console de execucao</div>
+          <button type="button" class="btn-secondary btn-small" id="maint-console-clear">Limpar console</button>
+        </div>
+        <pre class="maint-console-body" id="maint-console-log">Pronto.</pre>
+      </div>
+
+      <!-- Barra de selecao em lote (aparece quando h selecao) -->
+      <div id="maint-batchbar" class="maint-batchbar" style="display:none;">
+        <div class="maint-batchbar-left">
+          <strong id="maint-selected-count">0</strong> selecionadas
+          <button type="button" class="btn-secondary btn-small" id="maint-select-all">Selecionar tudo (filtro atual)</button>
+          <button type="button" class="btn-secondary btn-small" id="maint-clear-selection">Limpar selecao</button>
+        </div>
+        <div class="maint-batchbar-right">
+          <button type="button" class="btn-secondary btn-small" data-batch-action="rename">Renomear</button>
+          <button type="button" class="btn-secondary btn-small" data-batch-action="password">Trocar senha</button>
+          <button type="button" class="btn-secondary btn-small" data-batch-action="ip">Trocar IP</button>
+          <button type="button" class="btn-secondary btn-small" data-batch-action="ntp">NTP</button>
+          <button type="button" class="btn-danger btn-small" data-batch-action="reboot">Reboot</button>
+        </div>
+      </div>
+
+      <!-- Contadores estilo Grafana (geral, nao muda com filtro/busca) -->
+      <div class="maint-stats" style="margin-top:14px; margin-bottom:14px;">
+        <div class="maint-stat" id="maint-stat-online-card">
+          <div class="maint-stat-title">CAMERAS ONLINE</div>
+          <div class="maint-stat-value" id="maint-stat-online">0</div>
+        </div>
+        <div class="maint-stat" id="maint-stat-offline-card">
+          <div class="maint-stat-title">CAMERAS OFFLINE</div>
+          <div class="maint-stat-value" id="maint-stat-offline">0</div>
+        </div>
+        <div class="maint-stat" id="maint-stat-total-card">
+          <div class="maint-stat-title">TOTAL DE CAMERAS</div>
+          <div class="maint-stat-value" id="maint-stat-total">0</div>
+        </div>
+      </div>
+
+      <div id="maintenance-empty" class="muted" style="font-size:12px; display:none; margin-top:12px;">
+        Nenhuma camera para mostrar. Abra a aba <strong>Inventario</strong> (ou <strong>Fotos</strong>) para gerar o cache.
+      </div>
+
+      <div id="maintenance-grid" class="maint-grid" style="margin-top:12px;"></div>
+    </div>
+  </section>
+
+  <!-- Modal: Acoes em lote -->
+  <div id="maint-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Manutencao  Acoes em lote</div>
+          <div class="modal-sub" id="maint-modal-sub">Selecione as cameras no grid e execute uma aao.</div>
+        </div>
+        <button type="button" class="modal-close" id="maint-modal-close">x</button>
+      </div>
+
+      <div class="modal-tabs" id="maint-modal-tabs">
+        <button type="button" class="tab active" data-tab="rename">Renomear</button>
+        <button type="button" class="tab" data-tab="password">Trocar senha</button>
+        <button type="button" class="tab" data-tab="ip">Trocar IP</button>
+        <button type="button" class="tab" data-tab="ntp">NTP</button>
+        <button type="button" class="tab" data-tab="reboot">Reboot</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Renomear -->
+        <div class="modal-panel" data-panel="rename">
+          <div class="field">
+            <label>Modo</label>
+            <select id="batch-rename-mode">
+              <option value="inventory">Usar o campo <strong>titulo</strong> do inventario</option>
+              <option value="prefix">Prefixo + naomero</option>
+            </select>
+          </div>
+          <div id="batch-rename-prefix-wrap" style="display:none;" class="grid-2">
+            <div class="field">
+              <label for="batch-rename-prefix">Prefixo</label>
+              <input id="batch-rename-prefix" type="text" placeholder="EX: BLOCO3-" />
+            </div>
+            <div class="field">
+              <label for="batch-rename-start">InAcio</label>
+              <input id="batch-rename-start" type="number" value="1" min="0" />
+            </div>
+          </div>
+          <div class="muted" style="font-size:12px; margin-top:8px;">
+            Dica: o renomear usa a HTTP API Dahua/Intelbras (<code>configManager.cgi</code>) e aplica no <strong>canal 1</strong>.
+          </div>
+        </div>
+
+        <!-- Trocar senha -->
+        <div class="modal-panel" data-panel="password" style="display:none;">
+          <div class="grid-2">
+            <div class="field">
+              <label for="batch-old-pass">Senha antiga</label>
+              <input id="batch-old-pass" type="password" placeholder="senha atual" />
+            </div>
+            <div class="field">
+              <label for="batch-new-pass">Senha nova</label>
+              <input id="batch-new-pass" type="password" placeholder="nova senha" />
+            </div>
+          </div>
+          <div class="muted" style="font-size:12px; margin-top:8px;">
+            Intelbras/Dahua: usa <code>userManager.cgi?action=modifyPassword</code>.
+          </div>
+        </div>
+
+
+        <!-- Trocar IP -->
+        <div class="modal-panel" data-panel="ip" style="display:none;">
+          <div class="muted" style="font-size:12px; margin-bottom:10px;">
+            Trocar IP pode desconectar a camera do IP antigo. Garanta que o IP novo esteja livre e na mesma rede.
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+			  <label for="batch-ip-mask">MAscara (opcional)</label>
+			  <input id="batch-ip-mask" type="text" placeholder="deixe vazio para manter a atual (ex: 255.255.252.0)" />
+            </div>
+            <div class="field">
+			  <label for="batch-ip-gw">Gateway (opcional)</label>
+			  <input id="batch-ip-gw" type="text" placeholder="deixe vazio para manter o atual" />
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="batch-ip-dns1">DNS 1 (opcional)</label>
+              <input id="batch-ip-dns1" type="text" placeholder="ex: 8.8.8.8" />
+            </div>
+            <div class="field">
+              <label for="batch-ip-dns2">DNS 2 (opcional)</label>
+              <input id="batch-ip-dns2" type="text" placeholder="ex: 1.1.1.1" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="batch-ip-map">Mapa (IP atual a IP novo)</label>
+            <textarea id="batch-ip-map" style="width:100%; min-height:120px;" placeholder="10.10.11.55=10.10.11.155
+10.10.11.56=10.10.11.156
+
+Dica: voce pode usar = , ; ou espaco como separador."></textarea>
+          </div>
+
+		  <div class="muted" style="font-size:12px; margin-top:8px;">
+			Intelbras/Dahua: usa <code>configManager.cgi?action=setConfig</code> com <code>table.Network.eth0</code> e autenticacao <b>Digest</b> (ex.: VIP-1230-B-G4).
+		  </div>
+        </div>
+
+        <!-- NTP -->
+        <div class="modal-panel" data-panel="ntp" style="display:none;">
+          <div class="grid-2">
+            <div class="field">
+              <label for="batch-ntp-server">Servidor NTP</label>
+              <input id="batch-ntp-server" type="text" value="pool.ntp.org" />
+            </div>
+            <div class="field">
+              <label for="batch-ntp-port">Porta</label>
+              <input id="batch-ntp-port" type="number" value="123" min="1" max="65535" />
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="batch-ntp-timezone">Fuso</label>
+              <select id="batch-ntp-timezone">
+                <option value="22" selected>GMT-03:00 (Brasil)</option>
+                <option value="21">GMT-02:00</option>
+                <option value="24">GMT-04:00</option>
+                <option value="3">GMT+03:00</option>
+                <option value="0">GMT+00:00</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="batch-ntp-period">Atualizar a cada (min)</label>
+              <input id="batch-ntp-period" type="number" value="60" min="0" max="65535" />
+            </div>
+          </div>
+          <div class="muted" style="font-size:12px; margin-top:8px;">
+            Usa <code>configManager.cgi?action=setConfig</code> com <code>NTP.Address</code>, <code>NTP.Enable</code>, <code>NTP.TimeZone</code>.
+          </div>
+        </div>
+
+        <!-- Reboot -->
+        <div class="modal-panel" data-panel="reboot" style="display:none;">
+          <div class="muted" style="font-size:12px; margin-bottom:8px;">
+            Reboot em lote pode deixar vArias cameras offline por ~1 minuto.
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" id="batch-reboot-confirm" />
+              Confirmo que quero reiniciar as cameras selecionadas
+            </label>
+          </div>
+        </div>
+
+        <hr style="border:0; border-top:1px solid rgba(255,255,255,.08); margin:14px 0;" />
+
+        <div class="modal-actions">
+          <div class="muted" id="maint-modal-selected">0 selecionadas</div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn-secondary" id="maint-modal-cancel">Cancelar</button>
+            <button type="button" class="btn-primary" id="maint-modal-run">Executar</button>
+          </div>
+        </div>
+
+        <div id="maint-modal-results" class="modal-results" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live (RTSP dentro do SightOps-web) -->
+  <div id="maint-live-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal modal-live" id="maint-live-content">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="maint-live-title">Live</div>
+          <div class="modal-sub" id="maint-live-sub">RTSP a MJPEG (browser)</div>
+        </div>
+        <div class="live-header-actions">
+          <button type="button" class="live-nav" id="maint-live-prev" title="Anterior">&lt;</button>
+          <button type="button" class="live-nav" id="maint-live-next" title="Proxima">&gt;</button>
+          <button type="button" class="live-quality" id="maint-live-quality" title="Qualidade (HD/SD)">HD</button>
+          <button type="button" class="live-quality" id="maint-live-ptz-toggle" title="Mostrar/ocultar PTZ">PTZ</button>
+          <button type="button" class="live-zoom" id="maint-live-zoomout" title="Zoom -">-</button>
+          <button type="button" class="live-zoom" id="maint-live-zoomin" title="Zoom +">+</button>
+          <button type="button" class="live-zoom" id="maint-live-zoomreset" title="Reset zoom">100%</button>
+          <button type="button" class="live-fullscreen" id="maint-live-fullscreen" title="Fullscreen">[]</button>
+
+          <button type="button" class="modal-close" id="maint-live-close">x</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="muted" id="maint-live-hint" style="margin-bottom:10px;">
+          O SightOps converte a camera no servidor; nenhum computador precisa instalar codec ou extensao.
+        </div>
+        <div class="live-player" id="maint-live-player">
+          <img id="maint-live-img" alt="Live" />
+          <div id="maint-live-ptz" class="maint-live-ptz" style="display:none;">
+            <div class="maint-live-ptz-head">
+              <strong>PTZ</strong>
+              <span class="muted" id="maint-live-ptz-status">Detectando...</span>
+            </div>
+            <div class="maint-live-ptz-grid">
+              <button type="button" class="live-ptz-btn" id="maint-ptz-up" title="Cima">&#9650;</button>
+              <button type="button" class="live-ptz-btn" id="maint-ptz-left" title="Esquerda">&#9664;</button>
+              <button type="button" class="live-ptz-btn" id="maint-ptz-stop" title="Parar">S</button>
+              <button type="button" class="live-ptz-btn" id="maint-ptz-right" title="Direita">&#9654;</button>
+              <button type="button" class="live-ptz-btn" id="maint-ptz-down" title="Baixo">&#9660;</button>
+            </div>
+            <div class="maint-live-ptz-zoom">
+              <button type="button" class="live-ptz-btn" id="maint-ptz-zoomin" title="Zoom in">+</button>
+              <button type="button" class="live-ptz-btn" id="maint-ptz-zoomout" title="Zoom out">-</button>
+              <input id="maint-ptz-speed" type="range" min="1" max="8" value="4" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/static/app.js?v=96"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
