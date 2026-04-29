@@ -716,18 +716,6 @@ def _query_terms(query: str) -> List[str]:
         terms.append(aliases.get(part, part))
     if wants_person and "pessoa" not in terms:
         terms.append("pessoa")
-    if wants_person:
-        color_to_shirt = {
-            "vermelho": "camisa_vermelho",
-            "azul": "camisa_azul",
-            "branco": "camisa_branco",
-            "preto": "camisa_preto",
-            "amarelo": "camisa_amarelo",
-        }
-        for color, shirt in color_to_shirt.items():
-            if color in terms and shirt not in terms:
-                terms.append(shirt)
-        terms = [term for term in terms if term not in color_to_shirt]
     return terms
 
 
@@ -750,7 +738,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
                 _safe_text(row.get("notes")).lower(),
             ]
         )
-        required_terms = [term for term in terms if term == "pessoa" or term.startswith("camisa_")]
+        required_terms = [term for term in terms if term == "pessoa"]
         if required_terms and any(term not in hay for term in required_terms):
             continue
         score = 0.0
