@@ -72,6 +72,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/maintenance/", "operator"),
             (("POST",), "/api/dvr/", "operator"),
             (("POST",), "/api/nvr/", "operator"),
+            (("POST",), "/api/ia/", "operator"),
         ]
 
     def _is_public_path(self, path: str) -> bool:

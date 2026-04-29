@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,7 @@ from app.api.endpoints import (
     ws_router,
     dvr_router,
     nvr_router,
+    ia_router,
     database_router,
 )
 
@@ -66,6 +67,7 @@ app.include_router(switch_router)
 app.include_router(ws_router)
 app.include_router(dvr_router)
 app.include_router(nvr_router)
+app.include_router(ia_router)
 app.include_router(database_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
@@ -140,6 +142,11 @@ def nvr_page() -> FileResponse:
     return FileResponse(WEB_DIR / "nvr.html")
 
 
+@app.get("/ia_nvr.html", include_in_schema=False)
+def ia_nvr_page() -> FileResponse:
+    return FileResponse(WEB_DIR / "ia_nvr.html")
+
+
 @app.get("/discovery.html", include_in_schema=False)
 def discovery_page() -> FileResponse:
     return FileResponse(WEB_DIR / "discovery.html")
@@ -193,8 +200,10 @@ def chrome_devtools_manifest() -> JSONResponse:
 
 
 # Static
+(DATA_DIR / "nvr_ai").mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/saida", StaticFiles(directory=str(SAIDA_DIR)), name="saida")
+app.mount("/data/nvr_ai", StaticFiles(directory=str(DATA_DIR / "nvr_ai")), name="nvr_ai")
 
 # Snapshots: URL estavel /data/snapshot/<arquivo> com fallback entre pastas.
 (DATA_DIR / "snapshot").mkdir(parents=True, exist_ok=True)

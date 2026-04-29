@@ -11,6 +11,7 @@ from .switch import router as switch_router
 from .ws import router as ws_router
 from .dvr import router as dvr_router
 from .nvr import router as nvr_router
+from .ia import router as ia_router
 from .database import router as database_router
 from .auth import router as auth_router
 from .system import router as system_router
