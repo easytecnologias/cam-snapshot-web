@@ -672,6 +672,8 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
+            if source == "fallback" and color in ("preto", "branco", "cinza"):
+                continue
             if color in _CLOTHING_COLORS:
                 part_best = best.setdefault(part, {})
                 part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
