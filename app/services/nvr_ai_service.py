@@ -25,7 +25,7 @@ NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
 NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
-NVR_AI_VISION_VERSION = "yolo_parts_v3_no_fallback"
+NVR_AI_VISION_VERSION = "yolo_parts_v4_dominant_tags"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -952,6 +952,9 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
     if clothing_part:
         if _safe_text(row.get("vision_version")) != NVR_AI_VISION_VERSION:
             return False
+        tags = {_safe_text(t).lower() for t in row.get("tags") or []}
+        if term not in tags:
+            return False
         try:
             part_score = float(scores.get(term) or 0)
         except Exception:
@@ -975,24 +978,17 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             return False
         dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
         return not runner_up or part_score >= runner_up * dominance_margin
-    if term in hay:
-        return True
     try:
         score = float(scores.get(term) or 0)
     except Exception:
         score = 0.0
-    if term in ("verde", "roxo"):
-        return score >= 0.006 or float(scores.get(f"camisa_{term}") or 0) >= 0.012 or float(scores.get(f"movimento_{term}") or 0) >= 0.018
-    if term in ("vermelho", "azul", "amarelo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto"):
-        try:
-            shirt_score = float(scores.get(f"camisa_{term}") or 0)
-        except Exception:
-            shirt_score = 0.0
-        try:
-            motion_score = float(scores.get(f"movimento_{term}") or 0)
-        except Exception:
-            motion_score = 0.0
-        return score >= 0.015 or shirt_score >= 0.025 or motion_score >= 0.018
+    if term in _CLOTHING_COLORS:
+        if _safe_text(row.get("vision_version")) == NVR_AI_VISION_VERSION:
+            tags = {_safe_text(t).lower() for t in row.get("tags") or []}
+            return any(f"{part}_{term}" in tags for part in _CLOTHING_PARTS)
+        return score >= 0.04
+    if term in hay:
+        return True
     return False
 
 
