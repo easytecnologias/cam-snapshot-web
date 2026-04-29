@@ -738,7 +738,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
                 _safe_text(row.get("notes")).lower(),
             ]
         )
-        required_terms = [term for term in terms if term == "pessoa"]
+        required_terms = sorted({term for term in terms if term})
         if required_terms and any(term not in hay for term in required_terms):
             continue
         score = 0.0
