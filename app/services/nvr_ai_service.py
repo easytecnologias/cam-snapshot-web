@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import time
+import colorsys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
@@ -347,6 +348,7 @@ def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List
     pixels = list(im.convert("RGB").getdata())
     total = max(1, len(pixels))
     red = blue = green = yellow = white = black = 0
+    hsv_red = hsv_blue = hsv_green = hsv_yellow = 0
     for r, g, b in pixels:
         if r > 120 and r > g * 1.35 and r > b * 1.35:
             red += 1
@@ -360,17 +362,28 @@ def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List
             white += 1
         if r < 45 and g < 45 and b < 45:
             black += 1
+        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        if s > 0.25 and v > 0.20:
+            if h <= 0.04 or h >= 0.94:
+                hsv_red += 1
+            elif 0.10 <= h <= 0.20:
+                hsv_yellow += 1
+            elif 0.22 <= h <= 0.48:
+                hsv_green += 1
+            elif 0.52 <= h <= 0.75:
+                hsv_blue += 1
     raw_scores = {
-        "vermelho": red / total,
-        "azul": blue / total,
-        "verde": green / total,
-        "amarelo": yellow / total,
+        "vermelho": max(red, hsv_red) / total,
+        "azul": max(blue, hsv_blue) / total,
+        "verde": max(green, hsv_green) / total,
+        "amarelo": max(yellow, hsv_yellow) / total,
         "branco": white / total,
         "preto": black / total,
     }
     for name, score in raw_scores.items():
         scores[name] = round(float(score), 4)
-        if score >= threshold:
+        color_threshold = min(threshold, 0.006) if name == "verde" else threshold
+        if score >= color_threshold:
             tags.append(name)
     return tags, scores
 
@@ -431,13 +444,14 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
-            if color in ("vermelho", "azul", "branco", "preto", "amarelo"):
+            if color in ("vermelho", "azul", "verde", "branco", "preto", "amarelo"):
                 best[color] = max(best.get(color, 0.0), float(score or 0.0))
                 scores[f"camisa_{color}"] = round(best[color], 4)
         if source == "hog":
             scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
     for color, score in best.items():
-        if score >= 0.025:
+        min_score = 0.012 if color == "verde" else 0.025
+        if score >= min_score:
             shirt_tag = f"camisa_{color}"
             if shirt_tag not in tags:
                 tags.append(shirt_tag)
@@ -719,6 +733,25 @@ def _query_terms(query: str) -> List[str]:
     return terms
 
 
+def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
+    if term in hay:
+        return True
+    scores = row.get("scores") or {}
+    try:
+        score = float(scores.get(term) or 0)
+    except Exception:
+        score = 0.0
+    if term == "verde":
+        return score >= 0.006 or float(scores.get("camisa_verde") or 0) >= 0.012
+    if term in ("vermelho", "azul", "amarelo", "branco", "preto"):
+        try:
+            shirt_score = float(scores.get(f"camisa_{term}") or 0)
+        except Exception:
+            shirt_score = 0.0
+        return score >= 0.015 or shirt_score >= 0.025
+    return False
+
+
 def search_events(query: str = "", host: str = "", channel: int = 0, limit: int = 80) -> Dict[str, Any]:
     rows = _load_index()
     terms = _query_terms(query)
@@ -739,7 +772,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
             ]
         )
         required_terms = sorted({term for term in terms if term})
-        if required_terms and any(term not in hay for term in required_terms):
+        if required_terms and any(not _row_has_term(row, term, hay) for term in required_terms):
             continue
         score = 0.0
         for term in terms:
