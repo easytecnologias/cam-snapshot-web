@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import quote
 
+import requests
 from PIL import Image
+from requests.auth import HTTPDigestAuth
 
 from app.core.paths import DATA_DIR, NVR_INVENTORY_JSON_PATH
 from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path
@@ -191,6 +193,116 @@ def _build_rtsp_url(
     )
 
 
+def _parse_dahua_response(text: str) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
+def _dahua_media_find_segments(
+    *,
+    host: str,
+    http_port: int,
+    user: str,
+    password: str,
+    channel: int,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> Dict[str, Any]:
+    base_url = f"http://{host}:{int(http_port)}"
+    auth = HTTPDigestAuth(user, password)
+    session = requests.Session()
+    timeout = (4, 12)
+    token = ""
+    try:
+        create = session.get(
+            f"{base_url}/cgi-bin/mediaFileFind.cgi",
+            params={"action": "factory.create"},
+            auth=auth,
+            timeout=timeout,
+        )
+        if create.status_code in (401, 403):
+            return {"ok": False, "segments": [], "warning": "NVR recusou usuario/senha na API de gravacoes."}
+        create.raise_for_status()
+        token = _parse_dahua_response(create.text).get("result", "")
+        if not token:
+            return {"ok": False, "segments": [], "warning": "NVR nao retornou token de busca de gravacoes."}
+
+        find_params = {
+            "action": "findFile",
+            "object": token,
+            "condition.Channel": int(channel),
+            "condition.StartTime": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "condition.EndTime": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "condition.Types[0]": "dav",
+        }
+        found = session.get(
+            f"{base_url}/cgi-bin/mediaFileFind.cgi",
+            params=find_params,
+            auth=auth,
+            timeout=timeout,
+        )
+        if found.status_code in (400, 404):
+            return {"ok": False, "segments": [], "warning": "NVR nao aceitou a consulta de gravacao para este canal/horario."}
+        if found.status_code in (401, 403):
+            return {"ok": False, "segments": [], "warning": "NVR recusou usuario/senha na consulta de gravacoes."}
+        found.raise_for_status()
+
+        next_file = session.get(
+            f"{base_url}/cgi-bin/mediaFileFind.cgi",
+            params={"action": "findNextFile", "object": token, "count": 100},
+            auth=auth,
+            timeout=timeout,
+        )
+        next_file.raise_for_status()
+        parsed = _parse_dahua_response(next_file.text)
+        segments_by_idx: Dict[int, Dict[str, Any]] = {}
+        for key, value in parsed.items():
+            m = re.match(r"items\[(\d+)\]\.([A-Za-z0-9_]+)$", key)
+            if not m:
+                continue
+            idx = int(m.group(1))
+            field = m.group(2)
+            segments_by_idx.setdefault(idx, {})[field] = value
+        segments: List[Dict[str, Any]] = []
+        for idx in sorted(segments_by_idx):
+            seg = segments_by_idx[idx]
+            start = _safe_text(seg.get("StartTime"))
+            end = _safe_text(seg.get("EndTime"))
+            if not start or not end:
+                continue
+            segments.append(
+                {
+                    "channel": int(seg.get("Channel") or 0),
+                    "start_time": start,
+                    "end_time": end,
+                    "stream": _safe_text(seg.get("VideoStream")),
+                    "type": _safe_text(seg.get("Type")),
+                    "length": int(seg.get("Length") or 0),
+                    "file_path": _safe_text(seg.get("FilePath")),
+                }
+            )
+        return {"ok": True, "segments": segments, "warning": ""}
+    except requests.RequestException as e:
+        return {"ok": False, "segments": [], "warning": f"API de gravacoes do NVR indisponivel: {_safe_text(e)[:180]}"}
+    finally:
+        if token:
+            try:
+                session.get(
+                    f"{base_url}/cgi-bin/mediaFileFind.cgi",
+                    params={"action": "destroy", "object": token},
+                    auth=auth,
+                    timeout=(3, 6),
+                )
+            except Exception:
+                pass
+
+
 def _color_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -259,9 +371,38 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     interval = max(1, min(300, int(req.get("interval_sec") or 10)))
     max_frames = max(1, min(500, int(req.get("max_frames") or 80)))
     vendor = _safe_text(req.get("vendor") or "auto")
+    http_port = int(req.get("http_port") or 80)
     rtsp_port = int(req.get("rtsp_port") or 554)
     template = _safe_text(req.get("rtsp_template"))
     stream_mode = _safe_text(req.get("stream_mode") or "sub")
+    vendor_norm = vendor.lower()
+
+    record_segments: List[Dict[str, Any]] = []
+    nvr_api_warning = ""
+    if vendor_norm in ("", "auto", "dahua", "intelbras", "intelbras/dahua", "dvr"):
+        media_find = _dahua_media_find_segments(
+            host=host,
+            http_port=http_port,
+            user=user,
+            password=password,
+            channel=channel,
+            start_dt=start_dt,
+            end_dt=end_dt,
+        )
+        record_segments = media_find.get("segments") if isinstance(media_find.get("segments"), list) else []
+        nvr_api_warning = _safe_text(media_find.get("warning"))
+        if media_find.get("ok") and not record_segments:
+            existing = _load_index()
+            return {
+                "ok": True,
+                "job_id": "",
+                "created": 0,
+                "total_indexed": len(existing),
+                "record_segments": [],
+                "nvr_api_warning": "",
+                "message": "O NVR respondeu rapido: nao existe gravacao nesse canal/horario.",
+                "items": [],
+            }
 
     job_id = f"{int(time.time())}_{_safe_slug(host)}_ch{channel:02d}"
     out_dir = NVR_AI_FRAMES_DIR / job_id
@@ -345,6 +486,8 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         "job_id": job_id,
         "created": len(created),
         "total_indexed": len(existing),
+        "record_segments": record_segments[:100],
+        "nvr_api_warning": nvr_api_warning,
         "stderr": _safe_text(proc.stderr)[:1200],
         "items": created[:20],
     }

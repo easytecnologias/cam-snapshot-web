@@ -499,7 +499,24 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         body: JSON.stringify(payload)
       });
       if (!j.ok) throw new Error((j && (j.detail || j.error)) || 'Falha ao indexar');
-      setStatus(`Indexacao concluida. Job ${j.job_id}. Fotos novas: ${j.created}. Total indexado: ${j.total_indexed}.`);
+      const parts = [];
+      if (j.message) parts.push(j.message);
+      if (Array.isArray(j.record_segments)) {
+        if (j.record_segments.length) {
+          const first = j.record_segments[0];
+          const last = j.record_segments[j.record_segments.length - 1];
+          parts.push(`NVR confirmou ${j.record_segments.length} trecho(s) de gravacao: ${first.start_time} ate ${last.end_time}.`);
+        } else {
+          parts.push('NVR nao retornou trechos gravados para esse periodo.');
+        }
+      }
+      if (j.nvr_api_warning) parts.push(`Aviso NVR: ${j.nvr_api_warning}`);
+      if (j.job_id) {
+        parts.push(`Indexacao concluida. Job ${j.job_id}. Fotos novas: ${j.created}. Total indexado: ${j.total_indexed}.`);
+      } else {
+        parts.push(`Fotos novas: ${j.created}. Total indexado: ${j.total_indexed}.`);
+      }
+      setStatus(parts.join('\n'));
       await search();
     } catch (e) {
       setStatus('Erro: ' + ((e && e.message) || e));
