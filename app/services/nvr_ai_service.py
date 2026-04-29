@@ -474,7 +474,7 @@ def _yolo_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
         import numpy as np  # type: ignore
 
         arr = np.array(im.convert("RGB"))
-        results = model.predict(arr, classes=[0], conf=0.25, imgsz=640, verbose=False, device="cpu")
+        results = model.predict(arr, classes=[0], conf=0.12, imgsz=960, max_det=12, verbose=False, device="cpu")
     except Exception:
         return []
     crops: List[tuple[str, Image.Image, float]] = []
@@ -490,7 +490,7 @@ def _yolo_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
                 continue
             w = x2 - x1
             h = y2 - y1
-            if w < 18 or h < 38:
+            if w < 12 or h < 24:
                 continue
             upper_y1 = y1 + int(h * 0.16)
             upper_y2 = y1 + int(h * 0.58)
@@ -554,7 +554,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
     try:
         with Image.open(path) as im:
             im = im.convert("RGB")
-            im.thumbnail((480, 270))
+            im.thumbnail((960, 540))
             crops = _candidate_person_crops(im)
     except Exception:
         return tags, scores
