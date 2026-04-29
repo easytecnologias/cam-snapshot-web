@@ -25,7 +25,7 @@ NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
 NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
-NVR_AI_VISION_VERSION = "yolo_parts_v2"
+NVR_AI_VISION_VERSION = "yolo_parts_v3_no_fallback"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -493,48 +493,6 @@ def _load_yolo_model() -> Any:
     return _YOLO_MODEL
 
 
-def _yolo_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
-    model = _load_yolo_model()
-    if model is None:
-        return []
-    width, height = im.size
-    try:
-        import numpy as np  # type: ignore
-
-        arr = np.array(im.convert("RGB"))
-        results = model.predict(arr, classes=[0], conf=0.12, imgsz=960, max_det=12, verbose=False, device="cpu")
-    except Exception:
-        return []
-    crops: List[tuple[str, Image.Image, float]] = []
-    for result in results[:1]:
-        boxes = getattr(result, "boxes", None)
-        if boxes is None:
-            continue
-        for box in boxes[:6]:
-            try:
-                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                conf = float(box.conf[0])
-            except Exception:
-                continue
-            w = x2 - x1
-            h = y2 - y1
-            if w < 12 or h < 24:
-                continue
-            upper_y1 = y1 + int(h * 0.16)
-            upper_y2 = y1 + int(h * 0.58)
-            pad_x = int(w * 0.08)
-            crop = im.crop(
-                (
-                    max(0, x1 - pad_x),
-                    max(0, upper_y1),
-                    min(width, x2 + pad_x),
-                    min(height, upper_y2),
-                )
-            )
-            crops.append(("yolo", crop, conf))
-    return crops
-
-
 def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]]:
     model = _load_yolo_model()
     if model is None:
@@ -610,47 +568,6 @@ def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
     return crop.crop(box)
 
 
-def _candidate_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
-    crops: List[tuple[str, Image.Image, float]] = []
-    width, height = im.size
-    yolo_crops = _yolo_person_crops(im)
-    if yolo_crops:
-        return yolo_crops
-    try:
-        import cv2  # type: ignore
-        import numpy as np  # type: ignore
-
-        arr = cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
-        hog = cv2.HOGDescriptor()
-        hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-        boxes, weights = hog.detectMultiScale(arr, winStride=(8, 8), padding=(8, 8), scale=1.05)
-        for i, box in enumerate(boxes[:4]):
-            x, y, w, h = [int(v) for v in box]
-            if w < 20 or h < 40:
-                continue
-            upper_y1 = y + int(h * 0.18)
-            upper_y2 = y + int(h * 0.58)
-            crop = im.crop((max(0, x), max(0, upper_y1), min(width, x + w), min(height, upper_y2)))
-            confidence = float(weights[i]) if i < len(weights) else 0.0
-            crops.append(("hog", crop, confidence))
-    except Exception:
-        pass
-    if crops:
-        return crops
-
-    # Fallback leve para CCTV: testa regioes onde o tronco costuma aparecer.
-    boxes = [
-        (0.30, 0.22, 0.70, 0.70),
-        (0.18, 0.22, 0.58, 0.72),
-        (0.42, 0.22, 0.82, 0.72),
-        (0.28, 0.38, 0.72, 0.88),
-    ]
-    for x1, y1, x2, y2 in boxes:
-        crop = im.crop((int(width * x1), int(height * y1), int(width * x2), int(height * y2)))
-        crops.append(("fallback", crop, 0.25))
-    return crops
-
-
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -676,8 +593,6 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                 part_best = best.setdefault(part, {})
                 part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
                 scores[f"{part}_{color}"] = round(part_best[color], 4)
-        if source == "hog":
-            scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
     for part, color_scores in best.items():
         ranked = sorted(color_scores.items(), key=lambda item: float(item[1] or 0.0), reverse=True)
         if not ranked:
