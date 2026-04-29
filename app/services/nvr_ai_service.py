@@ -23,6 +23,10 @@ from app.services.db_store import decorate_legacy_rows, legacy_rows_from_db
 NVR_AI_DIR = DATA_DIR / "nvr_ai"
 NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
+NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
+
+_YOLO_MODEL: Any = None
+_YOLO_LOAD_ATTEMPTED = False
 
 
 def _safe_text(value: Any) -> str:
@@ -447,9 +451,68 @@ def _motion_shirt_tags_for_image(path: Path, ref_path: Path | None) -> tuple[Lis
     return tags, scores
 
 
+def _load_yolo_model() -> Any:
+    global _YOLO_MODEL, _YOLO_LOAD_ATTEMPTED
+    if _YOLO_LOAD_ATTEMPTED:
+        return _YOLO_MODEL
+    _YOLO_LOAD_ATTEMPTED = True
+    try:
+        from ultralytics import YOLO  # type: ignore
+
+        _YOLO_MODEL = YOLO(NVR_AI_YOLO_MODEL)
+    except Exception:
+        _YOLO_MODEL = None
+    return _YOLO_MODEL
+
+
+def _yolo_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
+    model = _load_yolo_model()
+    if model is None:
+        return []
+    width, height = im.size
+    try:
+        import numpy as np  # type: ignore
+
+        arr = np.array(im.convert("RGB"))
+        results = model.predict(arr, classes=[0], conf=0.25, imgsz=640, verbose=False, device="cpu")
+    except Exception:
+        return []
+    crops: List[tuple[str, Image.Image, float]] = []
+    for result in results[:1]:
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            continue
+        for box in boxes[:6]:
+            try:
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                conf = float(box.conf[0])
+            except Exception:
+                continue
+            w = x2 - x1
+            h = y2 - y1
+            if w < 18 or h < 38:
+                continue
+            upper_y1 = y1 + int(h * 0.16)
+            upper_y2 = y1 + int(h * 0.58)
+            pad_x = int(w * 0.08)
+            crop = im.crop(
+                (
+                    max(0, x1 - pad_x),
+                    max(0, upper_y1),
+                    min(width, x2 + pad_x),
+                    min(height, upper_y2),
+                )
+            )
+            crops.append(("yolo", crop, conf))
+    return crops
+
+
 def _candidate_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
     crops: List[tuple[str, Image.Image, float]] = []
     width, height = im.size
+    yolo_crops = _yolo_person_crops(im)
+    if yolo_crops:
+        return yolo_crops
     try:
         import cv2  # type: ignore
         import numpy as np  # type: ignore
