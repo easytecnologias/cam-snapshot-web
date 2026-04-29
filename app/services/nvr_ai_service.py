@@ -577,8 +577,8 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
         pad_x = int(w * 0.08)
         part_boxes = {
             "chapeu": (x1 + int(w * 0.12), y1, x2 - int(w * 0.12), y1 + int(h * 0.20)),
-            "camisa": (x1 - pad_x, y1 + int(h * 0.18), x2 + pad_x, y1 + int(h * 0.58)),
-            "calca": (x1, y1 + int(h * 0.52), x2, y1 + int(h * 0.96)),
+            "camisa": (x1 - pad_x, y1 + int(h * 0.20), x2 + pad_x, y1 + int(h * 0.50)),
+            "calca": (x1, y1 + int(h * 0.62), x2, y1 + int(h * 0.98)),
         }
         for part, box in part_boxes.items():
             px1, py1, px2, py2 = box
@@ -591,14 +591,14 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
     # Fallback para CCTV quando o detector nao acha a pessoa inteira.
     fallback_boxes = {
         "camisa": [
-            (0.30, 0.22, 0.70, 0.58),
-            (0.18, 0.22, 0.58, 0.62),
-            (0.42, 0.22, 0.82, 0.62),
+            (0.30, 0.22, 0.70, 0.50),
+            (0.18, 0.22, 0.58, 0.52),
+            (0.42, 0.22, 0.82, 0.52),
         ],
         "calca": [
-            (0.30, 0.52, 0.70, 0.88),
-            (0.18, 0.52, 0.58, 0.90),
-            (0.42, 0.52, 0.82, 0.90),
+            (0.30, 0.60, 0.70, 0.90),
+            (0.18, 0.60, 0.58, 0.92),
+            (0.42, 0.60, 0.82, 0.92),
         ],
         "chapeu": [
             (0.34, 0.12, 0.66, 0.30),
@@ -687,9 +687,12 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         min_score = 0.018 if color in ("verde", "roxo") else 0.035
         if color in ("branco", "preto"):
             min_score = 0.06
+        if part == "camisa" and color == "preto":
+            min_score = 0.08
         if score < min_score:
             continue
-        if runner_up and score < runner_up * 1.18:
+        dominance_margin = 1.35 if part == "camisa" and color == "preto" else 1.18
+        if runner_up and score < runner_up * dominance_margin:
             continue
         clothing_tag = f"{part}_{color}"
         if clothing_tag not in tags:
@@ -1049,9 +1052,12 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             "branco": 0.055,
             "preto": 0.055,
         }
+        if clothing_part == "camisa" and clothing_color == "preto":
+            part_thresholds["preto"] = 0.08
         if part_score < part_thresholds.get(clothing_color, 0.035):
             return False
-        return not runner_up or part_score >= runner_up * 1.18
+        dominance_margin = 1.35 if clothing_part == "camisa" and clothing_color == "preto" else 1.18
+        return not runner_up or part_score >= runner_up * dominance_margin
     if term in hay:
         return True
     try:
