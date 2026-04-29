@@ -241,6 +241,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
           <input id="ia-limit" type="number" min="1" max="500" value="80"/>
         </div>
         <button class="btn-primary" id="ia-search-btn" type="button" style="align-self:end;">Buscar</button>
+        <button class="btn-secondary" id="ia-clear-btn" type="button" style="align-self:end;">Limpar indice</button>
       </div>
       <div class="status-line" id="ia-search-status">Nenhuma busca executada.</div>
       <div class="ia-result-grid" id="ia-results" style="margin-top:12px;"></div>
@@ -689,9 +690,30 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       </div>`;
     }).join('');
   }
+  async function clearIndex(){
+    const ok = window.confirm('Apagar todas as evidencias IA NVR e fotos indexadas antigas?');
+    if (!ok) return;
+    byId('ia-clear-btn').disabled = true;
+    byId('ia-search-btn').disabled = true;
+    byId('ia-search-status').textContent = 'Limpando indice IA NVR...';
+    try {
+      const j = await apiJson('/api/ia/nvr/index', {
+        method:'DELETE',
+        headers: tokenHeaders()
+      });
+      byId('ia-results').innerHTML = '';
+      byId('ia-search-status').textContent = `Indice limpo. Evidencias: ${j.removed_events || 0}. Jobs: ${j.removed_jobs || 0}. Arquivos: ${j.removed_files || 0}.`;
+    } catch (e) {
+      byId('ia-search-status').textContent = 'Erro ao limpar indice: ' + ((e && e.message) || e);
+    } finally {
+      byId('ia-clear-btn').disabled = false;
+      byId('ia-search-btn').disabled = false;
+    }
+  }
   byId('ia-index-btn').addEventListener('click', indexPeriod);
   byId('ia-recordings-btn').addEventListener('click', queryRecordings);
   byId('ia-search-btn').addEventListener('click', search);
+  byId('ia-clear-btn').addEventListener('click', clearIndex);
   byId('ia-query').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') search(); });
   byId('ia-mode').addEventListener('change', () => syncIndexMode(true));
   byId('ia-interval').addEventListener('input', () => { byId('ia-interval').dataset.auto = '0'; });

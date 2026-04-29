@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -639,6 +640,30 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
     scored.sort(key=lambda x: (float(x.get("match_score") or 0), _safe_text(x.get("captured_at"))), reverse=True)
     limit = max(1, min(500, int(limit or 80)))
     return {"ok": True, "query": query, "count": len(scored[:limit]), "results": scored[:limit]}
+
+
+def clear_index() -> Dict[str, Any]:
+    rows = _load_index()
+    jobs = sorted({_safe_text(r.get("job_id")) for r in rows if _safe_text(r.get("job_id"))})
+    removed_files = 0
+    removed_jobs = 0
+    for job_id in jobs:
+        job_dir = NVR_AI_FRAMES_DIR / _safe_slug(job_id)
+        if not job_dir.exists() or not job_dir.is_dir():
+            continue
+        try:
+            removed_files += len([p for p in job_dir.rglob("*") if p.is_file()])
+            shutil.rmtree(job_dir)
+            removed_jobs += 1
+        except Exception:
+            pass
+    _save_index([])
+    return {
+        "ok": True,
+        "removed_events": len(rows),
+        "removed_jobs": removed_jobs,
+        "removed_files": removed_files,
+    }
 
 
 def stats() -> Dict[str, Any]:
