@@ -27,7 +27,7 @@ NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
 NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "clip").strip().lower()
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
-NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.24"))
+NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
 NVR_AI_VISION_VERSION = "clip_yolo_parts_v1"
 
 _YOLO_MODEL: Any = None
