@@ -6,19 +6,25 @@
 <meta content="width=device-width,initial-scale=1.0" name="viewport"/>
 <link href="/static/style.css?v=84" rel="stylesheet"/>
 <style>
-.ia-grid{display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:16px;align-items:start}
+body.ia-nvr-page main{padding-top:78px}
+.ia-grid{display:grid;grid-template-columns:minmax(300px,430px) minmax(0,1fr);gap:16px;align-items:start}
 .ia-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.ia-result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
-.ia-result{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--card-bg)}
-.ia-result img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#111}
-.ia-result-body{padding:10px;font-size:12px;line-height:1.35}
-.ia-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
-.ia-tag{border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px;color:var(--muted)}
+.ia-result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.ia-result{border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden;background:var(--bg-card);box-shadow:var(--shadow)}
+.ia-result img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#111827}
+.ia-result-body{padding:10px;font-size:12px;line-height:1.4;color:var(--text-main)}
+.ia-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ia-tag{border:1px solid var(--border-subtle);border-radius:999px;padding:2px 7px;font-size:11px;color:var(--text-muted);background:var(--bg-elevated)}
 .ia-status{white-space:pre-wrap;min-height:42px}
-@media(max-width:920px){.ia-grid{grid-template-columns:1fr}.ia-form-grid{grid-template-columns:1fr}}
+.ia-empty{border:1px dashed var(--border-subtle);border-radius:12px;padding:18px;color:var(--text-muted);background:var(--bg-elevated)}
+.ia-page-actions{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.ia-page-actions .field{margin-bottom:0}
+.ia-nvr-page input[type="datetime-local"]{width:100%;border-radius:10px;border:1px solid var(--border-subtle);background:var(--input-bg);padding:8px 10px;color:var(--text-main);font-size:13px;color-scheme:dark}
+html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:light}
+@media(max-width:920px){.ia-grid{grid-template-columns:1fr}.ia-form-grid{grid-template-columns:1fr}.ia-page-actions{display:grid;grid-template-columns:1fr}}
 </style>
 </head>
-<body>
+<body class="ia-nvr-page">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
 
 <div class="topbar">
@@ -154,7 +160,7 @@
     <div class="card">
       <div class="card-title">Buscar evidencias</div>
       <div class="card-sub">Exemplo: pessoa de camisa vermelha</div>
-      <div class="field-row" style="margin-top:12px;">
+      <div class="field-row ia-page-actions" style="margin-top:12px;">
         <div class="field" style="min-width:260px;flex:1;">
           <label for="ia-query">Busca</label>
           <input id="ia-query" placeholder="Ex.: pessoa de camisa vermelha"/>
@@ -172,7 +178,7 @@
 </section>
 </main>
 
-<script src="/static/app.js?v=84"></script>
+<script src="/static/app.js?v=99"></script>
 <script>
 (function(){
   const byId = (id) => document.getElementById(id);
@@ -223,7 +229,7 @@
     sel.innerHTML = '';
     if (!targets.length) {
       sel.innerHTML = '<option value="">Nenhum canal NVR encontrado</option>';
-      setStatus('Inventario NVR vazio. Primeiro rode o inventario NVR.');
+      setStatus('Inventario NVR vazio. Primeiro rode o inventario NVR e volte aqui.');
       return;
     }
     targets.forEach((t, i) => {
@@ -281,6 +287,10 @@
     });
     const rows = (j && Array.isArray(j.results)) ? j.results : [];
     byId('ia-search-status').textContent = `${rows.length} evidencias encontradas.`;
+    if (!rows.length) {
+      byId('ia-results').innerHTML = '<div class="ia-empty">Nenhuma evidencia encontrada para essa busca.</div>';
+      return;
+    }
     byId('ia-results').innerHTML = rows.map(row => {
       const tags = (row.tags || []).map(t => `<span class="ia-tag">${esc(t)}</span>`).join('');
       return `<div class="ia-result">
@@ -298,6 +308,9 @@
   byId('ia-index-btn').addEventListener('click', indexPeriod);
   byId('ia-search-btn').addEventListener('click', search);
   byId('ia-query').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') search(); });
+  window.addEventListener('sightops:auth-ready', () => {
+    loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
+  });
   loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
 })();
 </script>

@@ -13,6 +13,7 @@ from urllib.parse import quote
 from PIL import Image
 
 from app.core.paths import DATA_DIR, NVR_INVENTORY_JSON_PATH
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path
 from app.services.db_store import decorate_legacy_rows, legacy_rows_from_db
 
 NVR_AI_DIR = DATA_DIR / "nvr_ai"
@@ -61,6 +62,13 @@ def _parse_dt(value: Any) -> datetime:
 
 def _read_nvr_inventory() -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    if get_current_tenant_slug():
+        tenant_path = tenant_recorder_inventory_path("nvr")
+        obj = _load_json(tenant_path, [])
+        if isinstance(obj, list):
+            rows = [r for r in obj if isinstance(r, dict)]
+        if rows:
+            return rows
     try:
         rows = legacy_rows_from_db("nvr")
     except Exception:

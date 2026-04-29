@@ -133,7 +133,13 @@ function authClearStored() {
 }
 
 function authToken() {
-  return safeTrim(__authState.token || '');
+  const active = safeTrim(__authState.token || '');
+  if (active) return active;
+  const stored = authReadStored();
+  const token = safeTrim(stored && stored.token);
+  if (token) __authState.token = token;
+  if (token && stored && stored.user && !__authState.user) __authState.user = stored.user;
+  return token;
 }
 
 function authSetSession(token, user) {
@@ -148,6 +154,7 @@ function authSetSession(token, user) {
     authUnlockUi();
     bootAppModules();
     try { Promise.resolve().finally(refreshInventorySiteOptionsAfterUpdate); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('sightops:auth-ready')); } catch (_) {}
   }
   renderAuthUi();
   if (__authState.user && authRequiresInitialSetup() && authCanManageUsers()) {
@@ -222,6 +229,31 @@ function authAppendTokenParam(url) {
   }
 }
 
+function authIsSessionUnauthorizedPayload(payload) {
+  const detail = safeTrim(
+    (payload && (payload.detail || payload.error || payload.message || payload.msg)) || ''
+  ).toLowerCase();
+  if (!detail) return false;
+  return detail.indexOf('autenticacao obrigatoria') >= 0 ||
+    detail.indexOf('token invalido') >= 0 ||
+    detail.indexOf('token inválido') >= 0 ||
+    detail.indexOf('token expirado') >= 0 ||
+    detail.indexOf('authorization ausente') >= 0 ||
+    detail.indexOf('authorization invalida') >= 0 ||
+    detail.indexOf('authorization inválida') >= 0;
+}
+
+function authShouldHandleUnauthorized(resp) {
+  if (!resp || resp.status !== 401) return Promise.resolve(false);
+  try {
+    return resp.clone().json()
+      .then(function (payload) { return authIsSessionUnauthorizedPayload(payload); })
+      .catch(function () { return false; });
+  } catch (e) {
+    return Promise.resolve(false);
+  }
+}
+
 function normalizeReportColor(value) {
   const raw = safeTrim(value || '');
   if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw;
@@ -265,13 +297,17 @@ function installAuthFetchHook() {
 
     return nativeFetch(nextInput, nextInit).then(function (resp) {
       if (resp && resp.status === 401 && shouldAttach) {
-        authHandleUnauthorized();
+        authShouldHandleUnauthorized(resp).then(function (isSessionUnauthorized) {
+          if (isSessionUnauthorized) authHandleUnauthorized();
+        });
       }
       return resp;
     });
   };
   window.__sightopsAuthFetchWrapped = true;
 }
+
+installAuthFetchHook();
 
 function ensureAuthShell() {
   const topbarRight = document.querySelector('.topbar-right');
