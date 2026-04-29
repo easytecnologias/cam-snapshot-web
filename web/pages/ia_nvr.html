@@ -7,7 +7,7 @@
 <link href="/static/style.css?v=84" rel="stylesheet"/>
 <style>
 body.ia-nvr-page main{padding-top:78px}
-.ia-grid{display:grid;grid-template-columns:minmax(300px,430px) minmax(0,1fr);gap:16px;align-items:start}
+.ia-grid{display:grid;grid-template-columns:minmax(360px,540px) minmax(0,1fr);gap:18px;align-items:start}
 .ia-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ia-result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
 .ia-result{border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden;background:var(--bg-card);box-shadow:var(--shadow)}
@@ -19,17 +19,22 @@ body.ia-nvr-page main{padding-top:78px}
 .ia-empty{border:1px dashed var(--border-subtle);border-radius:12px;padding:18px;color:var(--text-muted);background:var(--bg-elevated)}
 .ia-page-actions{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
 .ia-page-actions .field{margin-bottom:0}
-.ia-nvr-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:10px 0 12px}
-.ia-nvr-card{display:flex;flex-direction:column;gap:4px;min-height:86px;text-align:left;border:1px solid var(--border-subtle);border-radius:12px;background:var(--bg-elevated);color:var(--text-main);padding:10px;cursor:pointer;box-shadow:0 6px 16px rgba(15,23,42,.12)}
-.ia-nvr-card:hover{border-color:rgba(59,130,246,.55);transform:translateY(-1px)}
-.ia-nvr-card.active{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.18),0 10px 22px rgba(37,99,235,.16)}
-.ia-nvr-card-title{font-size:13px;font-weight:700;line-height:1.25}
-.ia-nvr-card-meta{font-size:11px;color:var(--text-muted);line-height:1.35}
+.ia-source-block{border:1px solid var(--border-subtle);border-radius:14px;background:rgba(15,23,42,.18);padding:12px;margin-top:12px}
+.ia-source-title{font-size:12px;font-weight:700;color:var(--text-main);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em}
+.ia-site-cards,.ia-nvr-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.ia-site-cards{margin-top:8px}
+.ia-nvr-cards{margin-top:8px}
+.ia-site-card,.ia-nvr-card{display:flex;flex-direction:column;gap:4px;min-height:84px;text-align:left;border:1px solid var(--border-subtle);border-radius:12px;background:var(--bg-elevated);color:var(--text-main);padding:10px;cursor:pointer;box-shadow:0 6px 16px rgba(15,23,42,.12)}
+.ia-site-card:hover,.ia-nvr-card:hover{border-color:rgba(59,130,246,.55);transform:translateY(-1px)}
+.ia-site-card.active,.ia-nvr-card.active{border-color:#3b82f6;box-shadow:0 0 0 2px rgba(59,130,246,.18),0 10px 22px rgba(37,99,235,.16)}
+.ia-card-title{font-size:13px;font-weight:700;line-height:1.25}
+.ia-card-meta{font-size:11px;color:var(--text-muted);line-height:1.35}
 .ia-target-summary{border:1px solid var(--border-subtle);border-radius:12px;background:rgba(37,99,235,.08);padding:10px;margin-top:8px;font-size:12px;color:var(--text-main)}
 .ia-target-summary strong{display:block;font-size:13px;margin-bottom:4px}
-.ia-nvr-page input[type="datetime-local"]{width:100%;border-radius:10px;border:1px solid var(--border-subtle);background:var(--input-bg);padding:8px 10px;color:var(--text-main);font-size:13px;color-scheme:dark}
+.ia-nvr-page input[type="text"],.ia-nvr-page input[type="datetime-local"]{width:100%;border-radius:10px;border:1px solid var(--border-subtle);background:var(--input-bg);padding:8px 10px;color:var(--text-main);font-size:13px}
+.ia-nvr-page input[type="datetime-local"]{color-scheme:dark}
 html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:light}
-@media(max-width:920px){.ia-grid{grid-template-columns:1fr}.ia-form-grid{grid-template-columns:1fr}.ia-page-actions{display:grid;grid-template-columns:1fr}}
+@media(max-width:920px){.ia-grid{grid-template-columns:1fr}.ia-form-grid{grid-template-columns:1fr}.ia-page-actions{display:grid;grid-template-columns:1fr}.ia-site-cards,.ia-nvr-cards{grid-template-columns:1fr}}
 </style>
 </head>
 <body class="ia-nvr-page">
@@ -110,16 +115,27 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     <div class="card">
       <div class="card-title">Indexar gravacao</div>
       <div class="card-sub">Selecione uma camera do inventario NVR e grave evidencias por horario.</div>
+      <div class="ia-source-block">
+        <div class="ia-source-title">1. Site</div>
+        <div class="field">
+          <label for="ia-site">Site do inventario</label>
+          <select id="ia-site"></select>
+        </div>
+        <div id="ia-site-cards" class="ia-site-cards"></div>
+      </div>
+      <div class="ia-source-block">
+        <div class="ia-source-title">2. NVR</div>
+        <div id="ia-nvr-cards" class="ia-nvr-cards"></div>
+      </div>
       <div class="field" style="margin-top:12px;">
-        <label for="ia-target">Camera do inventario NVR</label>
+        <label for="ia-target">3. Canal do NVR</label>
         <select id="ia-target"></select>
       </div>
       <div id="ia-target-summary" class="ia-target-summary" style="display:none;"></div>
-      <div id="ia-nvr-cards" class="ia-nvr-cards"></div>
       <div class="ia-form-grid">
         <div class="field">
           <label for="ia-user">Usuario</label>
-          <input id="ia-user" value="admin" autocomplete="username"/>
+          <input id="ia-user" type="text" value="admin" autocomplete="username"/>
         </div>
         <div class="field">
           <label for="ia-password">Senha</label>
@@ -161,7 +177,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       </div>
       <div class="field">
         <label for="ia-template">Template RTSP opcional</label>
-        <input id="ia-template" placeholder="rtsp://{user}:{password}@{host}:{rtsp_port}/..."/>
+        <input id="ia-template" type="text" placeholder="rtsp://{user}:{password}@{host}:{rtsp_port}/..."/>
       </div>
       <button class="btn-primary" id="ia-index-btn" type="button" style="width:100%;margin-top:12px;">Indexar periodo</button>
       <div class="status-line ia-status" id="ia-status" style="margin-top:12px;">Carregando inventario NVR...</div>
@@ -173,7 +189,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       <div class="field-row ia-page-actions" style="margin-top:12px;">
         <div class="field" style="min-width:260px;flex:1;">
           <label for="ia-query">Busca</label>
-          <input id="ia-query" placeholder="Ex.: pessoa de camisa vermelha"/>
+          <input id="ia-query" type="text" placeholder="Ex.: pessoa de camisa vermelha"/>
         </div>
         <div class="field" style="max-width:150px;">
           <label for="ia-limit">Limite</label>
@@ -193,6 +209,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
 (function(){
   const byId = (id) => document.getElementById(id);
   let targets = [];
+  let selectedSite = '';
 
   function tokenHeaders(extra){
     const h = Object.assign({}, extra || {});
@@ -228,19 +245,35 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const idx = parseInt(byId('ia-target').value || '-1', 10);
     return targets[idx] || null;
   }
+  function siteKey(t){
+    return t.site || 'Site nao informado';
+  }
   function nvrKey(t){
     return [t.site || 'Site nao informado', t.host || '', t.http_port || 80].join('|');
   }
-  function nvrLabel(t){
-    const site = t.site || 'Site nao informado';
-    const host = t.host || 'NVR sem IP';
-    const port = t.http_port && Number(t.http_port) !== 80 ? ':' + t.http_port : '';
-    return site + ' - ' + host + port;
+  function siteGroups(){
+    const groups = [];
+    const bySite = {};
+    targets.forEach((t) => {
+      const key = siteKey(t);
+      if (!bySite[key]) {
+        bySite[key] = { key, site: key, channels: 0, nvrs: {} };
+        groups.push(bySite[key]);
+      }
+      bySite[key].channels++;
+      bySite[key].nvrs[nvrKey(t)] = true;
+    });
+    return groups.map((g) => Object.assign(g, { nvrCount: Object.keys(g.nvrs).length }));
+  }
+  function activeTargets(){
+    if (!selectedSite) return targets;
+    return targets.filter((t) => siteKey(t) === selectedSite);
   }
   function groupedTargets(){
     const groups = [];
     const byKey = {};
     targets.forEach((t, i) => {
+      if (selectedSite && siteKey(t) !== selectedSite) return;
       const key = nvrKey(t);
       if (!byKey[key]) {
         byKey[key] = { key, firstIndex: i, site: t.site || 'Site nao informado', host: t.host || '', port: t.http_port || 80, modelo: t.modelo || '', fabricante: t.fabricante || '', rows: [] };
@@ -268,10 +301,59 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       card.classList.toggle('active', card.getAttribute('data-nvr-key') === selectedKey);
     });
   }
+  function ensureSelectedTargetInSite(){
+    const t = selectedTarget();
+    if (t && (!selectedSite || siteKey(t) === selectedSite)) return;
+    const first = activeTargets()[0];
+    if (!first) return;
+    const idx = targets.indexOf(first);
+    if (idx >= 0) byId('ia-target').value = String(idx);
+  }
+  function renderSiteSelect(){
+    const sel = byId('ia-site');
+    const groups = siteGroups();
+    sel.innerHTML = '<option value="">Todos os sites</option>';
+    groups.forEach((g) => {
+      const opt = document.createElement('option');
+      opt.value = g.site;
+      opt.textContent = `${g.site} (${g.nvrCount} NVR, ${g.channels} canais)`;
+      sel.appendChild(opt);
+    });
+    sel.value = selectedSite;
+  }
+  function renderSiteCards(){
+    const wrap = byId('ia-site-cards');
+    if (!wrap) return;
+    const groups = siteGroups();
+    wrap.innerHTML = ['<button class="ia-site-card" type="button" data-site="">'
+      + '<span class="ia-card-title">Todos os sites</span>'
+      + '<span class="ia-card-meta">' + esc(groups.length) + ' site(s)</span>'
+      + '<span class="ia-card-meta">' + esc(targets.length) + ' canal(is)</span>'
+      + '</button>'].concat(groups.map((g) => {
+        return '<button class="ia-site-card" type="button" data-site="' + esc(g.site) + '">'
+          + '<span class="ia-card-title">' + esc(g.site) + '</span>'
+          + '<span class="ia-card-meta">' + esc(g.nvrCount) + ' NVR(s)</span>'
+          + '<span class="ia-card-meta">' + esc(g.channels) + ' canal(is)</span>'
+          + '</button>';
+      })).join('');
+    Array.from(wrap.querySelectorAll('.ia-site-card')).forEach((btn) => {
+      const site = btn.getAttribute('data-site') || '';
+      btn.classList.toggle('active', site === selectedSite);
+      btn.addEventListener('click', () => {
+        selectedSite = site;
+        renderAllTargetControls();
+      });
+    });
+  }
   function renderTargetSelect(){
     const sel = byId('ia-target');
     sel.innerHTML = '';
-    groupedTargets().forEach((group) => {
+    const groups = groupedTargets();
+    if (!groups.length) {
+      sel.innerHTML = '<option value="">Nenhum canal neste site</option>';
+      return;
+    }
+    groups.forEach((group) => {
       const optgroup = document.createElement('optgroup');
       optgroup.label = `${group.site} - ${group.host}${Number(group.port) !== 80 ? ':' + group.port : ''}`;
       group.rows.forEach((t) => {
@@ -287,13 +369,17 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const wrap = byId('ia-nvr-cards');
     if (!wrap) return;
     const groups = groupedTargets();
+    if (!groups.length) {
+      wrap.innerHTML = '<div class="ia-empty">Nenhum NVR encontrado para este site.</div>';
+      return;
+    }
     wrap.innerHTML = groups.map((g) => {
       const port = Number(g.port) !== 80 ? ':' + g.port : '';
       const vendor = g.fabricante || g.modelo || 'NVR';
       return '<button class="ia-nvr-card" type="button" data-first-index="' + esc(g.firstIndex) + '" data-nvr-key="' + esc(g.key) + '">'
-        + '<span class="ia-nvr-card-title">' + esc(g.site) + '</span>'
-        + '<span class="ia-nvr-card-meta">' + esc(g.host + port) + '</span>'
-        + '<span class="ia-nvr-card-meta">' + esc(g.rows.length) + ' canal(is) | ' + esc(vendor) + '</span>'
+        + '<span class="ia-card-title">' + esc(g.host + port) + '</span>'
+        + '<span class="ia-card-meta">' + esc(g.site) + '</span>'
+        + '<span class="ia-card-meta">' + esc(g.rows.length) + ' canal(is) | ' + esc(vendor) + '</span>'
         + '</button>';
     }).join('');
     Array.from(wrap.querySelectorAll('.ia-nvr-card')).forEach((btn) => {
@@ -302,6 +388,18 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         updateSelectedTargetSummary();
       });
     });
+  }
+  function renderAllTargetControls(){
+    renderSiteSelect();
+    renderSiteCards();
+    renderTargetSelect();
+    ensureSelectedTargetInSite();
+    renderNvrCards();
+    updateSelectedTargetSummary();
+    const nvrCount = groupedTargets().length;
+    const channelCount = activeTargets().length;
+    const siteText = selectedSite || 'todos os sites';
+    setStatus(`${channelCount} canais em ${nvrCount} NVR(s) - ${siteText}.`);
   }
   async function loadTargets(){
     const now = new Date();
@@ -314,15 +412,15 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     sel.innerHTML = '';
     if (!targets.length) {
       sel.innerHTML = '<option value="">Nenhum canal NVR encontrado</option>';
+      byId('ia-site').innerHTML = '<option value="">Nenhum site</option>';
+      byId('ia-site-cards').innerHTML = '';
       byId('ia-nvr-cards').innerHTML = '';
       byId('ia-target-summary').style.display = 'none';
       setStatus('Inventario NVR vazio. Primeiro rode o inventario NVR e volte aqui.');
       return;
     }
-    renderTargetSelect();
-    renderNvrCards();
-    updateSelectedTargetSummary();
-    setStatus(`${targets.length} canais NVR carregados em ${groupedTargets().length} NVR(s).`);
+    if (selectedSite && !targets.some((t) => siteKey(t) === selectedSite)) selectedSite = '';
+    renderAllTargetControls();
   }
   async function indexPeriod(){
     const t = selectedTarget();
@@ -393,6 +491,10 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   byId('ia-search-btn').addEventListener('click', search);
   byId('ia-query').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') search(); });
   byId('ia-target').addEventListener('change', updateSelectedTargetSummary);
+  byId('ia-site').addEventListener('change', () => {
+    selectedSite = byId('ia-site').value || '';
+    renderAllTargetControls();
+  });
   window.addEventListener('sightops:auth-ready', () => {
     loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
   });
