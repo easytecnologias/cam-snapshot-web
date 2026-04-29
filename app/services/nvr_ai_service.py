@@ -185,9 +185,12 @@ def _build_rtsp_url(
             f"&endtime={end_dt.strftime('%Y%m%dT%H%M%SZ')}"
         )
 
+    # Intelbras/Dahua playback often exposes only the recorded main stream.
+    # Substream can work for live view but return RTSP 404 for historical playback.
+    playback_subtype = 0
     return (
         f"rtsp://{u}:{p}@{h}:{int(rtsp_port)}/cam/playback"
-        f"?channel={ch}&subtype={1 if use_substream else 0}"
+        f"?channel={ch}&subtype={playback_subtype}"
         f"&starttime={start_dt.strftime('%Y_%m_%d_%H_%M_%S')}"
         f"&endtime={end_dt.strftime('%Y_%m_%d_%H_%M_%S')}"
     )
