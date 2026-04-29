@@ -841,8 +841,8 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             min_score = NVR_AI_PAR_THRESHOLD
             dominance_margin = 1.05
         elif float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
-            min_score = NVR_AI_CLIP_THRESHOLD
-            dominance_margin = 1.12
+            min_score = max(NVR_AI_CLIP_THRESHOLD, 0.70) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
+            dominance_margin = 1.25 if part == "camisa" else 1.12
         else:
             min_score = 0.10
             if color in ("verde", "roxo"):
@@ -1223,8 +1223,8 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             min_score = NVR_AI_PAR_THRESHOLD
             dominance_margin = 1.05
         elif float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
-            min_score = NVR_AI_CLIP_THRESHOLD
-            dominance_margin = 1.12
+            min_score = max(NVR_AI_CLIP_THRESHOLD, 0.70) if clothing_part == "camisa" else NVR_AI_CLIP_THRESHOLD
+            dominance_margin = 1.25 if clothing_part == "camisa" else 1.12
         else:
             min_score = part_thresholds.get(clothing_color, 0.10)
             dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
@@ -1281,8 +1281,23 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
         rr["match_score"] = round(score, 4)
         scored.append(rr)
     scored.sort(key=lambda x: (float(x.get("match_score") or 0), _safe_text(x.get("captured_at"))), reverse=True)
+    deduped: List[Dict[str, Any]] = []
+    seen_slots = set()
+    for row in scored:
+        captured = _safe_text(row.get("captured_at"))
+        slot = captured
+        try:
+            dt = datetime.strptime(captured, "%Y-%m-%d %H:%M:%S")
+            slot = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+        key = (_safe_text(row.get("host")), int(row.get("channel") or 0), slot)
+        if key in seen_slots:
+            continue
+        seen_slots.add(key)
+        deduped.append(row)
     limit = max(1, min(500, int(limit or 80)))
-    return {"ok": True, "query": query, "count": len(scored[:limit]), "results": scored[:limit]}
+    return {"ok": True, "query": query, "count": len(deduped[:limit]), "results": deduped[:limit]}
 
 
 def clear_index() -> Dict[str, Any]:
