@@ -307,7 +307,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const duration = secondsBetweenInputs();
     const interval = Math.max(1, parseInt(byId('ia-interval').value || '10', 10));
     const maxFrames = Math.max(1, parseInt(byId('ia-max').value || '20', 10));
-    return Math.max(60, Math.min(3600, Math.min(duration, interval * maxFrames) + 90));
+    return Math.max(60, Math.min(1800, Math.min(duration, interval * maxFrames) + 180));
   }
   function coveragePreset(){
     const mode = byId('ia-mode').value || 'fast';
