@@ -207,6 +207,15 @@ def _parse_dahua_response(text: str) -> Dict[str, Any]:
     return data
 
 
+def _segment_overlaps_window(segment: Dict[str, Any], start_dt: datetime, end_dt: datetime) -> bool:
+    try:
+        seg_start = _parse_dt(segment.get("start_time"))
+        seg_end = _parse_dt(segment.get("end_time"))
+    except Exception:
+        return False
+    return seg_start < end_dt and seg_end > start_dt
+
+
 def _dahua_media_find_segments(
     *,
     host: str,
@@ -236,17 +245,20 @@ def _dahua_media_find_segments(
         if not token:
             return {"ok": False, "segments": [], "warning": "NVR nao retornou token de busca de gravacoes."}
 
-        find_params = {
-            "action": "findFile",
-            "object": token,
-            "condition.Channel": int(channel),
-            "condition.StartTime": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "condition.EndTime": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "condition.Types[0]": "dav",
-        }
+        # This CGI is picky: when spaces in date/time are encoded as "+",
+        # some Intelbras/Dahua firmwares ignore the time and return midnight.
+        # Build the query string manually so the space is always "%20".
+        find_url = (
+            f"{base_url}/cgi-bin/mediaFileFind.cgi"
+            f"?action=findFile"
+            f"&object={quote(token, safe='')}"
+            f"&condition.Channel={int(channel)}"
+            f"&condition.StartTime={quote(start_dt.strftime('%Y-%m-%d %H:%M:%S'), safe='')}"
+            f"&condition.EndTime={quote(end_dt.strftime('%Y-%m-%d %H:%M:%S'), safe='')}"
+            f"&condition.Types%5B0%5D=dav"
+        )
         found = session.get(
-            f"{base_url}/cgi-bin/mediaFileFind.cgi",
-            params=find_params,
+            find_url,
             auth=auth,
             timeout=timeout,
         )
@@ -290,6 +302,7 @@ def _dahua_media_find_segments(
                     "file_path": _safe_text(seg.get("FilePath")),
                 }
             )
+        segments = [seg for seg in segments if _segment_overlaps_window(seg, start_dt, end_dt)]
         return {"ok": True, "segments": segments, "warning": ""}
     except requests.RequestException as e:
         return {"ok": False, "segments": [], "warning": f"API de gravacoes do NVR indisponivel: {_safe_text(e)[:180]}"}
