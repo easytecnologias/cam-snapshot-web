@@ -181,10 +181,26 @@
   function tokenHeaders(extra){
     const h = Object.assign({}, extra || {});
     try {
-      const t = localStorage.getItem('auth_token') || localStorage.getItem('access_token') || '';
+      let t = '';
+      const raw = localStorage.getItem('sightops_auth_v1') || '';
+      if (raw) {
+        const obj = JSON.parse(raw);
+        t = obj && obj.token ? String(obj.token || '') : '';
+      }
       if (t) h.Authorization = 'Bearer ' + t;
     } catch (_) {}
     return h;
+  }
+  async function apiJson(url, options){
+    const r = await fetch(url, options || {});
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) {
+      throw new Error('Sessao expirada ou token ausente. Entre novamente e atualize a pagina.');
+    }
+    if (!r.ok) {
+      throw new Error((j && (j.detail || j.error)) || ('Falha HTTP ' + r.status));
+    }
+    return j;
   }
   function setStatus(txt){ byId('ia-status').textContent = txt; }
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -201,8 +217,7 @@
     const prev = new Date(now.getTime() - 60 * 60 * 1000);
     byId('ia-start').value = fmtLocalInput(prev);
     byId('ia-end').value = fmtLocalInput(now);
-    const r = await fetch('/api/ia/nvr/targets?_=' + Date.now(), {headers: tokenHeaders(), cache:'no-store'});
-    const j = await r.json();
+    const j = await apiJson('/api/ia/nvr/targets?_=' + Date.now(), {headers: tokenHeaders(), cache:'no-store'});
     targets = (j && Array.isArray(j.targets)) ? j.targets : [];
     const sel = byId('ia-target');
     sel.innerHTML = '';
@@ -242,13 +257,12 @@
     byId('ia-index-btn').disabled = true;
     setStatus('Indexando gravacao. Esta etapa pode demorar conforme o periodo escolhido...');
     try {
-      const r = await fetch('/api/ia/nvr/index', {
+      const j = await apiJson('/api/ia/nvr/index', {
         method:'POST',
         headers: tokenHeaders({'Content-Type':'application/json'}),
         body: JSON.stringify(payload)
       });
-      const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error((j && (j.detail || j.error)) || 'Falha ao indexar');
+      if (!j.ok) throw new Error((j && (j.detail || j.error)) || 'Falha ao indexar');
       setStatus(`Indexacao concluida. Job ${j.job_id}. Fotos novas: ${j.created}. Total indexado: ${j.total_indexed}.`);
       await search();
     } catch (e) {
@@ -261,11 +275,10 @@
     const q = byId('ia-query').value || '';
     const limit = byId('ia-limit').value || '80';
     byId('ia-search-status').textContent = 'Buscando...';
-    const r = await fetch('/api/ia/nvr/search?q=' + encodeURIComponent(q) + '&limit=' + encodeURIComponent(limit), {
+    const j = await apiJson('/api/ia/nvr/search?q=' + encodeURIComponent(q) + '&limit=' + encodeURIComponent(limit), {
       headers: tokenHeaders(),
       cache:'no-store'
     });
-    const j = await r.json();
     const rows = (j && Array.isArray(j.results)) ? j.results : [];
     byId('ia-search-status').textContent = `${rows.length} evidencias encontradas.`;
     byId('ia-results').innerHTML = rows.map(row => {
