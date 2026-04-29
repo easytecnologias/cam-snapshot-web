@@ -217,6 +217,17 @@ def _segment_overlaps_window(segment: Dict[str, Any], start_dt: datetime, end_dt
     return seg_start < end_dt and seg_end > start_dt
 
 
+def _sample_times(start_dt: datetime, end_dt: datetime, interval: int, max_frames: int) -> List[datetime]:
+    times: List[datetime] = []
+    current = start_dt
+    while current < end_dt and len(times) < max_frames:
+        times.append(current)
+        current += timedelta(seconds=interval)
+    if not times:
+        times.append(start_dt)
+    return times
+
+
 def _dahua_media_find_segments(
     *,
     host: str,
@@ -477,50 +488,68 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     job_id = f"{int(time.time())}_{_safe_slug(host)}_ch{channel:02d}"
     out_dir = NVR_AI_FRAMES_DIR / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_pattern = str(out_dir / "frame_%05d.jpg")
-    rtsp_url = _build_rtsp_url(
-        host=host,
-        channel=channel,
-        user=user,
-        password=password,
-        start_dt=start_dt,
-        end_dt=end_dt,
-        vendor=vendor,
-        template=template,
-        rtsp_port=rtsp_port,
-        stream_mode=stream_mode,
-    )
-
-    fps = f"fps=1/{interval},scale=640:-2"
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-rtsp_transport",
-        "tcp",
-        "-i",
-        rtsp_url,
-        "-an",
-        "-sn",
-        "-dn",
-        "-map",
-        "0:v:0",
-        "-vf",
-        fps,
-        "-vframes",
-        str(max_frames),
-        "-q:v",
-        "3",
-        out_pattern,
-    ]
     duration_sec = max(1, int((end_dt - start_dt).total_seconds()))
-    expected_sec = min(duration_sec, max_frames * interval)
-    timeout_sec = max(60, min(3600, int(req.get("timeout_sec") or (expected_sec + 90))))
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
-    files = sorted(out_dir.glob("frame_*.jpg"))
-    if proc.returncode != 0 and not files:
-        err = _safe_text(proc.stderr or proc.stdout)
+    sample_times = _sample_times(start_dt, end_dt, interval, max_frames)
+    requested_timeout = int(req.get("timeout_sec") or 0)
+    per_sample_timeout = max(8, min(25, int(requested_timeout / max(1, len(sample_times))) if requested_timeout else 15))
+    extracted: List[tuple[Path, datetime]] = []
+    stderr_parts: List[str] = []
+    for idx, sample_dt in enumerate(sample_times, start=1):
+        sample_end = min(end_dt, sample_dt + timedelta(seconds=max(5, min(interval, 15))))
+        if sample_end <= sample_dt:
+            sample_end = sample_dt + timedelta(seconds=5)
+        out_file = out_dir / f"frame_{idx:05d}.jpg"
+        rtsp_url = _build_rtsp_url(
+            host=host,
+            channel=channel,
+            user=user,
+            password=password,
+            start_dt=sample_dt,
+            end_dt=sample_end,
+            vendor=vendor,
+            template=template,
+            rtsp_port=rtsp_port,
+            stream_mode=stream_mode,
+        )
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-analyzeduration",
+            "1000000",
+            "-probesize",
+            "512000",
+            "-i",
+            rtsp_url,
+            "-an",
+            "-sn",
+            "-dn",
+            "-map",
+            "0:v:0",
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale=640:-2",
+            "-q:v",
+            "3",
+            str(out_file),
+        ]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=per_sample_timeout, check=False)
+        except subprocess.TimeoutExpired as e:
+            stderr_parts.append(f"{sample_dt.strftime('%H:%M:%S')}: timeout apos {per_sample_timeout}s")
+            continue
+        if proc.returncode == 0 and out_file.exists():
+            extracted.append((out_file, sample_dt))
+        else:
+            err = _safe_text(proc.stderr or proc.stdout)
+            if err:
+                stderr_parts.append(f"{sample_dt.strftime('%H:%M:%S')}: {err[:180]}")
+    if not extracted:
+        err = "\n".join(stderr_parts)
         raise RuntimeError(f"ffmpeg nao retornou frames: {err[:600]}")
 
     existing = _load_index()
@@ -528,8 +557,7 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     skipped_by_filter = 0
     local = _safe_text(req.get("local"))
     title = _safe_text(req.get("title") or f"CH {channel:02d}")
-    for idx, path in enumerate(files, start=1):
-        captured_at = start_dt + timedelta(seconds=(idx - 1) * interval)
+    for idx, (path, captured_at) in enumerate(extracted, start=1):
         tags, scores = _color_tags_for_image(path)
         if visual_filter and visual_filter not in tags:
             skipped_by_filter += 1
@@ -568,7 +596,9 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         "total_indexed": len(existing),
         "record_segments": record_segments[:100],
         "nvr_api_warning": nvr_api_warning,
-        "stderr": _safe_text(proc.stderr)[:1200],
+        "sampling_strategy": "point_samples",
+        "sample_count": len(sample_times),
+        "stderr": "\n".join(stderr_parts)[:1200],
         "items": created[:20],
     }
 
