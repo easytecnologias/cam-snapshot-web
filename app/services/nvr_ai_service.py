@@ -25,16 +25,20 @@ NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
 NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
-NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "clip").strip().lower()
+NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "auto").strip().lower()
+NVR_AI_PAR_MODEL_PATH = os.getenv("NVR_AI_PAR_MODEL_PATH", str(NVR_AI_DIR / "models" / "person_attribute_model.pth"))
+NVR_AI_PAR_THRESHOLD = float(os.getenv("NVR_AI_PAR_THRESHOLD", "0.50"))
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
-NVR_AI_VISION_VERSION = "clip_yolo_parts_v2_edge_guard"
+NVR_AI_VISION_VERSION = "par_clip_yolo_parts_v1"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
 _CLIP_MODEL: Any = None
 _CLIP_PROCESSOR: Any = None
 _CLIP_LOAD_ATTEMPTED = False
+_PAR_MODEL: Any = None
+_PAR_LOAD_ATTEMPTED = False
 _CLOTHING_COLORS = {
     "vermelho",
     "azul",
@@ -53,6 +57,36 @@ _CLOTHING_PARTS = {
     "camisa": ("camisa", "camiseta", "blusa", "roupa", "uniforme", "jaleco", "colete"),
     "chapeu": ("chapeu", "chapéu", "bone", "boné", "capacete"),
     "calca": ("calca", "calça", "bermuda", "short", "shorts"),
+}
+_PAR_LABELS = [
+    "Age-Young", "Age-Adult", "Age-Old", "Gender-Female",
+    "Hair-Length-Short", "Hair-Length-Long", "Hair-Length-Bald",
+    "UpperBody-Length-Short",
+    "UpperBody-Color-Black", "UpperBody-Color-Blue", "UpperBody-Color-Brown",
+    "UpperBody-Color-Green", "UpperBody-Color-Grey", "UpperBody-Color-Orange",
+    "UpperBody-Color-Pink", "UpperBody-Color-Purple", "UpperBody-Color-Red",
+    "UpperBody-Color-White", "UpperBody-Color-Yellow", "UpperBody-Color-Other",
+    "LowerBody-Length-Short",
+    "LowerBody-Color-Black", "LowerBody-Color-Blue", "LowerBody-Color-Brown",
+    "LowerBody-Color-Green", "LowerBody-Color-Grey", "LowerBody-Color-Orange",
+    "LowerBody-Color-Pink", "LowerBody-Color-Purple", "LowerBody-Color-Red",
+    "LowerBody-Color-White", "LowerBody-Color-Yellow", "LowerBody-Color-Other",
+    "LowerBody-Type-Trousers&Shorts", "LowerBody-Type-Skirt&Dress",
+    "Accessory-Backpack", "Accessory-Bag", "Accessory-Glasses-Normal",
+    "Accessory-Glasses-Sun", "Accessory-Hat",
+]
+_PAR_COLOR_MAP = {
+    "Black": "preto",
+    "Blue": "azul",
+    "Brown": "marrom",
+    "Green": "verde",
+    "Grey": "cinza",
+    "Orange": "laranja",
+    "Pink": "rosa",
+    "Purple": "roxo",
+    "Red": "vermelho",
+    "White": "branco",
+    "Yellow": "amarelo",
 }
 _CLIP_COLOR_PROMPTS = {
     "camisa": {
@@ -563,6 +597,28 @@ def _load_clip_model() -> tuple[Any, Any]:
     return _CLIP_MODEL, _CLIP_PROCESSOR
 
 
+def _load_par_model() -> Any:
+    global _PAR_MODEL, _PAR_LOAD_ATTEMPTED
+    if _PAR_LOAD_ATTEMPTED:
+        return _PAR_MODEL
+    _PAR_LOAD_ATTEMPTED = True
+    path = Path(NVR_AI_PAR_MODEL_PATH)
+    if not path.exists():
+        _PAR_MODEL = None
+        return None
+    try:
+        import torch  # type: ignore
+
+        _PAR_MODEL = torch.load(str(path), map_location="cpu")
+        try:
+            _PAR_MODEL.eval()
+        except Exception:
+            pass
+    except Exception:
+        _PAR_MODEL = None
+    return _PAR_MODEL
+
+
 def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]]:
     model = _load_yolo_model()
     if model is None:
@@ -624,6 +680,26 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
     return []
 
 
+def _candidate_person_crops_for_attributes(im: Image.Image) -> List[tuple[Image.Image, float, bool, bool]]:
+    width, height = im.size
+    crops: List[tuple[Image.Image, float, bool, bool]] = []
+    for x1, y1, x2, y2, conf in _yolo_person_boxes(im):
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(width, x2)
+        y2 = min(height, y2)
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            continue
+        touches_edge = x1 <= 3 or y1 <= 3 or x2 >= width - 3 or y2 >= height - 3
+        full_body_like = h >= max(70, width * 0.20) and y2 < height - 6 and y1 > 3
+        pad_x = int(w * 0.06)
+        crop = im.crop((max(0, x1 - pad_x), y1, min(width, x2 + pad_x), y2))
+        crops.append((crop, conf, touches_edge, full_body_like))
+    return crops
+
+
 def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
     width, height = crop.size
     if width < 12 or height < 12:
@@ -643,7 +719,7 @@ def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
 
 
 def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
-    if NVR_AI_ATTR_PROVIDER != "clip":
+    if NVR_AI_ATTR_PROVIDER not in ("auto", "clip"):
         return {}
     model, processor = _load_clip_model()
     prompts = _CLIP_COLOR_PROMPTS.get(part) or {}
@@ -663,6 +739,45 @@ def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
     return {color: round(float(prob), 4) for color, prob in zip(colors, probs)}
 
 
+def _par_attribute_scores(person_crop: Image.Image, allow_lower_body: bool) -> Dict[str, Dict[str, float]]:
+    if NVR_AI_ATTR_PROVIDER not in ("auto", "par"):
+        return {}
+    model = _load_par_model()
+    if model is None:
+        return {}
+    try:
+        import numpy as np  # type: ignore
+        import torch  # type: ignore
+
+        image = person_crop.convert("RGB").resize((224, 224))
+        arr = np.asarray(image).astype("float32") / 255.0
+        mean = np.asarray((0.485, 0.456, 0.406), dtype="float32")
+        std = np.asarray((0.229, 0.224, 0.225), dtype="float32")
+        arr = (arr - mean) / std
+        tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0).float()
+        with torch.no_grad():
+            output = model(tensor)
+            if isinstance(output, (list, tuple)):
+                output = output[0]
+            probs = torch.sigmoid(output).detach().cpu().numpy()[0].astype(float).tolist()
+    except Exception:
+        return {}
+
+    scores: Dict[str, Dict[str, float]] = {"camisa": {}, "calca": {}, "chapeu": {}}
+    for label, prob in zip(_PAR_LABELS, probs):
+        if label.startswith("UpperBody-Color-"):
+            color = _PAR_COLOR_MAP.get(label.replace("UpperBody-Color-", ""))
+            if color:
+                scores["camisa"][color] = round(float(prob), 4)
+        elif allow_lower_body and label.startswith("LowerBody-Color-"):
+            color = _PAR_COLOR_MAP.get(label.replace("LowerBody-Color-", ""))
+            if color:
+                scores["calca"][color] = round(float(prob), 4)
+        elif label == "Accessory-Hat":
+            scores["chapeu"]["presenca"] = round(float(prob), 4)
+    return {part: part_scores for part, part_scores in scores.items() if part_scores}
+
+
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -671,12 +786,30 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             im = im.convert("RGB")
             im.thumbnail((960, 540))
             part_crops = _candidate_person_part_crops(im)
+            person_crops = _candidate_person_crops_for_attributes(im)
     except Exception:
         return tags, scores
     best: Dict[str, Dict[str, float]] = {}
     person_confidence = 0.0
+    for person_crop, confidence, touches_edge, full_body_like in person_crops:
+        if confidence < NVR_AI_YOLO_CONF:
+            continue
+        par_scores = _par_attribute_scores(person_crop, allow_lower_body=(full_body_like and not touches_edge))
+        if not par_scores:
+            continue
+        person_confidence = max(person_confidence, confidence)
+        for part, color_scores in par_scores.items():
+            if part == "chapeu":
+                continue
+            scores[f"{part}_provider_par"] = 1.0
+            part_best = best.setdefault(part, {})
+            for color, score in color_scores.items():
+                part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
+                scores[f"{part}_{color}"] = round(part_best[color], 4)
     for part, source, crop, confidence, touches_edge in part_crops:
         if source != "yolo" or confidence < NVR_AI_YOLO_CONF:
+            continue
+        if float(scores.get(f"{part}_provider_par") or 0) >= 1.0:
             continue
         if touches_edge and part in ("calca", "chapeu"):
             continue
@@ -704,7 +837,10 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             continue
         color, score = ranked[0]
         runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
-        if float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
+        if float(scores.get(f"{part}_provider_par") or 0) >= 1.0:
+            min_score = NVR_AI_PAR_THRESHOLD
+            dominance_margin = 1.05
+        elif float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
             min_score = NVR_AI_CLIP_THRESHOLD
             dominance_margin = 1.12
         else:
@@ -1083,7 +1219,10 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             "preto": 0.18,
             "cinza": 0.18,
         }
-        if float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
+        if float(scores.get(f"{clothing_part}_provider_par") or 0) >= 1.0:
+            min_score = NVR_AI_PAR_THRESHOLD
+            dominance_margin = 1.05
+        elif float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
             min_score = NVR_AI_CLIP_THRESHOLD
             dominance_margin = 1.12
         else:
