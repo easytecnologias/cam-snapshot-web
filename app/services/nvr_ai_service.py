@@ -153,6 +153,7 @@ def _build_rtsp_url(
     vendor: str = "auto",
     template: str = "",
     rtsp_port: int = 554,
+    stream_mode: str = "sub",
 ) -> str:
     u = quote(user, safe="")
     p = quote(password, safe="")
@@ -172,8 +173,10 @@ def _build_rtsp_url(
         )
 
     vendor_norm = _safe_text(vendor).lower()
+    stream_norm = _safe_text(stream_mode).lower()
+    use_substream = stream_norm not in ("main", "principal", "0")
     if vendor_norm in ("hik", "hikvision"):
-        track = f"{ch}01"
+        track = f"{ch}02" if use_substream else f"{ch}01"
         return (
             f"rtsp://{u}:{p}@{h}:{int(rtsp_port)}/Streaming/tracks/{track}"
             f"?starttime={start_dt.strftime('%Y%m%dT%H%M%SZ')}"
@@ -182,7 +185,7 @@ def _build_rtsp_url(
 
     return (
         f"rtsp://{u}:{p}@{h}:{int(rtsp_port)}/cam/playback"
-        f"?channel={ch}&subtype=0"
+        f"?channel={ch}&subtype={1 if use_substream else 0}"
         f"&starttime={start_dt.strftime('%Y_%m_%d_%H_%M_%S')}"
         f"&endtime={end_dt.strftime('%Y_%m_%d_%H_%M_%S')}"
     )
@@ -258,6 +261,7 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     vendor = _safe_text(req.get("vendor") or "auto")
     rtsp_port = int(req.get("rtsp_port") or 554)
     template = _safe_text(req.get("rtsp_template"))
+    stream_mode = _safe_text(req.get("stream_mode") or "sub")
 
     job_id = f"{int(time.time())}_{_safe_slug(host)}_ch{channel:02d}"
     out_dir = NVR_AI_FRAMES_DIR / job_id
@@ -273,9 +277,10 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         vendor=vendor,
         template=template,
         rtsp_port=rtsp_port,
+        stream_mode=stream_mode,
     )
 
-    fps = f"fps=1/{interval}"
+    fps = f"fps=1/{interval},scale=640:-2"
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -285,6 +290,11 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         "tcp",
         "-i",
         rtsp_url,
+        "-an",
+        "-sn",
+        "-dn",
+        "-map",
+        "0:v:0",
         "-vf",
         fps,
         "-vframes",
@@ -293,7 +303,9 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         "3",
         out_pattern,
     ]
-    timeout_sec = max(60, min(3600, int(req.get("timeout_sec") or (max_frames * interval + 60))))
+    duration_sec = max(1, int((end_dt - start_dt).total_seconds()))
+    expected_sec = min(duration_sec, max_frames * interval)
+    timeout_sec = max(60, min(3600, int(req.get("timeout_sec") or (expected_sec + 90))))
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
     files = sorted(out_dir.glob("frame_*.jpg"))
     if proc.returncode != 0 and not files:

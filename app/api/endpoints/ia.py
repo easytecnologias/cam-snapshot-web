@@ -21,6 +21,7 @@ class NvrAiIndexRequest(BaseModel):
     rtsp_port: int = Field(default=554, ge=1, le=65535)
     vendor: str = "auto"
     rtsp_template: str = ""
+    stream_mode: str = "sub"
     interval_sec: int = Field(default=10, ge=1, le=300)
     max_frames: int = Field(default=80, ge=1, le=500)
     timeout_sec: int = Field(default=0, ge=0, le=3600)

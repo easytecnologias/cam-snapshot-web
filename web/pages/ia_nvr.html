@@ -164,6 +164,14 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       </div>
       <div class="ia-form-grid">
         <div class="field">
+          <label for="ia-mode">Modo de indexacao</label>
+          <select id="ia-mode">
+            <option value="fast">Rapido</option>
+            <option value="balanced">Normal</option>
+            <option value="detailed">Detalhado</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="ia-vendor">Padrao RTSP</label>
           <select id="ia-vendor">
             <option value="auto">Dahua/Intelbras</option>
@@ -173,6 +181,13 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         <div class="field">
           <label for="ia-rtsp-port">Porta RTSP</label>
           <input id="ia-rtsp-port" type="number" min="1" max="65535" value="554"/>
+        </div>
+        <div class="field">
+          <label for="ia-stream">Stream</label>
+          <select id="ia-stream">
+            <option value="sub">Substream rapido</option>
+            <option value="main">Principal</option>
+          </select>
         </div>
       </div>
       <div class="field">
@@ -240,6 +255,37 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   function fmtLocalInput(d){
     const p = (n) => String(n).padStart(2,'0');
     return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  function secondsBetweenInputs(){
+    const start = byId('ia-start').value ? new Date(byId('ia-start').value) : null;
+    const end = byId('ia-end').value ? new Date(byId('ia-end').value) : null;
+    if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return 300;
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / 1000));
+  }
+  function calcTimeoutSec(){
+    const duration = secondsBetweenInputs();
+    const interval = Math.max(1, parseInt(byId('ia-interval').value || '10', 10));
+    const maxFrames = Math.max(1, parseInt(byId('ia-max').value || '20', 10));
+    return Math.max(60, Math.min(3600, Math.min(duration, interval * maxFrames) + 90));
+  }
+  function syncIndexMode(force){
+    const mode = byId('ia-mode').value || 'fast';
+    const presets = {
+      fast: { interval: 30, max: 12, stream: 'sub' },
+      balanced: { interval: 15, max: 24, stream: 'sub' },
+      detailed: { interval: 10, max: 80, stream: 'main' }
+    };
+    const preset = presets[mode] || presets.fast;
+    if (force || byId('ia-interval').dataset.auto !== '0') {
+      byId('ia-interval').value = preset.interval;
+      byId('ia-interval').dataset.auto = '1';
+    }
+    if (force || byId('ia-max').dataset.auto !== '0') {
+      byId('ia-max').value = preset.max;
+      byId('ia-max').dataset.auto = '1';
+    }
+    byId('ia-stream').value = preset.stream;
+    setStatus(`Modo ${mode === 'fast' ? 'rapido' : mode === 'balanced' ? 'normal' : 'detalhado'}: timeout estimado ${calcTimeoutSec()}s.`);
   }
   function selectedTarget(){
     const idx = parseInt(byId('ia-target').value || '-1', 10);
@@ -439,7 +485,9 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       max_frames: parseInt(byId('ia-max').value || '80', 10),
       vendor: byId('ia-vendor').value || 'auto',
       rtsp_port: parseInt(byId('ia-rtsp-port').value || '554', 10),
-      rtsp_template: byId('ia-template').value || ''
+      rtsp_template: byId('ia-template').value || '',
+      stream_mode: byId('ia-stream').value || 'sub',
+      timeout_sec: calcTimeoutSec()
     };
     if (!payload.password) { setStatus('Informe a senha do NVR.'); return; }
     byId('ia-index-btn').disabled = true;
@@ -490,6 +538,9 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   byId('ia-index-btn').addEventListener('click', indexPeriod);
   byId('ia-search-btn').addEventListener('click', search);
   byId('ia-query').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') search(); });
+  byId('ia-mode').addEventListener('change', () => syncIndexMode(true));
+  byId('ia-interval').addEventListener('input', () => { byId('ia-interval').dataset.auto = '0'; });
+  byId('ia-max').addEventListener('input', () => { byId('ia-max').dataset.auto = '0'; });
   byId('ia-target').addEventListener('change', updateSelectedTargetSummary);
   byId('ia-site').addEventListener('change', () => {
     selectedSite = byId('ia-site').value || '';
@@ -498,6 +549,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   window.addEventListener('sightops:auth-ready', () => {
     loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
   });
+  syncIndexMode(true);
   loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
 })();
 </script>
