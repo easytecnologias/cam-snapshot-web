@@ -374,9 +374,21 @@ def _color_tags_for_pixels(pixels: List[tuple[int, int, int]], threshold: float 
     hsv_red = hsv_blue = hsv_green = hsv_yellow = 0
     hsv_purple = hsv_pink = hsv_orange = hsv_brown = 0
     for r, g, b in pixels:
+        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        if v < 0.16:
+            black += 1
+            continue
+        if s < 0.18:
+            if v < 0.38:
+                black += 1
+            elif v > 0.80:
+                white += 1
+            else:
+                gray += 1
+            continue
         if r > 120 and r > g * 1.35 and r > b * 1.35:
             red += 1
-        if b > 120 and b > r * 1.25 and b > g * 1.15:
+        if b > 120 and s > 0.34 and b > r * 1.35 and b > g * 1.22:
             blue += 1
         if g > 120 and g > r * 1.15 and g > b * 1.15:
             green += 1
@@ -384,14 +396,13 @@ def _color_tags_for_pixels(pixels: List[tuple[int, int, int]], threshold: float 
             yellow += 1
         if r > 205 and g > 205 and b > 205:
             white += 1
-        if r < 45 and g < 45 and b < 45:
+        if r < 60 and g < 60 and b < 60:
             black += 1
-        if abs(r - g) < 22 and abs(r - b) < 22 and 55 <= r <= 190:
+        if abs(r - g) < 28 and abs(r - b) < 28 and 55 <= r <= 190:
             gray += 1
         if r > 145 and g > 105 and b > 75 and abs(r - g) < 70 and r >= b * 1.15:
             beige += 1
-        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-        if s > 0.25 and v > 0.20:
+        if s > 0.32 and v > 0.20:
             if h <= 0.04 or h >= 0.94:
                 hsv_red += 1
             elif 0.10 <= h <= 0.20:
@@ -400,7 +411,7 @@ def _color_tags_for_pixels(pixels: List[tuple[int, int, int]], threshold: float 
                 hsv_orange += 1
             elif 0.22 <= h <= 0.48:
                 hsv_green += 1
-            elif 0.52 <= h <= 0.75:
+            elif 0.52 <= h <= 0.75 and s > 0.38 and v > 0.28:
                 hsv_blue += 1
             elif 0.75 < h <= 0.86:
                 hsv_purple += 1
