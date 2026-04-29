@@ -27,6 +27,25 @@ NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
+_CLOTHING_COLORS = {
+    "vermelho",
+    "azul",
+    "verde",
+    "amarelo",
+    "roxo",
+    "rosa",
+    "laranja",
+    "marrom",
+    "cinza",
+    "bege",
+    "branco",
+    "preto",
+}
+_CLOTHING_PARTS = {
+    "camisa": ("camisa", "camiseta", "blusa", "roupa", "uniforme", "jaleco", "colete"),
+    "chapeu": ("chapeu", "chapéu", "bone", "boné", "capacete"),
+    "calca": ("calca", "calça", "bermuda", "short", "shorts"),
+}
 
 
 def _safe_text(value: Any) -> str:
@@ -507,6 +526,86 @@ def _yolo_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
     return crops
 
 
+def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]]:
+    model = _load_yolo_model()
+    if model is None:
+        return []
+    try:
+        import numpy as np  # type: ignore
+
+        arr = np.array(im.convert("RGB"))
+        results = model.predict(arr, classes=[0], conf=0.12, imgsz=960, max_det=12, verbose=False, device="cpu")
+    except Exception:
+        return []
+    boxes_out: List[tuple[int, int, int, int, float]] = []
+    for result in results[:1]:
+        boxes = getattr(result, "boxes", None)
+        if boxes is None:
+            continue
+        for box in boxes[:8]:
+            try:
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                conf = float(box.conf[0])
+            except Exception:
+                continue
+            if x2 - x1 < 12 or y2 - y1 < 24:
+                continue
+            boxes_out.append((x1, y1, x2, y2, conf))
+    return boxes_out
+
+
+def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.Image, float]]:
+    width, height = im.size
+    crops: List[tuple[str, str, Image.Image, float]] = []
+
+    for x1, y1, x2, y2, conf in _yolo_person_boxes(im):
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(width, x2)
+        y2 = min(height, y2)
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            continue
+        pad_x = int(w * 0.08)
+        part_boxes = {
+            "chapeu": (x1 + int(w * 0.12), y1, x2 - int(w * 0.12), y1 + int(h * 0.20)),
+            "camisa": (x1 - pad_x, y1 + int(h * 0.18), x2 + pad_x, y1 + int(h * 0.58)),
+            "calca": (x1, y1 + int(h * 0.52), x2, y1 + int(h * 0.96)),
+        }
+        for part, box in part_boxes.items():
+            px1, py1, px2, py2 = box
+            if px2 - px1 < 8 or py2 - py1 < 8:
+                continue
+            crops.append((part, "yolo", im.crop((max(0, px1), max(0, py1), min(width, px2), min(height, py2))), conf))
+    if crops:
+        return crops
+
+    # Fallback para CCTV quando o detector nao acha a pessoa inteira.
+    fallback_boxes = {
+        "camisa": [
+            (0.30, 0.22, 0.70, 0.58),
+            (0.18, 0.22, 0.58, 0.62),
+            (0.42, 0.22, 0.82, 0.62),
+        ],
+        "calca": [
+            (0.30, 0.52, 0.70, 0.88),
+            (0.18, 0.52, 0.58, 0.90),
+            (0.42, 0.52, 0.82, 0.90),
+        ],
+        "chapeu": [
+            (0.34, 0.12, 0.66, 0.30),
+            (0.22, 0.12, 0.54, 0.32),
+            (0.46, 0.12, 0.78, 0.32),
+        ],
+    }
+    for part, boxes in fallback_boxes.items():
+        for x1, y1, x2, y2 in boxes:
+            crop = im.crop((int(width * x1), int(height * y1), int(width * x2), int(height * y2)))
+            crops.append((part, "fallback", crop, 0.25))
+    return crops
+
+
 def _candidate_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
     crops: List[tuple[str, Image.Image, float]] = []
     width, height = im.size
@@ -555,28 +654,32 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         with Image.open(path) as im:
             im = im.convert("RGB")
             im.thumbnail((960, 540))
-            crops = _candidate_person_crops(im)
+            part_crops = _candidate_person_part_crops(im)
     except Exception:
         return tags, scores
-    best: Dict[str, float] = {}
+    best: Dict[str, Dict[str, float]] = {}
     person_confidence = 0.0
-    for source, crop, confidence in crops:
+    for part, source, crop, confidence in part_crops:
         crop.thumbnail((160, 220))
         crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
-            if color in ("vermelho", "azul", "verde", "roxo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto", "amarelo"):
-                best[color] = max(best.get(color, 0.0), float(score or 0.0))
-                scores[f"camisa_{color}"] = round(best[color], 4)
+            if color in _CLOTHING_COLORS:
+                part_best = best.setdefault(part, {})
+                part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
+                scores[f"{part}_{color}"] = round(part_best[color], 4)
         if source == "hog":
             scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
-    for color, score in best.items():
-        min_score = 0.012 if color in ("verde", "roxo") else 0.025
-        if score >= min_score:
-            shirt_tag = f"camisa_{color}"
-            if shirt_tag not in tags:
-                tags.append(shirt_tag)
+    for part, color_scores in best.items():
+        for color, score in color_scores.items():
+            min_score = 0.012 if color in ("verde", "roxo") else 0.025
+            if color in ("branco", "preto"):
+                min_score = 0.04
+            if score >= min_score:
+                clothing_tag = f"{part}_{color}"
+                if clothing_tag not in tags:
+                    tags.append(clothing_tag)
     if tags:
         tags.insert(0, "pessoa")
         scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), person_confidence), 4)
@@ -830,42 +933,23 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
 def _query_terms(query: str) -> List[str]:
     raw_query = _safe_text(query).lower()
     wants_person = "pessoa" in raw_query
-    wants_clothing_color = any(
-        word in raw_query
-        for word in (
-            "camisa",
-            "camiseta",
-            "blusa",
-            "roupa",
-            "uniforme",
-            "jaleco",
-            "colete",
-        )
-    )
-    q = (
-        raw_query.replace("camisa", "")
-        .replace("camiseta", "")
-        .replace("blusa", "")
-        .replace("de ", " ")
-        .replace("com ", " ")
-        .replace("roupa", "")
-        .replace("uniforme", "")
-        .replace("jaleco", "")
-        .replace("colete", "")
-    )
     aliases = {
         "pessoa": "pessoa",
         "vermelha": "vermelho",
         "vermelhas": "vermelho",
+        "vermelhos": "vermelho",
         "red": "vermelho",
         "azuis": "azul",
         "blue": "azul",
         "verde": "verde",
         "green": "verde",
         "amarela": "amarelo",
+        "amarelas": "amarelo",
+        "amarelos": "amarelo",
         "yellow": "amarelo",
         "roxa": "roxo",
         "roxas": "roxo",
+        "roxos": "roxo",
         "purple": "roxo",
         "violeta": "roxo",
         "rosa": "rosa",
@@ -880,33 +964,42 @@ def _query_terms(query: str) -> List[str]:
         "bege": "bege",
         "beige": "bege",
         "branca": "branco",
+        "brancas": "branco",
+        "brancos": "branco",
         "white": "branco",
         "preta": "preto",
+        "pretas": "preto",
+        "pretos": "preto",
         "black": "preto",
     }
+    tokens: List[str] = []
+    for part in re.split(r"[^a-z0-9áéíóúãõç]+", raw_query):
+        if part:
+            tokens.append(aliases.get(part, part))
+
     terms: List[str] = []
-    color_terms = {
-        "vermelho",
-        "azul",
-        "verde",
-        "amarelo",
-        "roxo",
-        "rosa",
-        "laranja",
-        "marrom",
-        "cinza",
-        "bege",
-        "branco",
-        "preto",
-    }
-    for part in re.split(r"[^a-z0-9áéíóúãõç]+", q):
-        if not part:
+    used_positions: set[int] = set()
+    for idx, token in enumerate(tokens):
+        selected_part = ""
+        for part_name, aliases_for_part in _CLOTHING_PARTS.items():
+            if token in aliases_for_part:
+                selected_part = part_name
+                break
+        if not selected_part:
             continue
-        term = aliases.get(part, part)
-        if wants_clothing_color and term in color_terms:
-            terms.append(f"camisa_{term}")
-        else:
-            terms.append(term)
+        used_positions.add(idx)
+        for near in range(idx + 1, min(len(tokens), idx + 4)):
+            if tokens[near] in _CLOTHING_COLORS:
+                terms.append(f"{selected_part}_{tokens[near]}")
+                used_positions.add(near)
+                break
+
+    for idx, token in enumerate(tokens):
+        if idx in used_positions:
+            continue
+        if token in {"de", "da", "do", "com", "e", "a", "o", "uma", "um"}:
+            continue
+        terms.append(token)
     if wants_person and "pessoa" not in terms:
         terms.append("pessoa")
     return terms
@@ -914,32 +1007,26 @@ def _query_terms(query: str) -> List[str]:
 
 def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
     scores = row.get("scores") or {}
-    if term.startswith("camisa_"):
-        color = term.replace("camisa_", "", 1)
+    clothing_part = ""
+    clothing_color = ""
+    for part in _CLOTHING_PARTS:
+        prefix = f"{part}_"
+        if term.startswith(prefix):
+            clothing_part = part
+            clothing_color = term.replace(prefix, "", 1)
+            break
+    if clothing_part:
         try:
             shirt_score = float(scores.get(term) or 0)
         except Exception:
             shirt_score = 0.0
-        try:
-            motion_score = float(scores.get(f"movimento_{color}") or 0)
-        except Exception:
-            motion_score = 0.0
-        shirt_thresholds = {
+        part_thresholds = {
             "verde": 0.012,
             "roxo": 0.012,
             "branco": 0.055,
-            "preto": 0.04,
+            "preto": 0.055,
         }
-        motion_thresholds = {
-            "verde": 0.018,
-            "roxo": 0.018,
-            "branco": 0.055,
-            "preto": 0.04,
-        }
-        return (
-            shirt_score >= shirt_thresholds.get(color, 0.025)
-            or motion_score >= motion_thresholds.get(color, 0.025)
-        )
+        return shirt_score >= part_thresholds.get(clothing_color, 0.025)
     if term in hay:
         return True
     try:
