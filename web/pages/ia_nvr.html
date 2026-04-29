@@ -391,6 +391,25 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const box = byId('ia-work');
     if (box && clear !== false) box.classList.remove('active');
   }
+  async function waitIndexJob(jobId, payload){
+    const started = Date.now();
+    while (true) {
+      await new Promise(resolve => window.setTimeout(resolve, 2500));
+      const j = await apiJson('/api/ia/nvr/index/jobs/' + encodeURIComponent(jobId) + '?_=' + Date.now(), {
+        headers: tokenHeaders(),
+        cache: 'no-store'
+      });
+      const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+      if (j.status === 'done') return j.result || {};
+      if (j.status === 'error') throw new Error(j.error || 'Falha ao indexar');
+      const meta = byId('ia-work-meta');
+      if (meta) {
+        const interval = Math.max(1, Number(payload.interval_sec || 10));
+        const maxFrames = Math.max(1, Number(payload.max_frames || 1));
+        meta.textContent = `Job ${jobId.slice(0,8)} em ${j.status || 'andamento'} | tempo: ${fmtElapsed(elapsed)} | ate ${maxFrames} foto(s), 1 a cada ${interval}s.`;
+      }
+    }
+  }
   function syncIndexMode(force){
     applyCoverage();
   }
@@ -635,11 +654,14 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     setStatus('Indexando para busca visual. Esta etapa baixa frames e pode demorar conforme o periodo escolhido...');
     startWorkIndicator('index', payload);
     try {
-      const j = await apiJson('/api/ia/nvr/index', {
+      const startedJob = await apiJson('/api/ia/nvr/index/jobs', {
         method:'POST',
         headers: tokenHeaders({'Content-Type':'application/json'}),
         body: JSON.stringify(payload)
       });
+      if (!startedJob.ok || !startedJob.job_id) throw new Error('Falha ao iniciar job de indexacao');
+      setStatus(`Indexacao iniciada em segundo plano. Job ${startedJob.job_id}.`);
+      const j = await waitIndexJob(startedJob.job_id, payload);
       if (!j.ok) throw new Error((j && (j.detail || j.error)) || 'Falha ao indexar');
       const parts = [];
       if (j.message) parts.push(j.message);
