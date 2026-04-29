@@ -25,6 +25,7 @@ class NvrAiIndexRequest(BaseModel):
     interval_sec: int = Field(default=10, ge=1, le=300)
     max_frames: int = Field(default=80, ge=1, le=500)
     timeout_sec: int = Field(default=0, ge=0, le=3600)
+    visual_filter: str = ""
     title: str = ""
     local: str = ""
 

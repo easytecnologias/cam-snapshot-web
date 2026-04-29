@@ -448,6 +448,7 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     template = _safe_text(req.get("rtsp_template"))
     stream_mode = _safe_text(req.get("stream_mode") or "sub")
     vendor_norm = vendor.lower()
+    visual_filter = _safe_text(req.get("visual_filter")).lower()
 
     record_segments: List[Dict[str, Any]] = []
     nvr_api_warning = ""
@@ -523,11 +524,19 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
 
     existing = _load_index()
     created: List[Dict[str, Any]] = []
+    skipped_by_filter = 0
     local = _safe_text(req.get("local"))
     title = _safe_text(req.get("title") or f"CH {channel:02d}")
     for idx, path in enumerate(files, start=1):
         captured_at = start_dt + timedelta(seconds=(idx - 1) * interval)
         tags, scores = _color_tags_for_image(path)
+        if visual_filter and visual_filter not in tags:
+            skipped_by_filter += 1
+            try:
+                path.unlink()
+            except Exception:
+                pass
+            continue
         item_id = f"{job_id}_{idx:05d}"
         rel_url = f"/data/nvr_ai/frames/{job_id}/{path.name}"
         item = {
@@ -553,6 +562,8 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
         "ok": True,
         "job_id": job_id,
         "created": len(created),
+        "skipped_by_filter": skipped_by_filter,
+        "visual_filter": visual_filter,
         "total_indexed": len(existing),
         "record_segments": record_segments[:100],
         "nvr_api_warning": nvr_api_warning,

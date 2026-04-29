@@ -195,6 +195,16 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         </div>
       </div>
       <div class="field">
+        <label for="ia-visual-filter">Filtro ao indexar</label>
+        <select id="ia-visual-filter">
+          <option value="">Salvar todas as fotos</option>
+          <option value="vermelho">Salvar so quando detectar vermelho</option>
+          <option value="azul">Salvar so quando detectar azul</option>
+          <option value="branco">Salvar so quando detectar branco</option>
+          <option value="preto">Salvar so quando detectar preto</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="ia-template">Template RTSP opcional</label>
         <input id="ia-template" type="text" placeholder="rtsp://{user}:{password}@{host}:{rtsp_port}/..."/>
       </div>
@@ -314,6 +324,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       rtsp_port: parseInt(byId('ia-rtsp-port').value || '554', 10),
       rtsp_template: byId('ia-template').value || '',
       stream_mode: byId('ia-stream').value || 'sub',
+      visual_filter: byId('ia-visual-filter').value || '',
       timeout_sec: calcTimeoutSec()
     };
   }
@@ -551,6 +562,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         }
       }
       if (j.nvr_api_warning) parts.push(`Aviso NVR: ${j.nvr_api_warning}`);
+      if (j.visual_filter) parts.push(`Filtro aplicado: ${j.visual_filter}. Fotos descartadas: ${j.skipped_by_filter || 0}.`);
       if (j.job_id) {
         parts.push(`Indexacao concluida. Job ${j.job_id}. Fotos novas: ${j.created}. Total indexado: ${j.total_indexed}.`);
       } else {
