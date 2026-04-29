@@ -342,10 +342,9 @@ def _color_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
         return [], {}
 
 
-def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List[str], Dict[str, float]]:
+def _color_tags_for_pixels(pixels: List[tuple[int, int, int]], threshold: float = 0.015) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
-    pixels = list(im.convert("RGB").getdata())
     total = max(1, len(pixels))
     red = blue = green = yellow = white = black = 0
     purple = pink = orange = brown = gray = beige = 0
@@ -405,6 +404,46 @@ def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List
         color_threshold = min(threshold, 0.006) if name == "verde" else threshold
         if score >= color_threshold:
             tags.append(name)
+    return tags, scores
+
+
+def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List[str], Dict[str, float]]:
+    return _color_tags_for_pixels(list(im.convert("RGB").getdata()), threshold=threshold)
+
+
+def _motion_shirt_tags_for_image(path: Path, ref_path: Path | None) -> tuple[List[str], Dict[str, float]]:
+    if not ref_path:
+        return [], {}
+    try:
+        with Image.open(path) as current, Image.open(ref_path) as previous:
+            cur = current.convert("RGB")
+            prev = previous.convert("RGB")
+            cur.thumbnail((480, 270))
+            prev = prev.resize(cur.size)
+            cur_pixels = list(cur.getdata())
+            prev_pixels = list(prev.getdata())
+    except Exception:
+        return [], {}
+    moving_pixels: List[tuple[int, int, int]] = []
+    width, height = cur.size
+    for idx, (r, g, b) in enumerate(cur_pixels):
+        x = idx % width
+        y = idx // width
+        if y < int(height * 0.18):
+            continue
+        pr, pg, pb = prev_pixels[idx]
+        diff = abs(r - pr) + abs(g - pg) + abs(b - pb)
+        if diff >= 45:
+            moving_pixels.append((r, g, b))
+    if len(moving_pixels) < 80:
+        return [], {}
+    motion_tags, motion_scores = _color_tags_for_pixels(moving_pixels, threshold=0.018)
+    tags = ["movimento"]
+    scores = {f"movimento_{k}": v for k, v in motion_scores.items()}
+    for color in motion_tags:
+        if color in ("vermelho", "azul", "verde", "roxo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto", "amarelo"):
+            tags.append(f"camisa_{color}")
+            scores[f"camisa_{color}"] = max(float(scores.get(f"camisa_{color}", 0.0)), float(motion_scores.get(color) or 0.0))
     return tags, scores
 
 
@@ -667,13 +706,20 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     skipped_by_filter = 0
     local = _safe_text(req.get("local"))
     title = _safe_text(req.get("title") or f"CH {channel:02d}")
+    previous_path: Path | None = None
     for idx, (path, captured_at) in enumerate(extracted, start=1):
         tags, scores = _color_tags_for_image(path)
         shirt_tags, shirt_scores = _person_shirt_tags_for_image(path)
+        motion_tags, motion_scores = _motion_shirt_tags_for_image(path, previous_path)
+        previous_path = path
         for tag in shirt_tags:
             if tag not in tags:
                 tags.append(tag)
+        for tag in motion_tags:
+            if tag not in tags:
+                tags.append(tag)
         scores.update(shirt_scores)
+        scores.update(motion_scores)
         if visual_filter and visual_filter not in tags:
             skipped_by_filter += 1
             try:
@@ -777,13 +823,17 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
     except Exception:
         score = 0.0
     if term in ("verde", "roxo"):
-        return score >= 0.006 or float(scores.get(f"camisa_{term}") or 0) >= 0.012
+        return score >= 0.006 or float(scores.get(f"camisa_{term}") or 0) >= 0.012 or float(scores.get(f"movimento_{term}") or 0) >= 0.018
     if term in ("vermelho", "azul", "amarelo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto"):
         try:
             shirt_score = float(scores.get(f"camisa_{term}") or 0)
         except Exception:
             shirt_score = 0.0
-        return score >= 0.015 or shirt_score >= 0.025
+        try:
+            motion_score = float(scores.get(f"movimento_{term}") or 0)
+        except Exception:
+            motion_score = 0.0
+        return score >= 0.015 or shirt_score >= 0.025 or motion_score >= 0.018
     return False
 
 
