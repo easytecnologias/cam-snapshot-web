@@ -165,23 +165,29 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
       </div>
       <div class="ia-form-grid">
         <div class="field">
-          <label for="ia-interval">Intervalo entre fotos (s)</label>
-          <input id="ia-interval" type="number" min="1" max="300" value="10"/>
+          <label for="ia-mode">Cobertura da busca</label>
+          <select id="ia-mode">
+            <option value="fast">Leve</option>
+            <option value="balanced">Normal</option>
+            <option value="detailed">Detalhada</option>
+          </select>
         </div>
         <div class="field">
-          <label for="ia-max">Maximo de fotos</label>
-          <input id="ia-max" type="number" min="1" max="500" value="80"/>
+          <label for="ia-estimate">Amostras calculadas</label>
+          <input id="ia-estimate" type="text" value="" readonly/>
         </div>
       </div>
       <div class="ia-form-grid">
         <div class="field">
-          <label for="ia-mode">Modo de indexacao</label>
-          <select id="ia-mode">
-            <option value="fast">Rapido</option>
-            <option value="balanced">Normal</option>
-            <option value="detailed">Detalhado</option>
-          </select>
+          <label for="ia-interval">Intervalo tecnico (s)</label>
+          <input id="ia-interval" type="number" min="1" max="300" value="60" readonly/>
         </div>
+        <div class="field">
+          <label for="ia-max">Limite tecnico</label>
+          <input id="ia-max" type="number" min="1" max="500" value="6" readonly/>
+        </div>
+      </div>
+      <div class="ia-form-grid">
         <div class="field">
           <label for="ia-vendor">Padrao RTSP</label>
           <select id="ia-vendor">
@@ -309,6 +315,29 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const maxFrames = Math.max(1, parseInt(byId('ia-max').value || '20', 10));
     return Math.max(60, Math.min(3600, Math.min(duration, interval * maxFrames) + 90));
   }
+  function coveragePreset(){
+    const mode = byId('ia-mode').value || 'fast';
+    const map = {
+      fast: { target: 20, minInterval: 60, max: 80, stream: 'sub', label: 'leve' },
+      balanced: { target: 40, minInterval: 30, max: 180, stream: 'sub', label: 'normal' },
+      detailed: { target: 90, minInterval: 10, max: 500, stream: 'main', label: 'detalhada' }
+    };
+    return map[mode] || map.fast;
+  }
+  function applyCoverage(){
+    const duration = secondsBetweenInputs();
+    const preset = coveragePreset();
+    const idealInterval = Math.ceil(duration / Math.max(1, preset.target));
+    const interval = Math.max(preset.minInterval, Math.min(300, idealInterval));
+    const samples = Math.max(1, Math.min(preset.max, Math.ceil(duration / interval)));
+    byId('ia-interval').value = String(interval);
+    byId('ia-max').value = String(samples);
+    byId('ia-stream').value = preset.stream;
+    const estimate = `${samples} foto(s), 1 a cada ${interval}s`;
+    const input = byId('ia-estimate');
+    if (input) input.value = estimate;
+    setStatus(`Cobertura ${preset.label}: ${estimate}. Timeout estimado ${calcTimeoutSec()}s.`);
+  }
   function startWorkIndicator(kind, payload){
     stopWorkIndicator(false);
     const box = byId('ia-work');
@@ -344,23 +373,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     if (box && clear !== false) box.classList.remove('active');
   }
   function syncIndexMode(force){
-    const mode = byId('ia-mode').value || 'fast';
-    const presets = {
-      fast: { interval: 60, max: 6, stream: 'sub' },
-      balanced: { interval: 15, max: 24, stream: 'sub' },
-      detailed: { interval: 10, max: 80, stream: 'main' }
-    };
-    const preset = presets[mode] || presets.fast;
-    if (force || byId('ia-interval').dataset.auto !== '0') {
-      byId('ia-interval').value = preset.interval;
-      byId('ia-interval').dataset.auto = '1';
-    }
-    if (force || byId('ia-max').dataset.auto !== '0') {
-      byId('ia-max').value = preset.max;
-      byId('ia-max').dataset.auto = '1';
-    }
-    byId('ia-stream').value = preset.stream;
-    setStatus(`Modo ${mode === 'fast' ? 'rapido' : mode === 'balanced' ? 'normal' : 'detalhado'}: timeout estimado ${calcTimeoutSec()}s.`);
+    applyCoverage();
   }
   function buildNvrPayload(){
     const t = selectedTarget();
@@ -720,8 +733,8 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   byId('ia-clear-btn').addEventListener('click', clearIndex);
   byId('ia-query').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') search(); });
   byId('ia-mode').addEventListener('change', () => syncIndexMode(true));
-  byId('ia-interval').addEventListener('input', () => { byId('ia-interval').dataset.auto = '0'; });
-  byId('ia-max').addEventListener('input', () => { byId('ia-max').dataset.auto = '0'; });
+  byId('ia-start').addEventListener('change', applyCoverage);
+  byId('ia-end').addEventListener('change', applyCoverage);
   byId('ia-target').addEventListener('change', updateSelectedTargetSummary);
   byId('ia-site').addEventListener('change', () => {
     selectedSite = byId('ia-site').value || '';
