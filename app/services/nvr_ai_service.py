@@ -25,10 +25,16 @@ NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
 NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
 NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
-NVR_AI_VISION_VERSION = "yolo_parts_v4_dominant_tags"
+NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "clip").strip().lower()
+NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
+NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.24"))
+NVR_AI_VISION_VERSION = "clip_yolo_parts_v1"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
+_CLIP_MODEL: Any = None
+_CLIP_PROCESSOR: Any = None
+_CLIP_LOAD_ATTEMPTED = False
 _CLOTHING_COLORS = {
     "vermelho",
     "azul",
@@ -47,6 +53,50 @@ _CLOTHING_PARTS = {
     "camisa": ("camisa", "camiseta", "blusa", "roupa", "uniforme", "jaleco", "colete"),
     "chapeu": ("chapeu", "chapéu", "bone", "boné", "capacete"),
     "calca": ("calca", "calça", "bermuda", "short", "shorts"),
+}
+_CLIP_COLOR_PROMPTS = {
+    "camisa": {
+        "vermelho": "a photo of a red shirt",
+        "azul": "a photo of a blue shirt",
+        "verde": "a photo of a green shirt",
+        "amarelo": "a photo of a yellow shirt",
+        "roxo": "a photo of a purple shirt",
+        "rosa": "a photo of a pink shirt",
+        "laranja": "a photo of an orange shirt",
+        "marrom": "a photo of a brown shirt",
+        "cinza": "a photo of a gray shirt",
+        "bege": "a photo of a beige shirt",
+        "branco": "a photo of a white shirt",
+        "preto": "a photo of a black shirt",
+    },
+    "calca": {
+        "vermelho": "a photo of red pants",
+        "azul": "a photo of blue pants",
+        "verde": "a photo of green pants",
+        "amarelo": "a photo of yellow pants",
+        "roxo": "a photo of purple pants",
+        "rosa": "a photo of pink pants",
+        "laranja": "a photo of orange pants",
+        "marrom": "a photo of brown pants",
+        "cinza": "a photo of gray pants",
+        "bege": "a photo of beige pants",
+        "branco": "a photo of white pants",
+        "preto": "a photo of black pants",
+    },
+    "chapeu": {
+        "vermelho": "a photo of a red hat",
+        "azul": "a photo of a blue hat",
+        "verde": "a photo of a green hat",
+        "amarelo": "a photo of a yellow hat",
+        "roxo": "a photo of a purple hat",
+        "rosa": "a photo of a pink hat",
+        "laranja": "a photo of an orange hat",
+        "marrom": "a photo of a brown hat",
+        "cinza": "a photo of a gray hat",
+        "bege": "a photo of a beige hat",
+        "branco": "a photo of a white hat",
+        "preto": "a photo of a black hat",
+    },
 }
 
 
@@ -493,6 +543,26 @@ def _load_yolo_model() -> Any:
     return _YOLO_MODEL
 
 
+def _load_clip_model() -> tuple[Any, Any]:
+    global _CLIP_MODEL, _CLIP_PROCESSOR, _CLIP_LOAD_ATTEMPTED
+    if _CLIP_LOAD_ATTEMPTED:
+        return _CLIP_MODEL, _CLIP_PROCESSOR
+    _CLIP_LOAD_ATTEMPTED = True
+    try:
+        from transformers import CLIPModel, CLIPProcessor  # type: ignore
+
+        _CLIP_MODEL = CLIPModel.from_pretrained(NVR_AI_CLIP_MODEL)
+        _CLIP_PROCESSOR = CLIPProcessor.from_pretrained(NVR_AI_CLIP_MODEL)
+        try:
+            _CLIP_MODEL.eval()
+        except Exception:
+            pass
+    except Exception:
+        _CLIP_MODEL = None
+        _CLIP_PROCESSOR = None
+    return _CLIP_MODEL, _CLIP_PROCESSOR
+
+
 def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]]:
     model = _load_yolo_model()
     if model is None:
@@ -568,6 +638,27 @@ def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
     return crop.crop(box)
 
 
+def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
+    if NVR_AI_ATTR_PROVIDER != "clip":
+        return {}
+    model, processor = _load_clip_model()
+    prompts = _CLIP_COLOR_PROMPTS.get(part) or {}
+    if model is None or processor is None or not prompts:
+        return {}
+    colors = list(prompts.keys())
+    texts = [prompts[color] for color in colors]
+    try:
+        import torch  # type: ignore
+
+        inputs = processor(text=texts, images=crop.convert("RGB"), return_tensors="pt", padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
+            probs = outputs.logits_per_image.softmax(dim=1)[0].detach().cpu().tolist()
+    except Exception:
+        return {}
+    return {color: round(float(prob), 4) for color, prob in zip(colors, probs)}
+
+
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -585,7 +676,15 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             continue
         crop = _focused_part_crop(crop, part)
         crop.thumbnail((160, 220))
-        crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
+        crop_scores = _clip_color_scores(crop, part)
+        if crop_scores:
+            crop_tags = [max(crop_scores.items(), key=lambda item: float(item[1] or 0.0))[0]]
+            scores[f"{part}_provider_clip"] = 1.0
+        else:
+            if NVR_AI_ATTR_PROVIDER == "clip":
+                continue
+            crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
+            scores[f"{part}_provider_hsv"] = 1.0
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
@@ -599,14 +698,18 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             continue
         color, score = ranked[0]
         runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
-        min_score = 0.10
-        if color in ("verde", "roxo"):
-            min_score = 0.08
-        if color in ("branco", "preto", "cinza"):
-            min_score = 0.18
+        if float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
+            min_score = NVR_AI_CLIP_THRESHOLD
+            dominance_margin = 1.12
+        else:
+            min_score = 0.10
+            if color in ("verde", "roxo"):
+                min_score = 0.08
+            if color in ("branco", "preto", "cinza"):
+                min_score = 0.18
+            dominance_margin = 1.45 if color in ("preto", "branco", "cinza") else 1.25
         if score < min_score:
             continue
-        dominance_margin = 1.45 if color in ("preto", "branco", "cinza") else 1.25
         if runner_up and score < runner_up * dominance_margin:
             continue
         clothing_tag = f"{part}_{color}"
@@ -974,9 +1077,14 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             "preto": 0.18,
             "cinza": 0.18,
         }
-        if part_score < part_thresholds.get(clothing_color, 0.10):
+        if float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
+            min_score = NVR_AI_CLIP_THRESHOLD
+            dominance_margin = 1.12
+        else:
+            min_score = part_thresholds.get(clothing_color, 0.10)
+            dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
+        if part_score < min_score:
             return False
-        dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
         return not runner_up or part_score >= runner_up * dominance_margin
     try:
         score = float(scores.get(term) or 0)
