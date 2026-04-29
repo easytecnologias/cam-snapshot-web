@@ -28,7 +28,7 @@ NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
 NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "clip").strip().lower()
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
-NVR_AI_VISION_VERSION = "clip_yolo_parts_v1"
+NVR_AI_VISION_VERSION = "clip_yolo_parts_v2_edge_guard"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -591,9 +591,9 @@ def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]
     return boxes_out
 
 
-def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.Image, float]]:
+def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.Image, float, bool]]:
     width, height = im.size
-    crops: List[tuple[str, str, Image.Image, float]] = []
+    crops: List[tuple[str, str, Image.Image, float, bool]] = []
 
     for x1, y1, x2, y2, conf in _yolo_person_boxes(im):
         x1 = max(0, x1)
@@ -604,6 +604,8 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
         h = y2 - y1
         if w <= 0 or h <= 0:
             continue
+        touches_edge = x1 <= 3 or y1 <= 3 or x2 >= width - 3 or y2 >= height - 3
+        full_body_like = h >= max(70, width * 0.20) and y2 < height - 6 and y1 > 3
         pad_x = int(w * 0.08)
         part_boxes = {
             "chapeu": (x1 + int(w * 0.18), y1, x2 - int(w * 0.18), y1 + int(h * 0.18)),
@@ -611,10 +613,12 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
             "calca": (x1 + int(w * 0.16), y1 + int(h * 0.64), x2 - int(w * 0.16), y1 + int(h * 0.94)),
         }
         for part, box in part_boxes.items():
+            if part == "calca" and (touches_edge or not full_body_like):
+                continue
             px1, py1, px2, py2 = box
             if px2 - px1 < 8 or py2 - py1 < 8:
                 continue
-            crops.append((part, "yolo", im.crop((max(0, px1), max(0, py1), min(width, px2), min(height, py2))), conf))
+            crops.append((part, "yolo", im.crop((max(0, px1), max(0, py1), min(width, px2), min(height, py2))), conf, touches_edge))
     if crops:
         return crops
     return []
@@ -671,8 +675,10 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         return tags, scores
     best: Dict[str, Dict[str, float]] = {}
     person_confidence = 0.0
-    for part, source, crop, confidence in part_crops:
+    for part, source, crop, confidence, touches_edge in part_crops:
         if source != "yolo" or confidence < NVR_AI_YOLO_CONF:
+            continue
+        if touches_edge and part in ("calca", "chapeu"):
             continue
         crop = _focused_part_crop(crop, part)
         crop.thumbnail((160, 220))
