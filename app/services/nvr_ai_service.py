@@ -463,10 +463,6 @@ def _motion_shirt_tags_for_image(path: Path, ref_path: Path | None) -> tuple[Lis
     motion_tags, motion_scores = _color_tags_for_pixels(moving_pixels, threshold=0.018)
     tags = ["movimento"]
     scores = {f"movimento_{k}": v for k, v in motion_scores.items()}
-    for color in motion_tags:
-        if color in ("vermelho", "azul", "verde", "roxo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto", "amarelo"):
-            tags.append(f"camisa_{color}")
-            scores[f"camisa_{color}"] = max(float(scores.get(f"camisa_{color}", 0.0)), float(motion_scores.get(color) or 0.0))
     return tags, scores
 
 
@@ -672,14 +668,21 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         if source == "hog":
             scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
     for part, color_scores in best.items():
-        for color, score in color_scores.items():
-            min_score = 0.012 if color in ("verde", "roxo") else 0.025
-            if color in ("branco", "preto"):
-                min_score = 0.04
-            if score >= min_score:
-                clothing_tag = f"{part}_{color}"
-                if clothing_tag not in tags:
-                    tags.append(clothing_tag)
+        ranked = sorted(color_scores.items(), key=lambda item: float(item[1] or 0.0), reverse=True)
+        if not ranked:
+            continue
+        color, score = ranked[0]
+        runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
+        min_score = 0.018 if color in ("verde", "roxo") else 0.035
+        if color in ("branco", "preto"):
+            min_score = 0.06
+        if score < min_score:
+            continue
+        if runner_up and score < runner_up * 1.18:
+            continue
+        clothing_tag = f"{part}_{color}"
+        if clothing_tag not in tags:
+            tags.append(clothing_tag)
     if tags:
         tags.insert(0, "pessoa")
         scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), person_confidence), 4)
@@ -874,7 +877,8 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     title = _safe_text(req.get("title") or f"CH {channel:02d}")
     previous_path: Path | None = None
     for idx, (path, captured_at) in enumerate(extracted, start=1):
-        tags, scores = _color_tags_for_image(path)
+        _frame_tags, scores = _color_tags_for_image(path)
+        tags: List[str] = []
         shirt_tags, shirt_scores = _person_shirt_tags_for_image(path)
         motion_tags, motion_scores = _motion_shirt_tags_for_image(path, previous_path)
         previous_path = path
@@ -1017,16 +1021,26 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             break
     if clothing_part:
         try:
-            shirt_score = float(scores.get(term) or 0)
+            part_score = float(scores.get(term) or 0)
         except Exception:
-            shirt_score = 0.0
+            part_score = 0.0
+        runner_up = 0.0
+        for color in _CLOTHING_COLORS:
+            if color == clothing_color:
+                continue
+            try:
+                runner_up = max(runner_up, float(scores.get(f"{clothing_part}_{color}") or 0))
+            except Exception:
+                pass
         part_thresholds = {
-            "verde": 0.012,
-            "roxo": 0.012,
+            "verde": 0.018,
+            "roxo": 0.018,
             "branco": 0.055,
             "preto": 0.055,
         }
-        return shirt_score >= part_thresholds.get(clothing_color, 0.025)
+        if part_score < part_thresholds.get(clothing_color, 0.035):
+            return False
+        return not runner_up or part_score >= runner_up * 1.18
     if term in hay:
         return True
     try:
