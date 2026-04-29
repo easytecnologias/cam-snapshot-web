@@ -776,7 +776,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
             continue
         score = 0.0
         for term in terms:
-            if term and term in hay:
+            if term and _row_has_term(row, term, hay):
                 score += 1.0
                 try:
                     score += float((row.get("scores") or {}).get(term) or 0)
