@@ -355,6 +355,62 @@ def _save_index(rows: List[Dict[str, Any]]) -> None:
     _write_json(NVR_AI_INDEX_PATH, rows)
 
 
+def query_recording_segments(req: Dict[str, Any]) -> Dict[str, Any]:
+    host = _safe_text(req.get("host"))
+    user = _safe_text(req.get("user") or "admin")
+    password = _safe_text(req.get("password"))
+    channel = int(req.get("channel") or 0)
+    if not host:
+        raise ValueError("host obrigatorio")
+    if not password:
+        raise ValueError("senha obrigatoria")
+    if channel <= 0:
+        raise ValueError("canal obrigatorio")
+
+    start_dt = _parse_dt(req.get("start_time"))
+    end_dt = _parse_dt(req.get("end_time"))
+    if end_dt <= start_dt:
+        raise ValueError("data final deve ser maior que a inicial")
+
+    vendor = _safe_text(req.get("vendor") or "auto").lower()
+    if vendor not in ("", "auto", "dahua", "intelbras", "intelbras/dahua", "dvr"):
+        return {
+            "ok": True,
+            "record_segments": [],
+            "nvr_api_warning": "Consulta rapida de gravacoes ainda esta implementada para Intelbras/Dahua.",
+            "message": "Use a indexacao por RTSP para este padrao de equipamento.",
+        }
+
+    media_find = _dahua_media_find_segments(
+        host=host,
+        http_port=int(req.get("http_port") or 80),
+        user=user,
+        password=password,
+        channel=channel,
+        start_dt=start_dt,
+        end_dt=end_dt,
+    )
+    segments = media_find.get("segments") if isinstance(media_find.get("segments"), list) else []
+    warning = _safe_text(media_find.get("warning"))
+    if segments:
+        first = segments[0]
+        last = segments[-1]
+        message = (
+            f"NVR retornou {len(segments)} trecho(s) gravado(s): "
+            f"{first.get('start_time')} ate {last.get('end_time')}."
+        )
+    elif warning:
+        message = "Nao foi possivel consultar o indice de gravacoes do NVR."
+    else:
+        message = "O NVR respondeu: nao existe gravacao nesse canal/horario."
+    return {
+        "ok": True,
+        "record_segments": segments,
+        "nvr_api_warning": warning,
+        "message": message,
+    }
+
+
 def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     host = _safe_text(req.get("host"))
     user = _safe_text(req.get("user") or "admin")
@@ -383,18 +439,14 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     record_segments: List[Dict[str, Any]] = []
     nvr_api_warning = ""
     if vendor_norm in ("", "auto", "dahua", "intelbras", "intelbras/dahua", "dvr"):
-        media_find = _dahua_media_find_segments(
-            host=host,
-            http_port=http_port,
-            user=user,
-            password=password,
-            channel=channel,
-            start_dt=start_dt,
-            end_dt=end_dt,
+        recording_probe = query_recording_segments(req)
+        record_segments = (
+            recording_probe.get("record_segments")
+            if isinstance(recording_probe.get("record_segments"), list)
+            else []
         )
-        record_segments = media_find.get("segments") if isinstance(media_find.get("segments"), list) else []
-        nvr_api_warning = _safe_text(media_find.get("warning"))
-        if media_find.get("ok") and not record_segments:
+        nvr_api_warning = _safe_text(recording_probe.get("nvr_api_warning"))
+        if not nvr_api_warning and not record_segments:
             existing = _load_index()
             return {
                 "ok": True,

@@ -5,7 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.nvr_ai_service import index_recording, list_nvr_targets, search_events, stats
+from app.services.nvr_ai_service import index_recording, list_nvr_targets, query_recording_segments, search_events, stats
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
 
@@ -43,6 +43,16 @@ def api_ia_nvr_stats() -> Dict[str, Any]:
 def api_ia_nvr_index(req: NvrAiIndexRequest) -> Dict[str, Any]:
     try:
         return index_recording(req.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.post("/nvr/recordings")
+def api_ia_nvr_recordings(req: NvrAiIndexRequest) -> Dict[str, Any]:
+    try:
+        return query_recording_segments(req.model_dump())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
