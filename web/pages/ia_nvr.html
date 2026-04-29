@@ -35,6 +35,13 @@ body.ia-nvr-page main{padding-top:78px}
 .ia-recording{border:1px solid var(--border-subtle);border-radius:10px;background:var(--bg-elevated);padding:10px;font-size:12px;color:var(--text-main)}
 .ia-recording strong{display:block;font-size:13px;margin-bottom:4px}
 .ia-action-stack{display:grid;grid-template-columns:1fr;gap:8px;margin-top:12px}
+.ia-work{display:none;border:1px solid var(--border-subtle);border-radius:12px;background:rgba(37,99,235,.08);padding:10px;margin-top:10px;color:var(--text-main)}
+.ia-work.active{display:block}
+.ia-work-title{font-size:13px;font-weight:700;margin-bottom:5px}
+.ia-work-meta{font-size:12px;color:var(--text-muted);line-height:1.45}
+.ia-work-bar{height:8px;border-radius:999px;background:rgba(148,163,184,.18);overflow:hidden;margin-top:9px}
+.ia-work-bar span{display:block;width:38%;height:100%;border-radius:999px;background:linear-gradient(90deg,#38bdf8,#22c55e,#38bdf8);animation:iaScan 1.25s ease-in-out infinite}
+@keyframes iaScan{0%{transform:translateX(-105%)}100%{transform:translateX(270%)}}
 .ia-nvr-page input[type="text"],.ia-nvr-page input[type="datetime-local"]{width:100%;border-radius:10px;border:1px solid var(--border-subtle);background:var(--input-bg);padding:8px 10px;color:var(--text-main);font-size:13px}
 .ia-nvr-page input[type="datetime-local"]{color-scheme:dark}
 html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:light}
@@ -213,6 +220,11 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
         <button class="btn-primary" id="ia-index-btn" type="button">Indexar para busca visual</button>
       </div>
       <div class="status-line ia-status" id="ia-status" style="margin-top:12px;">Carregando inventario NVR...</div>
+      <div class="ia-work" id="ia-work">
+        <div class="ia-work-title" id="ia-work-title">Indexando...</div>
+        <div class="ia-work-meta" id="ia-work-meta"></div>
+        <div class="ia-work-bar"><span></span></div>
+      </div>
       <div class="ia-recordings" id="ia-recordings"></div>
     </div>
 
@@ -243,6 +255,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   const byId = (id) => document.getElementById(id);
   let targets = [];
   let selectedSite = '';
+  let workTimer = null;
 
   function tokenHeaders(extra){
     const h = Object.assign({}, extra || {});
@@ -269,6 +282,11 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     return j;
   }
   function setStatus(txt){ byId('ia-status').textContent = txt; }
+  function fmtElapsed(sec){
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m ? `${m}min ${String(s).padStart(2,'0')}s` : `${s}s`;
+  }
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function fmtLocalInput(d){
     const p = (n) => String(n).padStart(2,'0');
@@ -285,6 +303,40 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     const interval = Math.max(1, parseInt(byId('ia-interval').value || '10', 10));
     const maxFrames = Math.max(1, parseInt(byId('ia-max').value || '20', 10));
     return Math.max(60, Math.min(3600, Math.min(duration, interval * maxFrames) + 90));
+  }
+  function startWorkIndicator(kind, payload){
+    stopWorkIndicator(false);
+    const box = byId('ia-work');
+    const title = byId('ia-work-title');
+    const meta = byId('ia-work-meta');
+    if (!box || !title || !meta) return;
+    const started = Date.now();
+    const interval = Math.max(1, Number(payload.interval_sec || 10));
+    const maxFrames = Math.max(1, Number(payload.max_frames || 1));
+    const duration = secondsBetweenInputs();
+    const plannedFrames = Math.min(maxFrames, Math.max(1, Math.ceil(duration / interval)));
+    const timeout = calcTimeoutSec();
+    const filter = payload.visual_filter ? ` | filtro: ${payload.visual_filter}` : '';
+    title.textContent = kind === 'query' ? 'Consultando o DVR/NVR...' : 'Indexando para busca visual...';
+    box.classList.add('active');
+    const tick = () => {
+      const elapsed = Math.max(0, Math.floor((Date.now() - started) / 1000));
+      if (kind === 'query') {
+        meta.textContent = `Tempo decorrido: ${fmtElapsed(elapsed)}. Lendo somente o indice interno do equipamento.`;
+      } else {
+        meta.textContent = `Tempo decorrido: ${fmtElapsed(elapsed)} | amostras previstas: ate ${plannedFrames} foto(s) | limite: ${fmtElapsed(timeout)}${filter}.`;
+      }
+    };
+    tick();
+    workTimer = window.setInterval(tick, 1000);
+  }
+  function stopWorkIndicator(clear){
+    if (workTimer) {
+      window.clearInterval(workTimer);
+      workTimer = null;
+    }
+    const box = byId('ia-work');
+    if (box && clear !== false) box.classList.remove('active');
   }
   function syncIndexMode(force){
     const mode = byId('ia-mode').value || 'fast';
@@ -542,7 +594,9 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     if (!payload.password) { setStatus('Informe a senha do NVR.'); return; }
     byId('ia-index-btn').disabled = true;
     byId('ia-recordings-btn').disabled = true;
+    byId('ia-index-btn').textContent = 'Indexando...';
     setStatus('Indexando para busca visual. Esta etapa baixa frames e pode demorar conforme o periodo escolhido...');
+    startWorkIndicator('index', payload);
     try {
       const j = await apiJson('/api/ia/nvr/index', {
         method:'POST',
@@ -575,6 +629,8 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     } finally {
       byId('ia-index-btn').disabled = false;
       byId('ia-recordings-btn').disabled = false;
+      byId('ia-index-btn').textContent = 'Indexar para busca visual';
+      stopWorkIndicator(true);
     }
   }
   async function queryRecordings(){
@@ -583,8 +639,10 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     if (!payload.password) { setStatus('Informe a senha do NVR.'); return; }
     byId('ia-recordings-btn').disabled = true;
     byId('ia-index-btn').disabled = true;
+    byId('ia-recordings-btn').textContent = 'Consultando...';
     byId('ia-recordings').innerHTML = '';
     setStatus('Consultando indice de gravacoes direto no DVR/NVR...');
+    startWorkIndicator('query', payload);
     try {
       const j = await apiJson('/api/ia/nvr/recordings', {
         method:'POST',
@@ -599,6 +657,8 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     } finally {
       byId('ia-recordings-btn').disabled = false;
       byId('ia-index-btn').disabled = false;
+      byId('ia-recordings-btn').textContent = 'Consultar gravacoes no DVR';
+      stopWorkIndicator(true);
     }
   }
   async function search(){
