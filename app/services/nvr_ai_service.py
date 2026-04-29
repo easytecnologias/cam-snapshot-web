@@ -348,7 +348,9 @@ def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List
     pixels = list(im.convert("RGB").getdata())
     total = max(1, len(pixels))
     red = blue = green = yellow = white = black = 0
+    purple = pink = orange = brown = gray = beige = 0
     hsv_red = hsv_blue = hsv_green = hsv_yellow = 0
+    hsv_purple = hsv_pink = hsv_orange = hsv_brown = 0
     for r, g, b in pixels:
         if r > 120 and r > g * 1.35 and r > b * 1.35:
             red += 1
@@ -362,21 +364,39 @@ def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List
             white += 1
         if r < 45 and g < 45 and b < 45:
             black += 1
+        if abs(r - g) < 22 and abs(r - b) < 22 and 55 <= r <= 190:
+            gray += 1
+        if r > 145 and g > 105 and b > 75 and abs(r - g) < 70 and r >= b * 1.15:
+            beige += 1
         h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
         if s > 0.25 and v > 0.20:
             if h <= 0.04 or h >= 0.94:
                 hsv_red += 1
             elif 0.10 <= h <= 0.20:
                 hsv_yellow += 1
+            elif 0.04 < h < 0.10:
+                hsv_orange += 1
             elif 0.22 <= h <= 0.48:
                 hsv_green += 1
             elif 0.52 <= h <= 0.75:
                 hsv_blue += 1
+            elif 0.75 < h <= 0.86:
+                hsv_purple += 1
+            elif 0.86 < h < 0.94:
+                hsv_pink += 1
+            if 0.05 <= h <= 0.12 and 0.20 <= v <= 0.55:
+                hsv_brown += 1
     raw_scores = {
         "vermelho": max(red, hsv_red) / total,
         "azul": max(blue, hsv_blue) / total,
         "verde": max(green, hsv_green) / total,
         "amarelo": max(yellow, hsv_yellow) / total,
+        "roxo": max(purple, hsv_purple) / total,
+        "rosa": max(pink, hsv_pink) / total,
+        "laranja": max(orange, hsv_orange) / total,
+        "marrom": max(brown, hsv_brown) / total,
+        "cinza": gray / total,
+        "bege": beige / total,
         "branco": white / total,
         "preto": black / total,
     }
@@ -444,13 +464,13 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
-            if color in ("vermelho", "azul", "verde", "branco", "preto", "amarelo"):
+            if color in ("vermelho", "azul", "verde", "roxo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto", "amarelo"):
                 best[color] = max(best.get(color, 0.0), float(score or 0.0))
                 scores[f"camisa_{color}"] = round(best[color], 4)
         if source == "hog":
             scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
     for color, score in best.items():
-        min_score = 0.012 if color == "verde" else 0.025
+        min_score = 0.012 if color in ("verde", "roxo") else 0.025
         if score >= min_score:
             shirt_tag = f"camisa_{color}"
             if shirt_tag not in tags:
@@ -718,6 +738,21 @@ def _query_terms(query: str) -> List[str]:
         "green": "verde",
         "amarela": "amarelo",
         "yellow": "amarelo",
+        "roxa": "roxo",
+        "roxas": "roxo",
+        "purple": "roxo",
+        "violeta": "roxo",
+        "rosa": "rosa",
+        "pink": "rosa",
+        "laranja": "laranja",
+        "orange": "laranja",
+        "marrom": "marrom",
+        "brown": "marrom",
+        "cinza": "cinza",
+        "gray": "cinza",
+        "grey": "cinza",
+        "bege": "bege",
+        "beige": "bege",
         "branca": "branco",
         "white": "branco",
         "preta": "preto",
@@ -741,9 +776,9 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
         score = float(scores.get(term) or 0)
     except Exception:
         score = 0.0
-    if term == "verde":
-        return score >= 0.006 or float(scores.get("camisa_verde") or 0) >= 0.012
-    if term in ("vermelho", "azul", "amarelo", "branco", "preto"):
+    if term in ("verde", "roxo"):
+        return score >= 0.006 or float(scores.get(f"camisa_{term}") or 0) >= 0.012
+    if term in ("vermelho", "azul", "amarelo", "rosa", "laranja", "marrom", "cinza", "bege", "branco", "preto"):
         try:
             shirt_score = float(scores.get(f"camisa_{term}") or 0)
         except Exception:
