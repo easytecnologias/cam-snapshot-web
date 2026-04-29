@@ -24,6 +24,8 @@ NVR_AI_DIR = DATA_DIR / "nvr_ai"
 NVR_AI_FRAMES_DIR = NVR_AI_DIR / "frames"
 NVR_AI_INDEX_PATH = NVR_AI_DIR / "index.json"
 NVR_AI_YOLO_MODEL = os.getenv("NVR_AI_YOLO_MODEL", "yolov8n.pt")
+NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
+NVR_AI_VISION_VERSION = "yolo_parts_v2"
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -541,7 +543,7 @@ def _yolo_person_boxes(im: Image.Image) -> List[tuple[int, int, int, int, float]
         import numpy as np  # type: ignore
 
         arr = np.array(im.convert("RGB"))
-        results = model.predict(arr, classes=[0], conf=0.12, imgsz=960, max_det=12, verbose=False, device="cpu")
+        results = model.predict(arr, classes=[0], conf=NVR_AI_YOLO_CONF, imgsz=960, max_det=12, verbose=False, device="cpu")
     except Exception:
         return []
     boxes_out: List[tuple[int, int, int, int, float]] = []
@@ -576,9 +578,9 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
             continue
         pad_x = int(w * 0.08)
         part_boxes = {
-            "chapeu": (x1 + int(w * 0.12), y1, x2 - int(w * 0.12), y1 + int(h * 0.20)),
-            "camisa": (x1 - pad_x, y1 + int(h * 0.20), x2 + pad_x, y1 + int(h * 0.50)),
-            "calca": (x1, y1 + int(h * 0.62), x2, y1 + int(h * 0.98)),
+            "chapeu": (x1 + int(w * 0.18), y1, x2 - int(w * 0.18), y1 + int(h * 0.18)),
+            "camisa": (x1 + int(w * 0.14), y1 + int(h * 0.23), x2 - int(w * 0.14), y1 + int(h * 0.48)),
+            "calca": (x1 + int(w * 0.16), y1 + int(h * 0.64), x2 - int(w * 0.16), y1 + int(h * 0.94)),
         }
         for part, box in part_boxes.items():
             px1, py1, px2, py2 = box
@@ -587,30 +589,25 @@ def _candidate_person_part_crops(im: Image.Image) -> List[tuple[str, str, Image.
             crops.append((part, "yolo", im.crop((max(0, px1), max(0, py1), min(width, px2), min(height, py2))), conf))
     if crops:
         return crops
+    return []
 
-    # Fallback para CCTV quando o detector nao acha a pessoa inteira.
-    fallback_boxes = {
-        "camisa": [
-            (0.30, 0.22, 0.70, 0.50),
-            (0.18, 0.22, 0.58, 0.52),
-            (0.42, 0.22, 0.82, 0.52),
-        ],
-        "calca": [
-            (0.30, 0.60, 0.70, 0.90),
-            (0.18, 0.60, 0.58, 0.92),
-            (0.42, 0.60, 0.82, 0.92),
-        ],
-        "chapeu": [
-            (0.34, 0.12, 0.66, 0.30),
-            (0.22, 0.12, 0.54, 0.32),
-            (0.46, 0.12, 0.78, 0.32),
-        ],
-    }
-    for part, boxes in fallback_boxes.items():
-        for x1, y1, x2, y2 in boxes:
-            crop = im.crop((int(width * x1), int(height * y1), int(width * x2), int(height * y2)))
-            crops.append((part, "fallback", crop, 0.25))
-    return crops
+
+def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
+    width, height = crop.size
+    if width < 12 or height < 12:
+        return crop
+    if part == "camisa":
+        box = (int(width * 0.12), int(height * 0.05), int(width * 0.88), int(height * 0.82))
+    elif part == "calca":
+        box = (int(width * 0.16), int(height * 0.08), int(width * 0.84), int(height * 0.95))
+    elif part == "chapeu":
+        box = (int(width * 0.10), 0, int(width * 0.90), int(height * 0.92))
+    else:
+        return crop
+    x1, y1, x2, y2 = box
+    if x2 <= x1 or y2 <= y1:
+        return crop
+    return crop.crop(box)
 
 
 def _candidate_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
@@ -667,13 +664,14 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
     best: Dict[str, Dict[str, float]] = {}
     person_confidence = 0.0
     for part, source, crop, confidence in part_crops:
+        if source != "yolo" or confidence < NVR_AI_YOLO_CONF:
+            continue
+        crop = _focused_part_crop(crop, part)
         crop.thumbnail((160, 220))
         crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
         for color, score in crop_scores.items():
-            if source == "fallback" and color in ("preto", "branco", "cinza"):
-                continue
             if color in _CLOTHING_COLORS:
                 part_best = best.setdefault(part, {})
                 part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
@@ -686,14 +684,14 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             continue
         color, score = ranked[0]
         runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
-        min_score = 0.018 if color in ("verde", "roxo") else 0.035
-        if color in ("branco", "preto"):
-            min_score = 0.06
-        if part == "camisa" and color == "preto":
+        min_score = 0.10
+        if color in ("verde", "roxo"):
             min_score = 0.08
+        if color in ("branco", "preto", "cinza"):
+            min_score = 0.18
         if score < min_score:
             continue
-        dominance_margin = 1.35 if part == "camisa" and color == "preto" else 1.18
+        dominance_margin = 1.45 if color in ("preto", "branco", "cinza") else 1.25
         if runner_up and score < runner_up * dominance_margin:
             continue
         clothing_tag = f"{part}_{color}"
@@ -928,6 +926,7 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
             "image_path": str(path),
             "tags": tags,
             "scores": scores,
+            "vision_version": NVR_AI_VISION_VERSION,
             "notes": "analise inicial por cores; pronto para plugar IA visual",
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
@@ -1036,6 +1035,8 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             clothing_color = term.replace(prefix, "", 1)
             break
     if clothing_part:
+        if _safe_text(row.get("vision_version")) != NVR_AI_VISION_VERSION:
+            return False
         try:
             part_score = float(scores.get(term) or 0)
         except Exception:
@@ -1049,16 +1050,15 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             except Exception:
                 pass
         part_thresholds = {
-            "verde": 0.018,
-            "roxo": 0.018,
-            "branco": 0.055,
-            "preto": 0.055,
+            "verde": 0.08,
+            "roxo": 0.08,
+            "branco": 0.18,
+            "preto": 0.18,
+            "cinza": 0.18,
         }
-        if clothing_part == "camisa" and clothing_color == "preto":
-            part_thresholds["preto"] = 0.08
-        if part_score < part_thresholds.get(clothing_color, 0.035):
+        if part_score < part_thresholds.get(clothing_color, 0.10):
             return False
-        dominance_margin = 1.35 if clothing_part == "camisa" and clothing_color == "preto" else 1.18
+        dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
         return not runner_up or part_score >= runner_up * dominance_margin
     if term in hay:
         return True
