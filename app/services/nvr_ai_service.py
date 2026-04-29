@@ -830,11 +830,28 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
 def _query_terms(query: str) -> List[str]:
     raw_query = _safe_text(query).lower()
     wants_person = "pessoa" in raw_query
+    wants_clothing_color = any(
+        word in raw_query
+        for word in (
+            "camisa",
+            "camiseta",
+            "blusa",
+            "roupa",
+            "uniforme",
+            "jaleco",
+            "colete",
+        )
+    )
     q = (
         raw_query.replace("camisa", "")
+        .replace("camiseta", "")
+        .replace("blusa", "")
         .replace("de ", " ")
         .replace("com ", " ")
         .replace("roupa", "")
+        .replace("uniforme", "")
+        .replace("jaleco", "")
+        .replace("colete", "")
     )
     aliases = {
         "pessoa": "pessoa",
@@ -868,19 +885,63 @@ def _query_terms(query: str) -> List[str]:
         "black": "preto",
     }
     terms: List[str] = []
+    color_terms = {
+        "vermelho",
+        "azul",
+        "verde",
+        "amarelo",
+        "roxo",
+        "rosa",
+        "laranja",
+        "marrom",
+        "cinza",
+        "bege",
+        "branco",
+        "preto",
+    }
     for part in re.split(r"[^a-z0-9áéíóúãõç]+", q):
         if not part:
             continue
-        terms.append(aliases.get(part, part))
+        term = aliases.get(part, part)
+        if wants_clothing_color and term in color_terms:
+            terms.append(f"camisa_{term}")
+        else:
+            terms.append(term)
     if wants_person and "pessoa" not in terms:
         terms.append("pessoa")
     return terms
 
 
 def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
+    scores = row.get("scores") or {}
+    if term.startswith("camisa_"):
+        color = term.replace("camisa_", "", 1)
+        try:
+            shirt_score = float(scores.get(term) or 0)
+        except Exception:
+            shirt_score = 0.0
+        try:
+            motion_score = float(scores.get(f"movimento_{color}") or 0)
+        except Exception:
+            motion_score = 0.0
+        shirt_thresholds = {
+            "verde": 0.012,
+            "roxo": 0.012,
+            "branco": 0.055,
+            "preto": 0.04,
+        }
+        motion_thresholds = {
+            "verde": 0.018,
+            "roxo": 0.018,
+            "branco": 0.055,
+            "preto": 0.04,
+        }
+        return (
+            shirt_score >= shirt_thresholds.get(color, 0.025)
+            or motion_score >= motion_thresholds.get(color, 0.025)
+        )
     if term in hay:
         return True
-    scores = row.get("scores") or {}
     try:
         score = float(scores.get(term) or 0)
     except Exception:
