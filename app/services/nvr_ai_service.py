@@ -68,6 +68,28 @@ def _read_nvr_inventory() -> List[Dict[str, Any]]:
         if isinstance(obj, list):
             rows = [r for r in obj if isinstance(r, dict)]
         if rows:
+            try:
+                db_rows = decorate_legacy_rows("nvr", legacy_rows_from_db("nvr"))
+            except Exception:
+                db_rows = []
+            site_by_channel: Dict[tuple[str, int, int], str] = {}
+            for db_row in db_rows:
+                host = _safe_text(db_row.get("host") or db_row.get("ip"))
+                ch = int(db_row.get("channel") or 0)
+                port = int(db_row.get("http_port") or 80)
+                site = _safe_text(db_row.get("site") or db_row.get("site_name") or db_row.get("local"))
+                if host and ch > 0 and site:
+                    site_by_channel[(host, port, ch)] = site
+            for row in rows:
+                if _safe_text(row.get("site") or row.get("site_name") or row.get("local")):
+                    continue
+                host = _safe_text(row.get("host") or row.get("ip"))
+                ch = int(row.get("channel") or 0)
+                port = int(row.get("http_port") or 80)
+                site = site_by_channel.get((host, port, ch), "")
+                if site:
+                    row["site"] = site
+                    row["site_name"] = site
             return rows
     try:
         rows = legacy_rows_from_db("nvr")
@@ -94,6 +116,8 @@ def list_nvr_targets() -> Dict[str, Any]:
         host = _safe_text(r.get("host") or r.get("ip"))
         ch = int(r.get("channel") or 0)
         port = int(r.get("http_port") or 80)
+        site = _safe_text(r.get("site") or r.get("site_name") or r.get("local"))
+        local = _safe_text(r.get("local"))
         if not host or ch <= 0:
             continue
         key = (host, port, ch)
@@ -106,12 +130,15 @@ def list_nvr_targets() -> Dict[str, Any]:
                 "http_port": port,
                 "channel": ch,
                 "title": _safe_text(r.get("title") or r.get("titulo") or f"Canal {ch:02d}"),
-                "local": _safe_text(r.get("local") or r.get("site") or r.get("site_name")),
+                "site": site,
+                "local": local or site,
+                "modelo": _safe_text(r.get("modelo") or r.get("recorder_model") or r.get("camera_model")),
+                "fabricante": _safe_text(r.get("fabricante") or r.get("recorder_vendor")),
                 "camera_ip": _safe_text(r.get("camera_ip")),
                 "status": _safe_text(r.get("status")),
             }
         )
-    targets.sort(key=lambda x: (_safe_text(x.get("host")), int(x.get("channel") or 0)))
+    targets.sort(key=lambda x: (_safe_text(x.get("site")), _safe_text(x.get("host")), int(x.get("channel") or 0)))
     return {"ok": True, "targets": targets, "count": len(targets)}
 
 
