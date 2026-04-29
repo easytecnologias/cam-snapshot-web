@@ -332,15 +332,19 @@ def _dahua_media_find_segments(
 
 
 def _color_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
-    tags: List[str] = []
-    scores: Dict[str, float] = {}
     try:
         with Image.open(path) as im:
             im = im.convert("RGB")
             im.thumbnail((240, 135))
-            pixels = list(im.getdata())
+            return _color_tags_for_pil(im, threshold=0.015)
     except Exception:
-        return tags, scores
+        return [], {}
+
+
+def _color_tags_for_pil(im: Image.Image, threshold: float = 0.015) -> tuple[List[str], Dict[str, float]]:
+    tags: List[str] = []
+    scores: Dict[str, float] = {}
+    pixels = list(im.convert("RGB").getdata())
     total = max(1, len(pixels))
     red = blue = green = yellow = white = black = 0
     for r, g, b in pixels:
@@ -366,8 +370,80 @@ def _color_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     }
     for name, score in raw_scores.items():
         scores[name] = round(float(score), 4)
-        if score >= 0.015:
+        if score >= threshold:
             tags.append(name)
+    return tags, scores
+
+
+def _candidate_person_crops(im: Image.Image) -> List[tuple[str, Image.Image, float]]:
+    crops: List[tuple[str, Image.Image, float]] = []
+    width, height = im.size
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        arr = cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+        hog = cv2.HOGDescriptor()
+        hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        boxes, weights = hog.detectMultiScale(arr, winStride=(8, 8), padding=(8, 8), scale=1.05)
+        for i, box in enumerate(boxes[:4]):
+            x, y, w, h = [int(v) for v in box]
+            if w < 20 or h < 40:
+                continue
+            upper_y1 = y + int(h * 0.18)
+            upper_y2 = y + int(h * 0.58)
+            crop = im.crop((max(0, x), max(0, upper_y1), min(width, x + w), min(height, upper_y2)))
+            confidence = float(weights[i]) if i < len(weights) else 0.0
+            crops.append(("hog", crop, confidence))
+    except Exception:
+        pass
+    if crops:
+        return crops
+
+    # Fallback leve para CCTV: testa regioes onde o tronco costuma aparecer.
+    boxes = [
+        (0.30, 0.22, 0.70, 0.70),
+        (0.18, 0.22, 0.58, 0.72),
+        (0.42, 0.22, 0.82, 0.72),
+        (0.28, 0.38, 0.72, 0.88),
+    ]
+    for x1, y1, x2, y2 in boxes:
+        crop = im.crop((int(width * x1), int(height * y1), int(width * x2), int(height * y2)))
+        crops.append(("fallback", crop, 0.25))
+    return crops
+
+
+def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
+    tags: List[str] = []
+    scores: Dict[str, float] = {}
+    try:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im.thumbnail((480, 270))
+            crops = _candidate_person_crops(im)
+    except Exception:
+        return tags, scores
+    best: Dict[str, float] = {}
+    person_confidence = 0.0
+    for source, crop, confidence in crops:
+        crop.thumbnail((160, 220))
+        crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
+        if crop_tags:
+            person_confidence = max(person_confidence, confidence)
+        for color, score in crop_scores.items():
+            if color in ("vermelho", "azul", "branco", "preto", "amarelo"):
+                best[color] = max(best.get(color, 0.0), float(score or 0.0))
+                scores[f"camisa_{color}"] = round(best[color], 4)
+        if source == "hog":
+            scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), confidence), 4)
+    for color, score in best.items():
+        if score >= 0.025:
+            shirt_tag = f"camisa_{color}"
+            if shirt_tag not in tags:
+                tags.append(shirt_tag)
+    if tags:
+        tags.insert(0, "pessoa")
+        scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), person_confidence), 4)
     return tags, scores
 
 
@@ -559,6 +635,11 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
     title = _safe_text(req.get("title") or f"CH {channel:02d}")
     for idx, (path, captured_at) in enumerate(extracted, start=1):
         tags, scores = _color_tags_for_image(path)
+        shirt_tags, shirt_scores = _person_shirt_tags_for_image(path)
+        for tag in shirt_tags:
+            if tag not in tags:
+                tags.append(tag)
+        scores.update(shirt_scores)
         if visual_filter and visual_filter not in tags:
             skipped_by_filter += 1
             try:
@@ -604,15 +685,16 @@ def index_recording(req: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _query_terms(query: str) -> List[str]:
-    q = _safe_text(query).lower()
+    raw_query = _safe_text(query).lower()
+    wants_person = "pessoa" in raw_query
     q = (
-        q.replace("camisa", "")
-        .replace("pessoa", "")
+        raw_query.replace("camisa", "")
         .replace("de ", " ")
         .replace("com ", " ")
         .replace("roupa", "")
     )
     aliases = {
+        "pessoa": "pessoa",
         "vermelha": "vermelho",
         "vermelhas": "vermelho",
         "red": "vermelho",
@@ -632,6 +714,20 @@ def _query_terms(query: str) -> List[str]:
         if not part:
             continue
         terms.append(aliases.get(part, part))
+    if wants_person and "pessoa" not in terms:
+        terms.append("pessoa")
+    if wants_person:
+        color_to_shirt = {
+            "vermelho": "camisa_vermelho",
+            "azul": "camisa_azul",
+            "branco": "camisa_branco",
+            "preto": "camisa_preto",
+            "amarelo": "camisa_amarelo",
+        }
+        for color, shirt in color_to_shirt.items():
+            if color in terms and shirt not in terms:
+                terms.append(shirt)
+        terms = [term for term in terms if term not in color_to_shirt]
     return terms
 
 
@@ -654,6 +750,9 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
                 _safe_text(row.get("notes")).lower(),
             ]
         )
+        required_terms = [term for term in terms if term == "pessoa" or term.startswith("camisa_")]
+        if required_terms and any(term not in hay for term in required_terms):
+            continue
         score = 0.0
         for term in terms:
             if term and term in hay:
