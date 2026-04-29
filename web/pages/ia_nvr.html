@@ -342,7 +342,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   function syncIndexMode(force){
     const mode = byId('ia-mode').value || 'fast';
     const presets = {
-      fast: { interval: 30, max: 12, stream: 'sub' },
+      fast: { interval: 60, max: 6, stream: 'sub' },
       balanced: { interval: 15, max: 24, stream: 'sub' },
       detailed: { interval: 10, max: 80, stream: 'main' }
     };
