@@ -58,6 +58,18 @@ _CLIP_SHIRT_HSV_MIN_SCORES = {
     "branco": 0.22,
     "cinza": 0.22,
 }
+_HSV_STRONG_SHIRT_MIN_SCORES = {
+    "vermelho": 0.24,
+    "verde": 0.28,
+    "azul": 0.18,
+    "amarelo": 0.28,
+    "roxo": 0.18,
+    "rosa": 0.18,
+    "laranja": 0.24,
+    "preto": 0.55,
+    "branco": 0.45,
+    "cinza": 0.55,
+}
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -815,6 +827,26 @@ def _clip_shirt_color_allowed(color: str, clip_score: float, hsv_score: float, c
     return not min_hsv or hsv_score >= min_hsv
 
 
+def _strong_hsv_shirt_colors(hsv_scores: Dict[str, float], confidence: float) -> List[tuple[str, float]]:
+    if confidence < NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF:
+        return []
+    ranked = sorted(
+        ((color, float(score or 0.0)) for color, score in hsv_scores.items() if color in _HSV_STRONG_SHIRT_MIN_SCORES),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    accepted: List[tuple[str, float]] = []
+    for idx, (color, score) in enumerate(ranked):
+        min_score = _HSV_STRONG_SHIRT_MIN_SCORES[color]
+        if score < min_score:
+            continue
+        runner_up = float(ranked[idx + 1][1] or 0.0) if idx + 1 < len(ranked) else 0.0
+        if color in ("preto", "branco", "cinza") and runner_up and score < runner_up * 1.40:
+            continue
+        accepted.append((color, score))
+    return accepted[:2]
+
+
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -878,6 +910,16 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                     part_best[top_color] = max(part_best.get(top_color, 0.0), float(top_score or 0.0))
                     scores[f"{part}_{top_color}"] = round(part_best[top_color], 4)
                     scores[f"{part}_hsv_{top_color}"] = round(max(float(scores.get(f"{part}_hsv_{top_color}") or 0), hsv_score), 4)
+            if part == "camisa":
+                for hsv_color, hsv_score in _strong_hsv_shirt_colors(hsv_scores, confidence):
+                    if hsv_color == top_color and crop_tags:
+                        continue
+                    crop_tags.append(hsv_color)
+                    providers_by_part[part] = "hybrid"
+                    part_best = best.setdefault(part, {})
+                    part_best[hsv_color] = max(part_best.get(hsv_color, 0.0), float(hsv_score or 0.0))
+                    scores[f"{part}_{hsv_color}"] = round(part_best[hsv_color], 4)
+                    scores[f"{part}_hsv_{hsv_color}"] = round(max(float(scores.get(f"{part}_hsv_{hsv_color}") or 0), float(hsv_score or 0.0)), 4)
             scores[f"{part}_provider_clip"] = 1.0
         else:
             if NVR_AI_ATTR_PROVIDER == "clip":
@@ -906,6 +948,9 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                 dominance_margin = 0.0
             elif provider == "clip":
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
+                dominance_margin = 0.0 if part == "camisa" else 1.12
+            elif provider == "hybrid":
+                min_score = _HSV_STRONG_SHIRT_MIN_SCORES.get(color, 0.30)
                 dominance_margin = 0.0 if part == "camisa" else 1.12
             else:
                 min_score = 0.10
@@ -1291,6 +1336,9 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(clothing_color, max(NVR_AI_CLIP_THRESHOLD, 0.70))
                 hsv_score = float(scores.get(f"{clothing_part}_hsv_{clothing_color}") or 0.0)
                 min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(clothing_color, 0.0)
+                strong_hsv = _HSV_STRONG_SHIRT_MIN_SCORES.get(clothing_color)
+                if strong_hsv and part_score >= strong_hsv:
+                    return True
                 return part_score >= min_score and (not min_hsv or hsv_score >= min_hsv)
             min_score = NVR_AI_CLIP_THRESHOLD
             dominance_margin = 1.12
