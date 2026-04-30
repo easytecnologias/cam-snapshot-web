@@ -28,6 +28,7 @@ NVR_AI_YOLO_CONF = float(os.getenv("NVR_AI_YOLO_CONF", "0.20"))
 NVR_AI_ATTR_PROVIDER = os.getenv("NVR_AI_ATTR_PROVIDER", "auto").strip().lower()
 NVR_AI_PAR_MODEL_PATH = os.getenv("NVR_AI_PAR_MODEL_PATH", str(NVR_AI_DIR / "models" / "person_attribute_model.pth"))
 NVR_AI_PAR_THRESHOLD = float(os.getenv("NVR_AI_PAR_THRESHOLD", "0.50"))
+NVR_AI_PAR_NEUTRAL_THRESHOLD = float(os.getenv("NVR_AI_PAR_NEUTRAL_THRESHOLD", "0.62"))
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
 NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF = float(os.getenv("NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF", "0.45"))
@@ -1033,8 +1034,8 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         for idx, (color, score) in enumerate(ranked):
             runner_up = float(ranked[idx + 1][1] or 0.0) if idx + 1 < len(ranked) else 0.0
             if provider == "par":
-                min_score = NVR_AI_PAR_THRESHOLD
-                dominance_margin = 0.0
+                min_score = NVR_AI_PAR_NEUTRAL_THRESHOLD if color in ("preto", "branco", "cinza") else NVR_AI_PAR_THRESHOLD
+                dominance_margin = 1.18 if color in ("preto", "branco", "cinza") else 1.08
             elif provider == "clip":
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
                 dominance_margin = 0.0 if part == "camisa" else 1.12
@@ -1418,8 +1419,9 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
             "cinza": 0.18,
         }
         if float(scores.get(f"{clothing_part}_provider_par") or 0) >= 1.0:
-            min_score = NVR_AI_PAR_THRESHOLD
-            return part_score >= min_score
+            min_score = NVR_AI_PAR_NEUTRAL_THRESHOLD if clothing_color in ("preto", "branco", "cinza") else NVR_AI_PAR_THRESHOLD
+            dominance_margin = 1.18 if clothing_color in ("preto", "branco", "cinza") else 1.08
+            return part_score >= min_score and (not runner_up or part_score >= runner_up * dominance_margin)
         elif float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
             if clothing_part == "camisa":
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(clothing_color, max(NVR_AI_CLIP_THRESHOLD, 0.70))
@@ -1632,5 +1634,6 @@ def stats() -> Dict[str, Any]:
         "attr_provider": NVR_AI_ATTR_PROVIDER,
         "par_model_path": str(par_model_path),
         "par_model_exists": par_model_path.exists(),
+        "par_loaded": _load_par_model() is not None if par_model_path.exists() else False,
         "clip_fallback": NVR_AI_ATTR_PROVIDER in ("auto", "clip"),
     }
