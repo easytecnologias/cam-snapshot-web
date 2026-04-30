@@ -1522,6 +1522,19 @@ def _shirt_diagnostics(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return diagnostics[:6]
 
 
+def _validated_tags_for_response(row: Dict[str, Any], hay: str) -> List[str]:
+    tags = []
+    for raw_tag in row.get("tags") or []:
+        tag = _safe_text(raw_tag).lower()
+        if not tag:
+            continue
+        if any(tag.startswith(f"{part}_") for part in _CLOTHING_PARTS):
+            if not _row_has_term(row, tag, hay):
+                continue
+        tags.append(raw_tag)
+    return tags
+
+
 def search_events(query: str = "", host: str = "", channel: int = 0, limit: int = 80) -> Dict[str, Any]:
     rows = _load_index()
     terms = _query_terms(query)
@@ -1556,6 +1569,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
             continue
         rr = dict(row)
         rr["match_score"] = round(score, 4)
+        rr["tags"] = _validated_tags_for_response(row, hay)
         rr["shirt_diagnostics"] = _shirt_diagnostics(row)
         scored.append(rr)
     scored.sort(key=lambda x: (float(x.get("match_score") or 0), _safe_text(x.get("captured_at"))), reverse=True)
