@@ -31,7 +31,7 @@ NVR_AI_PAR_THRESHOLD = float(os.getenv("NVR_AI_PAR_THRESHOLD", "0.50"))
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
 NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF = float(os.getenv("NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF", "0.45"))
-NVR_AI_VISION_VERSION = "par_upper_body_v2"
+NVR_AI_VISION_VERSION = "par_upper_body_v3"
 _CLIP_SHIRT_MIN_SCORES = {
     "vermelho": 0.72,
     "verde": 0.70,
@@ -170,6 +170,20 @@ _CLIP_COLOR_PROMPTS = {
         "branco": "a photo of a white hat",
         "preto": "a photo of a black hat",
     },
+}
+_CLIP_COLOR_NAMES = {
+    "vermelho": "red",
+    "azul": "blue",
+    "verde": "green",
+    "amarelo": "yellow",
+    "roxo": "purple",
+    "rosa": "pink",
+    "laranja": "orange",
+    "marrom": "brown",
+    "cinza": "gray",
+    "bege": "beige",
+    "branco": "white",
+    "preto": "black",
 }
 
 
@@ -757,15 +771,14 @@ def _focused_part_crop(crop: Image.Image, part: str) -> Image.Image:
     return crop.crop(box)
 
 
-def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
+def _clip_prompt_scores(crop: Image.Image, prompts: Dict[str, str]) -> Dict[str, float]:
     if NVR_AI_ATTR_PROVIDER not in ("auto", "clip"):
         return {}
     model, processor = _load_clip_model()
-    prompts = _CLIP_COLOR_PROMPTS.get(part) or {}
     if model is None or processor is None or not prompts:
         return {}
-    colors = list(prompts.keys())
-    texts = [prompts[color] for color in colors]
+    keys = list(prompts.keys())
+    texts = [prompts[key] for key in keys]
     try:
         import torch  # type: ignore
 
@@ -775,7 +788,34 @@ def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
             probs = outputs.logits_per_image.softmax(dim=1)[0].detach().cpu().tolist()
     except Exception:
         return {}
-    return {color: round(float(prob), 4) for color, prob in zip(colors, probs)}
+    return {key: round(float(prob), 4) for key, prob in zip(keys, probs)}
+
+
+def _clip_color_scores(crop: Image.Image, part: str) -> Dict[str, float]:
+    return _clip_prompt_scores(crop, _CLIP_COLOR_PROMPTS.get(part) or {})
+
+
+def _clip_shirt_verifier_scores(crop: Image.Image, color: str) -> Dict[str, float]:
+    color_en = _CLIP_COLOR_NAMES.get(color)
+    if not color_en:
+        return {}
+    prompts = {
+        "shirt": f"a person wearing a {color_en} shirt",
+        "different_shirt": "a person wearing a different colored shirt",
+        "pants": f"{color_en} pants or lower body clothing",
+        "bag": f"a {color_en} bag or backpack",
+        "skin_hair": "skin, hair, face or arm, not a shirt",
+        "background": f"a {color_en} wall, counter, furniture or background object",
+    }
+    return _clip_prompt_scores(crop, prompts)
+
+
+def _clip_shirt_verifier_allowed(verifier_scores: Dict[str, float]) -> bool:
+    if not verifier_scores:
+        return False
+    shirt = float(verifier_scores.get("shirt") or 0.0)
+    strongest_other = max(float(score or 0.0) for key, score in verifier_scores.items() if key != "shirt")
+    return shirt >= 0.32 and shirt >= strongest_other * 1.12
 
 
 def _par_attribute_scores(person_crop: Image.Image, allow_lower_body: bool) -> Dict[str, Dict[str, float]]:
@@ -909,11 +949,16 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
             crop_tags = []
             if top_color in _CLOTHING_COLORS:
                 hsv_score = float(hsv_scores.get(top_color) or 0.0)
+                verifier_scores = _clip_shirt_verifier_scores(crop, top_color) if part == "camisa" else {}
+                verifier_ok = _clip_shirt_verifier_allowed(verifier_scores) if part == "camisa" else True
+                if verifier_scores:
+                    scores[f"{part}_verify_{top_color}"] = float(verifier_scores.get("shirt") or 0.0)
+                    scores[f"{part}_verify_other_{top_color}"] = max(float(v or 0.0) for k, v in verifier_scores.items() if k != "shirt")
                 dominance_margin = 1.35 if part == "camisa" else 1.12
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(top_color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
                 allowed = float(top_score or 0.0) >= min_score and (not runner_up or float(top_score or 0.0) >= runner_up * dominance_margin)
                 if part == "camisa":
-                    allowed = allowed and _clip_shirt_color_allowed(top_color, float(top_score or 0.0), hsv_score, confidence)
+                    allowed = allowed and verifier_ok and _clip_shirt_color_allowed(top_color, float(top_score or 0.0), hsv_score, confidence)
                 if allowed:
                     crop_tags = [top_color]
                     providers_by_part[part] = "clip"
@@ -925,6 +970,11 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                 for hsv_color, hsv_score in _strong_hsv_shirt_colors(hsv_scores, confidence):
                     if hsv_color == top_color and crop_tags:
                         continue
+                    verifier_scores = _clip_shirt_verifier_scores(crop, hsv_color)
+                    if not _clip_shirt_verifier_allowed(verifier_scores):
+                        continue
+                    scores[f"{part}_verify_{hsv_color}"] = float(verifier_scores.get("shirt") or 0.0)
+                    scores[f"{part}_verify_other_{hsv_color}"] = max(float(v or 0.0) for k, v in verifier_scores.items() if k != "shirt")
                     crop_tags.append(hsv_color)
                     providers_by_part[part] = "hybrid"
                     part_best = best.setdefault(part, {})
@@ -1347,6 +1397,10 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(clothing_color, max(NVR_AI_CLIP_THRESHOLD, 0.70))
                 hsv_score = float(scores.get(f"{clothing_part}_hsv_{clothing_color}") or 0.0)
                 min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(clothing_color, 0.0)
+                verify_score = float(scores.get(f"{clothing_part}_verify_{clothing_color}") or 0.0)
+                verify_other = float(scores.get(f"{clothing_part}_verify_other_{clothing_color}") or 0.0)
+                if verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12):
+                    return False
                 strong_hsv = _HSV_STRONG_SHIRT_MIN_SCORES.get(clothing_color)
                 if strong_hsv and part_score >= strong_hsv:
                     if clothing_color == "laranja":
