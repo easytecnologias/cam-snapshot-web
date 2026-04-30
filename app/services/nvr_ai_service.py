@@ -1436,6 +1436,65 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
     return False
 
 
+def _shirt_diagnostics(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+    scores = row.get("scores") or {}
+    tags = {_safe_text(t).lower() for t in row.get("tags") or []}
+    diagnostics: List[Dict[str, Any]] = []
+    for color in sorted(_CLOTHING_COLORS):
+        tag = f"camisa_{color}"
+        shirt_score = float(scores.get(tag) or 0.0)
+        hsv_score = float(scores.get(f"camisa_hsv_{color}") or 0.0)
+        verify_score = float(scores.get(f"camisa_verify_{color}") or 0.0)
+        verify_other = float(scores.get(f"camisa_verify_other_{color}") or 0.0)
+        if max(shirt_score, hsv_score, verify_score) <= 0:
+            continue
+        accepted = tag in tags
+        reason = "aceito"
+        if not accepted:
+            if verify_score and (verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12)):
+                reason = "bloqueado: nao parece camisa"
+            elif color == "laranja":
+                brown = float(scores.get("camisa_hsv_marrom") or 0.0)
+                yellow = float(scores.get("camisa_hsv_amarelo") or 0.0)
+                red = float(scores.get("camisa_hsv_vermelho") or 0.0)
+                if hsv_score < 0.55:
+                    reason = "bloqueado: laranja fraco"
+                elif hsv_score < brown * 1.25:
+                    reason = "bloqueado: parece marrom/pele"
+                elif hsv_score < yellow * 1.50:
+                    reason = "bloqueado: parece amarelo"
+                elif hsv_score < red * 1.25:
+                    reason = "bloqueado: parece vermelho"
+                else:
+                    reason = "bloqueado"
+            elif color == "amarelo":
+                orange = float(scores.get("camisa_hsv_laranja") or 0.0)
+                brown = float(scores.get("camisa_hsv_marrom") or 0.0)
+                if hsv_score < 0.28:
+                    reason = "bloqueado: amarelo fraco"
+                elif hsv_score < orange * 1.25:
+                    reason = "bloqueado: parece laranja"
+                elif hsv_score < brown * 1.10:
+                    reason = "bloqueado: parece marrom/bege"
+                else:
+                    reason = "bloqueado"
+            else:
+                reason = "bloqueado"
+        diagnostics.append(
+            {
+                "color": color,
+                "accepted": accepted,
+                "score": round(shirt_score, 4),
+                "hsv": round(hsv_score, 4),
+                "verify": round(verify_score, 4),
+                "verify_other": round(verify_other, 4),
+                "reason": reason,
+            }
+        )
+    diagnostics.sort(key=lambda item: (bool(item.get("accepted")), float(item.get("score") or 0), float(item.get("hsv") or 0)), reverse=True)
+    return diagnostics[:6]
+
+
 def search_events(query: str = "", host: str = "", channel: int = 0, limit: int = 80) -> Dict[str, Any]:
     rows = _load_index()
     terms = _query_terms(query)
@@ -1470,6 +1529,7 @@ def search_events(query: str = "", host: str = "", channel: int = 0, limit: int 
             continue
         rr = dict(row)
         rr["match_score"] = round(score, 4)
+        rr["shirt_diagnostics"] = _shirt_diagnostics(row)
         scored.append(rr)
     scored.sort(key=lambda x: (float(x.get("match_score") or 0), _safe_text(x.get("captured_at"))), reverse=True)
     deduped: List[Dict[str, Any]] = []

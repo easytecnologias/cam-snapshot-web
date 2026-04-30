@@ -15,6 +15,9 @@ body.ia-nvr-page main{padding-top:78px}
 .ia-result-body{padding:10px;font-size:12px;line-height:1.4;color:var(--text-main)}
 .ia-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .ia-tag{border:1px solid var(--border-subtle);border-radius:999px;padding:2px 7px;font-size:11px;color:var(--text-muted);background:var(--bg-elevated)}
+.ia-diag{display:grid;gap:4px;margin-top:8px}
+.ia-diag-row{border:1px solid var(--border-subtle);border-radius:8px;padding:5px 7px;background:rgba(15,23,42,.16);color:var(--text-muted);font-size:11px;line-height:1.35}
+.ia-diag-row.accepted{border-color:rgba(34,197,94,.45);color:var(--text-main)}
 .ia-status{white-space:pre-wrap;min-height:42px}
 .ia-empty{border:1px dashed var(--border-subtle);border-radius:12px;padding:18px;color:var(--text-muted);background:var(--bg-elevated)}
 .ia-page-actions{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
@@ -749,6 +752,13 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     }
     byId('ia-results').innerHTML = rows.map(row => {
       const tags = (row.tags || []).map(t => `<span class="ia-tag">${esc(t)}</span>`).join('');
+      const diag = (row.shirt_diagnostics || []).slice(0, 4).map(d => {
+        const cls = d.accepted ? 'ia-diag-row accepted' : 'ia-diag-row';
+        return `<div class="${cls}">
+          ${esc(d.color)}: ${esc(d.reason)}<br>
+          cor ${esc(d.hsv || 0)} | camisa ${esc(d.verify || 0)} | outro ${esc(d.verify_other || 0)}
+        </div>`;
+      }).join('');
       return `<div class="ia-result">
         <a href="${esc(row.image_url)}" target="_blank"><img src="${esc(row.image_url)}" alt=""></a>
         <div class="ia-result-body">
@@ -757,6 +767,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
           ${esc(row.title || '')}<br>
           <span class="muted">score ${esc(row.match_score || 0)}</span>
           <div class="ia-tags">${tags}</div>
+          ${diag ? `<div class="ia-diag">${diag}</div>` : ''}
         </div>
       </div>`;
     }).join('');
