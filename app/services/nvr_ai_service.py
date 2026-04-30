@@ -70,6 +70,17 @@ _HSV_STRONG_SHIRT_MIN_SCORES = {
     "branco": 0.45,
     "cinza": 0.55,
 }
+_HSV_OVERRIDE_SHIRT_MIN_SCORES = {
+    "vermelho": 0.50,
+    "verde": 0.55,
+    "azul": 0.50,
+    "amarelo": 0.45,
+    "roxo": 0.45,
+    "rosa": 0.45,
+    "preto": 0.65,
+    "branco": 0.55,
+    "cinza": 0.62,
+}
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -818,6 +829,26 @@ def _clip_shirt_verifier_allowed(verifier_scores: Dict[str, float]) -> bool:
     return shirt >= 0.32 and shirt >= strongest_other * 1.12
 
 
+def _hsv_shirt_override_allowed(color: str, hsv_scores: Dict[str, float], confidence: float) -> bool:
+    if confidence < max(NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF, 0.55):
+        return False
+    score = float(hsv_scores.get(color) or 0.0)
+    min_score = _HSV_OVERRIDE_SHIRT_MIN_SCORES.get(color)
+    if min_score is None or score < min_score:
+        return False
+    runner_up = 0.0
+    for other, other_score in hsv_scores.items():
+        if other != color and other in _CLOTHING_COLORS:
+            runner_up = max(runner_up, float(other_score or 0.0))
+    if color in ("preto", "branco", "cinza"):
+        return not runner_up or score >= runner_up * 1.20
+    if color == "amarelo":
+        orange = float(hsv_scores.get("laranja") or 0.0)
+        brown = float(hsv_scores.get("marrom") or 0.0)
+        return score >= orange * 1.20 and score >= brown * 1.05
+    return not runner_up or score >= runner_up * 1.10
+
+
 def _par_attribute_scores(person_crop: Image.Image, allow_lower_body: bool) -> Dict[str, Dict[str, float]]:
     if NVR_AI_ATTR_PROVIDER not in ("auto", "par"):
         return {}
@@ -951,6 +982,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                 hsv_score = float(hsv_scores.get(top_color) or 0.0)
                 verifier_scores = _clip_shirt_verifier_scores(crop, top_color) if part == "camisa" else {}
                 verifier_ok = _clip_shirt_verifier_allowed(verifier_scores) if part == "camisa" else True
+                hsv_override_ok = _hsv_shirt_override_allowed(top_color, hsv_scores, confidence) if part == "camisa" else False
                 if verifier_scores:
                     scores[f"{part}_verify_{top_color}"] = float(verifier_scores.get("shirt") or 0.0)
                     scores[f"{part}_verify_other_{top_color}"] = max(float(v or 0.0) for k, v in verifier_scores.items() if k != "shirt")
@@ -958,7 +990,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                 min_score = _CLIP_SHIRT_MIN_SCORES.get(top_color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
                 allowed = float(top_score or 0.0) >= min_score and (not runner_up or float(top_score or 0.0) >= runner_up * dominance_margin)
                 if part == "camisa":
-                    allowed = allowed and verifier_ok and _clip_shirt_color_allowed(top_color, float(top_score or 0.0), hsv_score, confidence)
+                    allowed = (allowed and verifier_ok and _clip_shirt_color_allowed(top_color, float(top_score or 0.0), hsv_score, confidence)) or hsv_override_ok
                 if allowed:
                     crop_tags = [top_color]
                     providers_by_part[part] = "clip"
@@ -971,7 +1003,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
                     if hsv_color == top_color and crop_tags:
                         continue
                     verifier_scores = _clip_shirt_verifier_scores(crop, hsv_color)
-                    if not _clip_shirt_verifier_allowed(verifier_scores):
+                    if not _clip_shirt_verifier_allowed(verifier_scores) and not _hsv_shirt_override_allowed(hsv_color, hsv_scores, confidence):
                         continue
                     scores[f"{part}_verify_{hsv_color}"] = float(verifier_scores.get("shirt") or 0.0)
                     scores[f"{part}_verify_other_{hsv_color}"] = max(float(v or 0.0) for k, v in verifier_scores.items() if k != "shirt")
@@ -1399,7 +1431,9 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
                 min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(clothing_color, 0.0)
                 verify_score = float(scores.get(f"{clothing_part}_verify_{clothing_color}") or 0.0)
                 verify_other = float(scores.get(f"{clothing_part}_verify_other_{clothing_color}") or 0.0)
-                if verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12):
+                override_score = _HSV_OVERRIDE_SHIRT_MIN_SCORES.get(clothing_color)
+                override_ok = bool(override_score and part_score >= override_score)
+                if not override_ok and (verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12)):
                     return False
                 strong_hsv = _HSV_STRONG_SHIRT_MIN_SCORES.get(clothing_color)
                 if strong_hsv and part_score >= strong_hsv:
