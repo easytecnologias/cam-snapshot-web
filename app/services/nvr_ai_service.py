@@ -666,7 +666,10 @@ def _load_par_model() -> Any:
     try:
         import torch  # type: ignore
 
-        _PAR_MODEL = torch.load(str(path), map_location="cpu")
+        try:
+            _PAR_MODEL = torch.load(str(path), map_location="cpu", weights_only=False)
+        except TypeError:
+            _PAR_MODEL = torch.load(str(path), map_location="cpu")
         try:
             _PAR_MODEL.eval()
         except Exception:
