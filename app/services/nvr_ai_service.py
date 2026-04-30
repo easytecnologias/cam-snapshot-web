@@ -32,7 +32,7 @@ NVR_AI_PAR_NEUTRAL_THRESHOLD = float(os.getenv("NVR_AI_PAR_NEUTRAL_THRESHOLD", "
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
 NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF = float(os.getenv("NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF", "0.45"))
-NVR_AI_VISION_VERSION = "par_upper_body_v3"
+NVR_AI_VISION_VERSION = "par_upper_body_v4"
 _CLIP_SHIRT_MIN_SCORES = {
     "vermelho": 0.72,
     "verde": 0.70,
@@ -926,6 +926,26 @@ def _strong_hsv_shirt_colors(hsv_scores: Dict[str, float], confidence: float) ->
     return accepted[:1]
 
 
+def _accepted_par_part_colors(part: str, color_scores: Dict[str, float]) -> List[tuple[str, float]]:
+    ranked = sorted(
+        ((color, float(score or 0.0)) for color, score in color_scores.items() if color in _CLOTHING_COLORS),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    if not ranked:
+        return []
+    color, score = ranked[0]
+    runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
+    neutral = color in ("preto", "branco", "cinza")
+    min_score = NVR_AI_PAR_NEUTRAL_THRESHOLD if neutral else NVR_AI_PAR_THRESHOLD
+    dominance_margin = 1.22 if neutral else 1.12
+    if score < min_score:
+        return []
+    if runner_up and score < runner_up * dominance_margin:
+        return []
+    return [(color, score)]
+
+
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -950,10 +970,16 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         for part, color_scores in par_scores.items():
             if part == "chapeu":
                 continue
+            for color, score in color_scores.items():
+                if color in _CLOTHING_COLORS:
+                    scores[f"{part}_par_{color}"] = max(float(scores.get(f"{part}_par_{color}") or 0), float(score or 0.0))
+            accepted_par_colors = _accepted_par_part_colors(part, color_scores)
+            if not accepted_par_colors:
+                continue
             providers_by_part[part] = "par"
             scores[f"{part}_provider_par"] = 1.0
             part_best = best.setdefault(part, {})
-            for color, score in color_scores.items():
+            for color, score in accepted_par_colors:
                 part_best[color] = max(part_best.get(color, 0.0), float(score or 0.0))
                 scores[f"{part}_{color}"] = round(part_best[color], 4)
     for part, source, crop, confidence, touches_edge in part_crops:
@@ -1475,15 +1501,18 @@ def _shirt_diagnostics(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     for color in sorted(_CLOTHING_COLORS):
         tag = f"camisa_{color}"
         shirt_score = float(scores.get(tag) or 0.0)
+        par_score = float(scores.get(f"camisa_par_{color}") or 0.0)
         hsv_score = float(scores.get(f"camisa_hsv_{color}") or 0.0)
         verify_score = float(scores.get(f"camisa_verify_{color}") or 0.0)
         verify_other = float(scores.get(f"camisa_verify_other_{color}") or 0.0)
-        if max(shirt_score, hsv_score, verify_score) <= 0:
+        if max(shirt_score, par_score, hsv_score, verify_score) <= 0:
             continue
         accepted = tag in tags
         reason = "aceito"
         if not accepted:
-            if verify_score and (verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12)):
+            if par_score and not verify_score and not hsv_score:
+                reason = "bloqueado: PAR sem confianca"
+            elif verify_score and (verify_score < 0.32 or (verify_other and verify_score < verify_other * 1.12)):
                 reason = "bloqueado: nao parece camisa"
             elif color == "laranja":
                 brown = float(scores.get("camisa_hsv_marrom") or 0.0)
@@ -1517,13 +1546,22 @@ def _shirt_diagnostics(row: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "color": color,
                 "accepted": accepted,
                 "score": round(shirt_score, 4),
+                "par": round(par_score, 4),
                 "hsv": round(hsv_score, 4),
                 "verify": round(verify_score, 4),
                 "verify_other": round(verify_other, 4),
                 "reason": reason,
             }
         )
-    diagnostics.sort(key=lambda item: (bool(item.get("accepted")), float(item.get("score") or 0), float(item.get("hsv") or 0)), reverse=True)
+    diagnostics.sort(
+        key=lambda item: (
+            bool(item.get("accepted")),
+            float(item.get("score") or 0),
+            float(item.get("par") or 0),
+            float(item.get("hsv") or 0),
+        ),
+        reverse=True,
+    )
     return diagnostics[:6]
 
 
