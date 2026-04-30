@@ -65,7 +65,7 @@ _HSV_STRONG_SHIRT_MIN_SCORES = {
     "amarelo": 0.28,
     "roxo": 0.18,
     "rosa": 0.18,
-    "laranja": 0.24,
+    "laranja": 0.55,
     "preto": 0.55,
     "branco": 0.45,
     "cinza": 0.55,
@@ -840,11 +840,22 @@ def _strong_hsv_shirt_colors(hsv_scores: Dict[str, float], confidence: float) ->
         min_score = _HSV_STRONG_SHIRT_MIN_SCORES[color]
         if score < min_score:
             continue
+        if color == "laranja":
+            brown = float(hsv_scores.get("marrom") or 0.0)
+            yellow = float(hsv_scores.get("amarelo") or 0.0)
+            red = float(hsv_scores.get("vermelho") or 0.0)
+            if score < brown * 1.25 or score < yellow * 1.50 or score < red * 1.25:
+                continue
+        if color == "amarelo":
+            orange = float(hsv_scores.get("laranja") or 0.0)
+            brown = float(hsv_scores.get("marrom") or 0.0)
+            if score < orange * 1.25 or score < brown * 1.10:
+                continue
         runner_up = float(ranked[idx + 1][1] or 0.0) if idx + 1 < len(ranked) else 0.0
         if color in ("preto", "branco", "cinza") and runner_up and score < runner_up * 1.40:
             continue
         accepted.append((color, score))
-    return accepted[:2]
+    return accepted[:1]
 
 
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
@@ -1338,6 +1349,15 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
                 min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(clothing_color, 0.0)
                 strong_hsv = _HSV_STRONG_SHIRT_MIN_SCORES.get(clothing_color)
                 if strong_hsv and part_score >= strong_hsv:
+                    if clothing_color == "laranja":
+                        brown = float(scores.get(f"{clothing_part}_hsv_marrom") or 0.0)
+                        yellow = float(scores.get(f"{clothing_part}_hsv_amarelo") or 0.0)
+                        red = float(scores.get(f"{clothing_part}_hsv_vermelho") or 0.0)
+                        return part_score >= brown * 1.25 and part_score >= yellow * 1.50 and part_score >= red * 1.25
+                    if clothing_color == "amarelo":
+                        orange = float(scores.get(f"{clothing_part}_hsv_laranja") or 0.0)
+                        brown = float(scores.get(f"{clothing_part}_hsv_marrom") or 0.0)
+                        return part_score >= orange * 1.25 and part_score >= brown * 1.10
                     return True
                 return part_score >= min_score and (not min_hsv or hsv_score >= min_hsv)
             min_score = NVR_AI_CLIP_THRESHOLD
