@@ -261,6 +261,7 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
   let targets = [];
   let selectedSite = '';
   let workTimer = null;
+  let aiStats = null;
 
   function tokenHeaders(extra){
     const h = Object.assign({}, extra || {});
@@ -286,7 +287,16 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     }
     return j;
   }
-  function setStatus(txt){ byId('ia-status').textContent = txt; }
+  function engineStatusText(){
+    if (!aiStats) return '';
+    const engine = aiStats.par_model_exists ? 'YOLO + PAR' : 'YOLO + CLIP fallback';
+    const suffix = aiStats.par_model_exists ? '' : ' - PAR nao instalado';
+    return `Motor: ${engine}${suffix}.`;
+  }
+  function setStatus(txt){
+    const engine = engineStatusText();
+    byId('ia-status').textContent = engine ? `${txt}\n${engine}` : txt;
+  }
   function fmtElapsed(sec){
     const m = Math.floor(sec / 60);
     const s = sec % 60;
@@ -644,6 +654,9 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     if (selectedSite && !targets.some((t) => siteKey(t) === selectedSite)) selectedSite = '';
     renderAllTargetControls();
   }
+  async function loadAiStats(){
+    aiStats = await apiJson('/api/ia/nvr/stats?_=' + Date.now(), {headers: tokenHeaders(), cache:'no-store'});
+  }
   async function indexPeriod(){
     const payload = buildNvrPayload();
     if (!payload) { setStatus('Selecione uma camera NVR.'); return; }
@@ -784,10 +797,14 @@ html[data-theme="light"] .ia-nvr-page input[type="datetime-local"]{color-scheme:
     renderAllTargetControls();
   });
   window.addEventListener('sightops:auth-ready', () => {
-    loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
+    loadAiStats().catch(() => {}).finally(() => {
+      loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
+    });
   });
   syncIndexMode(true);
-  loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
+  loadAiStats().catch(() => {}).finally(() => {
+    loadTargets().catch(e => setStatus('Erro ao carregar inventario: ' + ((e && e.message) || e)));
+  });
 })();
 </script>
 </body>

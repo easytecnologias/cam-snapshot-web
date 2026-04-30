@@ -30,7 +30,34 @@ NVR_AI_PAR_MODEL_PATH = os.getenv("NVR_AI_PAR_MODEL_PATH", str(NVR_AI_DIR / "mod
 NVR_AI_PAR_THRESHOLD = float(os.getenv("NVR_AI_PAR_THRESHOLD", "0.50"))
 NVR_AI_CLIP_MODEL = os.getenv("NVR_AI_CLIP_MODEL", "openai/clip-vit-base-patch32")
 NVR_AI_CLIP_THRESHOLD = float(os.getenv("NVR_AI_CLIP_THRESHOLD", "0.50"))
-NVR_AI_VISION_VERSION = "par_clip_yolo_parts_v1"
+NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF = float(os.getenv("NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF", "0.45"))
+NVR_AI_VISION_VERSION = "par_upper_body_v2"
+_CLIP_SHIRT_MIN_SCORES = {
+    "vermelho": 0.72,
+    "verde": 0.70,
+    "azul": 0.72,
+    "preto": 0.78,
+    "branco": 0.78,
+    "cinza": 0.78,
+    "amarelo": 0.76,
+    "roxo": 0.76,
+    "rosa": 0.76,
+    "laranja": 0.76,
+    "marrom": 0.78,
+    "bege": 0.78,
+}
+_CLIP_SHIRT_HSV_MIN_SCORES = {
+    "vermelho": 0.12,
+    "verde": 0.10,
+    "azul": 0.08,
+    "amarelo": 0.10,
+    "roxo": 0.08,
+    "rosa": 0.08,
+    "laranja": 0.10,
+    "preto": 0.35,
+    "branco": 0.22,
+    "cinza": 0.22,
+}
 
 _YOLO_MODEL: Any = None
 _YOLO_LOAD_ATTEMPTED = False
@@ -778,6 +805,16 @@ def _par_attribute_scores(person_crop: Image.Image, allow_lower_body: bool) -> D
     return {part: part_scores for part, part_scores in scores.items() if part_scores}
 
 
+def _clip_shirt_color_allowed(color: str, clip_score: float, hsv_score: float, confidence: float) -> bool:
+    if confidence < NVR_AI_CLIP_SHIRT_MIN_PERSON_CONF:
+        return False
+    min_clip = max(NVR_AI_CLIP_THRESHOLD, _CLIP_SHIRT_MIN_SCORES.get(color, 0.74))
+    if clip_score < min_clip:
+        return False
+    min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(color, 0.0)
+    return not min_hsv or hsv_score >= min_hsv
+
+
 def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float]]:
     tags: List[str] = []
     scores: Dict[str, float] = {}
@@ -790,6 +827,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
     except Exception:
         return tags, scores
     best: Dict[str, Dict[str, float]] = {}
+    providers_by_part: Dict[str, str] = {}
     person_confidence = 0.0
     for person_crop, confidence, touches_edge, full_body_like in person_crops:
         if confidence < NVR_AI_YOLO_CONF:
@@ -801,6 +839,7 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         for part, color_scores in par_scores.items():
             if part == "chapeu":
                 continue
+            providers_by_part[part] = "par"
             scores[f"{part}_provider_par"] = 1.0
             part_best = best.setdefault(part, {})
             for color, score in color_scores.items():
@@ -817,15 +856,39 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         crop.thumbnail((160, 220))
         crop_scores = _clip_color_scores(crop, part)
         if crop_scores:
-            crop_tags = [max(crop_scores.items(), key=lambda item: float(item[1] or 0.0))[0]]
+            _, hsv_scores = _color_tags_for_pil(crop, threshold=0.0)
+            for color, hsv_score in hsv_scores.items():
+                if color in _CLOTHING_COLORS:
+                    scores[f"{part}_hsv_{color}"] = max(float(scores.get(f"{part}_hsv_{color}") or 0), float(hsv_score or 0.0))
+            ranked_clip = sorted(crop_scores.items(), key=lambda item: float(item[1] or 0.0), reverse=True)
+            top_color, top_score = ranked_clip[0] if ranked_clip else ("", 0.0)
+            runner_up = float(ranked_clip[1][1] or 0.0) if len(ranked_clip) > 1 else 0.0
+            crop_tags = []
+            if top_color in _CLOTHING_COLORS:
+                hsv_score = float(hsv_scores.get(top_color) or 0.0)
+                dominance_margin = 1.35 if part == "camisa" else 1.12
+                min_score = _CLIP_SHIRT_MIN_SCORES.get(top_color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
+                allowed = float(top_score or 0.0) >= min_score and (not runner_up or float(top_score or 0.0) >= runner_up * dominance_margin)
+                if part == "camisa":
+                    allowed = allowed and _clip_shirt_color_allowed(top_color, float(top_score or 0.0), hsv_score, confidence)
+                if allowed:
+                    crop_tags = [top_color]
+                    providers_by_part[part] = "clip"
+                    part_best = best.setdefault(part, {})
+                    part_best[top_color] = max(part_best.get(top_color, 0.0), float(top_score or 0.0))
+                    scores[f"{part}_{top_color}"] = round(part_best[top_color], 4)
+                    scores[f"{part}_hsv_{top_color}"] = round(max(float(scores.get(f"{part}_hsv_{top_color}") or 0), hsv_score), 4)
             scores[f"{part}_provider_clip"] = 1.0
         else:
             if NVR_AI_ATTR_PROVIDER == "clip":
                 continue
             crop_tags, crop_scores = _color_tags_for_pil(crop, threshold=0.025)
+            providers_by_part[part] = providers_by_part.get(part, "hsv")
             scores[f"{part}_provider_hsv"] = 1.0
         if crop_tags:
             person_confidence = max(person_confidence, confidence)
+        if float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
+            continue
         for color, score in crop_scores.items():
             if color in _CLOTHING_COLORS:
                 part_best = best.setdefault(part, {})
@@ -835,28 +898,29 @@ def _person_shirt_tags_for_image(path: Path) -> tuple[List[str], Dict[str, float
         ranked = sorted(color_scores.items(), key=lambda item: float(item[1] or 0.0), reverse=True)
         if not ranked:
             continue
-        color, score = ranked[0]
-        runner_up = float(ranked[1][1] or 0.0) if len(ranked) > 1 else 0.0
-        if float(scores.get(f"{part}_provider_par") or 0) >= 1.0:
-            min_score = NVR_AI_PAR_THRESHOLD
-            dominance_margin = 1.05
-        elif float(scores.get(f"{part}_provider_clip") or 0) >= 1.0:
-            min_score = max(NVR_AI_CLIP_THRESHOLD, 0.70) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
-            dominance_margin = 1.25 if part == "camisa" else 1.12
-        else:
-            min_score = 0.10
-            if color in ("verde", "roxo"):
-                min_score = 0.08
-            if color in ("branco", "preto", "cinza"):
-                min_score = 0.18
-            dominance_margin = 1.45 if color in ("preto", "branco", "cinza") else 1.25
-        if score < min_score:
-            continue
-        if runner_up and score < runner_up * dominance_margin:
-            continue
-        clothing_tag = f"{part}_{color}"
-        if clothing_tag not in tags:
-            tags.append(clothing_tag)
+        provider = providers_by_part.get(part, "")
+        for idx, (color, score) in enumerate(ranked):
+            runner_up = float(ranked[idx + 1][1] or 0.0) if idx + 1 < len(ranked) else 0.0
+            if provider == "par":
+                min_score = NVR_AI_PAR_THRESHOLD
+                dominance_margin = 0.0
+            elif provider == "clip":
+                min_score = _CLIP_SHIRT_MIN_SCORES.get(color, max(NVR_AI_CLIP_THRESHOLD, 0.70)) if part == "camisa" else NVR_AI_CLIP_THRESHOLD
+                dominance_margin = 0.0 if part == "camisa" else 1.12
+            else:
+                min_score = 0.10
+                if color in ("verde", "roxo"):
+                    min_score = 0.08
+                if color in ("branco", "preto", "cinza"):
+                    min_score = 0.18
+                dominance_margin = 1.45 if color in ("preto", "branco", "cinza") else 1.25
+            if score < min_score:
+                continue
+            if dominance_margin and runner_up and score < runner_up * dominance_margin:
+                continue
+            clothing_tag = f"{part}_{color}"
+            if clothing_tag not in tags:
+                tags.append(clothing_tag)
     if tags:
         tags.insert(0, "pessoa")
         scores["pessoa_conf"] = round(max(scores.get("pessoa_conf", 0.0), person_confidence), 4)
@@ -1221,10 +1285,15 @@ def _row_has_term(row: Dict[str, Any], term: str, hay: str) -> bool:
         }
         if float(scores.get(f"{clothing_part}_provider_par") or 0) >= 1.0:
             min_score = NVR_AI_PAR_THRESHOLD
-            dominance_margin = 1.05
+            return part_score >= min_score
         elif float(scores.get(f"{clothing_part}_provider_clip") or 0) >= 1.0:
-            min_score = max(NVR_AI_CLIP_THRESHOLD, 0.70) if clothing_part == "camisa" else NVR_AI_CLIP_THRESHOLD
-            dominance_margin = 1.25 if clothing_part == "camisa" else 1.12
+            if clothing_part == "camisa":
+                min_score = _CLIP_SHIRT_MIN_SCORES.get(clothing_color, max(NVR_AI_CLIP_THRESHOLD, 0.70))
+                hsv_score = float(scores.get(f"{clothing_part}_hsv_{clothing_color}") or 0.0)
+                min_hsv = _CLIP_SHIRT_HSV_MIN_SCORES.get(clothing_color, 0.0)
+                return part_score >= min_score and (not min_hsv or hsv_score >= min_hsv)
+            min_score = NVR_AI_CLIP_THRESHOLD
+            dominance_margin = 1.12
         else:
             min_score = part_thresholds.get(clothing_color, 0.10)
             dominance_margin = 1.45 if clothing_color in ("preto", "branco", "cinza") else 1.25
@@ -1327,4 +1396,15 @@ def clear_index() -> Dict[str, Any]:
 def stats() -> Dict[str, Any]:
     rows = _load_index()
     jobs = sorted({_safe_text(r.get("job_id")) for r in rows if _safe_text(r.get("job_id"))})
-    return {"ok": True, "events": len(rows), "jobs": len(jobs), "index_path": str(NVR_AI_INDEX_PATH)}
+    par_model_path = Path(NVR_AI_PAR_MODEL_PATH)
+    return {
+        "ok": True,
+        "events": len(rows),
+        "jobs": len(jobs),
+        "index_path": str(NVR_AI_INDEX_PATH),
+        "vision_version": NVR_AI_VISION_VERSION,
+        "attr_provider": NVR_AI_ATTR_PROVIDER,
+        "par_model_path": str(par_model_path),
+        "par_model_exists": par_model_path.exists(),
+        "clip_fallback": NVR_AI_ATTR_PROVIDER in ("auto", "clip"),
+    }
