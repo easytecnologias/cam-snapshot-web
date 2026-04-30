@@ -71,12 +71,8 @@ _HSV_STRONG_SHIRT_MIN_SCORES = {
     "cinza": 0.55,
 }
 _HSV_OVERRIDE_SHIRT_MIN_SCORES = {
-    "vermelho": 0.50,
     "verde": 0.55,
-    "azul": 0.50,
     "amarelo": 0.45,
-    "roxo": 0.45,
-    "rosa": 0.45,
 }
 
 _YOLO_MODEL: Any = None
