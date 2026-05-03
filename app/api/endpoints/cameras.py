@@ -514,6 +514,16 @@ def api_cameras_ptz_capability(
     }
 
 
+@router.post("/cameras/ptz_capability", tags=["cameras"])
+def api_cameras_ptz_capability_post(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return api_cameras_ptz_capability(
+        ip=str(payload.get("ip") or ""),
+        user=str(payload.get("user") or payload.get("username") or ""),
+        password=str(payload.get("pass") or payload.get("password") or ""),
+        channel=int(payload.get("channel") or 1),
+    )
+
+
 @router.post("/cameras/ptz_move", tags=["cameras"])
 def api_cameras_ptz_move(payload: PTZMoveRequest) -> Dict[str, Any]:
     import requests

@@ -93,6 +93,18 @@ def _safe_unlink(path: Path) -> None:
         pass
 
 
+def _safe_extract_zip(zf: zipfile.ZipFile, target_dir: Path) -> None:
+    root = target_dir.resolve()
+    for member in zf.infolist():
+        name = str(member.filename or "").replace("\\", "/")
+        if not name or name.startswith("/") or ".." in Path(name).parts:
+            raise HTTPException(400, "Backup invalido: caminho inseguro dentro do ZIP.")
+        dest = (target_dir / name).resolve()
+        if root != dest and root not in dest.parents:
+            raise HTTPException(400, "Backup invalido: caminho fora do diretorio temporario.")
+    zf.extractall(target_dir)
+
+
 def _cleanup_kmz_workspace(keep_imported: bool = False) -> None:
     kmz_input_dir = tenant_kmz_input_dir() if get_current_tenant_slug() else KMZ_INPUT_DIR
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
@@ -418,11 +430,11 @@ async def api_tools_scan_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
     timeout_s = max(0.08, min(timeout_ms / 1000.0, 8.0))
 
     if not ip:
-        raise HTTPException(400, "IP nÃ£o informado.")
+        raise HTTPException(400, "IP nao informado.")
     try:
         parsed = ipaddress.ip_address(ip)
     except Exception:
-        raise HTTPException(400, "IP invÃ¡lido.")
+        raise HTTPException(400, "IP invalido.")
     if parsed.version != 4:
         raise HTTPException(400, "A ferramenta atual aceita apenas IPv4.")
 
@@ -724,7 +736,7 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
         except Exception:
             continue
     if data is None:
-        raise HTTPException(400, "JSON invÃ¡lido.")
+        raise HTTPException(400, "JSON invalido.")
 
     if isinstance(data, list):
         rows = data
@@ -734,7 +746,7 @@ async def api_inventory_import(file: UploadFile = File(...), mode: str = "olt") 
         rows = None
 
     if not isinstance(rows, list):
-        raise HTTPException(400, "Formato invÃ¡lido: esperado uma lista de cÃ¢meras.")
+        raise HTTPException(400, "Formato invalido: esperado uma lista de cameras.")
 
     _save_inventory_rows([r for r in rows if isinstance(r, dict)], mode=mode)
     saved = _load_inventory_rows(mode=mode)
@@ -964,6 +976,13 @@ def _create_full_backup_zip_file() -> Path:
     zip_path = backups_dir / f"cam-snapshot-backup-{ts}.zip"
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = {
+            "app": "SightOps Cam Snapshot",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "format": "sightops-full-backup-v1",
+            "contains": ["data"] + ([] if OUTPUT_DIR == DATA_DIR else ["output"]),
+        }
+        zf.writestr("backup-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         _zip_add_tree(zf, DATA_DIR, "data")
         if OUTPUT_DIR != DATA_DIR:
             _zip_add_tree(zf, OUTPUT_DIR, "output", exclude_prefixes=["backups"])
@@ -999,13 +1018,13 @@ async def api_full_backup_import(file: UploadFile = File(...)) -> Dict[str, Any]
     tmp_root.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
-        zf.extractall(tmp_root)
+        _safe_extract_zip(zf, tmp_root)
 
     src_data = tmp_root / "data"
     src_output = tmp_root / "output"
     if not src_data.exists() and not src_output.exists():
         _safe_rmtree(tmp_root)
-        raise HTTPException(400, "Backup invÃ¡lido: nÃ£o encontrei as pastas 'data/' ou 'output/' dentro do ZIP.")
+        raise HTTPException(400, "Backup invalido: nao encontrei as pastas 'data/' ou 'output/' dentro do ZIP.")
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     unified_store = OUTPUT_DIR == DATA_DIR
@@ -1276,7 +1295,7 @@ async def api_geo_camera_kml() -> FileResponse:
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
     kml = kmz_output_dir / "camera.kml"
     if not kml.exists():
-        raise HTTPException(404, "KML nÃ£o encontrado.")
+        raise HTTPException(404, "KML nao encontrado.")
     return FileResponse(kml, media_type="application/vnd.google-earth.kml+xml", filename="camera.kml")
 
 

@@ -5346,16 +5346,37 @@ function openMaintLiveModal(cam, explicitIndex = null) {
   const rtspPort = Math.max(0, parseInt((cam && cam.rtsp_port) || (cam && cam.raw && cam.raw.rtsp_port) || 0, 10) || 0);
   const vendor = safeTrim((cam && cam.fab) || (cam && cam.raw && cam.raw.fabricante) || '');
   const model = safeTrim((cam && cam.model) || (cam && cam.raw && (cam.raw.modelo || cam.raw.model)) || '');
-  const buildLiveUrl = function(targetIp, targetCh){
-    const rtspPart = rtspPort > 0 ? ('&rtsp_port=' + encodeURIComponent(rtspPort)) : '';
-    const vendorPart = vendor ? ('&vendor=' + encodeURIComponent(vendor)) : '';
-    const modelPart = model ? ('&model=' + encodeURIComponent(model)) : '';
-    return `/api/live/mjpeg?ip=${encodeURIComponent(targetIp)}&user=${encodeURIComponent(u)}&pass=${encodeURIComponent(p)}&channel=${encodeURIComponent(targetCh)}&subtype=${__maintLiveSubtype}${rtspPart}${vendorPart}${modelPart}&_ts=${Date.now()}`;
+  let currentLiveSession = null;
+  let url = '';
+  const appendTs = function(rawUrl) {
+    const base = String(rawUrl || '');
+    return base + (base.indexOf('?') >= 0 ? '&' : '?') + '_ts=' + Date.now();
   };
-  const buildLiveJpegUrl = function(targetIp, targetCh){
-    return `/api/live/jpeg?ip=${encodeURIComponent(targetIp)}&user=${encodeURIComponent(u)}&pass=${encodeURIComponent(p)}&channel=${encodeURIComponent(targetCh)}&_ts=${Date.now()}`;
+  const createLiveSession = function(targetIp, targetCh) {
+    return fetch('/api/live/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ip: targetIp,
+        user: u,
+        password: p,
+        channel: targetCh,
+        subtype: __maintLiveSubtype,
+        rtsp_port: rtspPort || 554,
+        vendor: vendor,
+        model: model
+      })
+    })
+      .then(function(resp) {
+        return resp.json().catch(function(){ return {}; }).then(function(data){ return { resp: resp, data: data }; });
+      })
+      .then(function(o) {
+        if (!o.resp.ok || !o.data || o.data.ok !== true || !o.data.mjpeg_url || !o.data.jpeg_url) {
+          throw new Error((o.data && (o.data.detail || o.data.error || o.data.message)) || ('HTTP ' + o.resp.status));
+        }
+        return o.data;
+      });
   };
-  let url = buildLiveUrl(currentIp, currentCh);
 
   const clearAttemptTimer = function(){
     try { if (attemptTimer) clearTimeout(attemptTimer); } catch (_) {}
@@ -5366,6 +5387,36 @@ function openMaintLiveModal(cam, explicitIndex = null) {
     try { if (__maintLiveSnapshotTimer) clearInterval(__maintLiveSnapshotTimer); } catch (_) {}
     __maintLiveSnapshotTimer = null;
     snapshotFallbackOn = false;
+  };
+  const beginLiveAttempt = function(reason) {
+    if (runId !== __maintLiveRunId) return;
+    if (hint) {
+      hint.textContent = reason || ('Conectando ao stream (' + attempts[attemptIdx].label + ')...');
+      hint.classList.remove('bad');
+    }
+    createLiveSession(currentIp, currentCh)
+      .then(function(session) {
+        if (runId !== __maintLiveRunId) return;
+        currentLiveSession = session;
+        url = appendTs(session.mjpeg_url);
+        loadedFrame = false;
+        try { img.src = ''; } catch (_) {}
+        img.src = url;
+        __maintLiveCtx = { ip: currentIp, user: u, pass: p, channel: currentCh, ptzCapable: false };
+        try { maintLiveDetectPtz(currentIp, u, p, currentCh); } catch (_) {}
+        clearAttemptTimer();
+        attemptTimer = setTimeout(function(){
+          if (runId !== __maintLiveRunId) return;
+          handleNoLiveFrame('Sem frame recebido. Alternando rota de stream...');
+        }, 4500);
+      })
+      .catch(function(e) {
+        if (runId !== __maintLiveRunId) return;
+        if (hint) {
+          hint.textContent = 'Falha ao criar sessao live: ' + (e && e.message ? e.message : e);
+          hint.classList.add('bad');
+        }
+      });
   };
   const startSnapshotFallback = function(reason){
     if (runId !== __maintLiveRunId) return;
@@ -5378,7 +5429,10 @@ function openMaintLiveModal(cam, explicitIndex = null) {
     }
     const refreshStill = function(){
       if (runId !== __maintLiveRunId) return;
-      try { img.src = buildLiveJpegUrl(currentIp, currentCh); } catch (_) {}
+      try {
+        if (!currentLiveSession || !currentLiveSession.jpeg_url) return;
+        img.src = appendTs(currentLiveSession.jpeg_url);
+      } catch (_) {}
     };
     refreshStill();
     __maintLiveSnapshotTimer = setInterval(refreshStill, 1000);
@@ -5390,21 +5444,14 @@ function openMaintLiveModal(cam, explicitIndex = null) {
     const nxt = attempts[attemptIdx];
     currentIp = nxt.ip;
     currentCh = nxt.ch;
-    url = buildLiveUrl(currentIp, currentCh);
     loadedFrame = false;
+    currentLiveSession = null;
     if (hint) {
       hint.textContent = reason || ('Falha na tentativa anterior. Tentando ' + nxt.label + '...');
       hint.classList.add('bad');
     }
-    try { img.src = ''; } catch (_) {}
-    img.src = url;
-    __maintLiveCtx = { ip: currentIp, user: u, pass: p, channel: currentCh, ptzCapable: false };
-    try { maintLiveDetectPtz(currentIp, u, p, currentCh); } catch (_) {}
     clearAttemptTimer();
-    attemptTimer = setTimeout(function(){
-      if (runId !== __maintLiveRunId) return;
-      handleNoLiveFrame('Sem frame recebido. Alternando rota de stream...');
-    }, 4500);
+    beginLiveAttempt(reason || ('Tentando ' + nxt.label + '...'));
     return true;
   };
   const handleNoLiveFrame = function(reason){
@@ -5470,15 +5517,8 @@ function openMaintLiveModal(cam, explicitIndex = null) {
     } catch (_) {}
   };
   try { img.src = ''; } catch (_) {}
-  img.src = url;
   clearAttemptTimer();
-  attemptTimer = setTimeout(function(){
-    if (runId !== __maintLiveRunId) return;
-    handleNoLiveFrame('Sem frame recebido. Alternando rota de stream...');
-  }, 4500);
-
-  __maintLiveCtx = { ip: currentIp, user: u, pass: p, channel: currentCh, ptzCapable: false };
-  try { maintLiveDetectPtz(currentIp, u, p, currentCh); } catch (_) {}
+  beginLiveAttempt('Conectando ao stream (' + attempts[0].label + ')...');
 
   _maintSetLiveNavState();
 
@@ -5524,11 +5564,14 @@ async function maintLiveDetectPtz(ip, user, pass, channel) {
   }
   maintLivePtzSetStatus('Detectando...', false);
   try {
-    const url = '/api/cameras/ptz_capability?ip=' + encodeURIComponent(ip) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass) + '&channel=' + encodeURIComponent(channel || 1);
-    const r = await fetch(url);
+    const r = await fetch('/api/cameras/ptz_capability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip: ip, user: user, password: pass, channel: channel || 1 })
+    });
     const j = await r.json().catch(function () { return {}; });
     if (j && j.ok && j.capable) {
-      maintLivePtzSetStatus('PTZ disponvel (' + (j.brand || 'auto') + ').', true);
+      maintLivePtzSetStatus('PTZ disponivel (' + (j.brand || 'auto') + ').', true);
     } else if (j && j.ok) {
       maintLivePtzSetStatus('Esta camera nao respondeu como PTZ.', false);
     } else {

@@ -80,10 +80,10 @@ def get_settings() -> AppSettings:
         database_port=db_port,
         database_name=db_name,
         database_user=db_user,
-        allowed_origins=str(os.getenv("ALLOWED_ORIGINS", "*")).strip(),
+        allowed_origins=str(os.getenv("ALLOWED_ORIGINS", "http://localhost,http://127.0.0.1")).strip(),
         trusted_proxies=str(os.getenv("TRUSTED_PROXIES", "*")).strip(),
         auth_enabled=_env_bool("AUTH_ENABLED", True),
-        auth_required=_env_bool("AUTH_REQUIRED", False),
-        auth_legacy_open=_env_bool("AUTH_LEGACY_OPEN", True),
+        auth_required=_env_bool("AUTH_REQUIRED", True),
+        auth_legacy_open=_env_bool("AUTH_LEGACY_OPEN", False),
         auth_token_ttl_hours=int(os.getenv("AUTH_TOKEN_TTL_HOURS", "24")),
     )

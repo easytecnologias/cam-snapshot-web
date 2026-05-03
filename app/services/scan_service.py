@@ -269,7 +269,7 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
         if j is None:
             merged.append(dict(nr))
         else:
-            # novos valores sobrescrevem (mantÃ©m extras antigos)
+            # novos valores sobrescrevem e mantem extras antigos
             merged[j].update({k: v for k, v in nr.items() if v is not None})
 
     return merged
@@ -407,7 +407,7 @@ def _upload_imgbb_for_inventory(
 
     api_key = _load_imgbb_key()
     if not api_key:
-        return rows, 0, "ImgBB API key nÃ£o configurada."
+        return rows, 0, "ImgBB API key nao configurada."
 
     paths: list[Path] = []
     name_map: dict[str, str] = {}
@@ -530,10 +530,10 @@ def _cleanup_misplaced_dvr_snapshots() -> int:
 def _generate_inventory_xlsx() -> tuple[bool, str]:
     script = TOOLS_DIR / "json_to_xlsx.py"
     if not script.exists():
-        return False, "json_to_xlsx.py nÃ£o encontrado em tools/"
+        return False, "json_to_xlsx.py nao encontrado em tools/"
 
     if not INVENTORY_JSON_PATH.exists():
-        return False, "InventÃ¡rio JSON nÃ£o encontrado para gerar XLSX."
+        return False, "Inventario JSON nao encontrado para gerar XLSX."
 
     out_xlsx = SAIDA_DIR / "cam-inventory.xlsx"
     cmd = [
@@ -549,13 +549,13 @@ def _generate_inventory_xlsx() -> tuple[bool, str]:
         msg = (proc.stderr or proc.stdout or "").strip()
         return False, (msg[:1000] or f"Falha ao gerar XLSX (rc={proc.returncode}).")
     if not out_xlsx.exists():
-        return False, "XLSX nÃ£o foi criado."
+        return False, "XLSX nao foi criado."
     return True, ""
 
 
 def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
-    """HTTP /api/scan â€” compat legado, sem quebrar o front.
-    RefatoraÃ§Ã£o incremental: movemos para service para router dedicado.
+    """HTTP /api/scan - compat legado, sem quebrar o front.
+    Refatoracao incremental: movemos para service para router dedicado.
     """
     ensure_dirs()
     SAIDA_DIR.mkdir(parents=True, exist_ok=True)
@@ -567,7 +567,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
 
     alvo = (getattr(req, "alvo", "") or "").strip()
     if mode == "scan" and (not alvo) and (not getattr(req, "reuse_inventory", False)):
-        raise HTTPException(400, "Campo 'alvo' Ã© obrigatÃ³rio.")
+        raise HTTPException(400, "Campo 'alvo' e obrigatorio.")
 
     inventory_mode = str(getattr(req, "inventory_mode", "olt") or "olt").strip().lower()
     inv_json = INVENTORY_JSON_PATH if inventory_mode != "switch" else (DATA_DIR / "cam-inventory-switch.json")
@@ -647,8 +647,8 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
                 pass
 
     # ====== Etapas opcionais via tools (compat) ======
-    # A maior parte dessas etapas jÃ¡ existe no legado e continua em main.py para os outros endpoints.
-    # No v3 mantemos o /api/scan funcionando e retornando inventÃ¡rio atualizado.
+    # A maior parte dessas etapas ja existe no legado e continua em main.py para os outros endpoints.
+    # No v3 mantemos o /api/scan funcionando e retornando inventario atualizado.
     inventory_rows = load_inventory_json(mode=inventory_mode)
     local_applied = 0
     if mode == "scan" and bool(getattr(req, "set_local", False)) and inventory_rows:
@@ -692,7 +692,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
         if inventory_rows:
             excel_generated, excel_error = _generate_inventory_xlsx()
         else:
-            excel_error = "InventÃ¡rio vazio; XLSX nÃ£o gerado."
+            excel_error = "Inventario vazio; XLSX nao gerado."
 
     auth_failed_count = 0
     online_count = 0
