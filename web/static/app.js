@@ -1898,13 +1898,14 @@ function getInventoryViewMode() {
 function getInventoryColumnConfig() {
   if (getInventoryViewMode() === 'switch') {
     return {
-      emptyColspan: 11,
+      emptyColspan: 12,
       columns: [
         'mac',
         'fabricante',
         'model',
         'titulo',
         'status',
+        'imgbb',
         'local',
         'switch_ip',
         'switch_port',
@@ -1913,13 +1914,14 @@ function getInventoryColumnConfig() {
     };
   }
   return {
-    emptyColspan: 12,
+    emptyColspan: 13,
     columns: [
       'mac',
       'fabricante',
       'model',
       'titulo',
       'status',
+      'imgbb',
       'local',
       'pon',
       'onu_id',
@@ -1964,11 +1966,11 @@ function applyInventoryFilterDom() {
     const modelo     = getCellText(4);
     const titulo     = getCellText(5);
     const status     = getCellText(6);
-    const local      = getCellText(7);
-    const extra1      = getCellText(8);
-    const extra2      = getCellText(9);
-    const extra3      = getCellText(10);
-    const extra4      = getCellText(11);
+    const local      = getCellText(8);
+    const extra1      = getCellText(9);
+    const extra2      = getCellText(10);
+    const extra3      = getCellText(11);
+    const extra4      = getCellText(12);
 
     let show = true;
 
@@ -2113,6 +2115,32 @@ function renderInventoryTable(inventory) {
       tr.appendChild(td);
     }
 
+    function addImgBBCell(camRow) {
+      const td = document.createElement('td');
+      const url = safeTrim(
+        camRow.imgbb_url ||
+        camRow.imgbbUrl ||
+        (camRow.raw && (camRow.raw.imgbb_url || camRow.raw.imgbbUrl)) ||
+        ''
+      );
+      if (url) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'inv-imgbb-link';
+        a.title = 'Abrir imagem no ImgBB';
+        a.textContent = 'OK';
+        td.appendChild(a);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'inv-imgbb-empty';
+        span.textContent = '-';
+        td.appendChild(span);
+      }
+      tr.appendChild(td);
+    }
+
     // IP clicavel: abre drawer com snapshot rapido
     {
       const td = document.createElement('td');
@@ -2143,6 +2171,7 @@ function renderInventoryTable(inventory) {
       td.appendChild(span);
       tr.appendChild(td);
     }
+    addImgBBCell(cam);
 
     // LOCAL (quando disponível)
     addCell(cam.local || cam.LOCAL || '');
@@ -3620,6 +3649,7 @@ function enterInventoryEditMode() {
       const cell = row.cells[colIndex];
       const field = colFieldMap[colIndex];
       if (!cell || !field) continue;
+      if (field === 'imgbb') continue;
 
       const current = safeTrim(cell.textContent);
       cell.innerHTML = '';

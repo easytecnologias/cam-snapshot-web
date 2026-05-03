@@ -45,7 +45,7 @@ def after_snapshot(csv_path: Optional[str], snapshot_files: List[str], verbose: 
     try:
         settings = load_app_settings()
         if isinstance(settings, dict):
-            imgbb_key = str(settings.get("imgbb_key") or "").strip().strip('"')
+            imgbb_key = str(settings.get("imgbb_key") or settings.get("imgbb_api_key") or "").strip().strip('"')
     except Exception:
         pass
     if imgbb_key:

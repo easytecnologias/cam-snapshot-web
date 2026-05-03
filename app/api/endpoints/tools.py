@@ -1299,6 +1299,10 @@ def _mask_key(key: str) -> str:
     return "****" + k[-4:]
 
 
+def _settings_imgbb_key(settings: Dict[str, Any]) -> str:
+    return str((settings or {}).get("imgbb_key") or (settings or {}).get("imgbb_api_key") or "").strip()
+
+
 def _imgbb_validate_key(api_key: str) -> tuple[bool, str]:
     api_key = (api_key or "").strip().strip('"')
     if not api_key:
@@ -1332,7 +1336,7 @@ def _imgbb_validate_key(api_key: str) -> tuple[bool, str]:
 @router.get("/settings/imgbb")
 async def api_imgbb_get_settings() -> Dict[str, Any]:
     s = _load_app_settings()
-    key = (s.get("imgbb_key") or "").strip()
+    key = _settings_imgbb_key(s)
     has_key = bool(key)
     return {
         "ok": True,
@@ -1360,6 +1364,7 @@ async def api_imgbb_set(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     s = _load_app_settings()
     s["imgbb_key"] = key
+    s.pop("imgbb_api_key", None)
     _save_app_settings(s)
     has_key = bool(key)
     return {

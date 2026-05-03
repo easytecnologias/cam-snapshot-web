@@ -226,7 +226,7 @@ def _load_imgbb_key() -> str:
     try:
         obj = load_app_settings()
         if isinstance(obj, dict):
-            key = str(obj.get("imgbb_key") or "").strip().strip('"')
+            key = str(obj.get("imgbb_key") or obj.get("imgbb_api_key") or "").strip().strip('"')
             if key:
                 return key
     except Exception:
