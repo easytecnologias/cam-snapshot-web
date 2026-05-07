@@ -143,7 +143,8 @@
     if (sourceList) {
       sourceList.innerHTML = sourceRow('Cameras IP', inventory.ip, fmt((inventory.ip || {}).switch_inventory_total) + ' no inventario switch')
         + sourceRow('DVR', inventory.dvr, fmt((inventory.dvr || {}).recorders) + ' gravadores')
-        + sourceRow('NVR', inventory.nvr, fmt((inventory.nvr || {}).recorders) + ' gravadores');
+        + sourceRow('NVR', inventory.nvr, fmt((inventory.nvr || {}).recorders) + ' gravadores')
+        + sourceRow('Windows', inventory.windows, fmt((inventory.windows || {}).with_ssd) + ' com SSD');
     }
     var alerts = payload.alerts || [];
     var alertList = el('dashboard-alert-list');

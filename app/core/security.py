@@ -62,6 +62,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/rescan-single-ip", "operator"),
             (("POST",), "/api/olt/", "operator"),
             (("POST",), "/api/switch/", "operator"),
+            (("POST",), "/api/windows/", "operator"),
             (("POST",), "/api/tools/scan-ip", "operator"),
             (("POST",), "/api/discovery/run", "operator"),
             (("POST",), "/api/portscan/apply", "operator"),

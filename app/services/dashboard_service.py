@@ -19,6 +19,7 @@ from app.core.settings import get_settings
 from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_snapshot_dir
 from app.services.db_store import legacy_rows_from_db
 from app.services.inventory_json import load_inventory_json
+from app.services.windows_inventory_service import load_windows_inventory
 
 
 def _text(value: Any) -> str:
@@ -213,13 +214,15 @@ def build_dashboard_summary() -> Dict[str, Any]:
     ip_switch_rows = load_inventory_json(mode="switch") or []
     dvr_rows = _recorder_rows("dvr")
     nvr_rows = _recorder_rows("nvr")
+    windows_rows = load_windows_inventory()
 
-    all_rows = list(ip_olt_rows) + list(ip_switch_rows) + list(dvr_rows) + list(nvr_rows)
+    all_rows = list(ip_olt_rows) + list(ip_switch_rows) + list(dvr_rows) + list(nvr_rows) + list(windows_rows)
     site_names = _sites(all_rows)
 
     ip_status = _status_counts(ip_olt_rows)
     dvr_status = _status_counts(dvr_rows)
     nvr_status = _status_counts(nvr_rows)
+    windows_status = _status_counts(windows_rows)
 
     ip_gaps = _missing_counts(ip_olt_rows)
     recorder_gaps = _missing_counts(list(dvr_rows) + list(nvr_rows))
@@ -230,12 +233,20 @@ def build_dashboard_summary() -> Dict[str, Any]:
     if ip_gaps["missing_local"] + recorder_gaps["missing_local"]:
         alerts.append({"level": "info", "label": "Itens sem local", "count": ip_gaps["missing_local"] + recorder_gaps["missing_local"]})
     offline_total = ip_status["offline"] + dvr_status["offline"] + nvr_status["offline"]
+    offline_total += windows_status["offline"]
     if offline_total:
         alerts.append({"level": "danger", "label": "Itens offline ou com erro", "count": offline_total})
     duplicate_ips = _duplicate_count(ip_olt_rows, ("ip", "host"))
     duplicate_macs = _duplicate_count(ip_olt_rows, ("mac", "MAC"))
     if duplicate_ips or duplicate_macs:
         alerts.append({"level": "warning", "label": "Possiveis duplicidades IP/MAC", "count": duplicate_ips + duplicate_macs})
+    windows_without_ssd = sum(
+        1
+        for row in windows_rows
+        if isinstance(row, dict) and str(row.get("status") or "").lower() == "online" and not bool(row.get("has_ssd"))
+    )
+    if windows_without_ssd:
+        alerts.append({"level": "info", "label": "Computadores Windows sem SSD detectado", "count": windows_without_ssd})
 
     return {
         "ok": True,
@@ -269,12 +280,17 @@ def build_dashboard_summary() -> Dict[str, Any]:
                 "recorders": _recorders_count(nvr_rows),
                 "snapshot_files": _snapshot_file_count("nvr"),
             },
+            "windows": {
+                **windows_status,
+                "with_ssd": sum(1 for row in windows_rows if isinstance(row, dict) and bool(row.get("has_ssd"))),
+                "without_ssd": windows_without_ssd,
+            },
         },
         "totals": {
             "items": len(all_rows),
-            "online": ip_status["online"] + dvr_status["online"] + nvr_status["online"],
+            "online": ip_status["online"] + dvr_status["online"] + nvr_status["online"] + windows_status["online"],
             "offline": offline_total,
-            "unknown": ip_status["unknown"] + dvr_status["unknown"] + nvr_status["unknown"],
+            "unknown": ip_status["unknown"] + dvr_status["unknown"] + nvr_status["unknown"] + windows_status["unknown"],
             "sites": len(site_names),
             "snapshots": _snapshot_file_count("ip") + _snapshot_file_count("dvr") + _snapshot_file_count("nvr"),
         },

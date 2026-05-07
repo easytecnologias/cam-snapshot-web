@@ -1299,6 +1299,7 @@ function initUiShell() {
   // garante que nenhum overlay do menu fique preso ao trocar de pagina
   uiCloseSidebar();
   ensureDashboardNavLink();
+  ensureWindowsNavLink();
   // Tema inicial
   const forcedTheme = (document.body && document.body.dataset && document.body.dataset.forceTheme) || '';
   let stored = null;
@@ -1349,6 +1350,29 @@ function ensureDashboardNavLink() {
   const path = String(window.location.pathname || '').toLowerCase();
   if (path.endsWith('/dashboard.html')) link.classList.add('active');
   nav.insertBefore(link, nav.firstChild);
+}
+
+function ensureWindowsNavLink() {
+  const inventoryGroup = document.querySelector('[data-nav-subgroup="inventory"]');
+  if (!inventoryGroup || inventoryGroup.querySelector('a[href="windows.html"]')) return;
+  const label = document.createElement('div');
+  label.className = 'nav-subitem nav-subitem-label';
+  label.textContent = 'Infraestrutura';
+  const link = document.createElement('a');
+  link.className = 'nav-subitem';
+  link.href = 'windows.html';
+  link.textContent = 'Windows';
+  const path = String(window.location.pathname || '').toLowerCase();
+  if (path.endsWith('/windows.html')) link.classList.add('active');
+  const photoLabel = Array.from(inventoryGroup.querySelectorAll('.nav-subitem-label'))
+    .find(function (item) { return String(item.textContent || '').toLowerCase().indexOf('foto') >= 0; });
+  if (photoLabel) {
+    inventoryGroup.insertBefore(label, photoLabel);
+    inventoryGroup.insertBefore(link, photoLabel);
+  } else {
+    inventoryGroup.appendChild(label);
+    inventoryGroup.appendChild(link);
+  }
 }
 
 /* =========================

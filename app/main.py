@@ -29,6 +29,7 @@ from app.api.endpoints import (
     ia_router,
     database_router,
     dashboard_router,
+    windows_router,
 )
 
 ensure_dirs()
@@ -71,6 +72,7 @@ app.include_router(nvr_router)
 app.include_router(ia_router)
 app.include_router(database_router)
 app.include_router(dashboard_router)
+app.include_router(windows_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
@@ -112,6 +114,11 @@ def index_alias() -> FileResponse:
 @app.get("/dashboard.html", include_in_schema=False)
 def dashboard_page() -> FileResponse:
     return FileResponse(WEB_DIR / "dashboard.html")
+
+
+@app.get("/windows.html", include_in_schema=False)
+def windows_page() -> FileResponse:
+    return FileResponse(WEB_DIR / "windows.html")
 
 
 @app.get("/olt.html", include_in_schema=False)
