@@ -311,6 +311,69 @@ def clear_windows_inventory() -> Dict[str, Any]:
     return {"ok": True, "cleared": True}
 
 
+def build_windows_prepare_script(username: str = "sightops_inv") -> str:
+    user = _text(username) or "sightops_inv"
+    safe_user = "".join(ch for ch in user if ch.isalnum() or ch in ("_", "-", "."))
+    if not safe_user:
+        safe_user = "sightops_inv"
+    return f"""# SightOps - Preparar Windows para inventario remoto
+# Execute este arquivo como Administrador no computador Windows alvo.
+# O script NAO contem senha gravada: ele pede a senha localmente.
+
+$ErrorActionPreference = "Stop"
+$UserName = "{safe_user}"
+
+Write-Host "Preparando WinRM/WMI para inventario SightOps..." -ForegroundColor Cyan
+
+$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $IsAdmin) {{
+  Write-Error "Execute este PowerShell como Administrador."
+  exit 1
+}}
+
+$Password = Read-Host "Digite a senha que sera usada para o usuario local $UserName" -AsSecureString
+if (-not $Password) {{
+  Write-Error "Senha obrigatoria."
+  exit 1
+}}
+
+$Existing = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
+if ($Existing) {{
+  Set-LocalUser -Name $UserName -Password $Password -PasswordNeverExpires $true
+  Enable-LocalUser -Name $UserName
+  Write-Host "Usuario $UserName atualizado." -ForegroundColor Green
+}} else {{
+  New-LocalUser -Name $UserName -Password $Password -FullName "SightOps Inventory" -Description "Usuario local para inventario remoto SightOps" -PasswordNeverExpires
+  Write-Host "Usuario $UserName criado." -ForegroundColor Green
+}}
+
+Add-LocalGroupMember -Group "Administradores" -Member $UserName -ErrorAction SilentlyContinue
+Add-LocalGroupMember -Group "Remote Management Users" -Member $UserName -ErrorAction SilentlyContinue
+
+Set-Service -Name WinRM -StartupType Automatic
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
+winrm quickconfig -quiet
+winrm set winrm/config/service/auth '@{{Basic="false"; Kerberos="true"; Negotiate="true"}}'
+winrm set winrm/config/service '@{{AllowUnencrypted="true"}}'
+
+New-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any -ErrorAction SilentlyContinue | Out-Null
+
+$LocalAccountTokenFilterPolicy = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+New-Item -Path $LocalAccountTokenFilterPolicy -Force | Out-Null
+New-ItemProperty -Path $LocalAccountTokenFilterPolicy -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force | Out-Null
+
+Write-Host ""
+Write-Host "Preparacao concluida." -ForegroundColor Green
+Write-Host "No SightOps, use:" -ForegroundColor Cyan
+Write-Host "  Usuario: .\\$UserName"
+Write-Host "  Senha: a senha digitada neste script"
+Write-Host "  Porta: WinRM HTTP 5985"
+Write-Host ""
+Write-Host "Teste local opcional:"
+Write-Host "  Test-WSMan localhost"
+"""
+
+
 def _merge_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     index: dict[str, Dict[str, Any]] = {}
     order: list[str] = []

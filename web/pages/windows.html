@@ -129,9 +129,10 @@
 
         <div class="actions-row">
           <button class="btn-primary" id="btn-win-scan" type="button">Iniciar inventario</button>
+          <button class="btn-secondary" id="btn-win-prepare" type="button">Baixar preparador</button>
           <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
         </div>
-        <div id="win-status" class="status-line">Pronto para executar.</div>
+        <div id="win-status" class="status-line">Pronto para executar. Use o preparador em cada PC Windows antes do primeiro scan.</div>
       </div>
 
       <div class="card windows-summary-card">
@@ -268,11 +269,19 @@
       .then(function () { setStatus('Inventario Windows limpo.'); renderRows([]); })
       .catch(function (err) { setStatus('Falha ao limpar: ' + err.message); });
   }
+  function downloadPrepareScript() {
+    var user = prompt('Nome do usuario local para inventario:', 'sightops_inv') || 'sightops_inv';
+    var url = '/api/windows/prepare-script?username=' + encodeURIComponent(user);
+    window.location.href = url;
+    setStatus('Preparador baixado. Execute o .ps1 como Administrador no computador Windows alvo.');
+  }
   document.addEventListener('DOMContentLoaded', function () {
     var scanBtn = el('btn-win-scan');
+    var prepareBtn = el('btn-win-prepare');
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
     if (scanBtn) scanBtn.addEventListener('click', runScan);
+    if (prepareBtn) prepareBtn.addEventListener('click', downloadPrepareScript);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);
     loadInventory();
