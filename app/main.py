@@ -28,6 +28,7 @@ from app.api.endpoints import (
     nvr_router,
     ia_router,
     database_router,
+    dashboard_router,
 )
 
 ensure_dirs()
@@ -69,6 +70,7 @@ app.include_router(dvr_router)
 app.include_router(nvr_router)
 app.include_router(ia_router)
 app.include_router(database_router)
+app.include_router(dashboard_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
@@ -89,7 +91,7 @@ async def shutdown_events() -> None:
 
 @app.get("/", include_in_schema=False)
 def index_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory.html")
+    return FileResponse(WEB_DIR / "dashboard.html")
 
 
 @app.get("/inventory.html", include_in_schema=False)
@@ -104,7 +106,12 @@ def inventory_switch_page() -> FileResponse:
 
 @app.get("/index.html", include_in_schema=False)
 def index_alias() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory.html")
+    return FileResponse(WEB_DIR / "dashboard.html")
+
+
+@app.get("/dashboard.html", include_in_schema=False)
+def dashboard_page() -> FileResponse:
+    return FileResponse(WEB_DIR / "dashboard.html")
 
 
 @app.get("/olt.html", include_in_schema=False)

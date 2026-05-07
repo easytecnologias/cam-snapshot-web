@@ -1298,6 +1298,7 @@ function initNestedNavSubmenus() {
 function initUiShell() {
   // garante que nenhum overlay do menu fique preso ao trocar de pagina
   uiCloseSidebar();
+  ensureDashboardNavLink();
   // Tema inicial
   const forcedTheme = (document.body && document.body.dataset && document.body.dataset.forceTheme) || '';
   let stored = null;
@@ -1336,6 +1337,18 @@ function initUiShell() {
   window.uiOpenSidebar = uiOpenSidebar;
   window.uiCloseSidebar = uiCloseSidebar;
   window.uiToggleInventoryPanel = uiToggleInventoryPanel;
+}
+
+function ensureDashboardNavLink() {
+  const nav = document.querySelector('header nav');
+  if (!nav || nav.querySelector('a[href="dashboard.html"]')) return;
+  const link = document.createElement('a');
+  link.className = 'nav-item';
+  link.href = 'dashboard.html';
+  link.textContent = 'Dashboard';
+  const path = String(window.location.pathname || '').toLowerCase();
+  if (path.endsWith('/dashboard.html')) link.classList.add('active');
+  nav.insertBefore(link, nav.firstChild);
 }
 
 /* =========================

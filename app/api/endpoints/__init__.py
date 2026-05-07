@@ -15,3 +15,4 @@ from .ia import router as ia_router
 from .database import router as database_router
 from .auth import router as auth_router
 from .system import router as system_router
+from .dashboard import router as dashboard_router

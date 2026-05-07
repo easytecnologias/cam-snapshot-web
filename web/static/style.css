@@ -5561,3 +5561,232 @@ body[data-theme="dark"] .auth-role-badge{
   color: var(--sightops-text-dark);
 }
 
+/* Dashboard operacional */
+.dashboard-page main{
+  min-height: 100vh;
+}
+
+.dashboard-shell{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dashboard-hero{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid rgba(148,163,184,.18);
+  background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(17,24,39,.90));
+  border-radius: 8px;
+}
+
+.dashboard-hero h1{
+  margin: 4px 0 6px;
+  font-size: 28px;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.dashboard-hero p{
+  margin: 0;
+  color: #94a3b8;
+}
+
+.dashboard-db-pill{
+  min-width: 138px;
+  padding: 9px 12px;
+  border-radius: 999px;
+  text-align: center;
+  font-weight: 700;
+  border: 1px solid rgba(148,163,184,.20);
+  color: #cbd5e1;
+  background: rgba(15,23,42,.76);
+}
+
+.dashboard-db-pill.is-ok{
+  color: #bbf7d0;
+  border-color: rgba(34,197,94,.32);
+  background: rgba(22,101,52,.24);
+}
+
+.dashboard-db-pill.is-bad{
+  color: #fecaca;
+  border-color: rgba(239,68,68,.34);
+  background: rgba(127,29,29,.24);
+}
+
+.dashboard-kpis{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-kpi{
+  min-height: 118px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,.18);
+  background: rgba(15,23,42,.86);
+}
+
+.dashboard-kpi span,
+.dashboard-kpi small{
+  display: block;
+  color: #94a3b8;
+}
+
+.dashboard-kpi strong{
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #f8fafc;
+}
+
+.dashboard-kpi-danger strong{
+  color: #fca5a5;
+}
+
+.dashboard-grid{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-panel{
+  min-height: 260px;
+}
+
+.dashboard-source-list,
+.dashboard-alert-list,
+.dashboard-activity-list{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.dashboard-source-row,
+.dashboard-activity-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(148,163,184,.14);
+  border-radius: 8px;
+  background: rgba(2,6,23,.28);
+}
+
+.dashboard-source-row strong,
+.dashboard-activity-row strong{
+  display: block;
+  color: #f8fafc;
+}
+
+.dashboard-source-row span,
+.dashboard-activity-row span{
+  display: block;
+  margin-top: 3px;
+  color: #94a3b8;
+}
+
+.dashboard-source-metrics{
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.dashboard-source-metrics span{
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(30,41,59,.82);
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.dashboard-alert{
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,.16);
+  background: rgba(2,6,23,.28);
+}
+
+.dashboard-alert strong{
+  font-size: 24px;
+  color: #f8fafc;
+}
+
+.dashboard-alert span{
+  color: #cbd5e1;
+}
+
+.dashboard-alert-danger{
+  border-color: rgba(239,68,68,.30);
+}
+
+.dashboard-alert-warning{
+  border-color: rgba(234,179,8,.32);
+}
+
+.dashboard-site-list{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.dashboard-site-chip{
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(30,41,59,.82);
+  color: #e2e8f0;
+  border: 1px solid rgba(148,163,184,.16);
+  overflow-wrap: anywhere;
+}
+
+.dashboard-empty{
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 8px;
+  color: #94a3b8;
+  border: 1px dashed rgba(148,163,184,.24);
+}
+
+@media (max-width: 980px){
+  .dashboard-kpis,
+  .dashboard-grid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px){
+  .dashboard-hero{
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashboard-kpis,
+  .dashboard-grid{
+    grid-template-columns: 1fr;
+  }
+  .dashboard-source-row,
+  .dashboard-activity-row{
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dashboard-source-metrics{
+    justify-content: flex-start;
+  }
+}
+
