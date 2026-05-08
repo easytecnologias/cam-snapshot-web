@@ -128,12 +128,39 @@ $bb = Get-CimInstance Win32_BaseBoard
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $mem = Get-CimInstance Win32_PhysicalMemory
+$memoryModules = $mem | ForEach-Object {
+  $ddr = switch ([int]$_.SMBIOSMemoryType) {
+    20 { "DDR" }
+    21 { "DDR2" }
+    24 { "DDR3" }
+    26 { "DDR4" }
+    34 { "DDR5" }
+    default { if ($_.MemoryType) { "Tipo " + $_.MemoryType } else { "" } }
+  }
+  [PSCustomObject]@{
+    bank = $_.BankLabel
+    slot = $_.DeviceLocator
+    manufacturer = $_.Manufacturer
+    part_number = ($_.PartNumber -as [string]).Trim()
+    serial = $_.SerialNumber
+    capacity_gb = if ($_.Capacity) { [math]::Round([double]$_.Capacity / 1GB, 2) } else { $null }
+    speed_mhz = $_.Speed
+    configured_speed_mhz = $_.ConfiguredClockSpeed
+    memory_type = $_.MemoryType
+    smbios_memory_type = $_.SMBIOSMemoryType
+    ddr = $ddr
+    form_factor = $_.FormFactor
+  }
+}
 $disks = Get-CimInstance Win32_DiskDrive | ForEach-Object {
   [PSCustomObject]@{
     model = $_.Model
+    manufacturer = $_.Manufacturer
     serial = $_.SerialNumber
+    firmware = $_.FirmwareRevision
     interface_type = $_.InterfaceType
     media_type = $_.MediaType
+    pnp_device_id = $_.PNPDeviceID
     size_gb = if ($_.Size) { [math]::Round([double]$_.Size / 1GB, 2) } else { $null }
   }
 }
@@ -154,6 +181,7 @@ $payload = [PSCustomObject]@{
   logged_user = $cs.UserName
   total_ram_gb = if ($cs.TotalPhysicalMemory) { [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) } else { $null }
   memory_slots = @($mem).Count
+  memory_modules = @($memoryModules)
   os_name = $os.Caption
   os_version = $os.Version
   os_build = $os.BuildNumber
@@ -295,9 +323,74 @@ def _disk_total_gb(disks: List[Dict[str, Any]]) -> float | None:
     return round(total, 2) if found else None
 
 
+def _memory_summary(modules: List[Dict[str, Any]], total_ram_gb: Any) -> str:
+    normalized = [m for m in modules or [] if isinstance(m, dict)]
+    if not normalized:
+        return f"{total_ram_gb} GB" if total_ram_gb else ""
+    capacities = []
+    ddr_values = []
+    speeds = []
+    manufacturers = []
+    for module in normalized:
+        cap = module.get("capacity_gb")
+        try:
+            if cap is not None and cap != "":
+                capacities.append(float(cap))
+        except Exception:
+            pass
+        ddr = _text(module.get("ddr"))
+        if ddr and ddr not in ddr_values:
+            ddr_values.append(ddr)
+        speed = _text(module.get("configured_speed_mhz") or module.get("speed_mhz"))
+        if speed and speed not in speeds:
+            speeds.append(speed)
+        manufacturer = _text(module.get("manufacturer"))
+        if manufacturer and manufacturer not in manufacturers:
+            manufacturers.append(manufacturer)
+    parts: list[str] = []
+    if capacities:
+        equal = len(set(capacities)) == 1
+        if equal:
+            cap = int(capacities[0]) if capacities[0].is_integer() else capacities[0]
+            parts.append(f"{len(capacities)}x {cap} GB")
+        else:
+            parts.append(" + ".join(f"{int(v) if v.is_integer() else v} GB" for v in capacities))
+    elif total_ram_gb:
+        parts.append(f"{total_ram_gb} GB")
+    if ddr_values:
+        parts.append("/".join(ddr_values))
+    if speeds:
+        parts.append("/".join(str(s) for s in speeds) + " MHz")
+    if manufacturers:
+        parts.append(", ".join(manufacturers[:2]))
+    return " - ".join(parts)
+
+
+def _disk_summary(disks: List[Dict[str, Any]]) -> str:
+    normalized = [d for d in disks or [] if isinstance(d, dict)]
+    if not normalized:
+        return ""
+    labels = []
+    for disk in normalized[:3]:
+        size = disk.get("size_gb")
+        size_text = ""
+        try:
+            value = float(size)
+            size_text = f"{round(value / 1024, 2)} TB" if value >= 1024 else f"{round(value)} GB"
+        except Exception:
+            pass
+        model = _text(disk.get("model"))
+        manufacturer = _text(disk.get("manufacturer"))
+        media = _text(disk.get("media_type"))
+        bits = [bit for bit in (size_text, media, manufacturer, model) if bit]
+        labels.append(" ".join(bits))
+    return " | ".join(labels)
+
+
 def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online", error: str = "") -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     disks = data.get("disks") if isinstance(data.get("disks"), list) else []
+    memory_modules = data.get("memory_modules") if isinstance(data.get("memory_modules"), list) else []
     network = data.get("network") if isinstance(data.get("network"), list) else []
     mac = ""
     if network and isinstance(network[0], dict):
@@ -334,8 +427,11 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         },
         "ram_gb": data.get("total_ram_gb"),
         "memory_slots": data.get("memory_slots"),
+        "memory_modules": memory_modules,
+        "memory_summary": _memory_summary([m for m in memory_modules if isinstance(m, dict)], data.get("total_ram_gb")),
         "disk_kind": disk_kind,
         "disk_total_gb": _disk_total_gb(normalized_disks),
+        "disk_summary": _disk_summary(normalized_disks),
         "has_ssd": disk_kind in ("ssd", "mixed"),
         "disks": disks,
         "network": network,
@@ -429,12 +525,39 @@ $bb = Get-CimInstance Win32_BaseBoard
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $mem = Get-CimInstance Win32_PhysicalMemory
+$memoryModules = $mem | ForEach-Object {{
+  $ddr = switch ([int]$_.SMBIOSMemoryType) {{
+    20 {{ "DDR" }}
+    21 {{ "DDR2" }}
+    24 {{ "DDR3" }}
+    26 {{ "DDR4" }}
+    34 {{ "DDR5" }}
+    default {{ if ($_.MemoryType) {{ "Tipo " + $_.MemoryType }} else {{ "" }} }}
+  }}
+  [PSCustomObject]@{{
+    bank = $_.BankLabel
+    slot = $_.DeviceLocator
+    manufacturer = $_.Manufacturer
+    part_number = ($_.PartNumber -as [string]).Trim()
+    serial = $_.SerialNumber
+    capacity_gb = if ($_.Capacity) {{ [math]::Round([double]$_.Capacity / 1GB, 2) }} else {{ $null }}
+    speed_mhz = $_.Speed
+    configured_speed_mhz = $_.ConfiguredClockSpeed
+    memory_type = $_.MemoryType
+    smbios_memory_type = $_.SMBIOSMemoryType
+    ddr = $ddr
+    form_factor = $_.FormFactor
+  }}
+}}
 $disks = Get-CimInstance Win32_DiskDrive | ForEach-Object {{
   [PSCustomObject]@{{
     model = $_.Model
+    manufacturer = $_.Manufacturer
     serial = $_.SerialNumber
+    firmware = $_.FirmwareRevision
     interface_type = $_.InterfaceType
     media_type = $_.MediaType
+    pnp_device_id = $_.PNPDeviceID
     size_gb = if ($_.Size) {{ [math]::Round([double]$_.Size / 1GB, 2) }} else {{ $null }}
   }}
 }}
@@ -458,6 +581,7 @@ $payload = [PSCustomObject]@{{
   logged_user = $cs.UserName
   total_ram_gb = if ($cs.TotalPhysicalMemory) {{ [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) }} else {{ $null }}
   memory_slots = @($mem).Count
+  memory_modules = @($memoryModules)
   os_name = $os.Caption
   os_version = $os.Version
   os_build = $os.BuildNumber

@@ -169,7 +169,7 @@
               <th>Serial</th>
               <th>Windows</th>
               <th>CPU</th>
-              <th>RAM</th>
+              <th>Memoria</th>
               <th>Disco</th>
               <th>Armazenamento</th>
               <th>MAC</th>
@@ -234,8 +234,8 @@
           + '<td>' + esc(row.serial) + '</td>'
           + '<td>' + esc([os.name, os.build].filter(Boolean).join(' / ')) + '</td>'
           + '<td>' + esc(cpu.name) + '</td>'
-          + '<td>' + esc(row.ram_gb ? row.ram_gb + ' GB' : '') + '</td>'
-          + '<td>' + esc(diskLabel(row)) + '</td>'
+          + '<td>' + esc(row.memory_summary || (row.ram_gb ? row.ram_gb + ' GB' : '')) + '</td>'
+          + '<td>' + esc(row.disk_summary || diskLabel(row)) + '</td>'
           + '<td>' + esc(diskSizeLabel(row)) + '</td>'
           + '<td>' + esc(row.mac) + '</td>'
           + '<td>' + esc(row.logged_user) + '</td>'
