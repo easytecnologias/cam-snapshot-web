@@ -15,7 +15,7 @@
     <div class="topbar-brand">
       <div class="topbar-eyebrow">SightOps</div>
       <div class="topbar-title">Inventario Windows</div>
-      <div class="topbar-sub">Coleta hardware, sistema, discos e rede via WinRM.</div>
+      <div class="topbar-sub">Agente local coleta hardware, sistema, discos e rede.</div>
     </div>
   </div>
   <div class="topbar-right">
@@ -88,8 +88,18 @@
   <section class="tab-view active" id="tab-windows">
     <div class="windows-grid">
       <div class="card windows-scan-card">
-        <div class="card-title">Nova coleta Windows</div>
-        <div class="card-sub">Informe uma faixa e credenciais com permissao de WinRM/WMI.</div>
+        <div class="card-title">Agente Windows</div>
+        <div class="card-sub">Baixe o agente, execute no computador e ele envia o inventario ao SightOps.</div>
+
+        <div class="actions-row">
+          <button class="btn-primary" id="btn-win-agent" type="button">Baixar agente Windows</button>
+          <button class="btn-secondary" id="btn-win-prepare" type="button">Preparador WinRM</button>
+          <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
+        </div>
+        <div id="win-status" class="status-line">Modo recomendado: execute o agente no PC Windows. O scan WinRM abaixo fica como opcao avancada.</div>
+
+        <details class="windows-advanced">
+          <summary>Scan remoto WinRM avancado</summary>
 
         <div class="field">
           <label for="win-targets">Alvos</label>
@@ -129,10 +139,8 @@
 
         <div class="actions-row">
           <button class="btn-primary" id="btn-win-scan" type="button">Iniciar inventario</button>
-          <button class="btn-secondary" id="btn-win-prepare" type="button">Baixar preparador</button>
-          <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
         </div>
-        <div id="win-status" class="status-line">Pronto para executar. Use o preparador em cada PC Windows antes do primeiro scan.</div>
+        </details>
       </div>
 
       <div class="card windows-summary-card">
@@ -207,7 +215,7 @@
         return '<tr>'
           + '<td>' + esc(row.ip) + '</td>'
           + '<td>' + esc(row.hostname) + '</td>'
-          + '<td><span class="' + (row.status === 'online' ? 'status-online' : 'status-offline') + '">' + esc(row.status) + '</span></td>'
+          + '<td><span class="' + (row.status === 'online' || row.status === 'agent_reported' ? 'status-online' : 'status-offline') + '">' + esc(row.status) + '</span></td>'
           + '<td>' + esc([row.manufacturer, row.model].filter(Boolean).join(' ')) + '</td>'
           + '<td>' + esc(row.serial) + '</td>'
           + '<td>' + esc([os.name, os.build].filter(Boolean).join(' / ')) + '</td>'
@@ -219,9 +227,9 @@
       }).join('');
     }
     var total = rows.length;
-    var online = rows.filter(function (row) { return row.status === 'online'; }).length;
+    var online = rows.filter(function (row) { return row.status === 'online' || row.status === 'agent_reported'; }).length;
     var ssd = rows.filter(function (row) { return !!row.has_ssd; }).length;
-    var noSsd = rows.filter(function (row) { return row.status === 'online' && !row.has_ssd; }).length;
+    var noSsd = rows.filter(function (row) { return (row.status === 'online' || row.status === 'agent_reported') && !row.has_ssd; }).length;
     if (el('win-total')) el('win-total').textContent = total;
     if (el('win-online')) el('win-online').textContent = online;
     if (el('win-ssd')) el('win-ssd').textContent = ssd;
@@ -302,12 +310,45 @@
         setStatus('Falha ao baixar preparador: ' + err.message + '. Entre novamente no sistema e tente de novo.');
       });
   }
+  function downloadAgentScript() {
+    setStatus('Gerando agente Windows...');
+    fetch('/api/windows/agent-script', { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (body) {
+            throw new Error(body.detail || 'HTTP ' + resp.status);
+          });
+        }
+        return resp.blob().then(function (blob) {
+          var filename = 'sightops-agente-windows.ps1';
+          var disposition = resp.headers.get('Content-Disposition') || '';
+          var match = disposition.match(/filename="?([^"]+)"?/i);
+          if (match && match[1]) filename = match[1];
+          var link = document.createElement('a');
+          var objectUrl = URL.createObjectURL(blob);
+          link.href = objectUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        });
+      })
+      .then(function () {
+        setStatus('Agente baixado. Execute no computador Windows que sera inventariado.');
+      })
+      .catch(function (err) {
+        setStatus('Falha ao baixar agente: ' + err.message + '. Entre novamente no sistema e tente de novo.');
+      });
+  }
   document.addEventListener('DOMContentLoaded', function () {
     var scanBtn = el('btn-win-scan');
+    var agentBtn = el('btn-win-agent');
     var prepareBtn = el('btn-win-prepare');
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
     if (scanBtn) scanBtn.addEventListener('click', runScan);
+    if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
     if (prepareBtn) prepareBtn.addEventListener('click', downloadPrepareScript);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);

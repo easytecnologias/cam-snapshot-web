@@ -4,6 +4,7 @@ import ipaddress
 import json
 import socket
 import base64
+import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Any, Dict, List
 from app.core.paths import DATA_DIR
 
 WINDOWS_INVENTORY_PATH = DATA_DIR / "windows-inventory.json"
+WINDOWS_AGENT_TOKEN_PATH = DATA_DIR / "windows-agent-token.txt"
 
 
 def _text(value: Any) -> str:
@@ -20,6 +22,24 @@ def _text(value: Any) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def get_windows_agent_token() -> str:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        token = WINDOWS_AGENT_TOKEN_PATH.read_text(encoding="utf-8").strip()
+        if len(token) >= 24:
+            return token
+    except Exception:
+        pass
+    token = secrets.token_urlsafe(32)
+    WINDOWS_AGENT_TOKEN_PATH.write_text(token + "\n", encoding="utf-8")
+    return token
+
+
+def validate_windows_agent_token(token: str) -> bool:
+    expected = get_windows_agent_token()
+    return bool(token) and secrets.compare_digest(str(token).strip(), expected)
 
 
 def _parse_targets(raw: str, limit: int = 2048) -> List[str]:
@@ -271,6 +291,7 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "hostname": _text(data.get("hostname")) or _hostname(ip),
         "status": status,
         "error": error,
+        "source": _text(data.get("source")) or ("agent" if status == "agent_reported" else "winrm"),
         "domain": _text(data.get("domain")),
         "logged_user": _text(data.get("logged_user")),
         "manufacturer": _text(data.get("manufacturer")),
@@ -300,7 +321,7 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "disks": disks,
         "network": network,
         "mac": mac,
-        "last_seen": _now() if status == "online" else "",
+        "last_seen": _now() if status in ("online", "agent_reported") else "",
         "updated_at": _now(),
     }
 
@@ -329,6 +350,120 @@ def save_windows_inventory(rows: List[Dict[str, Any]]) -> None:
 def clear_windows_inventory() -> Dict[str, Any]:
     save_windows_inventory([])
     return {"ok": True, "cleared": True}
+
+
+def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "") -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Payload do agente invalido.")
+    data = dict(payload)
+    data["source"] = "agent"
+    candidates = []
+    for key in ("ip", "primary_ip", "primary_ipv4"):
+        value = _text(data.get(key))
+        if value:
+            candidates.append(value)
+    network = data.get("network")
+    if isinstance(network, list):
+        for item in network:
+            if not isinstance(item, dict):
+                continue
+            ips = item.get("ip")
+            if isinstance(ips, list):
+                candidates.extend(_text(v) for v in ips)
+            else:
+                candidates.append(_text(ips))
+    candidates.append(_text(remote_ip))
+    ip = ""
+    for candidate in candidates:
+        try:
+            parsed = ipaddress.ip_address(candidate)
+            if parsed.version == 4 and not parsed.is_loopback:
+                ip = str(parsed)
+                break
+        except Exception:
+            continue
+    if not ip:
+        raise ValueError("Agente nao informou IPv4 valido.")
+    row = _normalize_inventory(ip, data, status="agent_reported")
+    current = load_windows_inventory()
+    merged = _merge_rows(current, [row])
+    save_windows_inventory(merged)
+    return {"ok": True, "saved": True, "row": row}
+
+
+def build_windows_agent_script(base_url: str) -> str:
+    server = _text(base_url).rstrip("/") or "http://127.0.0.1"
+    token = get_windows_agent_token()
+    return f"""# SightOps - Agente de Inventario Windows
+# Execute em qualquer computador Windows que consiga acessar o servidor SightOps.
+# Nao precisa senha remota, WinRM, dominio ou PIN. O computador envia o inventario para o servidor.
+
+$ErrorActionPreference = "Stop"
+$SightOpsUrl = "{server}"
+$AgentToken = "{token}"
+
+Write-Host "Coletando inventario local para o SightOps..." -ForegroundColor Cyan
+
+$cs = Get-CimInstance Win32_ComputerSystem
+$bios = Get-CimInstance Win32_BIOS
+$bb = Get-CimInstance Win32_BaseBoard
+$os = Get-CimInstance Win32_OperatingSystem
+$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+$mem = Get-CimInstance Win32_PhysicalMemory
+$disks = Get-CimInstance Win32_DiskDrive | ForEach-Object {{
+  [PSCustomObject]@{{
+    model = $_.Model
+    serial = $_.SerialNumber
+    interface_type = $_.InterfaceType
+    media_type = $_.MediaType
+    size_gb = if ($_.Size) {{ [math]::Round([double]$_.Size / 1GB, 2) }} else {{ $null }}
+  }}
+}}
+$net = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled = True" | ForEach-Object {{
+  [PSCustomObject]@{{
+    description = $_.Description
+    mac = $_.MACAddress
+    ip = @($_.IPAddress)
+    gateway = @($_.DefaultIPGateway)
+    dns = @($_.DNSServerSearchOrder)
+  }}
+}}
+$primaryIpv4 = @($net | ForEach-Object {{ @($_.ip) }} | Where-Object {{ $_ -match '^\\d+\\.\\d+\\.\\d+\\.\\d+$' -and $_ -notmatch '^127\\.' }}) | Select-Object -First 1
+$payload = [PSCustomObject]@{{
+  source = "agent"
+  hostname = $env:COMPUTERNAME
+  primary_ipv4 = $primaryIpv4
+  domain = $cs.Domain
+  manufacturer = $cs.Manufacturer
+  model = $cs.Model
+  logged_user = $cs.UserName
+  total_ram_gb = if ($cs.TotalPhysicalMemory) {{ [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) }} else {{ $null }}
+  memory_slots = @($mem).Count
+  os_name = $os.Caption
+  os_version = $os.Version
+  os_build = $os.BuildNumber
+  os_arch = $os.OSArchitecture
+  install_date = $os.InstallDate
+  last_boot = $os.LastBootUpTime
+  cpu = $cpu.Name
+  cpu_cores = $cpu.NumberOfCores
+  cpu_threads = $cpu.NumberOfLogicalProcessors
+  bios_serial = $bios.SerialNumber
+  bios_version = $bios.SMBIOSBIOSVersion
+  motherboard_manufacturer = $bb.Manufacturer
+  motherboard_model = $bb.Product
+  motherboard_serial = $bb.SerialNumber
+  disks = @($disks)
+  network = @($net)
+}}
+
+$json = $payload | ConvertTo-Json -Depth 8
+$endpoint = "$SightOpsUrl/api/windows/agent/report"
+Write-Host "Enviando inventario para $endpoint ..." -ForegroundColor Cyan
+$resp = Invoke-RestMethod -Method Post -Uri $endpoint -ContentType "application/json; charset=utf-8" -Headers @{{ "X-SightOps-Agent-Token" = $AgentToken }} -Body $json
+Write-Host "Inventario enviado com sucesso." -ForegroundColor Green
+Write-Host ("Host: " + $resp.row.hostname + " / IP: " + $resp.row.ip)
+"""
 
 
 def build_windows_prepare_script(username: str = "sightops_inv") -> str:

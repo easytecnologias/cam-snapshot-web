@@ -31,6 +31,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             "/api/system/info",
             "/api/live/jpeg",
             "/api/live/mjpeg",
+            "/api/windows/agent/report",
         }
         self._role_rules = [
             (("GET",), "/api/auth/users", "admin"),
