@@ -93,6 +93,7 @@
 
         <div class="actions-row">
           <button class="btn-primary" id="btn-win-agent" type="button">Baixar agente Windows</button>
+          <button class="btn-secondary" id="btn-win-photos" type="button">Buscar fotos</button>
           <button class="btn-secondary" id="btn-win-pdf" type="button">Relatorio PDF</button>
           <button class="btn-secondary" id="btn-win-prepare" type="button">Preparador WinRM</button>
           <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
@@ -396,15 +397,27 @@
       .then(function () { setStatus('Relatorio PDF gerado.'); })
       .catch(function (err) { setStatus('Falha ao gerar PDF: ' + err.message); });
   }
+  function enrichPhotos() {
+    setStatus('Buscando fotos de referencia na internet...');
+    fetch('/api/windows/enrich/photos', { method: 'POST', cache: 'no-store' })
+      .then(function (resp) { return resp.json().then(function (body) { if (!resp.ok) throw new Error(body.detail || 'HTTP ' + resp.status); return body; }); })
+      .then(function (body) {
+        setStatus('Fotos vinculadas: ' + (body.assets || 0) + '. Gere o PDF novamente.');
+        loadInventory();
+      })
+      .catch(function (err) { setStatus('Falha ao buscar fotos: ' + err.message); });
+  }
   document.addEventListener('DOMContentLoaded', function () {
     var scanBtn = el('btn-win-scan');
     var agentBtn = el('btn-win-agent');
+    var photosBtn = el('btn-win-photos');
     var pdfBtn = el('btn-win-pdf');
     var prepareBtn = el('btn-win-prepare');
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
     if (scanBtn) scanBtn.addEventListener('click', runScan);
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
+    if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
     if (prepareBtn) prepareBtn.addEventListener('click', downloadPrepareScript);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);

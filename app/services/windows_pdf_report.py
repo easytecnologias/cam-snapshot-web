@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from app.core.paths import OUTPUT_DIR
 
@@ -66,6 +66,26 @@ def _line(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: Any, wid
 def _box(draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], title: str) -> None:
     draw.rounded_rectangle(xy, radius=22, fill="#ffffff", outline="#d9e2ef", width=2)
     draw.text((xy[0] + 28, xy[1] + 24), title, font=_font(28, True), fill="#0f2748")
+
+
+def _draw_photo_card(page: Image.Image, draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], asset: Dict[str, Any]) -> None:
+    _box(draw, xy, _text(asset.get("label")) or "Foto")
+    img_box = (xy[0] + 28, xy[1] + 76, xy[2] - 28, xy[3] - 88)
+    path = Path(_text(asset.get("local_path")))
+    if path.exists():
+        try:
+            with Image.open(path) as raw:
+                img = ImageOps.exif_transpose(raw).convert("RGB")
+                img.thumbnail((img_box[2] - img_box[0], img_box[3] - img_box[1]))
+                px = img_box[0] + ((img_box[2] - img_box[0]) - img.width) // 2
+                py = img_box[1] + ((img_box[3] - img_box[1]) - img.height) // 2
+                page.paste(img, (px, py))
+        except Exception:
+            draw.text((img_box[0], img_box[1]), "Imagem indisponivel", font=_font(20), fill="#64748b")
+    title = _fit(draw, asset.get("title") or asset.get("query"), _font(17), xy[2] - xy[0] - 56)
+    source = _fit(draw, asset.get("source_url"), _font(15), xy[2] - xy[0] - 56)
+    draw.text((xy[0] + 28, xy[3] - 72), title, font=_font(17), fill="#0f172a")
+    draw.text((xy[0] + 28, xy[3] - 42), source, font=_font(15), fill="#64748b")
 
 
 def _summary_page(rows: List[Dict[str, Any]]) -> Image.Image:
@@ -185,6 +205,17 @@ def _detail_page(row: Dict[str, Any]) -> Image.Image:
         )
         draw.text((right + 28, disk_y), _fit(draw, txt, _font(20), 930), font=_font(20), fill="#0f172a")
         disk_y += 62
+    photos = [a for a in (row.get("photo_assets") or []) if isinstance(a, dict)]
+    if photos:
+        y += 840
+        draw.text((left, y), "Fotos de referencia encontradas na internet", font=_font(30, True), fill="#0f172a")
+        y += 58
+        card_w = (A4_W - (MARGIN * 2) - 28) // 2
+        card_h = 500
+        for idx, asset in enumerate(photos[:4]):
+            x = left + (idx % 2) * (card_w + 28)
+            yy = y + (idx // 2) * (card_h + 26)
+            _draw_photo_card(page, draw, (x, yy, x + card_w, yy + card_h), asset)
     return page
 
 

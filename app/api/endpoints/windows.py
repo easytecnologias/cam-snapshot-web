@@ -11,9 +11,11 @@ from app.services.windows_inventory_service import (
     build_windows_agent_script,
     build_windows_prepare_script,
     load_windows_inventory,
+    save_windows_inventory,
     scan_windows_inventory,
     validate_windows_agent_token,
 )
+from app.services.windows_photo_enrichment import enrich_windows_rows_with_photos
 from app.services.windows_pdf_report import build_windows_inventory_pdf
 
 router = APIRouter(prefix="/api/windows", tags=["windows"])
@@ -38,6 +40,14 @@ def api_windows_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
 @router.post("/clear")
 def api_windows_clear() -> Dict[str, Any]:
     return clear_windows_inventory()
+
+
+@router.post("/enrich/photos")
+def api_windows_enrich_photos() -> Dict[str, Any]:
+    rows = load_windows_inventory()
+    result = enrich_windows_rows_with_photos(rows)
+    save_windows_inventory(result.get("rows") or rows)
+    return {"ok": True, "count": len(result.get("rows") or []), "assets": result.get("assets", 0)}
 
 
 @router.get("/report.pdf")
