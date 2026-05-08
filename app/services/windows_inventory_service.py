@@ -327,6 +327,15 @@ Write-Host "Preparando WinRM/WMI para inventario SightOps..." -ForegroundColor C
 
 $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $IsAdmin) {{
+  if ($PSCommandPath) {{
+    Write-Host "Solicitando permissao de Administrador..." -ForegroundColor Yellow
+    Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @(
+      "-NoProfile",
+      "-ExecutionPolicy", "Bypass",
+      "-File", "`"$PSCommandPath`""
+    )
+    exit 0
+  }}
   Write-Error "Execute este PowerShell como Administrador."
   exit 1
 }}
@@ -350,17 +359,32 @@ if ($Existing) {{
 Add-LocalGroupMember -Group "Administradores" -Member $UserName -ErrorAction SilentlyContinue
 Add-LocalGroupMember -Group "Remote Management Users" -Member $UserName -ErrorAction SilentlyContinue
 
-Set-Service -Name WinRM -StartupType Automatic
-Enable-PSRemoting -Force -SkipNetworkProfileCheck
-winrm quickconfig -quiet
-winrm set winrm/config/service/auth '@{{Basic="false"; Kerberos="true"; Negotiate="true"}}'
-winrm set winrm/config/service '@{{AllowUnencrypted="true"}}'
+try {{
+  $PublicProfiles = Get-NetConnectionProfile -ErrorAction Stop | Where-Object {{ $_.NetworkCategory -eq "Public" }}
+  if ($PublicProfiles) {{
+    Write-Host "Rede publica detectada. Alterando perfil ativo para Privada para liberar WinRM com seguranca operacional." -ForegroundColor Yellow
+    $PublicProfiles | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction Stop
+  }}
+}} catch {{
+  Write-Host "Aviso: nao foi possivel alterar o perfil de rede automaticamente: $($_.Exception.Message)" -ForegroundColor Yellow
+}}
 
-New-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any -ErrorAction SilentlyContinue | Out-Null
+Set-Service -Name WinRM -StartupType Automatic
+Start-Service -Name WinRM
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
+winrm set winrm/config/service/auth '@{{Basic="false"; Kerberos="true"; Negotiate="true"}}' | Out-Null
+winrm set winrm/config/service '@{{AllowUnencrypted="true"}}' | Out-Null
+
+Get-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any | Out-Null
 
 $LocalAccountTokenFilterPolicy = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 New-Item -Path $LocalAccountTokenFilterPolicy -Force | Out-Null
 New-ItemProperty -Path $LocalAccountTokenFilterPolicy -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force | Out-Null
+
+Write-Host ""
+Write-Host "Validando WinRM local..." -ForegroundColor Cyan
+Test-WSMan localhost | Out-Null
 
 Write-Host ""
 Write-Host "Preparacao concluida." -ForegroundColor Green
