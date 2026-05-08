@@ -128,6 +128,72 @@ $bb = Get-CimInstance Win32_BaseBoard
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $mem = Get-CimInstance Win32_PhysicalMemory
+$gpu = Get-CimInstance Win32_VideoController | ForEach-Object {
+  [PSCustomObject]@{
+    name = $_.Name
+    processor = $_.VideoProcessor
+    driver_version = $_.DriverVersion
+    adapter_ram_gb = if ($_.AdapterRAM) { [math]::Round([double]$_.AdapterRAM / 1GB, 2) } else { $null }
+    resolution = if ($_.CurrentHorizontalResolution -and $_.CurrentVerticalResolution) { "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)" } else { "" }
+  }
+}
+$battery = Get-CimInstance Win32_Battery | ForEach-Object {
+  [PSCustomObject]@{
+    name = $_.Name
+    status = $_.Status
+    estimated_charge = $_.EstimatedChargeRemaining
+    chemistry = $_.Chemistry
+  }
+}
+$volumes = Get-CimInstance Win32_LogicalDisk -Filter "DriveType = 3" | ForEach-Object {
+  [PSCustomObject]@{
+    drive = $_.DeviceID
+    label = $_.VolumeName
+    file_system = $_.FileSystem
+    size_gb = if ($_.Size) { [math]::Round([double]$_.Size / 1GB, 2) } else { $null }
+    free_gb = if ($_.FreeSpace) { [math]::Round([double]$_.FreeSpace / 1GB, 2) } else { $null }
+    free_percent = if ($_.Size) { [math]::Round(([double]$_.FreeSpace / [double]$_.Size) * 100, 1) } else { $null }
+  }
+}
+$tpmInfo = $null
+try {
+  $tpm = Get-Tpm
+  $tpmInfo = [PSCustomObject]@{
+    present = $tpm.TpmPresent
+    ready = $tpm.TpmReady
+    enabled = $tpm.TpmEnabled
+    activated = $tpm.TpmActivated
+    owned = $tpm.TpmOwned
+  }
+} catch {}
+$secureBoot = $null
+try { $secureBoot = Confirm-SecureBootUEFI } catch {}
+$bitlocker = @()
+try {
+  $bitlocker = Get-BitLockerVolume | ForEach-Object {
+    [PSCustomObject]@{
+      mount_point = $_.MountPoint
+      volume_status = $_.VolumeStatus
+      protection_status = $_.ProtectionStatus
+      encryption_method = $_.EncryptionMethod
+      encryption_percentage = $_.EncryptionPercentage
+    }
+  }
+} catch {}
+$defender = $null
+try {
+  $mp = Get-MpComputerStatus
+  $defender = [PSCustomObject]@{
+    enabled = $mp.AntivirusEnabled
+    realtime = $mp.RealTimeProtectionEnabled
+    signature_version = $mp.AntivirusSignatureVersion
+    last_quick_scan = $mp.QuickScanEndTime
+    last_full_scan = $mp.FullScanEndTime
+  }
+} catch {}
+$hotfixes = Get-CimInstance Win32_QuickFixEngineering | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object {
+  [PSCustomObject]@{ id = $_.HotFixID; installed_on = $_.InstalledOn; description = $_.Description }
+}
 $memoryModules = $mem | ForEach-Object {
   $ddr = switch ([int]$_.SMBIOSMemoryType) {
     20 { "DDR" }
@@ -180,6 +246,10 @@ $payload = [PSCustomObject]@{
   model = $cs.Model
   logged_user = $cs.UserName
   total_ram_gb = if ($cs.TotalPhysicalMemory) { [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) } else { $null }
+  chassis_types = @($cs.ChassisTypes)
+  system_sku = $cs.SystemSKUNumber
+  pc_system_type = $cs.PCSystemType
+  timezone = (Get-TimeZone).Id
   memory_slots = @($mem).Count
   memory_modules = @($memoryModules)
   os_name = $os.Caption
@@ -191,13 +261,22 @@ $payload = [PSCustomObject]@{
   cpu = $cpu.Name
   cpu_cores = $cpu.NumberOfCores
   cpu_threads = $cpu.NumberOfLogicalProcessors
+  gpus = @($gpu)
+  batteries = @($battery)
   bios_serial = $bios.SerialNumber
   bios_version = $bios.SMBIOSBIOSVersion
+  bios_release_date = $bios.ReleaseDate
   motherboard_manufacturer = $bb.Manufacturer
   motherboard_model = $bb.Product
   motherboard_serial = $bb.SerialNumber
   disks = @($disks)
+  volumes = @($volumes)
   network = @($net)
+  tpm = $tpmInfo
+  secure_boot = $secureBoot
+  bitlocker = @($bitlocker)
+  defender = $defender
+  hotfixes = @($hotfixes)
 }
 $payload | ConvertTo-Json -Depth 6 -Compress
 """
@@ -387,17 +466,66 @@ def _disk_summary(disks: List[Dict[str, Any]]) -> str:
     return " | ".join(labels)
 
 
+def _security_summary(data: Dict[str, Any]) -> Dict[str, Any]:
+    tpm = data.get("tpm") if isinstance(data.get("tpm"), dict) else {}
+    defender = data.get("defender") if isinstance(data.get("defender"), dict) else {}
+    bitlocker = data.get("bitlocker") if isinstance(data.get("bitlocker"), list) else []
+    protected = 0
+    for item in bitlocker:
+        if isinstance(item, dict) and _text(item.get("protection_status")).lower() in ("on", "1", "true"):
+            protected += 1
+    return {
+        "secure_boot": data.get("secure_boot"),
+        "tpm_present": tpm.get("present"),
+        "tpm_ready": tpm.get("ready"),
+        "defender_enabled": defender.get("enabled"),
+        "defender_realtime": defender.get("realtime"),
+        "bitlocker_protected_volumes": protected,
+        "bitlocker_total_volumes": len([x for x in bitlocker if isinstance(x, dict)]),
+    }
+
+
+def _health_flags(row: Dict[str, Any]) -> List[str]:
+    flags: list[str] = []
+    if row.get("has_ssd") is False:
+        flags.append("Sem SSD detectado")
+    try:
+        if float(row.get("ram_gb") or 0) < 8:
+            flags.append("Memoria abaixo de 8 GB")
+    except Exception:
+        pass
+    for volume in row.get("volumes") or []:
+        if not isinstance(volume, dict):
+            continue
+        try:
+            if float(volume.get("free_percent") or 100) < 15:
+                flags.append(f"Pouco espaco livre em {volume.get('drive')}")
+        except Exception:
+            pass
+    security = row.get("security") if isinstance(row.get("security"), dict) else {}
+    if security.get("defender_realtime") is False:
+        flags.append("Defender em tempo real desativado")
+    if security.get("tpm_ready") is False:
+        flags.append("TPM nao pronto")
+    return flags
+
+
 def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online", error: str = "") -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     disks = data.get("disks") if isinstance(data.get("disks"), list) else []
     memory_modules = data.get("memory_modules") if isinstance(data.get("memory_modules"), list) else []
+    volumes = data.get("volumes") if isinstance(data.get("volumes"), list) else []
+    gpus = data.get("gpus") if isinstance(data.get("gpus"), list) else []
+    batteries = data.get("batteries") if isinstance(data.get("batteries"), list) else []
+    bitlocker = data.get("bitlocker") if isinstance(data.get("bitlocker"), list) else []
+    hotfixes = data.get("hotfixes") if isinstance(data.get("hotfixes"), list) else []
     network = data.get("network") if isinstance(data.get("network"), list) else []
     mac = ""
     if network and isinstance(network[0], dict):
         mac = _text(network[0].get("mac"))
     normalized_disks = [d for d in disks if isinstance(d, dict)]
     disk_kind = _disk_kind(normalized_disks)
-    return {
+    row = {
         "ip": ip,
         "hostname": _text(data.get("hostname")) or _hostname(ip),
         "status": status,
@@ -407,6 +535,10 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "logged_user": _text(data.get("logged_user")),
         "manufacturer": _text(data.get("manufacturer")),
         "model": _text(data.get("model")),
+        "system_sku": _text(data.get("system_sku")),
+        "pc_system_type": data.get("pc_system_type"),
+        "chassis_types": data.get("chassis_types") if isinstance(data.get("chassis_types"), list) else [],
+        "timezone": _text(data.get("timezone")),
         "serial": _text(data.get("bios_serial")),
         "motherboard": {
             "manufacturer": _text(data.get("motherboard_manufacturer")),
@@ -425,6 +557,8 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
             "cores": data.get("cpu_cores"),
             "threads": data.get("cpu_threads"),
         },
+        "gpus": gpus,
+        "batteries": batteries,
         "ram_gb": data.get("total_ram_gb"),
         "memory_slots": data.get("memory_slots"),
         "memory_modules": memory_modules,
@@ -434,11 +568,20 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "disk_summary": _disk_summary(normalized_disks),
         "has_ssd": disk_kind in ("ssd", "mixed"),
         "disks": disks,
+        "volumes": volumes,
         "network": network,
+        "tpm": data.get("tpm") if isinstance(data.get("tpm"), dict) else {},
+        "secure_boot": data.get("secure_boot"),
+        "bitlocker": bitlocker,
+        "defender": data.get("defender") if isinstance(data.get("defender"), dict) else {},
+        "hotfixes": hotfixes,
+        "security": _security_summary(data),
         "mac": mac,
         "last_seen": _now() if status in ("online", "agent_reported") else "",
         "updated_at": _now(),
     }
+    row["health_flags"] = _health_flags(row)
+    return row
 
 
 def load_windows_inventory() -> List[Dict[str, Any]]:
@@ -525,6 +668,72 @@ $bb = Get-CimInstance Win32_BaseBoard
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $mem = Get-CimInstance Win32_PhysicalMemory
+$gpu = Get-CimInstance Win32_VideoController | ForEach-Object {{
+  [PSCustomObject]@{{
+    name = $_.Name
+    processor = $_.VideoProcessor
+    driver_version = $_.DriverVersion
+    adapter_ram_gb = if ($_.AdapterRAM) {{ [math]::Round([double]$_.AdapterRAM / 1GB, 2) }} else {{ $null }}
+    resolution = if ($_.CurrentHorizontalResolution -and $_.CurrentVerticalResolution) {{ "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution)" }} else {{ "" }}
+  }}
+}}
+$battery = Get-CimInstance Win32_Battery | ForEach-Object {{
+  [PSCustomObject]@{{
+    name = $_.Name
+    status = $_.Status
+    estimated_charge = $_.EstimatedChargeRemaining
+    chemistry = $_.Chemistry
+  }}
+}}
+$volumes = Get-CimInstance Win32_LogicalDisk -Filter "DriveType = 3" | ForEach-Object {{
+  [PSCustomObject]@{{
+    drive = $_.DeviceID
+    label = $_.VolumeName
+    file_system = $_.FileSystem
+    size_gb = if ($_.Size) {{ [math]::Round([double]$_.Size / 1GB, 2) }} else {{ $null }}
+    free_gb = if ($_.FreeSpace) {{ [math]::Round([double]$_.FreeSpace / 1GB, 2) }} else {{ $null }}
+    free_percent = if ($_.Size) {{ [math]::Round(([double]$_.FreeSpace / [double]$_.Size) * 100, 1) }} else {{ $null }}
+  }}
+}}
+$tpmInfo = $null
+try {{
+  $tpm = Get-Tpm
+  $tpmInfo = [PSCustomObject]@{{
+    present = $tpm.TpmPresent
+    ready = $tpm.TpmReady
+    enabled = $tpm.TpmEnabled
+    activated = $tpm.TpmActivated
+    owned = $tpm.TpmOwned
+  }}
+}} catch {{}}
+$secureBoot = $null
+try {{ $secureBoot = Confirm-SecureBootUEFI }} catch {{}}
+$bitlocker = @()
+try {{
+  $bitlocker = Get-BitLockerVolume | ForEach-Object {{
+    [PSCustomObject]@{{
+      mount_point = $_.MountPoint
+      volume_status = $_.VolumeStatus
+      protection_status = $_.ProtectionStatus
+      encryption_method = $_.EncryptionMethod
+      encryption_percentage = $_.EncryptionPercentage
+    }}
+  }}
+}} catch {{}}
+$defender = $null
+try {{
+  $mp = Get-MpComputerStatus
+  $defender = [PSCustomObject]@{{
+    enabled = $mp.AntivirusEnabled
+    realtime = $mp.RealTimeProtectionEnabled
+    signature_version = $mp.AntivirusSignatureVersion
+    last_quick_scan = $mp.QuickScanEndTime
+    last_full_scan = $mp.FullScanEndTime
+  }}
+}} catch {{}}
+$hotfixes = Get-CimInstance Win32_QuickFixEngineering | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object {{
+  [PSCustomObject]@{{ id = $_.HotFixID; installed_on = $_.InstalledOn; description = $_.Description }}
+}}
 $memoryModules = $mem | ForEach-Object {{
   $ddr = switch ([int]$_.SMBIOSMemoryType) {{
     20 {{ "DDR" }}
@@ -580,6 +789,10 @@ $payload = [PSCustomObject]@{{
   model = $cs.Model
   logged_user = $cs.UserName
   total_ram_gb = if ($cs.TotalPhysicalMemory) {{ [math]::Round([double]$cs.TotalPhysicalMemory / 1GB, 2) }} else {{ $null }}
+  chassis_types = @($cs.ChassisTypes)
+  system_sku = $cs.SystemSKUNumber
+  pc_system_type = $cs.PCSystemType
+  timezone = (Get-TimeZone).Id
   memory_slots = @($mem).Count
   memory_modules = @($memoryModules)
   os_name = $os.Caption
@@ -591,13 +804,22 @@ $payload = [PSCustomObject]@{{
   cpu = $cpu.Name
   cpu_cores = $cpu.NumberOfCores
   cpu_threads = $cpu.NumberOfLogicalProcessors
+  gpus = @($gpu)
+  batteries = @($battery)
   bios_serial = $bios.SerialNumber
   bios_version = $bios.SMBIOSBIOSVersion
+  bios_release_date = $bios.ReleaseDate
   motherboard_manufacturer = $bb.Manufacturer
   motherboard_model = $bb.Product
   motherboard_serial = $bb.SerialNumber
   disks = @($disks)
+  volumes = @($volumes)
   network = @($net)
+  tpm = $tpmInfo
+  secure_boot = $secureBoot
+  bitlocker = @($bitlocker)
+  defender = $defender
+  hotfixes = @($hotfixes)
 }}
 
 $json = $payload | ConvertTo-Json -Depth 8

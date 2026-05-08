@@ -63,6 +63,26 @@ def _line(draw: ImageDraw.ImageDraw, x: int, y: int, label: str, value: Any, wid
     draw.text((x, y + 30), _fit(draw, value, value_font, width), font=value_font, fill="#0f172a")
 
 
+def _yesno(value: Any) -> str:
+    if value is True:
+        return "Sim"
+    if value is False:
+        return "Nao"
+    text = _text(value)
+    return text if text else "-"
+
+
+def _draw_items(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, items: List[str], font_size: int = 20, line_h: int = 42, limit: int = 10) -> int:
+    font = _font(font_size)
+    for item in items[:limit]:
+        draw.text((x, y), _fit(draw, item, font, width), font=font, fill="#0f172a")
+        y += line_h
+    if len(items) > limit:
+        draw.text((x, y), f"+ {len(items) - limit} itens adicionais", font=_font(font_size), fill="#64748b")
+        y += line_h
+    return y
+
+
 def _box(draw: ImageDraw.ImageDraw, xy: tuple[int, int, int, int], title: str) -> None:
     draw.rounded_rectangle(xy, radius=22, fill="#ffffff", outline="#d9e2ef", width=2)
     draw.text((xy[0] + 28, xy[1] + 24), title, font=_font(28, True), fill="#0f2748")
@@ -153,6 +173,7 @@ def _detail_page(row: Dict[str, Any]) -> Image.Image:
     _line(draw, left + 30, y + 185, "Fabricante / modelo", " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v), 980)
     _line(draw, left + 30, y + 285, "Serial", row.get("serial"))
     _line(draw, left + 500, y + 285, "Usuario logado", row.get("logged_user"), 620)
+    _line(draw, left + 1180, y + 285, "SKU", row.get("system_sku"), 500)
     y += 480
 
     _box(draw, (left, y, A4_W - MARGIN, y + 500), "Sistema e processamento")
@@ -162,6 +183,11 @@ def _detail_page(row: Dict[str, Any]) -> Image.Image:
     _line(draw, left + 30, y + 185, "CPU", cpu.get("name"), 1000)
     _line(draw, left + 30, y + 285, "Memoria", row.get("memory_summary") or row.get("ram_gb"), 1000)
     _line(draw, left + 30, y + 385, "Armazenamento", row.get("disk_summary") or row.get("disk_kind"), 1000)
+    gpu_names = ", ".join(_text(g.get("name")) for g in (row.get("gpus") or []) if isinstance(g, dict) and _text(g.get("name")))
+    _line(draw, left + 1180, y + 185, "GPU", gpu_names, 760)
+    security = row.get("security") if isinstance(row.get("security"), dict) else {}
+    _line(draw, left + 1180, y + 285, "TPM / Secure Boot", f"TPM: {_yesno(security.get('tpm_ready'))} / Secure Boot: {_yesno(security.get('secure_boot'))}", 760)
+    _line(draw, left + 1180, y + 385, "Defender", f"Ativo: {_yesno(security.get('defender_enabled'))} / Tempo real: {_yesno(security.get('defender_realtime'))}", 760)
     y += 560
 
     _box(draw, (left, y, right - 20, y + 780), "Modulos de memoria")
@@ -219,13 +245,80 @@ def _detail_page(row: Dict[str, Any]) -> Image.Image:
     return page
 
 
+def _technical_page(row: Dict[str, Any]) -> Image.Image:
+    page, draw = _new_page()
+    host = _text(row.get("hostname")) or _text(row.get("ip")) or "Computador"
+    y = _draw_header(draw, host, "Detalhamento profissional do hardware e seguranca")
+    left = MARGIN
+    mid = A4_W // 2 + 20
+    box_h = 610
+
+    _box(draw, (left, y, mid - 20, y + box_h), "Rede")
+    network_items = []
+    for net in (row.get("network") or []):
+        if not isinstance(net, dict):
+            continue
+        ips = ", ".join(_text(v) for v in (net.get("ip") or []) if _text(v))
+        network_items.append(" - ".join(v for v in [_text(net.get("description")), _text(net.get("mac")), ips] if v))
+    _draw_items(draw, left + 28, y + 82, mid - left - 90, network_items or ["Nenhuma interface informada"], limit=9)
+
+    _box(draw, (mid, y, A4_W - MARGIN, y + box_h), "Seguranca")
+    security = row.get("security") if isinstance(row.get("security"), dict) else {}
+    sec_items = [
+        f"TPM presente: {_yesno(security.get('tpm_present'))}",
+        f"TPM pronto: {_yesno(security.get('tpm_ready'))}",
+        f"Secure Boot: {_yesno(security.get('secure_boot'))}",
+        f"Defender ativo: {_yesno(security.get('defender_enabled'))}",
+        f"Protecao em tempo real: {_yesno(security.get('defender_realtime'))}",
+        f"BitLocker: {security.get('bitlocker_protected_volumes', 0)} de {security.get('bitlocker_total_volumes', 0)} volumes protegidos",
+    ]
+    _draw_items(draw, mid + 28, y + 82, A4_W - MARGIN - mid - 80, sec_items, limit=10)
+    y += box_h + 34
+
+    _box(draw, (left, y, mid - 20, y + box_h), "Volumes")
+    volume_items = []
+    for volume in (row.get("volumes") or []):
+        if not isinstance(volume, dict):
+            continue
+        volume_items.append(
+            f"{volume.get('drive')} {volume.get('label') or ''} - {volume.get('file_system') or ''} - "
+            f"{volume.get('size_gb') or '-'} GB / livre {volume.get('free_gb') or '-'} GB ({volume.get('free_percent') or '-'}%)"
+        )
+    _draw_items(draw, left + 28, y + 82, mid - left - 90, volume_items or ["Nenhum volume informado"], limit=9)
+
+    _box(draw, (mid, y, A4_W - MARGIN, y + box_h), "BIOS, bateria e atualizacoes")
+    batteries = row.get("batteries") if isinstance(row.get("batteries"), list) else []
+    battery_txt = "Sem bateria informada"
+    if batteries and isinstance(batteries[0], dict):
+        battery_txt = f"{batteries[0].get('name') or 'Bateria'} - carga estimada {batteries[0].get('estimated_charge') or '-'}%"
+    os_info = row.get("os") if isinstance(row.get("os"), dict) else {}
+    items = [
+        f"BIOS: {row.get('motherboard', {}).get('manufacturer') if isinstance(row.get('motherboard'), dict) else ''} / {row.get('serial') or '-'}",
+        f"Ultimo boot: {os_info.get('last_boot') or '-'}",
+        f"Timezone: {row.get('timezone') or '-'}",
+        battery_txt,
+    ]
+    for hf in (row.get("hotfixes") or [])[:4]:
+        if isinstance(hf, dict):
+            items.append(f"Update: {hf.get('id') or '-'} - {hf.get('installed_on') or ''}")
+    _draw_items(draw, mid + 28, y + 82, A4_W - MARGIN - mid - 80, items, limit=10)
+    y += box_h + 34
+
+    flags = [str(x) for x in (row.get("health_flags") or []) if str(x).strip()]
+    _box(draw, (left, y, A4_W - MARGIN, y + 360), "Pontos de atencao")
+    _draw_items(draw, left + 28, y + 82, A4_W - (MARGIN * 2) - 70, flags or ["Nenhum ponto critico detectado pelos criterios atuais."], font_size=22, line_h=48, limit=5)
+    return page
+
+
 def build_windows_inventory_pdf(rows: List[Dict[str, Any]], company_name: str = "") -> Path:
     reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     safe_company = "".join(ch for ch in _text(company_name) if ch.isalnum() or ch in ("-", "_")) or "windows"
     out = reports_dir / f"windows-inventory-{safe_company}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.pdf"
     pages = [_summary_page(rows)]
-    pages.extend(_detail_page(row) for row in rows)
+    for row in rows:
+        pages.append(_detail_page(row))
+        pages.append(_technical_page(row))
     first, rest = pages[0], pages[1:]
     first.save(out, "PDF", resolution=150.0, save_all=True, append_images=rest)
     return out
