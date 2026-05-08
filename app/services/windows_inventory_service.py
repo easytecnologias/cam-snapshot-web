@@ -278,6 +278,23 @@ def _disk_kind(disks: List[Dict[str, Any]]) -> str:
     return "unknown"
 
 
+def _disk_total_gb(disks: List[Dict[str, Any]]) -> float | None:
+    total = 0.0
+    found = False
+    for disk in disks or []:
+        if not isinstance(disk, dict):
+            continue
+        try:
+            value = disk.get("size_gb")
+            if value is None or value == "":
+                continue
+            total += float(value)
+            found = True
+        except Exception:
+            continue
+    return round(total, 2) if found else None
+
+
 def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online", error: str = "") -> Dict[str, Any]:
     data = payload if isinstance(payload, dict) else {}
     disks = data.get("disks") if isinstance(data.get("disks"), list) else []
@@ -285,7 +302,8 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
     mac = ""
     if network and isinstance(network[0], dict):
         mac = _text(network[0].get("mac"))
-    disk_kind = _disk_kind([d for d in disks if isinstance(d, dict)])
+    normalized_disks = [d for d in disks if isinstance(d, dict)]
+    disk_kind = _disk_kind(normalized_disks)
     return {
         "ip": ip,
         "hostname": _text(data.get("hostname")) or _hostname(ip),
@@ -317,6 +335,7 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "ram_gb": data.get("total_ram_gb"),
         "memory_slots": data.get("memory_slots"),
         "disk_kind": disk_kind,
+        "disk_total_gb": _disk_total_gb(normalized_disks),
         "has_ssd": disk_kind in ("ssd", "mixed"),
         "disks": disks,
         "network": network,

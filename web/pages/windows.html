@@ -171,11 +171,13 @@
               <th>CPU</th>
               <th>RAM</th>
               <th>Disco</th>
+              <th>Armazenamento</th>
+              <th>MAC</th>
               <th>Usuario</th>
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="12" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -202,12 +204,24 @@
     if (row.disk_kind === 'hdd_or_unknown') return 'HD/indefinido';
     return 'Indefinido';
   }
+  function diskSizeLabel(row) {
+    var total = Number(row && row.disk_total_gb);
+    if (!total && row && Array.isArray(row.disks)) {
+      total = row.disks.reduce(function (sum, disk) {
+        var value = Number(disk && disk.size_gb);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+    }
+    if (!Number.isFinite(total) || total <= 0) return '';
+    if (total >= 1024) return (total / 1024).toFixed(total >= 2048 ? 1 : 2) + ' TB';
+    return Math.round(total) + ' GB';
+  }
   function renderRows(rows) {
     rows = Array.isArray(rows) ? rows : [];
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
@@ -222,6 +236,8 @@
           + '<td>' + esc(cpu.name) + '</td>'
           + '<td>' + esc(row.ram_gb ? row.ram_gb + ' GB' : '') + '</td>'
           + '<td>' + esc(diskLabel(row)) + '</td>'
+          + '<td>' + esc(diskSizeLabel(row)) + '</td>'
+          + '<td>' + esc(row.mac) + '</td>'
           + '<td>' + esc(row.logged_user) + '</td>'
           + '</tr>';
       }).join('');
