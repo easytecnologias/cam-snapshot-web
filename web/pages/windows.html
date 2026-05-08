@@ -93,6 +93,7 @@
 
         <div class="actions-row">
           <button class="btn-primary" id="btn-win-agent" type="button">Baixar agente Windows</button>
+          <button class="btn-secondary" id="btn-win-pdf" type="button">Relatorio PDF</button>
           <button class="btn-secondary" id="btn-win-prepare" type="button">Preparador WinRM</button>
           <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
         </div>
@@ -160,6 +161,20 @@
       <div class="card-sub">Hardware, sistema operacional, discos e rede.</div>
       <div class="table-wrap windows-table-wrap">
         <table>
+          <colgroup>
+            <col style="width:120px" />
+            <col style="width:170px" />
+            <col style="width:150px" />
+            <col style="width:280px" />
+            <col style="width:130px" />
+            <col style="width:260px" />
+            <col style="width:420px" />
+            <col style="width:340px" />
+            <col style="width:420px" />
+            <col style="width:160px" />
+            <col style="width:190px" />
+            <col style="width:220px" />
+          </colgroup>
           <thead>
             <tr>
               <th>IP</th>
@@ -357,14 +372,40 @@
         setStatus('Falha ao baixar agente: ' + err.message + '. Entre novamente no sistema e tente de novo.');
       });
   }
+  function downloadPdfReport() {
+    var url = '/api/windows/report.pdf';
+    setStatus('Gerando relatorio PDF...');
+    fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.blob().then(function (blob) {
+          var filename = 'windows-inventory.pdf';
+          var disposition = resp.headers.get('Content-Disposition') || '';
+          var match = disposition.match(/filename="?([^"]+)"?/i);
+          if (match && match[1]) filename = match[1];
+          var link = document.createElement('a');
+          var objectUrl = URL.createObjectURL(blob);
+          link.href = objectUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        });
+      })
+      .then(function () { setStatus('Relatorio PDF gerado.'); })
+      .catch(function (err) { setStatus('Falha ao gerar PDF: ' + err.message); });
+  }
   document.addEventListener('DOMContentLoaded', function () {
     var scanBtn = el('btn-win-scan');
     var agentBtn = el('btn-win-agent');
+    var pdfBtn = el('btn-win-pdf');
     var prepareBtn = el('btn-win-prepare');
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
     if (scanBtn) scanBtn.addEventListener('click', runScan);
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
+    if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
     if (prepareBtn) prepareBtn.addEventListener('click', downloadPrepareScript);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);

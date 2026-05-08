@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from app.services.windows_inventory_service import (
     clear_windows_inventory,
@@ -14,6 +14,7 @@ from app.services.windows_inventory_service import (
     scan_windows_inventory,
     validate_windows_agent_token,
 )
+from app.services.windows_pdf_report import build_windows_inventory_pdf
 
 router = APIRouter(prefix="/api/windows", tags=["windows"])
 
@@ -37,6 +38,13 @@ def api_windows_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
 @router.post("/clear")
 def api_windows_clear() -> Dict[str, Any]:
     return clear_windows_inventory()
+
+
+@router.get("/report.pdf")
+def api_windows_report_pdf(company_name: str = "") -> FileResponse:
+    rows = load_windows_inventory()
+    pdf_path = build_windows_inventory_pdf(rows, company_name=company_name)
+    return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
 @router.get("/prepare-script")

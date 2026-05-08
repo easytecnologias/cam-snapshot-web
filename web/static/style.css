@@ -5854,6 +5854,13 @@ body[data-theme="dark"] .auth-role-badge{
 .windows-table-card table th,
 .windows-table-card table td{
   white-space: nowrap;
+  text-align: left;
+  vertical-align: top;
+}
+
+.windows-table-card table{
+  table-layout: fixed;
+  min-width: 3260px;
 }
 
 @media (max-width: 980px){
