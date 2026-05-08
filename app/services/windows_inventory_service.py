@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -154,6 +155,10 @@ $payload | ConvertTo-Json -Depth 6 -Compress
 """
 
 
+def _encoded_powershell_command(script: str) -> str:
+    return base64.b64encode(script.encode("utf-16le")).decode("ascii")
+
+
 def _load_winrm_module() -> Any:
     try:
         import winrm  # type: ignore
@@ -196,7 +201,22 @@ def _collect_winrm(
             read_timeout_sec=max(10, int(timeout) + 8),
             operation_timeout_sec=max(6, int(timeout)),
         )
-        result = session.run_ps(_powershell_inventory_script())
+        script = _powershell_inventory_script()
+        try:
+            result = session.run_ps(script)
+        except Exception:
+            result = session.run_cmd(
+                "powershell.exe",
+                [
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-EncodedCommand",
+                    _encoded_powershell_command(script),
+                ],
+            )
     except Exception as exc:
         return {"ok": False, "status": "auth_or_connection_failed", "error": str(exc)[:500]}
 
