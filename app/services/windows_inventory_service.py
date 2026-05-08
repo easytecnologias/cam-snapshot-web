@@ -393,6 +393,18 @@ Enable-PSRemoting -Force -SkipNetworkProfileCheck
 winrm set winrm/config/service/auth '@{{Basic="false"; Kerberos="true"; Negotiate="true"}}' | Out-Null
 winrm set winrm/config/service '@{{AllowUnencrypted="true"}}' | Out-Null
 
+Write-Host "Reparando endpoints do PowerShell Remoting..." -ForegroundColor Cyan
+$SessionConfigs = Get-PSSessionConfiguration -ErrorAction SilentlyContinue
+if (-not ($SessionConfigs | Where-Object {{ $_.Name -eq "Microsoft.PowerShell" }})) {{
+  Register-PSSessionConfiguration -Name "Microsoft.PowerShell" -Force | Out-Null
+}}
+if (-not ($SessionConfigs | Where-Object {{ $_.Name -eq "Microsoft.PowerShell32" }}) -and (Test-Path "$env:WINDIR\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe")) {{
+  Register-PSSessionConfiguration -Name "Microsoft.PowerShell32" -ProcessorArchitecture x86 -Force | Out-Null
+}}
+Enable-PSSessionConfiguration -Name "Microsoft.PowerShell" -Force -ErrorAction SilentlyContinue | Out-Null
+Enable-PSSessionConfiguration -Name "Microsoft.PowerShell32" -Force -ErrorAction SilentlyContinue | Out-Null
+Restart-Service -Name WinRM -Force
+
 Get-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName "SightOps WinRM HTTP 5985" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any | Out-Null
 
