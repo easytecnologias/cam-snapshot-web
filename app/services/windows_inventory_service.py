@@ -356,8 +356,26 @@ if ($Existing) {{
   Write-Host "Usuario $UserName criado." -ForegroundColor Green
 }}
 
-Add-LocalGroupMember -Group "Administradores" -Member $UserName -ErrorAction SilentlyContinue
-Add-LocalGroupMember -Group "Remote Management Users" -Member $UserName -ErrorAction SilentlyContinue
+function Add-UserToLocalGroupBySid($Sid, $Member) {{
+  $Group = Get-LocalGroup | Where-Object {{ $_.SID.Value -eq $Sid }} | Select-Object -First 1
+  if (-not $Group) {{
+    Write-Host "Aviso: grupo local com SID $Sid nao encontrado." -ForegroundColor Yellow
+    return
+  }}
+  try {{
+    Add-LocalGroupMember -Group $Group.Name -Member $Member -ErrorAction Stop
+    Write-Host "Usuario $Member adicionado ao grupo $($Group.Name)." -ForegroundColor Green
+  }} catch {{
+    if ($_.Exception.Message -match "ja.*membro|already.*member") {{
+      Write-Host "Usuario $Member ja pertence ao grupo $($Group.Name)." -ForegroundColor DarkGray
+    }} else {{
+      Write-Host "Aviso: nao foi possivel adicionar $Member ao grupo $($Group.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+    }}
+  }}
+}}
+
+Add-UserToLocalGroupBySid "S-1-5-32-544" $UserName
+Add-UserToLocalGroupBySid "S-1-5-32-580" $UserName
 
 try {{
   $PublicProfiles = Get-NetConnectionProfile -ErrorAction Stop | Where-Object {{ $_.NetworkCategory -eq "Public" }}
@@ -385,6 +403,14 @@ New-ItemProperty -Path $LocalAccountTokenFilterPolicy -Name LocalAccountTokenFil
 Write-Host ""
 Write-Host "Validando WinRM local..." -ForegroundColor Cyan
 Test-WSMan localhost | Out-Null
+try {{
+  $Credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\\$UserName", $Password)
+  Invoke-Command -ComputerName 127.0.0.1 -Credential $Credential -Authentication Negotiate -ScriptBlock {{ hostname }} | Out-Null
+  Write-Host "Validacao de login remoto OK." -ForegroundColor Green
+}} catch {{
+  Write-Host "Aviso: WinRM respondeu, mas o login remoto ainda falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+  Write-Host "Confira a senha digitada e rode este preparador novamente como Administrador." -ForegroundColor Yellow
+}}
 
 Write-Host ""
 Write-Host "Preparacao concluida." -ForegroundColor Green
