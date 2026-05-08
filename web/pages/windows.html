@@ -272,8 +272,35 @@
   function downloadPrepareScript() {
     var user = prompt('Nome do usuario local para inventario:', 'sightops_inv') || 'sightops_inv';
     var url = '/api/windows/prepare-script?username=' + encodeURIComponent(user);
-    window.location.href = url;
-    setStatus('Preparador baixado. Execute o .ps1 como Administrador no computador Windows alvo.');
+    setStatus('Gerando preparador Windows...');
+    fetch(url, { cache: 'no-store' })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (body) {
+            throw new Error(body.detail || 'HTTP ' + resp.status);
+          });
+        }
+        return resp.blob().then(function (blob) {
+          var filename = 'sightops-preparar-windows.ps1';
+          var disposition = resp.headers.get('Content-Disposition') || '';
+          var match = disposition.match(/filename="?([^"]+)"?/i);
+          if (match && match[1]) filename = match[1];
+          var link = document.createElement('a');
+          var objectUrl = URL.createObjectURL(blob);
+          link.href = objectUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        });
+      })
+      .then(function () {
+        setStatus('Preparador baixado. Execute o .ps1 como Administrador no computador Windows alvo.');
+      })
+      .catch(function (err) {
+        setStatus('Falha ao baixar preparador: ' + err.message + '. Entre novamente no sistema e tente de novo.');
+      });
   }
   document.addEventListener('DOMContentLoaded', function () {
     var scanBtn = el('btn-win-scan');
