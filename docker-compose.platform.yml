@@ -22,6 +22,8 @@ services:
       ENABLE_LEGACY_STATE_IMPORT: ${ENABLE_LEGACY_STATE_IMPORT:-0}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
+      EASY_BACKUP_PORT: ${EASY_BACKUP_PORT:-8090}
+      SIGHTOPS_RELEASE_MARKER: "easy-backup-manager-20260508"
     volumes:
       - sightops_data:/app/data
       - sightops_output:/app/output
