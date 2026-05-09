@@ -1300,6 +1300,7 @@ function initUiShell() {
   uiCloseSidebar();
   ensureDashboardNavLink();
   ensureWindowsNavLink();
+  ensureBackupNavLink();
   // Tema inicial
   const forcedTheme = (document.body && document.body.dataset && document.body.dataset.forceTheme) || '';
   let stored = null;
@@ -1373,6 +1374,18 @@ function ensureWindowsNavLink() {
     inventoryGroup.appendChild(label);
     inventoryGroup.appendChild(link);
   }
+}
+
+function ensureBackupNavLink() {
+  const operationsGroup = document.querySelector('[data-nav-subgroup="operations"]');
+  if (!operationsGroup || operationsGroup.querySelector('a[href="backup.html"]')) return;
+  const link = document.createElement('a');
+  link.className = 'nav-subitem';
+  link.href = 'backup.html';
+  link.textContent = 'Backup';
+  const path = String(window.location.pathname || '').toLowerCase();
+  if (path.endsWith('/backup.html')) link.classList.add('active');
+  operationsGroup.appendChild(link);
 }
 
 /* =========================

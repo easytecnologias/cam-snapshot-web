@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <title>SightOps - EASY Backup</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css?v=87" />
+</head>
+<body class="backup-page" data-theme="dark">
+<div id="scrim" class="scrim" aria-hidden="true"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <button class="topbar-btn icon-btn" type="button" onclick="uiToggleSidebar()" aria-label="Abrir menu" title="Menu">&#9776;</button>
+    <div class="topbar-brand">
+      <div class="topbar-eyebrow">SightOps</div>
+      <div class="topbar-title">EASY Backup Manager</div>
+      <div class="topbar-sub">Backup corporativo com UrBackup, Docker e painel proprio.</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button class="topbar-btn icon-btn" id="backup-refresh" type="button" aria-label="Atualizar" title="Atualizar">&#8635;</button>
+    <button class="topbar-btn icon-btn" id="theme-toggle" type="button" onclick="uiToggleTheme()" aria-label="Alternar tema" title="Tema">&#9681;</button>
+  </div>
+</div>
+
+<header>
+  <button class="sidebar-close" type="button" onclick="uiCloseSidebar()">Fechar</button>
+  <div class="top-row">
+    <div class="brand brand-stack">
+      <div class="brand-seal">SO</div>
+      <div>
+        <span class="brand-mark">SightOps</span>
+        <span class="brand-badge">Production Console</span>
+        <div class="title-main">Operacoes de infraestrutura</div>
+        <div class="title-sub">Inventario, monitoramento, evidencias e backup em um unico ambiente.</div>
+      </div>
+    </div>
+  </div>
+  <nav>
+    <a class="nav-item" href="dashboard.html">Dashboard</a>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="olt" aria-expanded="false">OLT</button>
+    <div class="nav-subgroup" data-nav-subgroup="olt" hidden>
+      <a class="nav-subitem" href="olt.html">Scan OLT</a>
+      <a class="nav-subitem" href="switch.html">Switch gerenciavel</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="inventory" aria-expanded="false">Inventario</button>
+    <div class="nav-subgroup" data-nav-subgroup="inventory" hidden>
+      <div class="nav-subitem nav-subitem-label">Cameras IP</div>
+      <a class="nav-subitem nav-subitem-child" href="inventory.html">OLT</a>
+      <a class="nav-subitem nav-subitem-child" href="inventory_switch.html">Switch</a>
+      <a class="nav-subitem" href="dvr.html">DVR</a>
+      <a class="nav-subitem" href="nvr.html">NVR</a>
+      <div class="nav-subitem nav-subitem-label">Infraestrutura</div>
+      <a class="nav-subitem" href="windows.html">Windows</a>
+      <div class="nav-subitem nav-subitem-label">Fotos</div>
+      <a class="nav-subitem nav-subitem-child" href="snapshot.html">Cam-IP</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_dvr.html">DVR</a>
+      <a class="nav-subitem nav-subitem-child" href="snapshot_nvr.html">NVR</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="ia" aria-expanded="false">IA</button>
+    <div class="nav-subgroup" data-nav-subgroup="ia" hidden>
+      <a class="nav-subitem" href="ia_nvr.html">NVR IA</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="integrations" aria-expanded="false">Integracoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="integrations" hidden>
+      <a class="nav-subitem" href="kmz.html">Mapas</a>
+      <a class="nav-subitem" href="scripts.html#mikrotik">Mikrotik</a>
+      <a class="nav-subitem" href="scripts.html#zabbix">Zabbix</a>
+      <a class="nav-subitem" href="scripts.html#grafana">Grafana</a>
+    </div>
+    <button class="nav-item nav-group-toggle active" type="button" data-nav-group="operations" aria-expanded="true">Operacoes</button>
+    <div class="nav-subgroup" data-nav-subgroup="operations">
+      <a class="nav-subitem" href="maintenance.html">Cameras IP</a>
+      <a class="nav-subitem" href="maintenance_dvr.html">DVR</a>
+      <a class="nav-subitem" href="maintenance_nvr.html">NVR</a>
+      <a class="nav-subitem active" href="backup.html">Backup</a>
+    </div>
+    <button class="nav-item nav-group-toggle" type="button" data-nav-group="tools" aria-expanded="false">Ferramentas</button>
+    <div class="nav-subgroup" data-nav-subgroup="tools" hidden>
+      <a class="nav-subitem" href="tools.html#ipscan">Scan IP</a>
+      <a class="nav-subitem" href="tools.html#portscan">Port Scanner</a>
+      <a class="nav-subitem" href="discovery.html">Descoberta</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <section class="tab-view active">
+    <div class="backup-shell">
+      <section class="dashboard-hero backup-hero">
+        <div>
+          <div class="inventory-card-eyebrow">Novo modulo</div>
+          <h1>EASY Backup Manager</h1>
+          <p>Plataforma de backup para pequenas e medias empresas, usando UrBackup como engine e painel proprio integrado ao SightOps.</p>
+        </div>
+        <div class="dashboard-db-pill" id="backup-status-pill">Verificando</div>
+      </section>
+
+      <section class="backup-kpis" aria-label="Indicadores planejados">
+        <div class="dashboard-kpi"><span>Total de PCs</span><strong>40+</strong><small>Meta inicial do MVP</small></div>
+        <div class="dashboard-kpi"><span>Engine</span><strong>UrBackup</strong><small>Servidor Docker</small></div>
+        <div class="dashboard-kpi"><span>Storage</span><strong>NAS/S3</strong><small>Local agora, S3 depois</small></div>
+        <div class="dashboard-kpi"><span>Restore</span><strong>RTO</strong><small>Foco em recuperacao rapida</small></div>
+      </section>
+
+      <section class="backup-grid">
+        <div class="card backup-panel">
+          <div class="card-title">Console EASY Backup</div>
+          <div class="card-sub">Acesse o painel Docker dedicado para maquinas, jobs, storage e alertas.</div>
+          <div class="backup-status-box">
+            <div><span>URL configurada</span><strong id="backup-url">Carregando...</strong></div>
+            <div><span>Status</span><strong id="backup-status-text">Verificando...</strong></div>
+            <div><span>Engine</span><strong id="backup-engine">UrBackup</strong></div>
+          </div>
+          <div class="actions-row">
+            <a class="btn-primary backup-launch" id="backup-open" href="#" target="_blank" rel="noopener">Abrir EASY Backup</a>
+          </div>
+        </div>
+
+        <div class="card backup-panel">
+          <div class="card-title">Fluxo operacional</div>
+          <div class="card-sub">Arquitetura planejada para deploy em Ubuntu Server.</div>
+          <div class="backup-flow">
+            <span>PC Cliente</span>
+            <span>UrBackup Client</span>
+            <span>UrBackup Server Docker</span>
+            <span>Storage/NAS</span>
+            <span>Painel EASY Backup</span>
+          </div>
+        </div>
+
+        <div class="card backup-panel">
+          <div class="card-title">MVP entregue no repositorio</div>
+          <div class="card-sub">Base preparada para virar produto dentro do SightOps.</div>
+          <ul class="backup-list">
+            <li>Backend Node.js + TypeScript + Prisma</li>
+            <li>Frontend React + Tailwind</li>
+            <li>PostgreSQL e Nginx reverso</li>
+            <li>JWT, RBAC e multiempresa inicial</li>
+            <li>Endpoints de maquinas, backups, alertas e dashboard</li>
+          </ul>
+        </div>
+
+        <div class="card backup-panel">
+          <div class="card-title">Proximas etapas</div>
+          <div class="card-sub">Ordem recomendada para colocar em operacao.</div>
+          <ol class="backup-list">
+            <li>Subir a stack Docker no servidor.</li>
+            <li>Criar primeiro admin no endpoint de bootstrap.</li>
+            <li>Instalar UrBackup Client em uma maquina piloto.</li>
+            <li>Sincronizar clientes pelo painel.</li>
+            <li>Executar restore de teste antes de clientes reais.</li>
+          </ol>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js?v=87"></script>
+<script>
+(function () {
+  function el(id) { return document.getElementById(id); }
+  function setText(id, value) { var node = el(id); if (node) node.textContent = value; }
+  function loadBackupStatus() {
+    setText('backup-status-text', 'Verificando...');
+    fetch('/api/backup/status?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+      .then(function (payload) {
+        var url = payload.configured_url || '';
+        var online = !!payload.online;
+        var pill = el('backup-status-pill');
+        setText('backup-url', url || 'Nao configurado');
+        setText('backup-status-text', online ? 'Online' : 'Aguardando deploy');
+        setText('backup-engine', payload.engine || 'UrBackup');
+        if (pill) {
+          pill.textContent = online ? 'EASY Backup online' : 'Stack nao iniciada';
+          pill.classList.toggle('is-ok', online);
+          pill.classList.toggle('is-bad', !online);
+        }
+        var open = el('backup-open');
+        if (open && url) open.href = url;
+      })
+      .catch(function (err) {
+        setText('backup-status-text', 'Erro ao consultar: ' + err.message);
+        var pill = el('backup-status-pill');
+        if (pill) {
+          pill.textContent = 'Verificar API';
+          pill.classList.add('is-bad');
+        }
+      });
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var btn = el('backup-refresh');
+    if (btn) btn.addEventListener('click', loadBackupStatus);
+    loadBackupStatus();
+    window.addEventListener('sightops:auth-ready', loadBackupStatus);
+  });
+})();
+</script>
+</body>
+</html>

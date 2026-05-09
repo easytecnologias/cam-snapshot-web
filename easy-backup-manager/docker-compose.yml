@@ -1,0 +1,74 @@
+name: easy-backup-manager
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: easy-backup-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-easy_backup}
+      POSTGRES_USER: ${POSTGRES_USER:-easy_backup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-easy_backup} -d ${POSTGRES_DB:-easy_backup}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  urbackup-server:
+    image: uroni/urbackup-server:latest
+    container_name: easy-urbackup-server
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PUID: ${URBACKUP_PUID:-1000}
+      PGID: ${URBACKUP_PGID:-1000}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - ./backups:/backups
+      - ./storage/urbackup-db:/var/urbackup
+
+  backend:
+    build:
+      context: ./backend
+    container_name: easy-backup-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-easy_backup}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-easy_backup}
+      URBACKUP_BASE_URL: ${URBACKUP_BASE_URL:-http://host.docker.internal:55414}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4100:4100"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: easy-backup-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:4173:80"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: easy-backup-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${HTTP_PORT:-8090}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres_data:
