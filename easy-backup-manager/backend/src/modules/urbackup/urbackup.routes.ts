@@ -17,6 +17,18 @@ function clientsFromStatus(payload: Record<string, unknown>) {
   return [];
 }
 
+function easyBackupBaseUrl(reqHost: string, reqProto: string) {
+  const configured = String(process.env.EASY_BACKUP_PUBLIC_URL || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+
+  let host = reqHost.trim() || '10.10.12.7:8090';
+  const hasPort = /:\d+$/.test(host);
+  if (!hasPort && !host.includes('localhost') && !host.startsWith('127.')) {
+    host = `${host}:${process.env.EASY_BACKUP_PUBLIC_PORT || '8090'}`;
+  }
+  return `${reqProto || 'http'}://${host}`;
+}
+
 urbackupRouter.get('/health', requireAuth, asyncHandler(async (_req, res) => {
   const status = await urbackupClient.health();
   res.json({ ok: true, status });
@@ -43,8 +55,8 @@ urbackupRouter.get('/windows-client-download', asyncHandler(async (_req, res) =>
 urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (req, res) => {
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
-  const appBaseUrl = `${proto}://${host}`;
-  const serverHost = host.split(':')[0] || '10.10.12.7';
+  const appBaseUrl = easyBackupBaseUrl(host, proto);
+  const serverHost = new URL(appBaseUrl).hostname || '10.10.12.7';
   const script = `# EASY Backup Manager - Instalador do UrBackup Client para Windows
 # Execute este arquivo como Administrador no computador que sera protegido.
 # Ele baixa o cliente oficial do UrBackup, instala silenciosamente e reinicia o servico.
