@@ -1,7 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { Activity, AlertTriangle, Database, Download, HardDrive, PlayCircle, RefreshCw, Server, ShieldCheck } from 'lucide-react';
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './styles.css';
 
 type User = { name: string; email: string; role: string; tenant: string };
@@ -237,11 +236,6 @@ function App() {
     { label: 'Espaco usado', value: fmtBytes(dashboard?.usedBytes), icon: HardDrive, tone: 'text-indigo-300' },
   ], [dashboard]);
 
-  const chart = useMemo(() => {
-    const usedTb = Number(dashboard?.usedBytes || 0) / 1024 ** 4;
-    return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'].map((day, index) => ({ day, tb: Number(Math.max(0, usedTb * (0.72 + index * 0.07)).toFixed(2)) }));
-  }, [dashboard]);
-
   if (!token) {
     return (
       <main className="min-h-screen bg-ink px-6 py-12 text-slate-100">
@@ -311,7 +305,7 @@ function App() {
             ))}
           </div>
 
-          <div className={`mt-6 grid gap-4 lg:grid-cols-[1fr_360px] ${view === 'Dashboard' ? '' : 'hidden'}`}>
+          <div className={`mt-6 grid gap-4 ${view === 'Dashboard' ? '' : 'hidden'}`}>
             <section className="rounded-lg border border-line bg-panel p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Maquinas protegidas</h2>
@@ -319,23 +313,6 @@ function App() {
               </div>
               <MachineTable machines={machines} />
             </section>
-
-            <aside className="rounded-lg border border-line bg-panel p-5">
-              <h2 className="text-lg font-semibold">Uso de storage</h2>
-              <div className="mt-4 h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chart}>
-                    <XAxis dataKey="day" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip />
-                    <Area dataKey="tb" type="monotone" stroke="#38bdf8" fill="#0ea5e9" fillOpacity={0.24} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-4 rounded-md bg-slate-900 p-3 text-sm text-slate-300">
-                Alertas ativos: {dashboard?.activeAlerts || 0}. Total provisionado: {fmtBytes(dashboard?.totalBytes)}.
-              </div>
-            </aside>
           </div>
 
           <div className={`mt-6 grid gap-4 lg:grid-cols-2 ${view === 'Maquinas' || view === 'Backups' ? '' : 'hidden'}`}>
