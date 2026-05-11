@@ -213,7 +213,7 @@ services:
   easy-backup-backend:
     build:
       context: ./easy-backup-manager/backend
-    image: easy-backup-backend:20260511-client-firewall
+    image: easy-backup-backend:20260511-urbackup-auth
     container_name: easy-backup-backend
     environment:
       NODE_ENV: production
@@ -221,6 +221,8 @@ services:
       DATABASE_URL: postgresql://${EASY_BACKUP_DB_USER:-easy_backup}:${EASY_BACKUP_DB_PASSWORD:-easy-backup-internal-change-me}@easy-backup-postgres:5432/${EASY_BACKUP_DB:-easy_backup}
       JWT_SECRET: ${EASY_BACKUP_JWT_SECRET:-easy-backup-jwt-change-me}
       URBACKUP_BASE_URL: ${URBACKUP_BASE_URL:-http://host.docker.internal:55414}
+      URBACKUP_USERNAME: ${URBACKUP_USERNAME:-}
+      URBACKUP_PASSWORD: ${URBACKUP_PASSWORD:-}
       URBACKUP_WINDOWS_CLIENT_URL: ${URBACKUP_WINDOWS_CLIENT_URL:-https://hndl.urbackup.org/Client/2.5.30/UrBackup%20Client%202.5.30.exe}
       CORS_ORIGIN: ${EASY_BACKUP_CORS_ORIGIN:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}
       EASY_BACKUP_PUBLIC_URL: ${EASY_BACKUP_PUBLIC_URL:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}

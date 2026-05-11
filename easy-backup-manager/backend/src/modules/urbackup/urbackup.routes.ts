@@ -158,6 +158,9 @@ Write-Host "Concluido. Volte no EASY Backup e clique em Sincronizar UrBackup." -
 
 urbackupRouter.post('/sync-clients', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
   const payload = await urbackupClient.clients();
+  if (payload.error) {
+    throw new Error(`UrBackup retornou erro ${String(payload.error)} ao listar clientes.`);
+  }
   const clients = clientsFromStatus(payload);
   let synced = 0;
   for (const client of clients) {
