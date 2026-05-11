@@ -1,6 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, AlertTriangle, Database, HardDrive, PlayCircle, RefreshCw, Server, ShieldCheck } from 'lucide-react';
+import { Activity, AlertTriangle, Database, Download, HardDrive, PlayCircle, RefreshCw, Server, ShieldCheck } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './styles.css';
 
@@ -181,6 +181,32 @@ function App() {
     }
   }
 
+  async function downloadUrBackupClientScript() {
+    try {
+      const resp = await fetch('/api/urbackup/windows-client-script', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const text = await resp.text();
+      if (!resp.ok) {
+        let detail = text;
+        try { detail = JSON.parse(text).error || JSON.parse(text).detail || text; } catch {}
+        throw new Error(detail || `HTTP ${resp.status}`);
+      }
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'easy-backup-instalar-cliente-urbackup.ps1';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMessage('Instalador do cliente baixado. Execute no Windows como Administrador.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao baixar instalador do cliente.');
+    }
+  }
+
   async function startBackup(event: FormEvent) {
     event.preventDefault();
     if (!backupForm.machineId) return setMessage('Selecione uma maquina.');
@@ -267,6 +293,7 @@ function App() {
             </div>
             <div className="flex gap-2">
               <button className="btn-secondary" onClick={() => refreshAll()}><RefreshCw size={18} /> Atualizar</button>
+              <button className="btn-secondary" onClick={downloadUrBackupClientScript}><Download size={18} /> Cliente Windows</button>
               <button className="btn-secondary" onClick={importWindowsInventory}><Server size={18} /> Importar Windows</button>
               <button className="btn-secondary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
             </div>
@@ -349,7 +376,13 @@ function App() {
             {view === 'Backups' && <JobList jobs={jobs} />}
             {view === 'Alertas' && <AlertList alerts={alerts} />}
             {view === 'Storage' && <p className="mt-3 text-slate-300">Usado: {fmtBytes(dashboard?.usedBytes)} de {fmtBytes(dashboard?.totalBytes)}. Targets planejados: local, NAS e S3.</p>}
-            {view === 'UrBackup' && <p className="mt-3 text-slate-300">Engine em <a className="text-sky-300 underline" href="/urbackup/" target="_blank">/urbackup/</a>. Use “Sincronizar UrBackup” para importar clientes detectados.</p>}
+            {view === 'UrBackup' && (
+              <div className="mt-3 space-y-3 text-slate-300">
+                <p>Engine em <a className="text-sky-300 underline" href="/urbackup/" target="_blank">/urbackup/</a>. Use “Sincronizar UrBackup” para importar clientes detectados.</p>
+                <button className="btn-primary" onClick={downloadUrBackupClientScript}><Download size={18} /> Baixar instalador Windows</button>
+                <p className="text-sm text-slate-400">Execute o PowerShell baixado como Administrador no computador que sera protegido.</p>
+              </div>
+            )}
             {(view === 'Dashboard' || view === 'Maquinas') && <p className="mt-3 text-slate-300">Use os cards, tabela e formularios acima para operar.</p>}
           </section>
         </section>
