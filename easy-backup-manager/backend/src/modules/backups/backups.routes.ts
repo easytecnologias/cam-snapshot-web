@@ -22,11 +22,13 @@ backupsRouter.post('/start', requireAuth, requireRole('OPERATOR'), asyncHandler(
   const body = z.object({
     machineId: z.string().min(1),
     type: z.enum(['full_file', 'incremental_file', 'full_image', 'incremental_image']).default('incremental_file'),
+    username: z.string().optional(),
+    password: z.string().optional(),
   }).parse(req.body);
   const machine = await prisma.machine.findFirst({ where: { id: body.machineId, tenantId: req.user!.tenantId } });
   if (!machine) return res.status(404).json({ error: 'machine_not_found' });
   if (!machine.urbackupClientId) return res.status(400).json({ error: 'machine_without_urbackup_client' });
-  const result = await urbackupClient.startBackup(machine.urbackupClientId, body.type);
+  const result = await urbackupClient.startBackup(machine.urbackupClientId, body.type, body);
   const job = await prisma.backupJob.create({
     data: {
       machineId: machine.id,
@@ -42,6 +44,8 @@ backupsRouter.post('/start-bulk', requireAuth, requireRole('OPERATOR'), asyncHan
   const body = z.object({
     machineIds: z.array(z.string().min(1)).min(1),
     type: z.enum(['full_file', 'incremental_file', 'full_image', 'incremental_image']).default('incremental_file'),
+    username: z.string().optional(),
+    password: z.string().optional(),
   }).parse(req.body);
   const machines = await prisma.machine.findMany({
     where: { id: { in: body.machineIds }, tenantId: req.user!.tenantId },
@@ -50,10 +54,10 @@ backupsRouter.post('/start-bulk', requireAuth, requireRole('OPERATOR'), asyncHan
   const skipped = [];
   for (const machine of machines) {
     if (!machine.urbackupClientId) {
-      skipped.push({ machineId: machine.id, reason: 'machine_without_urbackup_client' });
+      skipped.push({ machineId: machine.id, name: machine.name, reason: 'machine_without_urbackup_client' });
       continue;
     }
-    const result = await urbackupClient.startBackup(machine.urbackupClientId, body.type);
+    const result = await urbackupClient.startBackup(machine.urbackupClientId, body.type, body);
     const job = await prisma.backupJob.create({
       data: {
         machineId: machine.id,

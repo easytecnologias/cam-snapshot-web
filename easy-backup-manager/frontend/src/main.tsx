@@ -228,13 +228,21 @@ function App() {
 
   async function startSelectedBackups() {
     if (!selectedMachines.length) return setMessage('Selecione pelo menos uma maquina na tabela.');
+    if (!urbackupAuth.password) {
+      setShowUrBackupAuth(true);
+      return setMessage('Informe usuario e senha do UrBackup antes de iniciar backup selecionado.');
+    }
     try {
-      const body = await api<{ jobs: BackupJob[]; skipped: Array<{ machineId: string; reason: string }> }>('/api/backups/start-bulk', {
+      const body = await api<{ jobs: BackupJob[]; skipped: Array<{ machineId: string; name?: string; reason: string }> }>('/api/backups/start-bulk', {
         method: 'POST',
-        body: JSON.stringify({ machineIds: selectedMachines, type: backupForm.type }),
+        body: JSON.stringify({ machineIds: selectedMachines, type: backupForm.type, ...urbackupAuth }),
       });
       await refreshAll();
-      setMessage(`Backup solicitado para ${body.jobs.length} maquina(s). Ignoradas: ${body.skipped.length}.`);
+      setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
+      const skippedNames = body.skipped.map((item) => item.name || item.machineId).join(', ');
+      setMessage(body.skipped.length
+        ? `Backup solicitado para ${body.jobs.length} maquina(s). Ignoradas: ${body.skipped.length} (${skippedNames}) por falta de vinculo UrBackup. Sincronize UrBackup primeiro.`
+        : `Backup solicitado para ${body.jobs.length} maquina(s).`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao iniciar backups selecionados.');
     }
@@ -322,7 +330,7 @@ function App() {
                 <input className="input" placeholder="Senha UrBackup" type="password" value={urbackupAuth.password} onChange={(e) => setUrbackupAuth({ ...urbackupAuth, password: e.target.value })} />
                 <button className="btn-primary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar</button>
               </div>
-              <p className="mt-2 text-xs text-slate-400">A senha e usada somente nesta chamada e nao e salva no navegador.</p>
+              <p className="mt-2 text-xs text-slate-400">A senha e usada somente para sincronizar ou iniciar backup e nao e salva no navegador.</p>
             </section>
           )}
 
