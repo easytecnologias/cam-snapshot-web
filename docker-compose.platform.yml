@@ -23,13 +23,15 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
       EASY_BACKUP_PORT: ${EASY_BACKUP_PORT:-8090}
-      SIGHTOPS_RELEASE_MARKER: "easy-backup-manager-20260508"
+      SIGHTOPS_RELEASE_MARKER: "easy-backup-manager-20260511"
     volumes:
       - sightops_data:/app/data
       - sightops_output:/app/output
     depends_on:
       sightops-postgres:
         condition: service_healthy
+      easy-backup-nginx:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/system/health/live', timeout=5).read()"]
       interval: 20s
@@ -222,6 +224,8 @@ services:
     depends_on:
       easy-backup-postgres:
         condition: service_healthy
+      easy-urbackup-server:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
