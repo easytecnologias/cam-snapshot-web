@@ -66,6 +66,7 @@ $ServerAddress = "${serverHost}"
 $DownloadUrl = "${appBaseUrl}/api/urbackup/windows-client-download"
 $FallbackDownloadUrl = "${windowsClientUrl}"
 $Installer = Join-Path $env:TEMP "UrBackupClientSetup.exe"
+$InstallTimeoutSeconds = 300
 
 Write-Host "EASY Backup - Instalando UrBackup Client..." -ForegroundColor Cyan
 
@@ -79,20 +80,39 @@ if (-not $IsAdmin) {
 }
 
 Write-Host "Servidor EASY Backup/UrBackup: $ServerAddress" -ForegroundColor Cyan
-Write-Host "Baixando cliente UrBackup pelo servidor EASY Backup: $DownloadUrl" -ForegroundColor Cyan
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-try {
-  Invoke-WebRequest -Uri $DownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
-} catch {
-  Write-Host "Download local falhou: $($_.Exception.Message)" -ForegroundColor Yellow
-  Write-Host "Tentando download oficial do UrBackup: $FallbackDownloadUrl" -ForegroundColor Yellow
-  Invoke-WebRequest -Uri $FallbackDownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+
+$svc = Get-Service | Where-Object { $_.Name -like "UrBackup*" -or $_.DisplayName -like "UrBackup*" } | Select-Object -First 1
+if ($svc) {
+  Write-Host "UrBackup Client ja esta instalado: $($svc.DisplayName). Pulando instalador." -ForegroundColor Yellow
+} else {
+  Write-Host "Baixando cliente UrBackup pelo servidor EASY Backup: $DownloadUrl" -ForegroundColor Cyan
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  try {
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+  } catch {
+    Write-Host "Download local falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "Tentando download oficial do UrBackup: $FallbackDownloadUrl" -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $FallbackDownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+  }
+
+  Write-Host "Instalando em modo silencioso..." -ForegroundColor Cyan
+  $process = Start-Process -FilePath $Installer -ArgumentList "/S" -PassThru
+  if (-not $process.WaitForExit($InstallTimeoutSeconds * 1000)) {
+    try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch {}
+    throw "Instalador demorou mais de $InstallTimeoutSeconds segundos. Se o cliente ja apareceu instalado, execute este script novamente para concluir firewall/testes."
+  }
+  if ($process.ExitCode -ne 0) {
+    Write-Host "Aviso: instalador retornou codigo $($process.ExitCode)." -ForegroundColor Yellow
+  }
 }
 
-Write-Host "Instalando em modo silencioso..." -ForegroundColor Cyan
-$process = Start-Process -FilePath $Installer -ArgumentList "/S" -Wait -PassThru
-if ($process.ExitCode -ne 0) {
-  Write-Host "Aviso: instalador retornou codigo $($process.ExitCode)." -ForegroundColor Yellow
+Write-Host "Configurando firewall local do UrBackup Client..." -ForegroundColor Cyan
+try {
+  New-NetFirewallRule -DisplayName "EASY Backup - UrBackup Client TCP" -Direction Inbound -Protocol TCP -LocalPort 35621,35623 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+  New-NetFirewallRule -DisplayName "EASY Backup - UrBackup Client UDP" -Direction Inbound -Protocol UDP -LocalPort 35622 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+  Write-Host "Firewall liberado para TCP 35621/35623 e UDP 35622." -ForegroundColor Green
+} catch {
+  Write-Host "Nao foi possivel criar regra de firewall automaticamente: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
 Start-Sleep -Seconds 3
@@ -108,7 +128,7 @@ if ($svc) {
 try {
   $tcp = Test-NetConnection $ServerAddress -Port 55414 -WarningAction SilentlyContinue
   if ($tcp.TcpTestSucceeded) {
-    Write-Host "Conexao com o servidor UrBackup OK na porta 55414." -ForegroundColor Green
+    Write-Host "Interface UrBackup OK na porta 55414." -ForegroundColor Green
   } else {
     Write-Host "Nao conectou na porta 55414. Verifique rede/firewall entre este PC e $ServerAddress." -ForegroundColor Yellow
   }
@@ -116,6 +136,18 @@ try {
   Write-Host "Nao foi possivel testar a porta 55414: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
+try {
+  $tcpInternet = Test-NetConnection $ServerAddress -Port 55415 -WarningAction SilentlyContinue
+  if ($tcpInternet.TcpTestSucceeded) {
+    Write-Host "Porta UrBackup Internet clients 55415 acessivel." -ForegroundColor Green
+  } else {
+    Write-Host "Porta 55415 nao acessivel. Para clientes fora da descoberta LAN, configure cliente preconfigurado/Internet client." -ForegroundColor Yellow
+  }
+} catch {
+  Write-Host "Nao foi possivel testar a porta 55415: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+Write-Host "Aguarde ate 60 segundos para o servidor descobrir o cliente na rede local." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Concluido. Volte no EASY Backup e clique em Sincronizar UrBackup." -ForegroundColor Green
 `;

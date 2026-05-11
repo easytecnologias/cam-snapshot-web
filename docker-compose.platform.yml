@@ -213,7 +213,7 @@ services:
   easy-backup-backend:
     build:
       context: ./easy-backup-manager/backend
-    image: easy-backup-backend:20260511-storage-capacity
+    image: easy-backup-backend:20260511-client-firewall
     container_name: easy-backup-backend
     environment:
       NODE_ENV: production
