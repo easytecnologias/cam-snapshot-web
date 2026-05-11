@@ -1,55 +1,267 @@
-import React from 'react';
+import React, { FormEvent, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Activity, AlertTriangle, Database, HardDrive, PlayCircle, Server } from 'lucide-react';
+import { Activity, AlertTriangle, Database, HardDrive, PlayCircle, RefreshCw, Server, ShieldCheck } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './styles.css';
 
-const stats = [
-  { label: 'Total de PCs', value: '40', icon: Server, tone: 'text-sky-300' },
-  { label: 'Online', value: '38', icon: Activity, tone: 'text-emerald-300' },
-  { label: 'Backup OK', value: '35', icon: Database, tone: 'text-teal-300' },
-  { label: 'Falhas', value: '5', icon: AlertTriangle, tone: 'text-rose-300' },
-  { label: 'Espaco usado', value: '18 TB', icon: HardDrive, tone: 'text-indigo-300' },
-];
+type User = { name: string; email: string; role: string; tenant: string };
+type Dashboard = {
+  totalMachines: number;
+  online: number;
+  offline: number;
+  backupOk: number;
+  failures: number;
+  activeAlerts: number;
+  usedBytes: string;
+  totalBytes: string;
+};
+type Machine = {
+  id: string;
+  name: string;
+  ip?: string;
+  os?: string;
+  group?: string;
+  company?: string;
+  status: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+  backupStatus: 'OK' | 'RUNNING' | 'FAILED' | 'WARNING' | 'UNKNOWN';
+  lastBackupAt?: string;
+  urbackupClientId?: string;
+};
+type BackupJob = { id: string; type: string; status: string; createdAt: string; machine?: Machine; error?: string };
+type Alert = { id: string; severity: string; title: string; message: string; createdAt: string; resolved: boolean };
 
-const machines = [
-  { name: 'CLINICA-PC-01', ip: '10.10.12.31', os: 'Windows 11 Pro', status: 'online', backup: 'OK', last: 'Hoje 12:20', group: 'Clinica' },
-  { name: 'FINANCEIRO-02', ip: '10.10.12.48', os: 'Windows 10 Pro', status: 'online', backup: 'Running', last: 'Em andamento', group: 'Financeiro' },
-  { name: 'RECEPCAO-04', ip: '10.10.12.77', os: 'Windows 11 Pro', status: 'offline', backup: 'Failed', last: 'Ontem 22:14', group: 'Recepcao' },
-];
+const tokenKey = 'easy_backup_token_v1';
 
-const chart = [
-  { day: 'Seg', tb: 13 },
-  { day: 'Ter', tb: 14.5 },
-  { day: 'Qua', tb: 15.2 },
-  { day: 'Qui', tb: 16.9 },
-  { day: 'Sex', tb: 18 },
-];
+function fmtBytes(raw?: string | number | null) {
+  const value = Number(raw || 0);
+  if (!Number.isFinite(value) || value <= 0) return '0 GB';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let size = value;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  return `${size.toFixed(idx < 3 ? 0 : 1)} ${units[idx]}`;
+}
+
+function fmtDate(value?: string | null) {
+  if (!value) return '-';
+  try {
+    return new Date(value).toLocaleString('pt-BR');
+  } catch {
+    return value;
+  }
+}
+
+function statusClass(value?: string) {
+  const raw = String(value || '').toUpperCase();
+  if (raw === 'ONLINE' || raw === 'OK') return 'text-emerald-300';
+  if (raw === 'RUNNING' || raw === 'WARNING') return 'text-amber-300';
+  if (raw === 'FAILED' || raw === 'OFFLINE') return 'text-rose-300';
+  return 'text-slate-300';
+}
 
 function App() {
+  const [token, setToken] = useState(() => localStorage.getItem(tokenKey) || '');
+  const [user, setUser] = useState<User | null>(null);
+  const [view, setView] = useState('Dashboard');
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [jobs, setJobs] = useState<BackupJob[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [message, setMessage] = useState('Entre ou crie o primeiro admin para operar o backup.');
+  const [loading, setLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'bootstrap'>('login');
+  const [authForm, setAuthForm] = useState({
+    tenantName: 'Default',
+    name: 'Administrador',
+    email: '',
+    password: '',
+  });
+  const [machineForm, setMachineForm] = useState({ name: '', ip: '', os: 'Windows', group: '', company: '', urbackupClientId: '' });
+  const [backupForm, setBackupForm] = useState({ machineId: '', type: 'incremental_file' });
+
+  const api = async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
+    const headers = new Headers(init.headers || {});
+    headers.set('Content-Type', 'application/json');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const resp = await fetch(path, { ...init, headers });
+    const text = await resp.text();
+    const body = text ? JSON.parse(text) : {};
+    if (!resp.ok) throw new Error(body.error || body.detail || `HTTP ${resp.status}`);
+    return body as T;
+  };
+
+  async function refreshAll(nextToken = token) {
+    if (!nextToken) return;
+    setLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${nextToken}` };
+      const [me, dash, machineData, backupData, alertData] = await Promise.all([
+        fetch('/api/auth/me', { headers }).then((r) => r.json()),
+        fetch('/api/dashboard', { headers }).then((r) => r.json()),
+        fetch('/api/machines', { headers }).then((r) => r.json()),
+        fetch('/api/backups', { headers }).then((r) => r.json()),
+        fetch('/api/alerts', { headers }).then((r) => r.json()),
+      ]);
+      if (me.error || me.detail) throw new Error(me.error || me.detail);
+      setUser(me.user ? { name: me.user.name, email: me.user.email, role: me.user.role, tenant: me.user.tenant?.name || '-' } : null);
+      setDashboard(dash);
+      setMachines(machineData.machines || []);
+      setJobs(backupData.jobs || []);
+      setAlerts(alertData.alerts || []);
+      setMessage('Dados atualizados da API real.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao carregar dados.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token) refreshAll(token);
+  }, []);
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    try {
+      const path = authMode === 'login' ? '/api/auth/login' : '/api/auth/bootstrap';
+      const payload = authMode === 'login'
+        ? { email: authForm.email, password: authForm.password }
+        : authForm;
+      const body = await api<{ token?: string; user?: User; ok?: boolean }>(path, { method: 'POST', body: JSON.stringify(payload) });
+      if (authMode === 'bootstrap') {
+        setAuthMode('login');
+        setMessage('Primeiro admin criado. Agora entre com o e-mail e senha.');
+        return;
+      }
+      if (!body.token) throw new Error('Token nao retornado.');
+      localStorage.setItem(tokenKey, body.token);
+      setToken(body.token);
+      setUser(body.user || null);
+      await refreshAll(body.token);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha de autenticacao.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createMachine(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await api('/api/machines', { method: 'POST', body: JSON.stringify(machineForm) });
+      setMachineForm({ name: '', ip: '', os: 'Windows', group: '', company: '', urbackupClientId: '' });
+      await refreshAll();
+      setMessage('Maquina cadastrada.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao cadastrar maquina.');
+    }
+  }
+
+  async function syncUrBackup() {
+    try {
+      const body = await api<{ synced: number; rawCount: number }>('/api/urbackup/sync-clients', { method: 'POST', body: '{}' });
+      await refreshAll();
+      setMessage(`UrBackup sincronizado: ${body.synced} cliente(s) importado(s), ${body.rawCount} encontrado(s).`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao sincronizar UrBackup.');
+    }
+  }
+
+  async function startBackup(event: FormEvent) {
+    event.preventDefault();
+    if (!backupForm.machineId) return setMessage('Selecione uma maquina.');
+    try {
+      await api('/api/backups/start', { method: 'POST', body: JSON.stringify(backupForm) });
+      await refreshAll();
+      setMessage('Backup solicitado ao UrBackup.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao iniciar backup.');
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem(tokenKey);
+    setToken('');
+    setUser(null);
+    setDashboard(null);
+    setMachines([]);
+    setJobs([]);
+    setAlerts([]);
+  }
+
+  const stats = useMemo(() => [
+    { label: 'Total de PCs', value: dashboard?.totalMachines ?? 0, icon: Server, tone: 'text-sky-300' },
+    { label: 'Online', value: dashboard?.online ?? 0, icon: Activity, tone: 'text-emerald-300' },
+    { label: 'Backup OK', value: dashboard?.backupOk ?? 0, icon: Database, tone: 'text-teal-300' },
+    { label: 'Falhas', value: dashboard?.failures ?? 0, icon: AlertTriangle, tone: 'text-rose-300' },
+    { label: 'Espaco usado', value: fmtBytes(dashboard?.usedBytes), icon: HardDrive, tone: 'text-indigo-300' },
+  ], [dashboard]);
+
+  const chart = useMemo(() => {
+    const usedTb = Number(dashboard?.usedBytes || 0) / 1024 ** 4;
+    return ['Seg', 'Ter', 'Qua', 'Qui', 'Sex'].map((day, index) => ({ day, tb: Number(Math.max(0, usedTb * (0.72 + index * 0.07)).toFixed(2)) }));
+  }, [dashboard]);
+
+  if (!token) {
+    return (
+      <main className="min-h-screen bg-ink px-6 py-12 text-slate-100">
+        <section className="mx-auto max-w-md rounded-lg border border-line bg-panel p-6">
+          <div className="text-sm uppercase text-sky-300">EASY</div>
+          <h1 className="mt-1 text-2xl font-bold">Backup Manager</h1>
+          <p className="mt-2 text-sm text-slate-400">{message}</p>
+          <form className="mt-6 space-y-4" onSubmit={submitAuth}>
+            {authMode === 'bootstrap' && (
+              <>
+                <input className="input" placeholder="Empresa" value={authForm.tenantName} onChange={(e) => setAuthForm({ ...authForm, tenantName: e.target.value })} />
+                <input className="input" placeholder="Nome" value={authForm.name} onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })} />
+              </>
+            )}
+            <input className="input" placeholder="E-mail" type="email" value={authForm.email} onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })} />
+            <input className="input" placeholder="Senha" type="password" value={authForm.password} onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })} />
+            <button className="btn-primary w-full" disabled={loading}>{authMode === 'login' ? 'Entrar' : 'Criar primeiro admin'}</button>
+          </form>
+          <button className="mt-4 text-sm text-sky-300" onClick={() => setAuthMode(authMode === 'login' ? 'bootstrap' : 'login')}>
+            {authMode === 'login' ? 'Primeiro acesso' : 'Ja tenho conta'}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-ink text-slate-100">
       <div className="mx-auto flex max-w-7xl gap-6 px-6 py-6">
         <aside className="hidden w-64 shrink-0 rounded-lg border border-line bg-panel p-5 lg:block">
-          <div className="text-sm uppercase tracking-wide text-sky-300">EASY</div>
+          <div className="text-sm uppercase text-sky-300">EASY</div>
           <div className="mt-1 text-2xl font-bold">Backup Manager</div>
+          <div className="mt-4 rounded-md bg-slate-900 p-3 text-xs text-slate-300">
+            <strong>{user?.name || user?.email}</strong><br />{user?.tenant} - {user?.role}
+          </div>
           <nav className="mt-8 space-y-2 text-sm text-slate-300">
             {['Dashboard', 'Maquinas', 'Backups', 'Alertas', 'Storage', 'UrBackup'].map((item) => (
-              <button key={item} className="block w-full rounded-md px-3 py-2 text-left hover:bg-slate-800">{item}</button>
+              <button key={item} onClick={() => setView(item)} className={`block w-full rounded-md px-3 py-2 text-left ${view === item ? 'bg-slate-800 text-white' : 'hover:bg-slate-800'}`}>{item}</button>
             ))}
           </nav>
+          <button className="mt-6 text-sm text-slate-400 hover:text-white" onClick={logout}>Sair</button>
         </aside>
 
         <section className="min-w-0 flex-1">
-          <header className="flex items-center justify-between">
+          <header className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Dashboard de backups</h1>
-              <p className="mt-1 text-sm text-slate-400">UrBackup engine, painel corporativo e automacao propria.</p>
+              <h1 className="text-3xl font-bold">Dashboard de backups</h1>
+              <p className="mt-1 text-sm text-slate-400">Dados reais da API EASY Backup conectada ao UrBackup.</p>
             </div>
-            <button className="inline-flex items-center gap-2 rounded-md bg-sky-500 px-4 py-2 font-semibold text-white hover:bg-sky-400">
-              <PlayCircle size={18} /> Iniciar backup
-            </button>
+            <div className="flex gap-2">
+              <button className="btn-secondary" onClick={() => refreshAll()}><RefreshCw size={18} /> Atualizar</button>
+              <button className="btn-secondary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
+            </div>
           </header>
+
+          <div className="mt-4 rounded-md border border-line bg-slate-900 p-3 text-sm text-slate-300">{loading ? 'Carregando...' : message}</div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-5">
             {stats.map(({ label, value, icon: Icon, tone }) => (
@@ -65,24 +277,9 @@ function App() {
             <section className="rounded-lg border border-line bg-panel p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Maquinas protegidas</h2>
-                <span className="text-sm text-slate-400">40 endpoints</span>
+                <span className="text-sm text-slate-400">{machines.length} endpoint(s)</span>
               </div>
-              <div className="overflow-hidden rounded-md border border-line">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-900 text-slate-400">
-                    <tr><th className="p-3">Nome</th><th>IP</th><th>Sistema</th><th>Status</th><th>Backup</th><th>Ultimo</th><th>Grupo</th></tr>
-                  </thead>
-                  <tbody>
-                    {machines.map((m) => (
-                      <tr key={m.name} className="border-t border-line">
-                        <td className="p-3 font-medium">{m.name}</td><td>{m.ip}</td><td>{m.os}</td>
-                        <td><span className={m.status === 'online' ? 'text-emerald-300' : 'text-rose-300'}>{m.status}</span></td>
-                        <td>{m.backup}</td><td>{m.last}</td><td>{m.group}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <MachineTable machines={machines} />
             </section>
 
             <aside className="rounded-lg border border-line bg-panel p-5">
@@ -98,14 +295,88 @@ function App() {
                 </ResponsiveContainer>
               </div>
               <div className="mt-4 rounded-md bg-slate-900 p-3 text-sm text-slate-300">
-                Falhas recentes: RECEPCAO-04 perdeu janela de backup. FINANCEIRO-02 esta com job em andamento.
+                Alertas ativos: {dashboard?.activeAlerts || 0}. Total provisionado: {fmtBytes(dashboard?.totalBytes)}.
               </div>
             </aside>
           </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <form className="rounded-lg border border-line bg-panel p-5" onSubmit={createMachine}>
+              <h2 className="text-lg font-semibold">Cadastrar maquina</h2>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <input className="input" placeholder="Nome" value={machineForm.name} onChange={(e) => setMachineForm({ ...machineForm, name: e.target.value })} />
+                <input className="input" placeholder="IP" value={machineForm.ip} onChange={(e) => setMachineForm({ ...machineForm, ip: e.target.value })} />
+                <input className="input" placeholder="Sistema" value={machineForm.os} onChange={(e) => setMachineForm({ ...machineForm, os: e.target.value })} />
+                <input className="input" placeholder="Grupo" value={machineForm.group} onChange={(e) => setMachineForm({ ...machineForm, group: e.target.value })} />
+                <input className="input" placeholder="Empresa" value={machineForm.company} onChange={(e) => setMachineForm({ ...machineForm, company: e.target.value })} />
+                <input className="input" placeholder="ID cliente UrBackup" value={machineForm.urbackupClientId} onChange={(e) => setMachineForm({ ...machineForm, urbackupClientId: e.target.value })} />
+              </div>
+              <button className="btn-primary mt-4">Cadastrar</button>
+            </form>
+
+            <form className="rounded-lg border border-line bg-panel p-5" onSubmit={startBackup}>
+              <h2 className="text-lg font-semibold">Iniciar backup</h2>
+              <div className="mt-4 grid gap-3">
+                <select className="input" value={backupForm.machineId} onChange={(e) => setBackupForm({ ...backupForm, machineId: e.target.value })}>
+                  <option value="">Selecione a maquina...</option>
+                  {machines.map((machine) => <option key={machine.id} value={machine.id}>{machine.name} {machine.urbackupClientId ? '' : '(sem UrBackup ID)'}</option>)}
+                </select>
+                <select className="input" value={backupForm.type} onChange={(e) => setBackupForm({ ...backupForm, type: e.target.value })}>
+                  <option value="incremental_file">Arquivos incremental</option>
+                  <option value="full_file">Arquivos completo</option>
+                  <option value="incremental_image">Imagem incremental</option>
+                  <option value="full_image">Imagem completa</option>
+                </select>
+              </div>
+              <button className="btn-primary mt-4"><PlayCircle size={18} /> Iniciar backup</button>
+            </form>
+          </div>
+
+          <section className="mt-6 rounded-lg border border-line bg-panel p-5">
+            <h2 className="text-lg font-semibold">{view}</h2>
+            {view === 'Backups' && <JobList jobs={jobs} />}
+            {view === 'Alertas' && <AlertList alerts={alerts} />}
+            {view === 'Storage' && <p className="mt-3 text-slate-300">Usado: {fmtBytes(dashboard?.usedBytes)} de {fmtBytes(dashboard?.totalBytes)}. Targets planejados: local, NAS e S3.</p>}
+            {view === 'UrBackup' && <p className="mt-3 text-slate-300">Engine em <a className="text-sky-300 underline" href="/urbackup/" target="_blank">/urbackup/</a>. Use “Sincronizar UrBackup” para importar clientes detectados.</p>}
+            {(view === 'Dashboard' || view === 'Maquinas') && <p className="mt-3 text-slate-300">Use os cards, tabela e formularios acima para operar.</p>}
+          </section>
         </section>
       </div>
     </main>
   );
+}
+
+function MachineTable({ machines }: { machines: Machine[] }) {
+  if (!machines.length) return <div className="rounded-md border border-dashed border-line p-6 text-slate-400">Nenhuma maquina cadastrada. Sincronize o UrBackup ou cadastre manualmente.</div>;
+  return (
+    <div className="overflow-auto rounded-md border border-line">
+      <table className="w-full min-w-[820px] text-left text-sm text-slate-200">
+        <thead className="bg-slate-900 text-slate-300">
+          <tr><th className="p-3">Nome</th><th>IP</th><th>Sistema</th><th>Status</th><th>Backup</th><th>Ultimo</th><th>Grupo</th><th>UrBackup</th></tr>
+        </thead>
+        <tbody>
+          {machines.map((m) => (
+            <tr key={m.id} className="border-t border-line">
+              <td className="p-3 font-medium text-white">{m.name}</td><td>{m.ip || '-'}</td><td>{m.os || '-'}</td>
+              <td><span className={statusClass(m.status)}>{m.status}</span></td>
+              <td><span className={statusClass(m.backupStatus)}>{m.backupStatus}</span></td>
+              <td>{fmtDate(m.lastBackupAt)}</td><td>{m.group || '-'}</td><td>{m.urbackupClientId || '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobList({ jobs }: { jobs: BackupJob[] }) {
+  if (!jobs.length) return <p className="mt-3 text-slate-400">Nenhum job registrado ainda.</p>;
+  return <div className="mt-3 space-y-2">{jobs.slice(0, 8).map((job) => <div className="rounded-md bg-slate-900 p-3 text-sm" key={job.id}>{job.machine?.name || 'Maquina'} - {job.type} - <span className={statusClass(job.status)}>{job.status}</span> - {fmtDate(job.createdAt)}</div>)}</div>;
+}
+
+function AlertList({ alerts }: { alerts: Alert[] }) {
+  if (!alerts.length) return <p className="mt-3 text-slate-400">Nenhum alerta registrado.</p>;
+  return <div className="mt-3 space-y-2">{alerts.slice(0, 8).map((alert) => <div className="rounded-md bg-slate-900 p-3 text-sm" key={alert.id}><strong>{alert.title}</strong><br />{alert.message}</div>)}</div>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<App />);

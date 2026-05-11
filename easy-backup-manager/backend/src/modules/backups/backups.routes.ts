@@ -20,7 +20,7 @@ backupsRouter.get('/', requireAuth, asyncHandler(async (req, res) => {
 
 backupsRouter.post('/start', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
   const body = z.object({
-    machineId: z.string().uuid(),
+    machineId: z.string().min(1),
     type: z.enum(['full_file', 'incremental_file', 'full_image', 'incremental_image']).default('incremental_file'),
   }).parse(req.body);
   const machine = await prisma.machine.findFirst({ where: { id: body.machineId, tenantId: req.user!.tenantId } });
