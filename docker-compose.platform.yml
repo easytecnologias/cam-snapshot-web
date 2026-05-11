@@ -229,7 +229,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - sightops
+      sightops:
+        aliases:
+          - backend
     restart: unless-stopped
 
   easy-backup-frontend:
@@ -239,7 +241,9 @@ services:
     depends_on:
       - easy-backup-backend
     networks:
-      - sightops
+      sightops:
+        aliases:
+          - frontend
     restart: unless-stopped
 
   easy-backup-nginx:
