@@ -100,8 +100,8 @@
       <section class="backup-kpis" aria-label="Indicadores do backup">
         <div class="dashboard-kpi"><span>PCs no inventario</span><strong id="backup-total-pcs">--</strong><small>Fonte: Inventario Windows</small></div>
         <div class="dashboard-kpi"><span>Online</span><strong id="backup-online-pcs">--</strong><small id="backup-offline-pcs">Offline: --</small></div>
-        <div class="dashboard-kpi"><span>Discos mapeados</span><strong id="backup-disk-total">--</strong><small id="backup-ssd-total">SSD: --</small></div>
-        <div class="dashboard-kpi"><span>Engine</span><strong id="backup-engine-state">--</strong><small>UrBackup Server</small></div>
+        <div class="dashboard-kpi"><span>Disco dos PCs</span><strong id="backup-disk-total">--</strong><small id="backup-ssd-total">SSD: --</small></div>
+        <div class="dashboard-kpi"><span>Storage do servidor</span><strong id="backup-server-storage">--</strong><small id="backup-server-storage-free">Livre: --</small></div>
       </section>
 
       <section class="backup-grid">
@@ -171,6 +171,11 @@
     if (n >= 1024) return (n / 1024).toFixed(1) + ' TB';
     return Math.round(n) + ' GB';
   }
+  function fmtBytes(value) {
+    var n = Number(value || 0);
+    if (!isFinite(n) || n <= 0) return '0 GB';
+    return fmtGb(n / 1024 / 1024 / 1024);
+  }
   function fmtDate(value) {
     if (!value) return '--';
     var d = new Date(value);
@@ -188,7 +193,6 @@
         setText('backup-url', url || 'Nao configurado');
         setText('backup-status-text', online ? 'Online' : 'Aguardando deploy');
         setText('backup-engine', payload.engine || 'UrBackup');
-        setText('backup-engine-state', online ? 'Online' : 'Offline');
         var inv = payload.windows_inventory || {};
         setText('backup-total-pcs', inv.total || 0);
         setText('backup-online-pcs', inv.online || 0);
@@ -203,6 +207,17 @@
         }
         var open = el('backup-open');
         if (open && url) open.href = url;
+        return fetch((url || 'http://10.10.12.7:8090').replace(/\/+$/, '') + '/api/storage/server?_=' + Date.now(), { cache: 'no-store' })
+          .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+          .then(function (storagePayload) {
+            var storage = storagePayload.storage || {};
+            setText('backup-server-storage', fmtBytes(storage.totalBytes));
+            setText('backup-server-storage-free', 'Livre: ' + fmtBytes(storage.freeBytes));
+          })
+          .catch(function () {
+            setText('backup-server-storage', 'Indisponivel');
+            setText('backup-server-storage-free', 'Verifique o volume /backups');
+          });
       })
       .catch(function (err) {
         setText('backup-status-text', 'Erro ao consultar: ' + err.message);

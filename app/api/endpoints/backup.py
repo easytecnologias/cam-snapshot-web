@@ -58,6 +58,19 @@ def _load_windows_summary() -> dict:
     }
 
 
+def _load_server_storage(url: str) -> dict:
+    try:
+        req = Request(url.rstrip("/") + "/api/storage/server", headers={"Accept": "application/json"})
+        with urlopen(req, timeout=3) as response:
+            if not 200 <= response.status < 300:
+                return {"ok": False, "detail": f"http_{response.status}"}
+            payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            storage = payload.get("storage") if isinstance(payload, dict) else None
+            return storage if isinstance(storage, dict) else {"ok": False, "detail": "invalid_payload"}
+    except Exception as exc:
+        return {"ok": False, "detail": str(exc)[:160]}
+
+
 @router.get("/status")
 def backup_status(request: FastAPIRequest) -> dict:
     url = os.getenv("EASY_BACKUP_URL", "").strip() or _default_easy_backup_url(request)
@@ -82,4 +95,5 @@ def backup_status(request: FastAPIRequest) -> dict:
         "engine": "UrBackup",
         "docker_service": "easy-backup-manager",
         "windows_inventory": _load_windows_summary(),
+        "server_storage": _load_server_storage(url),
     }
