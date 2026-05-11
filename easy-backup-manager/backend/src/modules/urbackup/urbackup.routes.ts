@@ -22,8 +22,28 @@ urbackupRouter.get('/health', requireAuth, asyncHandler(async (_req, res) => {
   res.json({ ok: true, status });
 }));
 
+urbackupRouter.get('/windows-client-download', asyncHandler(async (_req, res) => {
+  const upstream = await fetch(windowsClientUrl);
+  if (!upstream.ok) {
+    res.status(502).json({
+      error: 'urbackup_client_download_failed',
+      status: upstream.status,
+    });
+    return;
+  }
+
+  const installer = Buffer.from(await upstream.arrayBuffer());
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename="UrBackupClientSetup.exe"');
+  res.setHeader('Content-Length', String(installer.length));
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(installer);
+}));
+
 urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (req, res) => {
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
+  const appBaseUrl = `${proto}://${host}`;
   const serverHost = host.split(':')[0] || '10.10.12.7';
   const script = `# EASY Backup Manager - Instalador do UrBackup Client para Windows
 # Execute este arquivo como Administrador no computador que sera protegido.
@@ -31,7 +51,8 @@ urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (re
 
 $ErrorActionPreference = "Stop"
 $ServerAddress = "${serverHost}"
-$DownloadUrl = "${windowsClientUrl}"
+$DownloadUrl = "${appBaseUrl}/api/urbackup/windows-client-download"
+$FallbackDownloadUrl = "${windowsClientUrl}"
 $Installer = Join-Path $env:TEMP "UrBackupClientSetup.exe"
 
 Write-Host "EASY Backup - Instalando UrBackup Client..." -ForegroundColor Cyan
@@ -46,9 +67,15 @@ if (-not $IsAdmin) {
 }
 
 Write-Host "Servidor EASY Backup/UrBackup: $ServerAddress" -ForegroundColor Cyan
-Write-Host "Baixando cliente oficial: $DownloadUrl" -ForegroundColor Cyan
+Write-Host "Baixando cliente UrBackup pelo servidor EASY Backup: $DownloadUrl" -ForegroundColor Cyan
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $Installer -UseBasicParsing
+try {
+  Invoke-WebRequest -Uri $DownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+} catch {
+  Write-Host "Download local falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+  Write-Host "Tentando download oficial do UrBackup: $FallbackDownloadUrl" -ForegroundColor Yellow
+  Invoke-WebRequest -Uri $FallbackDownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+}
 
 Write-Host "Instalando em modo silencioso..." -ForegroundColor Cyan
 $process = Start-Process -FilePath $Installer -ArgumentList "/S" -Wait -PassThru
