@@ -248,6 +248,25 @@ function App() {
     }
   }
 
+  async function stopSelectedBackup() {
+    if (selectedMachines.length !== 1) return setMessage('Selecione exatamente uma maquina para parar o backup.');
+    if (!urbackupAuth.password) {
+      setShowUrBackupAuth(true);
+      return setMessage('Informe usuario e senha do UrBackup antes de parar o backup.');
+    }
+    try {
+      await api('/api/backups/stop', {
+        method: 'POST',
+        body: JSON.stringify({ machineId: selectedMachines[0], ...urbackupAuth }),
+      });
+      await refreshAll();
+      setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
+      setMessage('Backup parado com sucesso.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao parar backup.');
+    }
+  }
+
   function logout() {
     localStorage.removeItem(tokenKey);
     setToken('');
@@ -360,6 +379,7 @@ function App() {
                   <option value="full_image">Imagem completa</option>
                 </select>
                 <button className="btn-primary" onClick={startSelectedBackups}><PlayCircle size={18} /> Backup selecionados</button>
+                <button className="btn-secondary" onClick={stopSelectedBackup}>Parar</button>
                 <span className="text-sm text-slate-400">{selectedMachines.length} selecionada(s)</span>
               </div>
               <MachineTable machines={machines} selectedIds={selectedMachines} onSelectionChange={setSelectedMachines} />

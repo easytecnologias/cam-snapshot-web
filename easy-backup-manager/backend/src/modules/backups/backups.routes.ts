@@ -70,3 +70,32 @@ backupsRouter.post('/start-bulk', requireAuth, requireRole('OPERATOR'), asyncHan
   }
   res.status(202).json({ jobs, skipped, requested: body.machineIds.length });
 }));
+
+backupsRouter.post('/stop', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
+  const body = z.object({
+    machineId: z.string().min(1),
+    username: z.string().optional(),
+    password: z.string().optional(),
+  }).parse(req.body);
+  const machine = await prisma.machine.findFirst({ where: { id: body.machineId, tenantId: req.user!.tenantId } });
+  if (!machine) return res.status(404).json({ error: 'machine_not_found' });
+  if (!machine.urbackupClientId) return res.status(400).json({ error: 'machine_without_urbackup_client' });
+
+  const progress = await urbackupClient.progress(body);
+  const rawProcesses = Array.isArray(progress.progress)
+    ? progress.progress
+    : Array.isArray(progress.processes)
+      ? progress.processes
+      : [];
+  const process = rawProcesses.find((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const row = item as Record<string, unknown>;
+    const clientId = String(row.clientid || row.client_id || row.clientid_a || row.client_id_a || '').trim();
+    const name = String(row.name || row.clientname || row.client_name || '').trim();
+    return clientId === machine.urbackupClientId || name === machine.name;
+  }) as Record<string, unknown> | undefined;
+  const stopId = String(process?.id || process?.process_id || process?.stop_id || '').trim();
+  if (!stopId) return res.status(404).json({ error: 'running_backup_not_found', progress });
+  const result = await urbackupClient.stopBackup(machine.urbackupClientId, stopId, body);
+  res.json({ ok: true, stopped: { machineId: machine.id, stopId }, urbackup: result });
+}));

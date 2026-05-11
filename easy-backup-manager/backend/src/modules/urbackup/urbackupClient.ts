@@ -95,6 +95,12 @@ export const urbackupClient = {
   async clients(credentials?: UrBackupCredentials) {
     return authedRequest('/x?a=status', credentials);
   },
+  async progress(credentials?: UrBackupCredentials) {
+    return authedRequest('/x?a=progress', credentials);
+  },
+  async stopBackup(clientId: string, stopId: string, credentials?: UrBackupCredentials) {
+    return authedRequest(`/x?a=progress&stop_clientid=${encodeURIComponent(clientId)}&stop_id=${encodeURIComponent(stopId)}`, credentials);
+  },
   async backups(clientId: string, credentials?: UrBackupCredentials) {
     return authedRequest(`/x?a=backups&clientid=${encodeURIComponent(clientId)}`, credentials);
   },
