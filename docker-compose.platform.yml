@@ -177,12 +177,92 @@ services:
       - sightops
     restart: unless-stopped
 
+  easy-backup-postgres:
+    image: postgres:16-alpine
+    container_name: easy-backup-postgres
+    environment:
+      POSTGRES_DB: ${EASY_BACKUP_DB:-easy_backup}
+      POSTGRES_USER: ${EASY_BACKUP_DB_USER:-easy_backup}
+      POSTGRES_PASSWORD: ${EASY_BACKUP_DB_PASSWORD:-${SIGHTOPS_DB_PASSWORD}}
+    volumes:
+      - easy_backup_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${EASY_BACKUP_DB_USER:-easy_backup} -d ${EASY_BACKUP_DB:-easy_backup}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - sightops
+    restart: unless-stopped
+
+  easy-urbackup-server:
+    image: uroni/urbackup-server:latest
+    container_name: easy-urbackup-server
+    network_mode: host
+    environment:
+      PUID: ${URBACKUP_PUID:-1000}
+      PGID: ${URBACKUP_PGID:-1000}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - easy_urbackup_backups:/backups
+      - easy_urbackup_db:/var/urbackup
+    restart: unless-stopped
+
+  easy-backup-backend:
+    build:
+      context: ./easy-backup-manager/backend
+    container_name: easy-backup-backend
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      DATABASE_URL: postgresql://${EASY_BACKUP_DB_USER:-easy_backup}:${EASY_BACKUP_DB_PASSWORD:-${SIGHTOPS_DB_PASSWORD}}@easy-backup-postgres:5432/${EASY_BACKUP_DB:-easy_backup}
+      JWT_SECRET: ${EASY_BACKUP_JWT_SECRET:-${SIGHTOPS_DB_PASSWORD}}
+      URBACKUP_BASE_URL: ${URBACKUP_BASE_URL:-http://host.docker.internal:55414}
+      CORS_ORIGIN: ${EASY_BACKUP_CORS_ORIGIN:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}
+    depends_on:
+      easy-backup-postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sightops
+    restart: unless-stopped
+
+  easy-backup-frontend:
+    build:
+      context: ./easy-backup-manager/frontend
+    container_name: easy-backup-frontend
+    depends_on:
+      - easy-backup-backend
+    networks:
+      - sightops
+    restart: unless-stopped
+
+  easy-backup-nginx:
+    image: nginx:1.27-alpine
+    container_name: easy-backup-nginx
+    depends_on:
+      - easy-backup-backend
+      - easy-backup-frontend
+    ports:
+      - "${EASY_BACKUP_PORT:-8090}:80"
+    volumes:
+      - ./easy-backup-manager/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - sightops
+    restart: unless-stopped
+
 volumes:
   sightops_data:
   sightops_output:
   sightops_postgres:
   zabbix_postgres:
   grafana_data:
+  easy_backup_postgres:
+  easy_urbackup_backups:
+  easy_urbackup_db:
 
 networks:
   sightops:
