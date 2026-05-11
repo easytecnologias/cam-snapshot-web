@@ -242,7 +242,7 @@ services:
   easy-backup-frontend:
     build:
       context: ./easy-backup-manager/frontend
-    image: easy-backup-frontend:20260511-client-installer
+    image: easy-backup-frontend:20260511-menu-fix
     container_name: easy-backup-frontend
     depends_on:
       - easy-backup-backend

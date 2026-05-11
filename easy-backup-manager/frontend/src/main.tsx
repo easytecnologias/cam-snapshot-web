@@ -288,7 +288,7 @@ function App() {
         <section className="min-w-0 flex-1">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold">Dashboard de backups</h1>
+              <h1 className="text-3xl font-bold">{view === 'Dashboard' ? 'Dashboard de backups' : view}</h1>
               <p className="mt-1 text-sm text-slate-400">Dados reais da API EASY Backup conectada ao UrBackup.</p>
             </div>
             <div className="flex gap-2">
@@ -301,7 +301,7 @@ function App() {
 
           <div className="mt-4 rounded-md border border-line bg-slate-900 p-3 text-sm text-slate-300">{loading ? 'Carregando...' : message}</div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-5">
+          <div className={`mt-6 grid gap-4 md:grid-cols-5 ${view === 'Dashboard' ? '' : 'hidden'}`}>
             {stats.map(({ label, value, icon: Icon, tone }) => (
               <div key={label} className="rounded-lg border border-line bg-panel p-4">
                 <div className={`mb-4 ${tone}`}><Icon size={22} /></div>
@@ -311,7 +311,7 @@ function App() {
             ))}
           </div>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_360px]">
+          <div className={`mt-6 grid gap-4 lg:grid-cols-[1fr_360px] ${view === 'Dashboard' ? '' : 'hidden'}`}>
             <section className="rounded-lg border border-line bg-panel p-5">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Maquinas protegidas</h2>
@@ -338,8 +338,8 @@ function App() {
             </aside>
           </div>
 
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <form className="rounded-lg border border-line bg-panel p-5" onSubmit={createMachine}>
+          <div className={`mt-6 grid gap-4 lg:grid-cols-2 ${view === 'Maquinas' || view === 'Backups' ? '' : 'hidden'}`}>
+            <form className={`rounded-lg border border-line bg-panel p-5 ${view === 'Maquinas' ? '' : 'hidden'}`} onSubmit={createMachine}>
               <h2 className="text-lg font-semibold">Cadastrar maquina</h2>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <input className="input" placeholder="Nome" value={machineForm.name} onChange={(e) => setMachineForm({ ...machineForm, name: e.target.value })} />
@@ -353,7 +353,7 @@ function App() {
               <p className="mt-3 text-sm text-slate-400">Para popular automaticamente, use Importar Windows. Para disparar backup, a maquina precisa ter o UrBackup Client instalado e sincronizado.</p>
             </form>
 
-            <form className="rounded-lg border border-line bg-panel p-5" onSubmit={startBackup}>
+            <form className={`rounded-lg border border-line bg-panel p-5 ${view === 'Backups' ? '' : 'hidden'}`} onSubmit={startBackup}>
               <h2 className="text-lg font-semibold">Iniciar backup</h2>
               <div className="mt-4 grid gap-3">
                 <select className="input" value={backupForm.machineId} onChange={(e) => setBackupForm({ ...backupForm, machineId: e.target.value })}>
@@ -375,6 +375,7 @@ function App() {
             <h2 className="text-lg font-semibold">{view}</h2>
             {view === 'Backups' && <JobList jobs={jobs} />}
             {view === 'Alertas' && <AlertList alerts={alerts} />}
+            {view === 'Maquinas' && <div className="mt-3"><MachineTable machines={machines} /></div>}
             {view === 'Storage' && <p className="mt-3 text-slate-300">Usado: {fmtBytes(dashboard?.usedBytes)} de {fmtBytes(dashboard?.totalBytes)}. Targets planejados: local, NAS e S3.</p>}
             {view === 'UrBackup' && (
               <div className="mt-3 space-y-3 text-slate-300">
@@ -383,7 +384,7 @@ function App() {
                 <p className="text-sm text-slate-400">Execute o PowerShell baixado como Administrador no computador que sera protegido.</p>
               </div>
             )}
-            {(view === 'Dashboard' || view === 'Maquinas') && <p className="mt-3 text-slate-300">Use os cards, tabela e formularios acima para operar.</p>}
+            {view === 'Dashboard' && <p className="mt-3 text-slate-300">Use os cards e a tabela acima para acompanhar a operacao.</p>}
           </section>
         </section>
       </div>
