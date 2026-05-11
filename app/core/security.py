@@ -29,6 +29,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             "/api/system/health/live",
             "/api/system/health/ready",
             "/api/system/info",
+            "/api/backup/status",
             "/api/live/jpeg",
             "/api/live/mjpeg",
             "/api/windows/agent/report",
