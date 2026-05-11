@@ -185,9 +185,9 @@ services:
     environment:
       POSTGRES_DB: ${EASY_BACKUP_DB:-easy_backup}
       POSTGRES_USER: ${EASY_BACKUP_DB_USER:-easy_backup}
-      POSTGRES_PASSWORD: ${EASY_BACKUP_DB_PASSWORD:-${SIGHTOPS_DB_PASSWORD}}
+      POSTGRES_PASSWORD: ${EASY_BACKUP_DB_PASSWORD:-easy-backup-internal-change-me}
     volumes:
-      - easy_backup_postgres:/var/lib/postgresql/data
+      - easy_backup_postgres_v2:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${EASY_BACKUP_DB_USER:-easy_backup} -d ${EASY_BACKUP_DB:-easy_backup}"]
       interval: 10s
@@ -217,8 +217,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4100
-      DATABASE_URL: postgresql://${EASY_BACKUP_DB_USER:-easy_backup}:${EASY_BACKUP_DB_PASSWORD:-${SIGHTOPS_DB_PASSWORD}}@easy-backup-postgres:5432/${EASY_BACKUP_DB:-easy_backup}
-      JWT_SECRET: ${EASY_BACKUP_JWT_SECRET:-${SIGHTOPS_DB_PASSWORD}}
+      DATABASE_URL: postgresql://${EASY_BACKUP_DB_USER:-easy_backup}:${EASY_BACKUP_DB_PASSWORD:-easy-backup-internal-change-me}@easy-backup-postgres:5432/${EASY_BACKUP_DB:-easy_backup}
+      JWT_SECRET: ${EASY_BACKUP_JWT_SECRET:-easy-backup-jwt-change-me}
       URBACKUP_BASE_URL: ${URBACKUP_BASE_URL:-http://host.docker.internal:55414}
       CORS_ORIGIN: ${EASY_BACKUP_CORS_ORIGIN:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}
     depends_on:
@@ -268,7 +268,7 @@ volumes:
   sightops_postgres:
   zabbix_postgres:
   grafana_data:
-  easy_backup_postgres:
+  easy_backup_postgres_v2:
   easy_urbackup_backups:
   easy_urbackup_db:
 
