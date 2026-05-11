@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
 import { asyncHandler } from '../../lib/asyncHandler.js';
 import { requireAuth, requireRole } from '../../middleware/auth.js';
@@ -157,7 +158,11 @@ Write-Host "Concluido. Volte no EASY Backup e clique em Sincronizar UrBackup." -
 }));
 
 urbackupRouter.post('/sync-clients', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
-  const payload = await urbackupClient.clients();
+  const credentials = z.object({
+    username: z.string().optional(),
+    password: z.string().optional(),
+  }).parse(req.body || {});
+  const payload = await urbackupClient.clients(credentials);
   if (payload.error) {
     throw new Error(`UrBackup retornou erro ${String(payload.error)} ao listar clientes.`);
   }

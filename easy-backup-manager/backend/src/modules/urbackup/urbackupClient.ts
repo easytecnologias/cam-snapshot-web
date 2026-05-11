@@ -2,6 +2,7 @@ import { config } from '../../config.js';
 import { createHash, pbkdf2Sync } from 'node:crypto';
 
 type Json = Record<string, unknown>;
+type UrBackupCredentials = { username?: string; password?: string };
 
 let session = '';
 
@@ -34,11 +35,11 @@ async function request(path: string, init?: RequestInit): Promise<Json> {
   }
 }
 
-async function login(): Promise<string> {
-  if (session) return session;
+async function login(credentials: UrBackupCredentials = {}): Promise<string> {
+  if (session && !credentials.username && !credentials.password) return session;
 
-  const username = config.urbackupUsername;
-  const password = config.urbackupPassword;
+  const username = String(credentials.username || config.urbackupUsername || '').trim();
+  const password = String(credentials.password || config.urbackupPassword || '');
 
   const anonymous = await request('/x?a=login&langs=en');
   if (anonymous.success === true && typeof anonymous.session === 'string') {
@@ -76,31 +77,31 @@ async function login(): Promise<string> {
   return session;
 }
 
-async function authedRequest(path: string): Promise<Json> {
-  await login();
+async function authedRequest(path: string, credentials: UrBackupCredentials = {}): Promise<Json> {
+  await login(credentials);
   const payload = await request(withSession(path));
   if (payload.error === 1) {
     session = '';
-    await login();
+    await login(credentials);
     return request(withSession(path));
   }
   return payload;
 }
 
 export const urbackupClient = {
-  async health() {
-    return authedRequest('/x?a=status');
+  async health(credentials?: UrBackupCredentials) {
+    return authedRequest('/x?a=status', credentials);
   },
-  async clients() {
-    return authedRequest('/x?a=status');
+  async clients(credentials?: UrBackupCredentials) {
+    return authedRequest('/x?a=status', credentials);
   },
-  async backups(clientId: string) {
-    return authedRequest(`/x?a=backups&clientid=${encodeURIComponent(clientId)}`);
+  async backups(clientId: string, credentials?: UrBackupCredentials) {
+    return authedRequest(`/x?a=backups&clientid=${encodeURIComponent(clientId)}`, credentials);
   },
-  async startBackup(clientId: string, type: 'full_file' | 'incremental_file' | 'full_image' | 'incremental_image') {
-    return authedRequest(`/x?a=start_backup&clientid=${encodeURIComponent(clientId)}&backup_type=${encodeURIComponent(type)}`);
+  async startBackup(clientId: string, type: 'full_file' | 'incremental_file' | 'full_image' | 'incremental_image', credentials?: UrBackupCredentials) {
+    return authedRequest(`/x?a=start_backup&clientid=${encodeURIComponent(clientId)}&backup_type=${encodeURIComponent(type)}`, credentials);
   },
-  async logs(clientId: string) {
-    return authedRequest(`/x?a=logs&clientid=${encodeURIComponent(clientId)}`);
+  async logs(clientId: string, credentials?: UrBackupCredentials) {
+    return authedRequest(`/x?a=logs&clientid=${encodeURIComponent(clientId)}`, credentials);
   },
 };

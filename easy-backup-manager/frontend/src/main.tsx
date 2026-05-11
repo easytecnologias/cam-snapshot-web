@@ -72,6 +72,9 @@ function App() {
   const [message, setMessage] = useState('Entre ou crie o primeiro admin para operar o backup.');
   const [loading, setLoading] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'bootstrap'>('login');
+  const [showUrBackupAuth, setShowUrBackupAuth] = useState(false);
+  const [urbackupAuth, setUrbackupAuth] = useState({ username: 'admin', password: '' });
+  const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
   const [authForm, setAuthForm] = useState({
     tenantName: 'Default',
     name: 'Administrador',
@@ -162,9 +165,14 @@ function App() {
 
   async function syncUrBackup() {
     try {
-      const body = await api<{ synced: number; rawCount: number }>('/api/urbackup/sync-clients', { method: 'POST', body: '{}' });
+      const body = await api<{ synced: number; rawCount: number }>('/api/urbackup/sync-clients', {
+        method: 'POST',
+        body: JSON.stringify(urbackupAuth.password ? urbackupAuth : {}),
+      });
       await refreshAll();
       setMessage(`UrBackup sincronizado: ${body.synced} cliente(s) importado(s), ${body.rawCount} encontrado(s).`);
+      setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
+      setShowUrBackupAuth(false);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao sincronizar UrBackup.');
     }
@@ -215,6 +223,20 @@ function App() {
       setMessage('Backup solicitado ao UrBackup.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao iniciar backup.');
+    }
+  }
+
+  async function startSelectedBackups() {
+    if (!selectedMachines.length) return setMessage('Selecione pelo menos uma maquina na tabela.');
+    try {
+      const body = await api<{ jobs: BackupJob[]; skipped: Array<{ machineId: string; reason: string }> }>('/api/backups/start-bulk', {
+        method: 'POST',
+        body: JSON.stringify({ machineIds: selectedMachines, type: backupForm.type }),
+      });
+      await refreshAll();
+      setMessage(`Backup solicitado para ${body.jobs.length} maquina(s). Ignoradas: ${body.skipped.length}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao iniciar backups selecionados.');
     }
   }
 
@@ -289,9 +311,20 @@ function App() {
               <button className="btn-secondary" onClick={() => refreshAll()}><RefreshCw size={18} /> Atualizar</button>
               <button className="btn-secondary" onClick={downloadUrBackupClientScript}><Download size={18} /> Cliente Windows</button>
               <button className="btn-secondary" onClick={importWindowsInventory}><Server size={18} /> Importar Windows</button>
-              <button className="btn-secondary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
+              <button className="btn-secondary" onClick={() => setShowUrBackupAuth((value) => !value)}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
             </div>
           </header>
+
+          {showUrBackupAuth && (
+            <section className="mt-4 rounded-lg border border-line bg-panel p-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                <input className="input" placeholder="Usuario UrBackup" value={urbackupAuth.username} onChange={(e) => setUrbackupAuth({ ...urbackupAuth, username: e.target.value })} />
+                <input className="input" placeholder="Senha UrBackup" type="password" value={urbackupAuth.password} onChange={(e) => setUrbackupAuth({ ...urbackupAuth, password: e.target.value })} />
+                <button className="btn-primary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar</button>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">A senha e usada somente nesta chamada e nao e salva no navegador.</p>
+            </section>
+          )}
 
           <div className="mt-4 rounded-md border border-line bg-slate-900 p-3 text-sm text-slate-300">{loading ? 'Carregando...' : message}</div>
 
@@ -311,7 +344,17 @@ function App() {
                 <h2 className="text-lg font-semibold">Maquinas protegidas</h2>
                 <span className="text-sm text-slate-400">{machines.length} endpoint(s)</span>
               </div>
-              <MachineTable machines={machines} />
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <select className="input max-w-xs" value={backupForm.type} onChange={(e) => setBackupForm({ ...backupForm, type: e.target.value })}>
+                  <option value="incremental_file">Arquivos incremental</option>
+                  <option value="full_file">Arquivos completo</option>
+                  <option value="incremental_image">Imagem incremental</option>
+                  <option value="full_image">Imagem completa</option>
+                </select>
+                <button className="btn-primary" onClick={startSelectedBackups}><PlayCircle size={18} /> Backup selecionados</button>
+                <span className="text-sm text-slate-400">{selectedMachines.length} selecionada(s)</span>
+              </div>
+              <MachineTable machines={machines} selectedIds={selectedMachines} onSelectionChange={setSelectedMachines} />
             </section>
           </div>
 
@@ -352,7 +395,7 @@ function App() {
             <h2 className="text-lg font-semibold">{view}</h2>
             {view === 'Backups' && <JobList jobs={jobs} />}
             {view === 'Alertas' && <AlertList alerts={alerts} />}
-            {view === 'Maquinas' && <div className="mt-3"><MachineTable machines={machines} /></div>}
+            {view === 'Maquinas' && <div className="mt-3"><MachineTable machines={machines} selectedIds={selectedMachines} onSelectionChange={setSelectedMachines} /></div>}
             {view === 'Storage' && <p className="mt-3 text-slate-300">Usado: {fmtBytes(dashboard?.usedBytes)} de {fmtBytes(dashboard?.totalBytes)}. Targets planejados: local, NAS e S3.</p>}
             {view === 'UrBackup' && (
               <div className="mt-3 space-y-3 text-slate-300">
@@ -369,18 +412,40 @@ function App() {
   );
 }
 
-function MachineTable({ machines }: { machines: Machine[] }) {
+function MachineTable({
+  machines,
+  selectedIds = [],
+  onSelectionChange,
+}: {
+  machines: Machine[];
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+}) {
   if (!machines.length) return <div className="rounded-md border border-dashed border-line p-6 text-slate-400">Nenhuma maquina cadastrada. Sincronize o UrBackup ou cadastre manualmente.</div>;
+  const selectable = !!onSelectionChange;
+  const selected = new Set(selectedIds);
+  const toggle = (id: string) => {
+    if (!onSelectionChange) return;
+    onSelectionChange(selected.has(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id]);
+  };
+  const toggleAll = () => {
+    if (!onSelectionChange) return;
+    onSelectionChange(selectedIds.length === machines.length ? [] : machines.map((machine) => machine.id));
+  };
   return (
     <div className="overflow-auto rounded-md border border-line">
       <table className="w-full min-w-[820px] text-left text-sm text-slate-200">
         <thead className="bg-slate-900 text-slate-300">
-          <tr><th className="p-3">Nome</th><th>IP</th><th>Sistema</th><th>Status</th><th>Backup</th><th>Ultimo</th><th>Grupo</th><th>UrBackup</th></tr>
+          <tr>
+            {selectable && <th className="p-3"><input type="checkbox" checked={selectedIds.length === machines.length} onChange={toggleAll} /></th>}
+            <th className={selectable ? '' : 'p-3'}>Nome</th><th>IP</th><th>Sistema</th><th>Status</th><th>Backup</th><th>Ultimo</th><th>Grupo</th><th>UrBackup</th>
+          </tr>
         </thead>
         <tbody>
           {machines.map((m) => (
             <tr key={m.id} className="border-t border-line">
-              <td className="p-3 font-medium text-white">{m.name}</td><td>{m.ip || '-'}</td><td>{m.os || '-'}</td>
+              {selectable && <td className="p-3"><input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} /></td>}
+              <td className={selectable ? 'font-medium text-white' : 'p-3 font-medium text-white'}>{m.name}</td><td>{m.ip || '-'}</td><td>{m.os || '-'}</td>
               <td><span className={statusClass(m.status)}>{m.status}</span></td>
               <td><span className={statusClass(m.backupStatus)}>{m.backupStatus}</span></td>
               <td>{fmtDate(m.lastBackupAt)}</td><td>{m.group || '-'}</td><td>{m.urbackupClientId || '-'}</td>
