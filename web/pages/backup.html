@@ -97,11 +97,11 @@
         <div class="dashboard-db-pill" id="backup-status-pill">Verificando</div>
       </section>
 
-      <section class="backup-kpis" aria-label="Indicadores planejados">
-        <div class="dashboard-kpi"><span>Total de PCs</span><strong>40+</strong><small>Meta inicial do MVP</small></div>
-        <div class="dashboard-kpi"><span>Engine</span><strong>UrBackup</strong><small>Servidor Docker</small></div>
-        <div class="dashboard-kpi"><span>Storage</span><strong>NAS/S3</strong><small>Local agora, S3 depois</small></div>
-        <div class="dashboard-kpi"><span>Restore</span><strong>RTO</strong><small>Foco em recuperacao rapida</small></div>
+      <section class="backup-kpis" aria-label="Indicadores do backup">
+        <div class="dashboard-kpi"><span>PCs no inventario</span><strong id="backup-total-pcs">--</strong><small>Fonte: Inventario Windows</small></div>
+        <div class="dashboard-kpi"><span>Online</span><strong id="backup-online-pcs">--</strong><small id="backup-offline-pcs">Offline: --</small></div>
+        <div class="dashboard-kpi"><span>Discos mapeados</span><strong id="backup-disk-total">--</strong><small id="backup-ssd-total">SSD: --</small></div>
+        <div class="dashboard-kpi"><span>Engine</span><strong id="backup-engine-state">--</strong><small>UrBackup Server</small></div>
       </section>
 
       <section class="backup-grid">
@@ -112,9 +112,11 @@
             <div><span>URL configurada</span><strong id="backup-url">Carregando...</strong></div>
             <div><span>Status</span><strong id="backup-status-text">Verificando...</strong></div>
             <div><span>Engine</span><strong id="backup-engine">UrBackup</strong></div>
+            <div><span>Ultimo inventario Windows</span><strong id="backup-last-seen">--</strong></div>
           </div>
           <div class="actions-row">
             <a class="btn-primary backup-launch" id="backup-open" href="#" target="_blank" rel="noopener">Abrir EASY Backup</a>
+            <a class="btn-secondary backup-launch" href="windows.html">Ver inventario Windows</a>
           </div>
         </div>
 
@@ -131,14 +133,14 @@
         </div>
 
         <div class="card backup-panel">
-          <div class="card-title">MVP entregue no repositorio</div>
-          <div class="card-sub">Base preparada para virar produto dentro do SightOps.</div>
+          <div class="card-title">O que ja esta funcional</div>
+          <div class="card-sub">Base conectada ao servidor e ao inventario do SightOps.</div>
           <ul class="backup-list">
-            <li>Backend Node.js + TypeScript + Prisma</li>
-            <li>Frontend React + Tailwind</li>
-            <li>PostgreSQL e Nginx reverso</li>
-            <li>JWT, RBAC e multiempresa inicial</li>
-            <li>Endpoints de maquinas, backups, alertas e dashboard</li>
+            <li>Painel EASY Backup em Docker</li>
+            <li>UrBackup Server online no host</li>
+            <li>Importacao do inventario Windows</li>
+            <li>Instalador Windows baixado pelo servidor local</li>
+            <li>Dashboard, maquinas, backups, alertas e storage</li>
           </ul>
         </div>
 
@@ -146,11 +148,11 @@
           <div class="card-title">Proximas etapas</div>
           <div class="card-sub">Ordem recomendada para colocar em operacao.</div>
           <ol class="backup-list">
-            <li>Subir a stack Docker no servidor.</li>
-            <li>Criar primeiro admin no endpoint de bootstrap.</li>
-            <li>Instalar UrBackup Client em uma maquina piloto.</li>
-            <li>Sincronizar clientes pelo painel.</li>
-            <li>Executar restore de teste antes de clientes reais.</li>
+            <li>Entrar no EASY Backup.</li>
+            <li>Baixar o Cliente Windows pelo painel.</li>
+            <li>Executar em uma maquina piloto como Administrador.</li>
+            <li>Sincronizar UrBackup e importar Windows.</li>
+            <li>Fazer um backup e um restore de teste.</li>
           </ol>
         </div>
       </section>
@@ -163,6 +165,18 @@
 (function () {
   function el(id) { return document.getElementById(id); }
   function setText(id, value) { var node = el(id); if (node) node.textContent = value; }
+  function fmtGb(value) {
+    var n = Number(value || 0);
+    if (!isFinite(n) || n <= 0) return '0 GB';
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' TB';
+    return Math.round(n) + ' GB';
+  }
+  function fmtDate(value) {
+    if (!value) return '--';
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return value;
+    return d.toLocaleString('pt-BR');
+  }
   function loadBackupStatus() {
     setText('backup-status-text', 'Verificando...');
     fetch('/api/backup/status?_=' + Date.now(), { cache: 'no-store' })
@@ -174,6 +188,14 @@
         setText('backup-url', url || 'Nao configurado');
         setText('backup-status-text', online ? 'Online' : 'Aguardando deploy');
         setText('backup-engine', payload.engine || 'UrBackup');
+        setText('backup-engine-state', online ? 'Online' : 'Offline');
+        var inv = payload.windows_inventory || {};
+        setText('backup-total-pcs', inv.total || 0);
+        setText('backup-online-pcs', inv.online || 0);
+        setText('backup-offline-pcs', 'Offline: ' + (inv.offline || 0));
+        setText('backup-disk-total', fmtGb(inv.disk_total_gb));
+        setText('backup-ssd-total', 'SSD: ' + (inv.ssd || 0));
+        setText('backup-last-seen', fmtDate(inv.last_seen));
         if (pill) {
           pill.textContent = online ? 'EASY Backup online' : 'Stack nao iniciada';
           pill.classList.toggle('is-ok', online);
