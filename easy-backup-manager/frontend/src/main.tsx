@@ -171,6 +171,16 @@ function App() {
     }
   }
 
+  async function importWindowsInventory() {
+    try {
+      const body = await api<{ imported: number; skipped: number; total: number }>('/api/machines/import/windows-inventory', { method: 'POST', body: '{}' });
+      await refreshAll();
+      setMessage(`Inventario Windows importado: ${body.imported}/${body.total} maquina(s), ${body.skipped} ignorada(s).`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao importar inventario Windows.');
+    }
+  }
+
   async function startBackup(event: FormEvent) {
     event.preventDefault();
     if (!backupForm.machineId) return setMessage('Selecione uma maquina.');
@@ -257,6 +267,7 @@ function App() {
             </div>
             <div className="flex gap-2">
               <button className="btn-secondary" onClick={() => refreshAll()}><RefreshCw size={18} /> Atualizar</button>
+              <button className="btn-secondary" onClick={importWindowsInventory}><Server size={18} /> Importar Windows</button>
               <button className="btn-secondary" onClick={syncUrBackup}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
             </div>
           </header>
@@ -309,9 +320,10 @@ function App() {
                 <input className="input" placeholder="Sistema" value={machineForm.os} onChange={(e) => setMachineForm({ ...machineForm, os: e.target.value })} />
                 <input className="input" placeholder="Grupo" value={machineForm.group} onChange={(e) => setMachineForm({ ...machineForm, group: e.target.value })} />
                 <input className="input" placeholder="Empresa" value={machineForm.company} onChange={(e) => setMachineForm({ ...machineForm, company: e.target.value })} />
-                <input className="input" placeholder="ID cliente UrBackup" value={machineForm.urbackupClientId} onChange={(e) => setMachineForm({ ...machineForm, urbackupClientId: e.target.value })} />
+                <input className="input" placeholder="ID cliente UrBackup (opcional)" value={machineForm.urbackupClientId} onChange={(e) => setMachineForm({ ...machineForm, urbackupClientId: e.target.value })} />
               </div>
               <button className="btn-primary mt-4">Cadastrar</button>
+              <p className="mt-3 text-sm text-slate-400">Para popular automaticamente, use Importar Windows. Para disparar backup, a maquina precisa ter o UrBackup Client instalado e sincronizado.</p>
             </form>
 
             <form className="rounded-lg border border-line bg-panel p-5" onSubmit={startBackup}>

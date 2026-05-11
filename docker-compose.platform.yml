@@ -213,7 +213,7 @@ services:
   easy-backup-backend:
     build:
       context: ./easy-backup-manager/backend
-    image: easy-backup-backend:20260511-functional
+    image: easy-backup-backend:20260511-windows-import
     container_name: easy-backup-backend
     environment:
       NODE_ENV: production
@@ -222,6 +222,7 @@ services:
       JWT_SECRET: ${EASY_BACKUP_JWT_SECRET:-easy-backup-jwt-change-me}
       URBACKUP_BASE_URL: ${URBACKUP_BASE_URL:-http://host.docker.internal:55414}
       CORS_ORIGIN: ${EASY_BACKUP_CORS_ORIGIN:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}
+      SIGHTOPS_WINDOWS_INVENTORY_PATH: /sightops-data/windows-inventory.json
     depends_on:
       easy-backup-postgres:
         condition: service_healthy
@@ -229,6 +230,8 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - sightops_data:/sightops-data:ro
     networks:
       sightops:
         aliases:
@@ -238,7 +241,7 @@ services:
   easy-backup-frontend:
     build:
       context: ./easy-backup-manager/frontend
-    image: easy-backup-frontend:20260511-functional
+    image: easy-backup-frontend:20260511-windows-import
     container_name: easy-backup-frontend
     depends_on:
       - easy-backup-backend
