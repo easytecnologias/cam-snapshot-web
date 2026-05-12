@@ -122,9 +122,39 @@ backupsRouter.get('/', requireAuth, asyncHandler(async (req, res) => {
   res.json({ jobs });
 }));
 
-backupsRouter.get('/runtime', requireAuth, asyncHandler(async (_req, res) => {
+backupsRouter.get('/runtime', requireAuth, asyncHandler(async (req, res) => {
   const progress = await urbackupClient.progress();
-  res.json({ ok: true, processes: progressRows(progress), raw: progress });
+  const processes = progressRows(progress);
+  const tenantId = req.user!.tenantId;
+
+  if (!processes.length) {
+    await prisma.backupJob.updateMany({
+      where: { status: 'RUNNING', machine: { tenantId } },
+      data: { status: 'WARNING', error: 'UrBackup nao reporta job ativo no momento.', finishedAt: new Date() },
+    });
+    await prisma.machine.updateMany({
+      where: { tenantId, backupStatus: 'RUNNING' },
+      data: { backupStatus: 'UNKNOWN' },
+    });
+  } else {
+    const machines = await prisma.machine.findMany({ where: { tenantId } });
+    for (const machine of machines) {
+      const active = processes.some((row) => {
+        const clientId = rowClientId(row);
+        const name = rowName(row).toLowerCase();
+        return (!!machine.urbackupClientId && clientId === machine.urbackupClientId)
+          || (!!machine.name && name === machine.name.toLowerCase());
+      });
+      if (active) {
+        await prisma.machine.update({
+          where: { id: machine.id },
+          data: { backupStatus: 'RUNNING', status: 'ONLINE', lastSeenAt: new Date() },
+        });
+      }
+    }
+  }
+
+  res.json({ ok: true, processes, raw: progress });
 }));
 
 backupsRouter.post('/start', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {

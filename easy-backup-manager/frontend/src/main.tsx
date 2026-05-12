@@ -680,7 +680,7 @@ function RuntimePanel({ processes }: { processes: RuntimeProcess[] }) {
         <span className="text-xs text-slate-400">{processes.length ? `${processes.length} processo(s)` : 'sem job ativo'}</span>
       </div>
       {!processes.length ? (
-        <p className="text-sm text-slate-400">Nenhum backup em execucao reportado pelo UrBackup agora.</p>
+        <p className="text-sm text-amber-200">Nenhum backup em execucao reportado pelo UrBackup agora. Se alguma maquina estava RUNNING, o status sera corrigido na proxima atualizacao.</p>
       ) : (
         <div className="space-y-3">
           {processes.map((row, index) => {
