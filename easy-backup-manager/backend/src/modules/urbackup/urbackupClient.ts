@@ -20,6 +20,7 @@ async function request(path: string, init?: RequestInit): Promise<Json> {
   let url = `${base}${path}`;
   let body: string | undefined;
   let method = init?.method;
+  let contentType = 'application/json; charset=utf-8';
   if (path.startsWith('/x?')) {
     const query = path.split('?')[1] || '';
     const params = new URLSearchParams(query);
@@ -28,6 +29,7 @@ async function request(path: string, init?: RequestInit): Promise<Json> {
     url = `${base}/x?a=${encodeURIComponent(action)}`;
     body = params.toString();
     method = 'POST';
+    contentType = 'application/x-www-form-urlencoded; charset=utf-8';
   }
   const response = await fetch(url, {
     ...init,
@@ -35,7 +37,7 @@ async function request(path: string, init?: RequestInit): Promise<Json> {
     body: init?.body || body,
     headers: {
       Accept: 'application/json',
-      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Type': contentType,
       ...(init?.headers || {}),
     },
   });
@@ -105,6 +107,21 @@ async function authedRequest(path: string, credentials: UrBackupCredentials = {}
   return payload;
 }
 
+async function authedDownload(path: string, credentials: UrBackupCredentials = {}) {
+  await login(credentials);
+  const base = config.urbackupBaseUrl.replace(/\/$/, '');
+  const url = `${base}${withSession(path)}`;
+  const response = await fetch(url, { headers: { Accept: 'application/octet-stream' } });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`UrBackup HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get('content-type') || 'application/octet-stream',
+  };
+}
+
 export const urbackupClient = {
   async health(credentials?: UrBackupCredentials) {
     return authedRequest('/x?a=status', credentials);
@@ -126,5 +143,12 @@ export const urbackupClient = {
   },
   async logs(clientId: string, credentials?: UrBackupCredentials) {
     return authedRequest(`/x?a=logs&clientid=${encodeURIComponent(clientId)}`, credentials);
+  },
+  async addClient(clientName: string, credentials?: UrBackupCredentials) {
+    return authedRequest(`/x?a=add_client&clientname=${encodeURIComponent(clientName)}`, credentials);
+  },
+  async downloadClient(clientId: string, authKey: string | undefined, credentials?: UrBackupCredentials) {
+    const authParam = authKey ? `&authkey=${encodeURIComponent(authKey)}` : '';
+    return authedDownload(`/x?a=download_client&clientid=${encodeURIComponent(clientId)}${authParam}`, credentials);
   },
 };

@@ -165,12 +165,14 @@ function App() {
 
   async function syncUrBackup() {
     try {
-      const body = await api<{ synced: number; rawCount: number }>('/api/urbackup/sync-clients', {
+      const body = await api<{ synced: number; rawCount: number; discoveryCount?: number }>('/api/urbackup/sync-clients', {
         method: 'POST',
         body: JSON.stringify(urbackupAuth.password ? urbackupAuth : {}),
       });
       await refreshAll();
-      setMessage(`UrBackup sincronizado: ${body.synced} cliente(s) importado(s), ${body.rawCount} encontrado(s).`);
+      setMessage(body.synced > 0
+        ? `UrBackup sincronizado: ${body.synced} cliente(s) importado(s), ${body.rawCount} ativo(s).`
+        : `UrBackup ainda nao tem cliente ativo. ${body.discoveryCount || 0} dica(s) de descoberta encontrada(s). Baixe novamente o Cliente Windows e execute como Administrador para criar o cliente personalizado.`);
       setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
       setShowUrBackupAuth(false);
     } catch (err) {

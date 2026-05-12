@@ -15,9 +15,12 @@ function clientsFromStatus(payload: Record<string, unknown>) {
   if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
   const clients = payload.clients;
   if (Array.isArray(clients)) return clients as Array<Record<string, unknown>>;
-  const extraClients = payload.extra_clients;
-  if (Array.isArray(extraClients)) return extraClients as Array<Record<string, unknown>>;
   return [];
+}
+
+function discoveryHintsFromStatus(payload: Record<string, unknown>) {
+  const extraClients = payload.extra_clients;
+  return Array.isArray(extraClients) ? extraClients as Array<Record<string, unknown>> : [];
 }
 
 function mergeClients(target: Map<string, Record<string, unknown>>, payload: Record<string, unknown>) {
@@ -64,6 +67,49 @@ urbackupRouter.get('/windows-client-download', asyncHandler(async (_req, res) =>
   res.send(installer);
 }));
 
+urbackupRouter.post('/windows-custom-client-download', asyncHandler(async (req, res) => {
+  const body = z.object({
+    username: z.string().min(1),
+    password: z.string().min(1),
+    clientName: z.string().min(1).max(80),
+  }).parse(req.body || {});
+  const credentials = { username: body.username, password: body.password };
+  const normalizedName = body.clientName.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 64);
+
+  let newClient = await urbackupClient.addClient(normalizedName, credentials);
+  let clientId = String(newClient.new_clientid || '').trim();
+  let authKey = String(newClient.new_authkey || '').trim();
+
+  if (!clientId && newClient.already_exists) {
+    const status = await urbackupClient.clients(credentials);
+    const downloads = Array.isArray(status.client_downloads) ? status.client_downloads as Array<Record<string, unknown>> : [];
+    const existing = downloads.find((client) => String(client.name || '').trim() === normalizedName);
+    clientId = String(existing?.id || '').trim();
+  }
+
+  if (!clientId) {
+    const fallbackName = `${normalizedName}-${Date.now().toString(36)}`.slice(0, 80);
+    newClient = await urbackupClient.addClient(fallbackName, credentials);
+    clientId = String(newClient.new_clientid || '').trim();
+    authKey = String(newClient.new_authkey || '').trim();
+  }
+
+  if (!clientId) {
+    throw new Error('UrBackup nao criou o cliente personalizado. Verifique permissoes de add_client/settings para o usuario informado.');
+  }
+
+  const installer = await urbackupClient.downloadClient(clientId, authKey || undefined, credentials);
+  if (installer.buffer.length < 10 * 1024) {
+    throw new Error('UrBackup retornou um instalador invalido ou vazio.');
+  }
+
+  res.setHeader('Content-Type', installer.contentType);
+  res.setHeader('Content-Disposition', 'attachment; filename="EasyBackup-UrBackup-Client.exe"');
+  res.setHeader('Content-Length', String(installer.buffer.length));
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(installer.buffer);
+}));
+
 urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (req, res) => {
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
@@ -71,11 +117,12 @@ urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (re
   const serverHost = new URL(appBaseUrl).hostname || '10.10.12.7';
   const script = `# EASY Backup Manager - Instalador do UrBackup Client para Windows
 # Execute este arquivo como Administrador no computador que sera protegido.
-# Ele baixa o cliente oficial do UrBackup, instala silenciosamente e reinicia o servico.
+# Ele cria um cliente personalizado no UrBackup, baixa o instalador do proprio servidor e reinicia o servico.
 
 $ErrorActionPreference = "Stop"
 $ServerAddress = "${serverHost}"
 $DownloadUrl = "${appBaseUrl}/api/urbackup/windows-client-download"
+$CustomDownloadUrl = "${appBaseUrl}/api/urbackup/windows-custom-client-download"
 $FallbackDownloadUrl = "${windowsClientUrl}"
 $Installer = Join-Path $env:TEMP "UrBackupClientSetup.exe"
 $InstallTimeoutSeconds = 300
@@ -93,29 +140,54 @@ if (-not $IsAdmin) {
 
 Write-Host "Servidor EASY Backup/UrBackup: $ServerAddress" -ForegroundColor Cyan
 
+$UrBackupUser = Read-Host "Usuario admin do UrBackup" 
+if ([string]::IsNullOrWhiteSpace($UrBackupUser)) { $UrBackupUser = "admin" }
+$UrBackupSecurePassword = Read-Host "Senha do UrBackup" -AsSecureString
+$UrBackupPassword = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($UrBackupSecurePassword))
+$ClientName = $env:COMPUTERNAME
+
 $svc = Get-Service | Where-Object { $_.Name -like "UrBackup*" -or $_.DisplayName -like "UrBackup*" } | Select-Object -First 1
 if ($svc) {
-  Write-Host "UrBackup Client ja esta instalado: $($svc.DisplayName). Pulando instalador." -ForegroundColor Yellow
-} else {
-  Write-Host "Baixando cliente UrBackup pelo servidor EASY Backup: $DownloadUrl" -ForegroundColor Cyan
-  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
-  } catch {
-    Write-Host "Download local falhou: $($_.Exception.Message)" -ForegroundColor Yellow
-    Write-Host "Tentando download oficial do UrBackup: $FallbackDownloadUrl" -ForegroundColor Yellow
-    Invoke-WebRequest -Uri $FallbackDownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
-  }
+  Write-Host "UrBackup Client ja esta instalado: $($svc.DisplayName). Vou reparar o pareamento e reinstalar o cliente personalizado." -ForegroundColor Yellow
+  Stop-Service -Name $svc.Name -Force -ErrorAction SilentlyContinue
+}
 
-  Write-Host "Instalando em modo silencioso..." -ForegroundColor Cyan
-  $process = Start-Process -FilePath $Installer -ArgumentList "/S" -PassThru
-  if (-not $process.WaitForExit($InstallTimeoutSeconds * 1000)) {
-    try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch {}
-    throw "Instalador demorou mais de $InstallTimeoutSeconds segundos. Se o cliente ja apareceu instalado, execute este script novamente para concluir firewall/testes."
+$InstallRoots = @(
+  "$env:ProgramFiles\\UrBackup",
+  "\${env:ProgramFiles(x86)}\\UrBackup"
+) | Where-Object { $_ -and (Test-Path $_) }
+foreach ($root in $InstallRoots) {
+  $ident = Join-Path $root "server_idents.txt"
+  if (Test-Path $ident) {
+    $backupIdent = "$ident.easybackup.bak"
+    Move-Item -Path $ident -Destination $backupIdent -Force
+    Write-Host "Identidade antiga do servidor removida: $ident" -ForegroundColor Yellow
   }
-  if ($process.ExitCode -ne 0) {
-    Write-Host "Aviso: instalador retornou codigo $($process.ExitCode)." -ForegroundColor Yellow
-  }
+}
+
+try {
+  Write-Host "Criando cliente personalizado no UrBackup e baixando instalador pelo EASY Backup..." -ForegroundColor Cyan
+  $payload = @{
+    username = $UrBackupUser
+    password = $UrBackupPassword
+    clientName = $ClientName
+  } | ConvertTo-Json
+  Invoke-WebRequest -Uri $CustomDownloadUrl -Method POST -Body $payload -ContentType "application/json" -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+} catch {
+  Write-Host "Instalador personalizado falhou: $($_.Exception.Message)" -ForegroundColor Yellow
+  Write-Host "Tentando cliente oficial do UrBackup como ultimo recurso: $FallbackDownloadUrl" -ForegroundColor Yellow
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Invoke-WebRequest -Uri $FallbackDownloadUrl -OutFile $Installer -UseBasicParsing -TimeoutSec 900
+}
+
+Write-Host "Instalando em modo silencioso..." -ForegroundColor Cyan
+$process = Start-Process -FilePath $Installer -ArgumentList "/S" -PassThru
+if (-not $process.WaitForExit($InstallTimeoutSeconds * 1000)) {
+  try { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue } catch {}
+  throw "Instalador demorou mais de $InstallTimeoutSeconds segundos. Se o cliente ja apareceu instalado, execute este script novamente para concluir firewall/testes."
+}
+if ($process.ExitCode -ne 0) {
+  Write-Host "Aviso: instalador retornou codigo $($process.ExitCode)." -ForegroundColor Yellow
 }
 
 Write-Host "Configurando firewall local do UrBackup Client..." -ForegroundColor Cyan
@@ -159,7 +231,7 @@ try {
   Write-Host "Nao foi possivel testar a porta 55415: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-Write-Host "Aguarde ate 60 segundos para o servidor descobrir o cliente na rede local." -ForegroundColor Cyan
+Write-Host "Aguarde ate 60 segundos para o cliente personalizado conectar no servidor." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Concluido. Volte no EASY Backup e clique em Sincronizar UrBackup." -ForegroundColor Green
 `;
@@ -179,20 +251,38 @@ urbackupRouter.post('/sync-clients', requireAuth, requireRole('OPERATOR'), async
     take: 500,
   });
   const clientMap = new Map<string, Record<string, unknown>>();
+  const discoveryMap = new Map<string, Record<string, unknown>>();
   const payload = await urbackupClient.clients(credentials);
   if (payload.error) {
     throw new Error(`UrBackup retornou erro ${String(payload.error)} ao listar clientes.`);
   }
   mergeClients(clientMap, payload);
+  for (const hint of discoveryHintsFromStatus(payload)) {
+    const key = String(hint.id || hint.hostname || '').trim();
+    if (key) discoveryMap.set(key, hint);
+  }
   for (const machine of knownMachines) {
     for (const hostname of [machine.ip, machine.name]) {
       const value = String(hostname || '').trim();
       if (!value) continue;
       const lookupPayload = await urbackupClient.clients(credentials, value);
       mergeClients(clientMap, lookupPayload);
+      for (const hint of discoveryHintsFromStatus(lookupPayload)) {
+        const key = String(hint.id || hint.hostname || '').trim();
+        if (key) discoveryMap.set(key, hint);
+      }
     }
   }
   const clients = [...clientMap.values()];
+  const validClientIds = new Set(clients.map((client) => String(client.id || client.clientid || client.client_id || '').trim()).filter(Boolean));
+  await prisma.machine.updateMany({
+    where: {
+      tenantId: req.user!.tenantId,
+      urbackupClientId: { not: null },
+      NOT: { urbackupClientId: { in: [...validClientIds] } },
+    },
+    data: { urbackupClientId: null, backupStatus: 'UNKNOWN' },
+  });
   let synced = 0;
   for (const client of clients) {
     const clientId = String(client.id || client.clientid || client.client_id || '').trim();
@@ -227,5 +317,5 @@ urbackupRouter.post('/sync-clients', requireAuth, requireRole('OPERATOR'), async
     }
     synced += 1;
   }
-  res.json({ ok: true, synced, rawCount: clients.length });
+  res.json({ ok: true, synced, rawCount: clients.length, discoveryCount: discoveryMap.size });
 }));
