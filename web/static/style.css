@@ -5867,6 +5867,24 @@ body[data-theme="dark"] .auth-role-badge{
   font-size: 13px;
 }
 
+.windows-table-card table td strong,
+.windows-table-card table td small{
+  display: block;
+  min-width: 0;
+}
+
+.windows-table-card table td strong{
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.windows-table-card table td small{
+  margin-top: 3px;
+  color: #93c5fd;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .windows-table-card table th{
   font-size: 12px;
 }

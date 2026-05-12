@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=87" />
+  <link rel="stylesheet" href="/static/style.css?v=88" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -163,31 +163,27 @@
       <div class="table-wrap windows-table-wrap">
         <table>
           <colgroup>
-            <col style="width:120px" />
-            <col style="width:170px" />
-            <col style="width:190px" />
-            <col style="width:170px" />
             <col style="width:210px" />
-            <col style="width:270px" />
-            <col style="width:160px" />
-            <col style="width:160px" />
-            <col style="width:190px" />
+            <col style="width:230px" />
+            <col style="width:170px" />
+            <col style="width:260px" />
+            <col style="width:130px" />
+            <col style="width:210px" />
+            <col style="width:170px" />
           </colgroup>
           <thead>
             <tr>
-              <th>IP</th>
-              <th>MAC</th>
-              <th>Host</th>
-              <th>Usuario</th>
+              <th>Rede</th>
+              <th>Computador</th>
               <th>Windows</th>
               <th>Modelo</th>
-              <th>Processador</th>
+              <th>CPU</th>
               <th>Memoria</th>
               <th>Discos</th>
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="7" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -208,6 +204,12 @@
   function cell(label, value) {
     var safe = esc(value || '-');
     return '<td data-label="' + esc(label) + '" title="' + safe + '">' + safe + '</td>';
+  }
+  function stackCell(label, main, sub) {
+    var mainText = esc(main || '-');
+    var subText = esc(sub || '');
+    var title = esc([main, sub].filter(Boolean).join(' / '));
+    return '<td data-label="' + esc(label) + '" title="' + title + '"><strong>' + mainText + '</strong>' + (subText ? '<small>' + subText + '</small>' : '') + '</td>';
   }
   function setStatus(msg) {
     var node = el('win-status');
@@ -255,18 +257,31 @@
     var total = row && row.ram_gb ? Math.round(Number(row.ram_gb)) + ' GB' : '';
     var ddr = '';
     var speed = '';
+    var banks = modules.filter(function (module) {
+      return module && Number(module.capacity_gb || 0) > 0;
+    }).length || modules.length || Number(row && row.memory_slots) || 0;
     modules.some(function (module) {
       if (!module) return false;
       ddr = text(module.ddr);
       speed = text(module.configured_speed_mhz || module.speed_mhz);
       return !!(ddr || speed);
     });
-    return [total, ddr, speed ? speed + ' MHz' : ''].filter(Boolean).join(' ');
+    var bankText = banks ? banks + ' banco' + (banks > 1 ? 's' : '') + ':' : '';
+    return [bankText, total, ddr, speed ? speed + ' MHz' : ''].filter(Boolean).join(' ');
+  }
+  function diskKindFromDisks(row) {
+    var disks = Array.isArray(row && row.disks) ? row.disks : [];
+    var joined = disks.map(function (disk) {
+      return [disk && disk.media_type, disk && disk.interface_type, disk && disk.model, disk && disk.pnp_device_id].join(' ');
+    }).join(' ').toLowerCase();
+    if (/nvme|ssd|solid/.test(joined)) return /nvme/.test(joined) ? 'NVMe/SSD' : 'SSD';
+    if (/hdd|hard disk|sata/.test(joined)) return 'HD';
+    return diskLabel(row).replace('HD/indefinido', 'HD');
   }
   function disksLabel(row) {
     var disks = Array.isArray(row && row.disks) ? row.disks : [];
     var count = disks.length || '';
-    var kind = diskLabel(row).replace('HD/indefinido', 'HD');
+    var kind = diskKindFromDisks(row);
     var size = diskSizeLabel(row);
     return [count ? count + 'x' : '', kind, size].filter(Boolean).join(' ');
   }
@@ -275,19 +290,17 @@
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
         var cpu = row.cpu || {};
         return '<tr>'
-          + cell('IP', row.ip)
-          + cell('MAC', row.mac)
-          + cell('Host', row.hostname)
-          + cell('Usuario', row.logged_user)
+          + stackCell('Rede', row.ip, row.mac)
+          + stackCell('Computador', row.hostname, row.logged_user)
           + cell('Windows', windowsLabel(os))
           + cell('Modelo', modelLabel(row))
-          + cell('Processador', cpuLabel(cpu))
+          + cell('CPU', cpuLabel(cpu))
           + cell('Memoria', memoryLabel(row))
           + cell('Discos', disksLabel(row))
           + '</tr>';
