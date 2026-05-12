@@ -28,6 +28,7 @@ type Machine = {
 };
 type BackupJob = { id: string; type: string; status: string; createdAt: string; machine?: Machine; error?: string };
 type Alert = { id: string; severity: string; title: string; message: string; createdAt: string; resolved: boolean };
+type RuntimeProcess = Record<string, string | number | boolean | null | undefined>;
 type BackupPolicy = {
   id: string;
   name: string;
@@ -78,6 +79,7 @@ function App() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [jobs, setJobs] = useState<BackupJob[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [runtime, setRuntime] = useState<RuntimeProcess[]>([]);
   const [policies, setPolicies] = useState<BackupPolicy[]>([]);
   const [message, setMessage] = useState('Entre ou crie o primeiro admin para operar o backup.');
   const [loading, setLoading] = useState(false);
@@ -152,9 +154,33 @@ function App() {
     }
   }
 
+  async function refreshRuntime(nextToken = token) {
+    if (!nextToken) return;
+    try {
+      const resp = await fetch('/api/backups/runtime', { headers: { Authorization: `Bearer ${nextToken}` } });
+      if (!resp.ok) return;
+      const body = await resp.json();
+      setRuntime(Array.isArray(body.processes) ? body.processes : []);
+    } catch {
+      setRuntime([]);
+    }
+  }
+
   useEffect(() => {
-    if (token) refreshAll(token);
+    if (token) {
+      refreshAll(token);
+      refreshRuntime(token);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setInterval(() => {
+      refreshRuntime(token);
+      refreshAll(token);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [token]);
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault();
@@ -271,10 +297,11 @@ function App() {
         body: JSON.stringify({ machineIds: selectedMachines, type: backupForm.type, ...urbackupAuth }),
       });
       await refreshAll();
+      await refreshRuntime();
       setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
       const skippedNames = body.skipped.map((item) => item.name || item.machineId).join(', ');
       setMessage(body.skipped.length
-        ? `Backup solicitado para ${body.jobs.length} maquina(s). Ignoradas: ${body.skipped.length} (${skippedNames}) por falta de vinculo UrBackup. Sincronize UrBackup primeiro.`
+        ? `Backup solicitado para ${body.jobs.length} maquina(s). Ignoradas: ${body.skipped.length} (${skippedNames}). Motivo: ${body.skipped[0]?.reason || 'verificar diagnostico'}.`
         : `Backup solicitado para ${body.jobs.length} maquina(s).`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao iniciar backups selecionados.');
@@ -469,6 +496,7 @@ function App() {
                 <span className="text-sm text-slate-400">{selectedMachines.length} selecionada(s)</span>
               </div>
               <MachineTable machines={machines} selectedIds={selectedMachines} onSelectionChange={setSelectedMachines} />
+              <RuntimePanel processes={runtime} />
             </section>
           </div>
 
@@ -622,6 +650,64 @@ function MachineTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function runtimeValue(row: RuntimeProcess, names: string[]) {
+  for (const name of names) {
+    const value = row[name];
+    if (value !== undefined && value !== null && String(value).trim()) return String(value);
+  }
+  return '';
+}
+
+function runtimePercent(row: RuntimeProcess) {
+  const raw = runtimeValue(row, ['pcdone', 'percent', 'progress', 'done_perc']);
+  const value = Number(String(raw).replace('%', ''));
+  if (Number.isFinite(value) && value >= 0) return Math.min(100, value);
+  const done = Number(runtimeValue(row, ['done', 'processed_bytes', 'done_bytes']));
+  const total = Number(runtimeValue(row, ['total', 'total_bytes']));
+  if (Number.isFinite(done) && Number.isFinite(total) && total > 0) return Math.round((done / total) * 100);
+  return 0;
+}
+
+function RuntimePanel({ processes }: { processes: RuntimeProcess[] }) {
+  return (
+    <div className="mt-4 rounded-md border border-line bg-slate-950 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="font-semibold text-white">Operacao em tempo real</h3>
+        <span className="text-xs text-slate-400">{processes.length ? `${processes.length} processo(s)` : 'sem job ativo'}</span>
+      </div>
+      {!processes.length ? (
+        <p className="text-sm text-slate-400">Nenhum backup em execucao reportado pelo UrBackup agora.</p>
+      ) : (
+        <div className="space-y-3">
+          {processes.map((row, index) => {
+            const percent = runtimePercent(row);
+            const name = runtimeValue(row, ['name', 'clientname', 'client_name', 'hostname']) || `Processo ${index + 1}`;
+            const action = runtimeValue(row, ['action', 'details', 'status']) || 'backup';
+            const speed = runtimeValue(row, ['speed_bpms', 'speed', 'speed_bytes']) || '-';
+            const eta = runtimeValue(row, ['eta_ms', 'eta', 'eta_s']) || '-';
+            return (
+              <div key={index} className="rounded-md border border-line bg-panel p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <strong>{name}</strong>
+                  <span className="text-slate-300">{action}</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full bg-sky-400" style={{ width: `${percent}%` }} />
+                </div>
+                <div className="mt-2 grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
+                  <span>Progresso: {percent}%</span>
+                  <span>Velocidade: {speed}</span>
+                  <span>ETA: {eta}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
