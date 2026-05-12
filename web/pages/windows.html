@@ -165,37 +165,29 @@
           <colgroup>
             <col style="width:120px" />
             <col style="width:170px" />
-            <col style="width:150px" />
-            <col style="width:280px" />
-            <col style="width:130px" />
-            <col style="width:260px" />
-            <col style="width:420px" />
-            <col style="width:340px" />
-            <col style="width:420px" />
-            <col style="width:160px" />
-            <col style="width:150px" />
             <col style="width:190px" />
-            <col style="width:220px" />
+            <col style="width:170px" />
+            <col style="width:210px" />
+            <col style="width:270px" />
+            <col style="width:160px" />
+            <col style="width:160px" />
+            <col style="width:190px" />
           </colgroup>
           <thead>
             <tr>
               <th>IP</th>
-              <th>Host</th>
-              <th>Status</th>
-              <th>Modelo</th>
-              <th>Serial</th>
-              <th>Windows</th>
-              <th>CPU</th>
-              <th>Memoria</th>
-              <th>Disco</th>
-              <th>Armazenamento</th>
-              <th>AnyDesk</th>
               <th>MAC</th>
+              <th>Host</th>
               <th>Usuario</th>
+              <th>Windows</th>
+              <th>Modelo</th>
+              <th>Processador</th>
+              <th>Memoria</th>
+              <th>Discos</th>
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="13" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -234,30 +226,66 @@
     if (total >= 1024) return (total / 1024).toFixed(total >= 2048 ? 1 : 2) + ' TB';
     return Math.round(total) + ' GB';
   }
+  function windowsLabel(os) {
+    var name = text(os && os.name).replace(/^Microsoft\s+/i, '');
+    return name || '';
+  }
+  function modelLabel(row) {
+    var maker = text(row && row.manufacturer).replace(/\s+Inc\.?$/i, '').replace(/\s+Corporation$/i, '');
+    var model = text(row && row.model);
+    if (!maker) return model;
+    if (model.toLowerCase().indexOf(maker.toLowerCase()) === 0) return model;
+    return [maker, model].filter(Boolean).join(' ');
+  }
+  function cpuLabel(cpu) {
+    var name = text(cpu && cpu.name);
+    var intel = name.match(/(?:Intel\(R\)\s+)?Core\(TM\)\s+i([3579])-?(\d{2})/i)
+      || name.match(/i([3579])-?(\d{2})/i);
+    if (intel) return 'i' + intel[1] + ' ' + Number(intel[2]) + 'ª';
+    var ryzen = name.match(/Ryzen\s+([3579])(?:\s+\w+)?\s+(\d{4})/i);
+    if (ryzen) return 'Ryzen ' + ryzen[1] + ' ' + ryzen[2];
+    return name.replace(/\s*@\s*[0-9.]+\s*GHz/i, '').replace(/\s+CPU\s*/i, ' ').trim();
+  }
+  function memoryLabel(row) {
+    var modules = Array.isArray(row && row.memory_modules) ? row.memory_modules : [];
+    var total = row && row.ram_gb ? Math.round(Number(row.ram_gb)) + ' GB' : '';
+    var ddr = '';
+    var speed = '';
+    modules.some(function (module) {
+      if (!module) return false;
+      ddr = text(module.ddr);
+      speed = text(module.configured_speed_mhz || module.speed_mhz);
+      return !!(ddr || speed);
+    });
+    return [total, ddr, speed ? speed + ' MHz' : ''].filter(Boolean).join(' ');
+  }
+  function disksLabel(row) {
+    var disks = Array.isArray(row && row.disks) ? row.disks : [];
+    var count = disks.length || '';
+    var kind = diskLabel(row).replace('HD/indefinido', 'HD');
+    var size = diskSizeLabel(row);
+    return [count ? count + 'x' : '', kind, size].filter(Boolean).join(' ');
+  }
   function renderRows(rows) {
     rows = Array.isArray(rows) ? rows : [];
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="13" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
         var cpu = row.cpu || {};
         return '<tr>'
           + '<td>' + esc(row.ip) + '</td>'
+          + '<td>' + esc(row.mac || '-') + '</td>'
           + '<td>' + esc(row.hostname) + '</td>'
-          + '<td><span class="' + (row.status === 'online' || row.status === 'agent_reported' ? 'status-online' : 'status-offline') + '">' + esc(row.status) + '</span></td>'
-          + '<td>' + esc([row.manufacturer, row.model].filter(Boolean).join(' ')) + '</td>'
-          + '<td>' + esc(row.serial) + '</td>'
-          + '<td>' + esc([os.name, os.build].filter(Boolean).join(' / ')) + '</td>'
-          + '<td>' + esc(cpu.name) + '</td>'
-          + '<td>' + esc(row.memory_summary || (row.ram_gb ? row.ram_gb + ' GB' : '')) + '</td>'
-          + '<td>' + esc(row.disk_summary || diskLabel(row)) + '</td>'
-          + '<td>' + esc(diskSizeLabel(row)) + '</td>'
-          + '<td>' + esc(row.anydesk_id || '-') + '</td>'
-          + '<td>' + esc(row.mac) + '</td>'
-          + '<td>' + esc(row.logged_user) + '</td>'
+          + '<td>' + esc(row.logged_user || '-') + '</td>'
+          + '<td>' + esc(windowsLabel(os)) + '</td>'
+          + '<td>' + esc(modelLabel(row)) + '</td>'
+          + '<td>' + esc(cpuLabel(cpu)) + '</td>'
+          + '<td>' + esc(memoryLabel(row)) + '</td>'
+          + '<td>' + esc(disksLabel(row)) + '</td>'
           + '</tr>';
       }).join('');
     }
