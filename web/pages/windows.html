@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=92" />
+  <link rel="stylesheet" href="/static/style.css?v=93" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -95,54 +95,9 @@
           <button class="btn-primary" id="btn-win-agent" type="button">Baixar agente Windows</button>
           <button class="btn-secondary" id="btn-win-photos" type="button">Buscar fotos</button>
           <button class="btn-secondary" id="btn-win-pdf" type="button">Relatorio PDF</button>
-          <button class="btn-secondary" id="btn-win-prepare" type="button">Preparador WinRM</button>
           <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
         </div>
-        <div id="win-status" class="status-line">Modo recomendado: execute o agente no PC Windows. O scan WinRM abaixo fica como opcao avancada.</div>
-
-        <details class="windows-advanced">
-          <summary>Scan remoto WinRM avancado</summary>
-
-        <div class="field">
-          <label for="win-targets">Alvos</label>
-          <input id="win-targets" type="text" placeholder="10.10.12.10-10.10.12.80 ou 10.10.12.0/24" autocomplete="off" />
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label for="win-user">Usuario</label>
-            <input id="win-user" type="text" placeholder="Administrador ou DOMINIO\\usuario" autocomplete="username" />
-          </div>
-          <div class="field">
-            <label for="win-pass">Senha</label>
-            <input id="win-pass" type="password" autocomplete="current-password" />
-          </div>
-        </div>
-
-        <div class="field-row">
-          <div class="field">
-            <label for="win-domain">Dominio opcional</label>
-            <input id="win-domain" type="text" placeholder="DOMINIO" autocomplete="off" />
-          </div>
-          <div class="field" style="max-width:160px;">
-            <label for="win-timeout">Timeout</label>
-            <input id="win-timeout" type="number" min="1" max="30" value="8" />
-          </div>
-          <div class="field" style="max-width:170px;">
-            <label for="win-concurrency">Paralelismo</label>
-            <input id="win-concurrency" type="number" min="1" max="128" value="24" />
-          </div>
-        </div>
-
-        <div class="windows-options">
-          <label class="checkline"><input id="win-https" type="checkbox" /> Usar WinRM HTTPS 5986</label>
-          <label class="checkline"><input id="win-save" type="checkbox" checked /> Salvar no inventario</label>
-        </div>
-
-        <div class="actions-row">
-          <button class="btn-primary" id="btn-win-scan" type="button">Iniciar inventario</button>
-        </div>
-        </details>
+        <div id="win-status" class="status-line">Modo recomendado: execute o agente no PC Windows para enviar inventario, AnyDesk e hardware ao SightOps.</div>
       </div>
 
       <div class="card windows-summary-card">
@@ -160,6 +115,36 @@
     <div class="card windows-table-card">
       <div class="card-title">Computadores inventariados</div>
       <div class="card-sub">Hardware, sistema operacional, discos e rede.</div>
+      <div class="windows-toolbar">
+        <div class="windows-toolbar-group">
+          <span class="windows-toolbar-title">Status</span>
+          <span class="windows-summary-chip" id="win-filter-status">0 visiveis</span>
+        </div>
+        <div class="windows-toolbar-group">
+          <span class="windows-toolbar-title">Filtro</span>
+          <select id="win-filter" class="windows-filter-control">
+            <option value="all">Todos</option>
+            <option value="selected">Selecionados</option>
+            <option value="online">Online</option>
+            <option value="with_ssd">Com SSD/NVMe</option>
+            <option value="without_ssd">Sem SSD</option>
+            <option value="with_anydesk">Com AnyDesk</option>
+            <option value="without_anydesk">Sem AnyDesk</option>
+            <option value="windows11">Windows 11</option>
+            <option value="windows10">Windows 10</option>
+            <option value="missing_mac">Sem MAC</option>
+          </select>
+        </div>
+        <div class="windows-toolbar-group windows-toolbar-search">
+          <span class="windows-toolbar-title">Buscar</span>
+          <input id="win-search" class="windows-filter-control" type="search" placeholder="IP, MAC, host, usuario, modelo, CPU, AnyDesk..." autocomplete="off" />
+        </div>
+        <div class="windows-toolbar-group windows-toolbar-action">
+          <span class="windows-toolbar-title">Selecionados</span>
+          <span class="windows-summary-chip" id="win-selected-count">0</span>
+          <button class="btn-secondary" id="win-filter-clear" type="button">Limpar</button>
+        </div>
+      </div>
       <div class="table-wrap windows-table-wrap">
         <table>
           <colgroup>
@@ -198,6 +183,9 @@
 <script src="/static/app.js?v=86"></script>
 <script>
 (function () {
+  var allRows = [];
+  var selectedRows = new Set();
+
   function el(id) { return document.getElementById(id); }
   function text(v) { return (v == null ? '' : String(v)).trim(); }
   function esc(v) {
@@ -220,9 +208,13 @@
     if (!id) return cell('AnyDesk', '-');
     return '<td data-label="AnyDesk" title="Abrir AnyDesk ' + esc(id) + '"><a class="anydesk-link" href="anydesk:' + encodeURIComponent(id) + '">' + esc(id) + '</a></td>';
   }
+  function rowKey(row) {
+    return text(row && (row.ip || row.hostname || row.serial));
+  }
   function selectCell(row) {
-    var value = text(row && (row.ip || row.hostname));
-    return '<td class="select-cell" data-label="Selecionar"><input class="win-row-select" type="checkbox" value="' + esc(value) + '" aria-label="Selecionar ' + esc(row && row.hostname || value || 'computador') + '" /></td>';
+    var value = rowKey(row);
+    var checked = selectedRows.has(value) ? ' checked' : '';
+    return '<td class="select-cell" data-label="Selecionar"><input class="win-row-select" type="checkbox" value="' + esc(value) + '" aria-label="Selecionar ' + esc(row && row.hostname || value || 'computador') + '"' + checked + ' /></td>';
   }
   function setStatus(msg) {
     var node = el('win-status');
@@ -306,6 +298,56 @@
     var size = diskSizeLabel(row);
     return [count ? count + 'x' : '', kind, size].filter(Boolean).join(' ');
   }
+  function rowBlob(row) {
+    var os = row.os || {};
+    var cpu = row.cpu || {};
+    return [
+      row.ip, row.mac, row.hostname, userLabel(row), windowsLabel(os), modelLabel(row),
+      cpuLabel(cpu), memoryLabel(row), disksLabel(row), row.anydesk_id, row.status
+    ].map(text).join(' ').toLowerCase();
+  }
+  function rowMatchesFilter(row) {
+    var filter = text(el('win-filter') && el('win-filter').value) || 'all';
+    if (filter === 'selected' && !selectedRows.has(rowKey(row))) return false;
+    if (filter === 'online' && !(row.status === 'online' || row.status === 'agent_reported')) return false;
+    if (filter === 'with_ssd' && !/ssd|nvme/i.test(disksLabel(row))) return false;
+    if (filter === 'without_ssd' && /ssd|nvme/i.test(disksLabel(row))) return false;
+    if (filter === 'with_anydesk' && !text(row.anydesk_id)) return false;
+    if (filter === 'without_anydesk' && text(row.anydesk_id)) return false;
+    if (filter === 'windows11' && !/windows\s*11/i.test(windowsLabel(row.os || {}))) return false;
+    if (filter === 'windows10' && !/windows\s*10/i.test(windowsLabel(row.os || {}))) return false;
+    if (filter === 'missing_mac' && text(row.mac)) return false;
+    var query = text(el('win-search') && el('win-search').value).toLowerCase();
+    if (query && rowBlob(row).indexOf(query) < 0) return false;
+    return true;
+  }
+  function updateSummary(rows) {
+    rows = Array.isArray(rows) ? rows : [];
+    var total = rows.length;
+    var online = rows.filter(function (row) { return row.status === 'online' || row.status === 'agent_reported'; }).length;
+    var ssd = rows.filter(function (row) { return /ssd|nvme/i.test(disksLabel(row)); }).length;
+    var noSsd = rows.filter(function (row) { return (row.status === 'online' || row.status === 'agent_reported') && !/ssd|nvme/i.test(disksLabel(row)); }).length;
+    if (el('win-total')) el('win-total').textContent = total;
+    if (el('win-online')) el('win-online').textContent = online;
+    if (el('win-ssd')) el('win-ssd').textContent = ssd;
+    if (el('win-no-ssd')) el('win-no-ssd').textContent = noSsd;
+  }
+  function updateToolbarCount(visibleRows) {
+    var visible = Array.isArray(visibleRows) ? visibleRows.length : 0;
+    var selectedVisible = (visibleRows || []).filter(function (row) { return selectedRows.has(rowKey(row)); }).length;
+    if (el('win-filter-status')) el('win-filter-status').textContent = visible + ' visiveis';
+    if (el('win-selected-count')) el('win-selected-count').textContent = String(selectedRows.size);
+    var selectAll = el('win-select-all');
+    if (selectAll) {
+      selectAll.checked = visible > 0 && selectedVisible === visible;
+      selectAll.indeterminate = selectedVisible > 0 && selectedVisible < visible;
+    }
+  }
+  function applyWindowsFilters() {
+    var filtered = allRows.filter(rowMatchesFilter);
+    renderRows(filtered);
+    updateToolbarCount(filtered);
+  }
   function renderRows(rows) {
     rows = Array.isArray(rows) ? rows : [];
     var tbody = el('win-tbody');
@@ -329,97 +371,51 @@
           + '</tr>';
       }).join('');
     }
-    var total = rows.length;
-    var online = rows.filter(function (row) { return row.status === 'online' || row.status === 'agent_reported'; }).length;
-    var ssd = rows.filter(function (row) { return !!row.has_ssd; }).length;
-    var noSsd = rows.filter(function (row) { return (row.status === 'online' || row.status === 'agent_reported') && !row.has_ssd; }).length;
-    if (el('win-total')) el('win-total').textContent = total;
-    if (el('win-online')) el('win-online').textContent = online;
-    if (el('win-ssd')) el('win-ssd').textContent = ssd;
-    if (el('win-no-ssd')) el('win-no-ssd').textContent = noSsd;
-    var selectAll = el('win-select-all');
-    if (selectAll) selectAll.checked = false;
   }
   document.addEventListener('change', function (ev) {
-    if (!ev.target || ev.target.id !== 'win-select-all') return;
-    document.querySelectorAll('#win-tbody .win-row-select').forEach(function (cb) {
-      cb.checked = ev.target.checked;
-    });
+    if (!ev.target) return;
+    if (ev.target.id === 'win-select-all') {
+      allRows.filter(rowMatchesFilter).forEach(function (row) {
+        var key = rowKey(row);
+        if (!key) return;
+        if (ev.target.checked) selectedRows.add(key);
+        else selectedRows.delete(key);
+      });
+      applyWindowsFilters();
+      return;
+    }
+    if (ev.target.classList && ev.target.classList.contains('win-row-select')) {
+      var value = text(ev.target.value);
+      if (value) {
+        if (ev.target.checked) selectedRows.add(value);
+        else selectedRows.delete(value);
+      }
+      updateToolbarCount(allRows.filter(rowMatchesFilter));
+    }
   });
   function loadInventory() {
     return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
       .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
-      .then(function (payload) { renderRows(payload.inventory || []); return payload; })
-      .catch(function (err) { setStatus('Falha ao carregar inventario: ' + err.message); });
-  }
-  function runScan() {
-    var payload = {
-      targets: text(el('win-targets') && el('win-targets').value),
-      username: text(el('win-user') && el('win-user').value),
-      password: text(el('win-pass') && el('win-pass').value),
-      domain: text(el('win-domain') && el('win-domain').value),
-      timeout_sec: Number((el('win-timeout') && el('win-timeout').value) || 8),
-      concurrency: Number((el('win-concurrency') && el('win-concurrency').value) || 24),
-      use_https: !!(el('win-https') && el('win-https').checked),
-      save: !!(el('win-save') && el('win-save').checked)
-    };
-    if (!payload.targets || !payload.username || !payload.password) {
-      setStatus('Informe alvos, usuario e senha.');
-      return;
-    }
-    setStatus('Executando inventario Windows...');
-    fetch('/api/windows/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-      .then(function (resp) { return resp.json().then(function (body) { if (!resp.ok) throw new Error(body.detail || 'HTTP ' + resp.status); return body; }); })
-      .then(function (body) {
-        renderRows(body.rows || []);
-        setStatus('Scan concluido: ' + body.scanned + ' alvos, ' + body.online + ' online, ' + body.failed + ' falhas.');
-        if (payload.save) loadInventory();
+      .then(function (payload) {
+        allRows = Array.isArray(payload.inventory) ? payload.inventory : [];
+        updateSummary(allRows);
+        applyWindowsFilters();
+        return payload;
       })
-      .catch(function (err) { setStatus('Falha no inventario: ' + err.message); });
+      .catch(function (err) { setStatus('Falha ao carregar inventario: ' + err.message); });
   }
   function clearInventory() {
     if (!confirm('Limpar inventario Windows salvo?')) return;
     fetch('/api/windows/clear', { method: 'POST' })
       .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
-      .then(function () { setStatus('Inventario Windows limpo.'); renderRows([]); })
-      .catch(function (err) { setStatus('Falha ao limpar: ' + err.message); });
-  }
-  function downloadPrepareScript() {
-    var user = prompt('Nome do usuario local para inventario:', 'sightops_inv') || 'sightops_inv';
-    var url = '/api/windows/prepare-script?username=' + encodeURIComponent(user);
-    setStatus('Gerando preparador Windows...');
-    fetch(url, { cache: 'no-store' })
-      .then(function (resp) {
-        if (!resp.ok) {
-          return resp.json().catch(function () { return {}; }).then(function (body) {
-            throw new Error(body.detail || 'HTTP ' + resp.status);
-          });
-        }
-        return resp.blob().then(function (blob) {
-          var filename = 'sightops-preparar-windows.ps1';
-          var disposition = resp.headers.get('Content-Disposition') || '';
-          var match = disposition.match(/filename="?([^"]+)"?/i);
-          if (match && match[1]) filename = match[1];
-          var link = document.createElement('a');
-          var objectUrl = URL.createObjectURL(blob);
-          link.href = objectUrl;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
-        });
-      })
       .then(function () {
-        setStatus('Preparador baixado. Execute o .ps1 como Administrador no computador Windows alvo.');
+        setStatus('Inventario Windows limpo.');
+        allRows = [];
+        selectedRows.clear();
+        updateSummary([]);
+        applyWindowsFilters();
       })
-      .catch(function (err) {
-        setStatus('Falha ao baixar preparador: ' + err.message + '. Entre novamente no sistema e tente de novo.');
-      });
+      .catch(function (err) { setStatus('Falha ao limpar: ' + err.message); });
   }
   function downloadAgentScript() {
     setStatus('Gerando agente Windows...');
@@ -487,20 +483,27 @@
       .catch(function (err) { setStatus('Falha ao buscar fotos: ' + err.message); });
   }
   document.addEventListener('DOMContentLoaded', function () {
-    var scanBtn = el('btn-win-scan');
     var agentBtn = el('btn-win-agent');
     var photosBtn = el('btn-win-photos');
     var pdfBtn = el('btn-win-pdf');
-    var prepareBtn = el('btn-win-prepare');
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
-    if (scanBtn) scanBtn.addEventListener('click', runScan);
+    var filterEl = el('win-filter');
+    var searchEl = el('win-search');
+    var filterClearBtn = el('win-filter-clear');
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
     if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
-    if (prepareBtn) prepareBtn.addEventListener('click', downloadPrepareScript);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);
+    if (filterEl) filterEl.addEventListener('change', applyWindowsFilters);
+    if (searchEl) searchEl.addEventListener('input', applyWindowsFilters);
+    if (filterClearBtn) filterClearBtn.addEventListener('click', function () {
+      if (filterEl) filterEl.value = 'all';
+      if (searchEl) searchEl.value = '';
+      selectedRows.clear();
+      applyWindowsFilters();
+    });
     loadInventory();
     window.addEventListener('sightops:auth-ready', loadInventory);
   });
