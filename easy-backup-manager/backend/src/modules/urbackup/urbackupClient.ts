@@ -109,8 +109,8 @@ export const urbackupClient = {
   async health(credentials?: UrBackupCredentials) {
     return authedRequest('/x?a=status', credentials);
   },
-  async clients(credentials?: UrBackupCredentials) {
-    return authedRequest('/x?a=status', credentials);
+  async clients(credentials?: UrBackupCredentials, hostname?: string) {
+    return authedRequest(`/x?a=status${hostname ? `&hostname=${encodeURIComponent(hostname)}` : ''}`, credentials);
   },
   async progress(credentials?: UrBackupCredentials) {
     return authedRequest('/x?a=progress', credentials);

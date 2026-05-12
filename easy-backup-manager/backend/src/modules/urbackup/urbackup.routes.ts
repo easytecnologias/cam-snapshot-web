@@ -15,7 +15,18 @@ function clientsFromStatus(payload: Record<string, unknown>) {
   if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
   const clients = payload.clients;
   if (Array.isArray(clients)) return clients as Array<Record<string, unknown>>;
+  const extraClients = payload.extra_clients;
+  if (Array.isArray(extraClients)) return extraClients as Array<Record<string, unknown>>;
   return [];
+}
+
+function mergeClients(target: Map<string, Record<string, unknown>>, payload: Record<string, unknown>) {
+  for (const client of clientsFromStatus(payload)) {
+    const clientId = String(client.id || client.clientid || client.client_id || '').trim();
+    const hostname = String(client.hostname || client.name || client.clientname || '').trim();
+    const key = clientId || hostname;
+    if (key) target.set(key, client);
+  }
 }
 
 function easyBackupBaseUrl(reqHost: string, reqProto: string) {
@@ -162,31 +173,58 @@ urbackupRouter.post('/sync-clients', requireAuth, requireRole('OPERATOR'), async
     username: z.string().optional(),
     password: z.string().optional(),
   }).parse(req.body || {});
+  const knownMachines = await prisma.machine.findMany({
+    where: { tenantId: req.user!.tenantId },
+    select: { id: true, name: true, ip: true },
+    take: 500,
+  });
+  const clientMap = new Map<string, Record<string, unknown>>();
   const payload = await urbackupClient.clients(credentials);
   if (payload.error) {
     throw new Error(`UrBackup retornou erro ${String(payload.error)} ao listar clientes.`);
   }
-  const clients = clientsFromStatus(payload);
+  mergeClients(clientMap, payload);
+  for (const machine of knownMachines) {
+    for (const hostname of [machine.ip, machine.name]) {
+      const value = String(hostname || '').trim();
+      if (!value) continue;
+      const lookupPayload = await urbackupClient.clients(credentials, value);
+      mergeClients(clientMap, lookupPayload);
+    }
+  }
+  const clients = [...clientMap.values()];
   let synced = 0;
   for (const client of clients) {
     const clientId = String(client.id || client.clientid || client.client_id || '').trim();
-    const name = String(client.name || client.hostname || clientId || '').trim();
+    const name = String(client.name || client.hostname || client.clientname || clientId || '').trim();
     if (!clientId || !name) continue;
-    await prisma.machine.upsert({
-      where: { id: `urbackup-${clientId}` },
-      create: {
-        id: `urbackup-${clientId}`,
-        tenantId: req.user!.tenantId,
-        urbackupClientId: clientId,
-        name,
-        status: String(client.online || client.status || '').toLowerCase().includes('online') ? 'ONLINE' : 'UNKNOWN',
-      },
-      update: {
-        urbackupClientId: clientId,
-        name,
-        lastSeenAt: new Date(),
-      },
-    });
+    const matched = knownMachines.find((machine) => [machine.ip, machine.name].filter(Boolean).includes(name));
+    if (matched) {
+      await prisma.machine.update({
+        where: { id: matched.id },
+        data: {
+          urbackupClientId: clientId,
+          status: String(client.online || client.status || '').toLowerCase().includes('true') || String(client.online || client.status || '').toLowerCase().includes('online') ? 'ONLINE' : 'UNKNOWN',
+          lastSeenAt: new Date(),
+        },
+      });
+    } else {
+      await prisma.machine.upsert({
+        where: { id: `urbackup-${clientId}` },
+        create: {
+          id: `urbackup-${clientId}`,
+          tenantId: req.user!.tenantId,
+          urbackupClientId: clientId,
+          name,
+          status: String(client.online || client.status || '').toLowerCase().includes('true') || String(client.online || client.status || '').toLowerCase().includes('online') ? 'ONLINE' : 'UNKNOWN',
+        },
+        update: {
+          urbackupClientId: clientId,
+          name,
+          lastSeenAt: new Date(),
+        },
+      });
+    }
     synced += 1;
   }
   res.json({ ok: true, synced, rawCount: clients.length });
