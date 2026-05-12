@@ -55,7 +55,7 @@ async function login(credentials: UrBackupCredentials = {}): Promise<string> {
   const salt = String(saltPayload.salt || '');
   const rnd = String(saltPayload.rnd || '');
   if (!salt || !rnd) {
-    throw new Error('UrBackup nao retornou desafio de autenticacao valido.');
+    throw new Error('Usuario do UrBackup nao encontrado ou admin ainda nao foi criado no painel 55414.');
   }
 
   let passwordHash = md5(`${salt}${password}`);
