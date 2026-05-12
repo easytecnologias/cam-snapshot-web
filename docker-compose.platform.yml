@@ -213,7 +213,7 @@ services:
   easy-backup-backend:
     build:
       context: ./easy-backup-manager/backend
-    image: easy-backup-backend:20260512-runtime-reconcile
+    image: easy-backup-backend:20260512-prepare-urbackup
     container_name: easy-backup-backend
     environment:
       NODE_ENV: production
@@ -228,6 +228,7 @@ services:
       EASY_BACKUP_PUBLIC_URL: ${EASY_BACKUP_PUBLIC_URL:-http://10.10.12.7:${EASY_BACKUP_PORT:-8090}}
       URBACKUP_BACKUP_PATH: /backups
       SIGHTOPS_WINDOWS_INVENTORY_PATH: /sightops-data/windows-inventory.json
+      URBACKUP_DB_PATH: /urbackup-db/backup_server_settings.db
     depends_on:
       easy-backup-postgres:
         condition: service_healthy
@@ -238,6 +239,7 @@ services:
     volumes:
       - sightops_data:/sightops-data:ro
       - easy_urbackup_backups:/backups:ro
+      - easy_urbackup_db:/urbackup-db
     networks:
       sightops:
         aliases:
@@ -247,7 +249,7 @@ services:
   easy-backup-frontend:
     build:
       context: ./easy-backup-manager/frontend
-    image: easy-backup-frontend:20260512-runtime-reconcile
+    image: easy-backup-frontend:20260512-prepare-urbackup
     container_name: easy-backup-frontend
     depends_on:
       - easy-backup-backend

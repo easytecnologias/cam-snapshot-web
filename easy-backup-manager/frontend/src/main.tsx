@@ -237,6 +237,18 @@ function App() {
     }
   }
 
+  async function prepareUrBackupServer() {
+    try {
+      const body = await api<{ serverUrl: string; restartRecommended?: boolean }>('/api/urbackup/prepare-server', {
+        method: 'POST',
+        body: '{}',
+      });
+      setMessage(`Servidor UrBackup preparado: ${body.serverUrl}. Se acabou de resetar, reinicie o container UrBackup uma vez.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao preparar servidor UrBackup.');
+    }
+  }
+
   async function importWindowsInventory() {
     try {
       const body = await api<{ imported: number; skipped: number; total: number }>('/api/machines/import/windows-inventory', { method: 'POST', body: '{}' });
@@ -450,6 +462,7 @@ function App() {
             <div className="flex gap-2">
               <button className="btn-secondary" onClick={() => refreshAll()}><RefreshCw size={18} /> Atualizar</button>
               <button className="btn-secondary" onClick={downloadUrBackupClientScript}><Download size={18} /> Cliente Windows</button>
+              <button className="btn-secondary" onClick={prepareUrBackupServer}><ShieldCheck size={18} /> Preparar servidor</button>
               <button className="btn-secondary" onClick={importWindowsInventory}><Server size={18} /> Importar Windows</button>
               <button className="btn-secondary" onClick={() => setShowUrBackupAuth((value) => !value)}><ShieldCheck size={18} /> Sincronizar UrBackup</button>
             </div>

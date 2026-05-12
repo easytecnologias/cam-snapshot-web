@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import { access } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
 import { asyncHandler } from '../../lib/asyncHandler.js';
@@ -6,6 +9,7 @@ import { requireAuth, requireRole } from '../../middleware/auth.js';
 import { urbackupClient } from './urbackupClient.js';
 
 export const urbackupRouter = Router();
+const execFileAsync = promisify(execFile);
 
 const windowsClientUrl = process.env.URBACKUP_WINDOWS_CLIENT_URL
   || 'https://hndl.urbackup.org/Client/2.5.30/UrBackup%20Client%202.5.30.exe';
@@ -44,9 +48,53 @@ function easyBackupBaseUrl(reqHost: string, reqProto: string) {
   return `${reqProto || 'http'}://${host}`;
 }
 
+function publicServerHost(reqHost: string, reqProto: string) {
+  return new URL(easyBackupBaseUrl(reqHost, reqProto)).hostname || '10.10.12.7';
+}
+
 urbackupRouter.get('/health', requireAuth, asyncHandler(async (_req, res) => {
   const status = await urbackupClient.health();
   res.json({ ok: true, status });
+}));
+
+urbackupRouter.post('/prepare-server', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
+  const body = z.object({
+    serverHost: z.string().optional(),
+    port: z.coerce.number().int().min(1).max(65535).default(55415),
+  }).parse(req.body || {});
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
+  const serverHost = String(body.serverHost || publicServerHost(host, proto)).trim();
+  const dbPath = process.env.URBACKUP_DB_PATH || '/urbackup-db/backup_server_settings.db';
+
+  await access(dbPath);
+  const rows: Array<[string, string]> = [
+    ['internet_server', serverHost],
+    ['internet_server_port', String(body.port)],
+    ['internet_server_proxy', ''],
+    ['internet_mode_enabled', 'true'],
+    ['internet_image_backups', 'true'],
+    ['internet_full_file_backups', 'true'],
+    ['internet_encrypt', 'true'],
+    ['internet_compress', 'true'],
+    ['internet_calculate_filehashes_on_client', 'true'],
+    ['internet_connect_always', 'true'],
+  ];
+  const sql = [
+    'BEGIN;',
+    ...rows.flatMap(([key, value]) => [
+      `DELETE FROM settings WHERE key='${key.replace(/'/g, "''")}' AND clientid=0;`,
+      `INSERT INTO settings(key,value,clientid,value_client,use,use_last_modified) VALUES('${key.replace(/'/g, "''")}','${value.replace(/'/g, "''")}',0,'${value.replace(/'/g, "''")}',2,strftime('%s','now'));`,
+    ]),
+    'COMMIT;',
+  ].join('\n');
+  await execFileAsync('sqlite3', [dbPath, sql], { timeout: 10000 });
+  res.json({
+    ok: true,
+    serverUrl: `urbackup://${serverHost}:${body.port}`,
+    configured: rows.map(([key]) => key),
+    restartRecommended: true,
+  });
 }));
 
 urbackupRouter.get('/windows-client-download', asyncHandler(async (_req, res) => {
@@ -114,7 +162,7 @@ urbackupRouter.get('/windows-client-script', requireAuth, asyncHandler(async (re
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
   const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
   const appBaseUrl = easyBackupBaseUrl(host, proto);
-  const serverHost = new URL(appBaseUrl).hostname || '10.10.12.7';
+  const serverHost = publicServerHost(host, proto);
   const script = `# EASY Backup Manager - Instalador do UrBackup Client para Windows
 # Execute este arquivo como Administrador no computador que sera protegido.
 # Ele cria um cliente personalizado no UrBackup, baixa o instalador do proprio servidor e reinicia o servico.
