@@ -69,6 +69,7 @@ async function login(credentials: UrBackupCredentials = {}): Promise<string> {
   const saltPayload = await request(`/x?a=salt&username=${encodeURIComponent(username)}`);
   const salt = String(saltPayload.salt || '');
   const rnd = String(saltPayload.rnd || '');
+  const saltSession = String(saltPayload.ses || '');
   if (!salt || !rnd) {
     throw new Error('Usuario do UrBackup nao encontrado ou admin ainda nao foi criado no painel 55414.');
   }
@@ -81,14 +82,15 @@ async function login(credentials: UrBackupCredentials = {}): Promise<string> {
   passwordHash = md5(`${rnd}${passwordHash}`);
 
   const loginPayload = await request(
-    `/x?a=login&username=${encodeURIComponent(username)}&password=${encodeURIComponent(passwordHash)}`,
+    `/x?a=login&username=${encodeURIComponent(username)}&password=${encodeURIComponent(passwordHash)}${saltSession ? `&ses=${encodeURIComponent(saltSession)}` : ''}`,
   );
   if (loginPayload.error === 2) throw new Error('Senha do UrBackup invalida.');
   if (loginPayload.error === 3) throw new Error('UrBackup bloqueou login por muitas tentativas.');
-  if (typeof loginPayload.session !== 'string' || !loginPayload.session) {
+  const nextSession = String(loginPayload.session || saltSession || '');
+  if (!nextSession) {
     throw new Error('UrBackup nao retornou sessao apos login.');
   }
-  session = loginPayload.session;
+  session = nextSession;
   return session;
 }
 
