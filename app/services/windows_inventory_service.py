@@ -520,6 +520,8 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
     bitlocker = data.get("bitlocker") if isinstance(data.get("bitlocker"), list) else []
     hotfixes = data.get("hotfixes") if isinstance(data.get("hotfixes"), list) else []
     network = data.get("network") if isinstance(data.get("network"), list) else []
+    remote_access = data.get("remote_access") if isinstance(data.get("remote_access"), dict) else {}
+    anydesk = remote_access.get("anydesk") if isinstance(remote_access.get("anydesk"), dict) else {}
     mac = ""
     if network and isinstance(network[0], dict):
         mac = _text(network[0].get("mac"))
@@ -570,6 +572,10 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "disks": disks,
         "volumes": volumes,
         "network": network,
+        "remote_access": remote_access,
+        "anydesk_id": _text(data.get("anydesk_id")) or _text(anydesk.get("id")),
+        "anydesk_installed": bool(anydesk.get("installed")),
+        "anydesk_status": _text(anydesk.get("service_status")),
         "tpm": data.get("tpm") if isinstance(data.get("tpm"), dict) else {},
         "secure_boot": data.get("secure_boot"),
         "bitlocker": bitlocker,
@@ -661,6 +667,110 @@ $SightOpsUrl = "{server}"
 $AgentToken = "{token}"
 
 Write-Host "Coletando inventario local para o SightOps..." -ForegroundColor Cyan
+
+$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+function Convert-SightOpsSecureStringToPlainText {{
+  param([Security.SecureString]$SecureText)
+  if (-not $SecureText) {{ return "" }}
+  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureText)
+  try {{ return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }}
+  finally {{ if ($bstr -ne [IntPtr]::Zero) {{ [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }} }}
+}}
+
+function Get-AnyDeskExecutable {{
+  $candidates = @(
+    "$env:ProgramFiles\AnyDesk\AnyDesk.exe",
+    "${{env:ProgramFiles(x86)}}\AnyDesk\AnyDesk.exe",
+    "$env:ProgramData\AnyDesk\AnyDesk.exe"
+  )
+  foreach ($candidate in $candidates) {{
+    if ($candidate -and (Test-Path $candidate)) {{ return $candidate }}
+  }}
+  $cmd = Get-Command AnyDesk.exe -ErrorAction SilentlyContinue
+  if ($cmd) {{ return $cmd.Source }}
+  return ""
+}}
+
+function Get-AnyDeskInventory {{
+  param([string]$ExePath, [bool]$ConfiguredPassword = $false, [string]$ErrorMessage = "")
+  $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
+  $id = ""
+  if ($ExePath -and (Test-Path $ExePath)) {{
+    for ($i = 0; $i -lt 12; $i++) {{
+      try {{
+        $raw = & $ExePath --get-id 2>$null | Select-Object -First 1
+        $id = ($raw -as [string]).Trim()
+      }} catch {{}}
+      if ($id) {{ break }}
+      Start-Sleep -Seconds 5
+    }}
+  }}
+  return [PSCustomObject]@{{
+    installed = [bool]($ExePath -and (Test-Path $ExePath))
+    id = $id
+    service_status = if ($service) {{ $service.Status.ToString() }} else {{ "" }}
+    path = $ExePath
+    unattended_password_configured = $ConfiguredPassword
+    error = $ErrorMessage
+  }}
+}}
+
+function Install-And-Configure-AnyDesk {{
+  $exe = Get-AnyDeskExecutable
+  $passwordConfigured = $false
+  $errorMessage = ""
+  try {{
+    $choice = Read-Host "Instalar/configurar AnyDesk para acesso remoto? [S/n]"
+    if ($choice -match '^[Nn]') {{
+      return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Instalacao ignorada pelo operador"
+    }}
+    if (-not $IsAdmin) {{
+      return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $false -ErrorMessage "Execute como Administrador para instalar/configurar AnyDesk"
+    }}
+    if (-not $exe) {{
+      $installer = Join-Path $env:TEMP "AnyDesk.exe"
+      Write-Host "Baixando AnyDesk..." -ForegroundColor Cyan
+      Invoke-WebRequest -Uri "https://download.anydesk.com/AnyDesk.exe" -OutFile $installer -UseBasicParsing -TimeoutSec 300
+      $installDir = "$env:ProgramFiles\AnyDesk"
+      Write-Host "Instalando AnyDesk em modo silencioso..." -ForegroundColor Cyan
+      $proc = Start-Process -FilePath $installer -ArgumentList @("--install", "`"$installDir`"", "--start-with-win", "--create-shortcuts", "--create-desktop-icon", "--silent") -Wait -PassThru
+      if ($proc.ExitCode -ne 0) {{ Write-Host "Instalador retornou codigo $($proc.ExitCode). Continuando validacao..." -ForegroundColor Yellow }}
+      Start-Sleep -Seconds 8
+      $exe = Get-AnyDeskExecutable
+    }}
+    if ($exe -and (Test-Path $exe)) {{
+      $service = Get-Service -Name AnyDesk -ErrorAction SilentlyContinue
+      if ($service) {{
+        Set-Service -Name AnyDesk -StartupType Automatic -ErrorAction SilentlyContinue
+        Start-Service -Name AnyDesk -ErrorAction SilentlyContinue
+      }}
+      $setPass = Read-Host "Definir senha para acesso nao supervisionado no AnyDesk? [s/N]"
+      if ($setPass -match '^[Ss]') {{
+        $securePass = Read-Host "Digite a senha do AnyDesk" -AsSecureString
+        $plainPass = Convert-SightOpsSecureStringToPlainText -SecureText $securePass
+        if ($plainPass) {{
+          $plainPass | & $exe --set-password | Out-Null
+          $passwordConfigured = $true
+          $plainPass = $null
+        }}
+      }}
+    }} else {{
+      $errorMessage = "AnyDesk nao encontrado apos instalacao"
+    }}
+  }} catch {{
+    $errorMessage = $_.Exception.Message
+    Write-Host ("AnyDesk: " + $errorMessage) -ForegroundColor Yellow
+  }}
+  return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $passwordConfigured -ErrorMessage $errorMessage
+}}
+
+$anydeskInfo = Install-And-Configure-AnyDesk
+if ($anydeskInfo.id) {{
+  Write-Host ("AnyDesk ID: " + $anydeskInfo.id) -ForegroundColor Green
+}} elseif ($anydeskInfo.error) {{
+  Write-Host ("AnyDesk sem ID: " + $anydeskInfo.error) -ForegroundColor Yellow
+}}
 
 $cs = Get-CimInstance Win32_ComputerSystem
 $bios = Get-CimInstance Win32_BIOS
@@ -820,6 +930,10 @@ $payload = [PSCustomObject]@{{
   bitlocker = @($bitlocker)
   defender = $defender
   hotfixes = @($hotfixes)
+  anydesk_id = $anydeskInfo.id
+  remote_access = [PSCustomObject]@{{
+    anydesk = $anydeskInfo
+  }}
 }}
 
 $json = $payload | ConvertTo-Json -Depth 8

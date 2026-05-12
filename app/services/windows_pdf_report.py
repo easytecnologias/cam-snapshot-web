@@ -140,8 +140,8 @@ def _summary_page(rows: List[Dict[str, Any]]) -> Image.Image:
 
     draw.text((MARGIN, y), "Resumo dos computadores", font=_font(34, True), fill="#0f172a")
     y += 62
-    head = ["IP", "Host", "Modelo", "Memoria", "Disco", "MAC"]
-    widths = [210, 280, 420, 420, 470, 360]
+    head = ["IP", "Host", "Modelo", "Memoria", "Disco", "AnyDesk", "MAC"]
+    widths = [190, 260, 360, 360, 420, 260, 310]
     x = MARGIN
     draw.rounded_rectangle((MARGIN, y, A4_W - MARGIN, y + 54), radius=10, fill="#e2e8f0")
     for label, width in zip(head, widths):
@@ -157,6 +157,7 @@ def _summary_page(rows: List[Dict[str, Any]]) -> Image.Image:
             " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v),
             row.get("memory_summary") or (str(row.get("ram_gb") or "") + " GB"),
             row.get("disk_summary") or row.get("disk_kind"),
+            row.get("anydesk_id"),
             row.get("mac"),
         ]
         draw.line((MARGIN, y - 8, A4_W - MARGIN, y - 8), fill="#e2e8f0", width=1)
@@ -184,6 +185,7 @@ def _detail_page(row: Dict[str, Any]) -> Image.Image:
     yy = _compact_kv(draw, left + 24, yy, "Fabricante / modelo", " ".join(v for v in [_text(row.get("manufacturer")), _text(row.get("model"))] if v), col_w - 48, 22)
     yy = _compact_kv(draw, left + 24, yy, "Serial / SKU", " / ".join(v for v in [_text(row.get("serial")), _text(row.get("system_sku"))] if v), col_w - 48)
     yy = _compact_kv(draw, left + 24, yy, "IP / MAC", " / ".join(v for v in [_text(row.get("ip")), _text(row.get("mac"))] if v), col_w - 48)
+    yy = _compact_kv(draw, left + 24, yy, "AnyDesk", row.get("anydesk_id"), col_w - 48)
     _compact_kv(draw, left + 24, yy, "Usuario", row.get("logged_user"), col_w - 48)
 
     _box(draw, (right, y, A4_W - MARGIN, y + 390), "Sistema, CPU e seguranca")

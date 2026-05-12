@@ -173,6 +173,7 @@
             <col style="width:340px" />
             <col style="width:420px" />
             <col style="width:160px" />
+            <col style="width:150px" />
             <col style="width:190px" />
             <col style="width:220px" />
           </colgroup>
@@ -188,12 +189,13 @@
               <th>Memoria</th>
               <th>Disco</th>
               <th>Armazenamento</th>
+              <th>AnyDesk</th>
               <th>MAC</th>
               <th>Usuario</th>
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="12" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="13" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -237,7 +239,7 @@
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="12" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
@@ -253,6 +255,7 @@
           + '<td>' + esc(row.memory_summary || (row.ram_gb ? row.ram_gb + ' GB' : '')) + '</td>'
           + '<td>' + esc(row.disk_summary || diskLabel(row)) + '</td>'
           + '<td>' + esc(diskSizeLabel(row)) + '</td>'
+          + '<td>' + esc(row.anydesk_id || '-') + '</td>'
           + '<td>' + esc(row.mac) + '</td>'
           + '<td>' + esc(row.logged_user) + '</td>'
           + '</tr>';
