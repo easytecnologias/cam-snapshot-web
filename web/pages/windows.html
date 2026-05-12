@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=89" />
+  <link rel="stylesheet" href="/static/style.css?v=90" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -211,12 +211,12 @@
     var mainText = esc(main || '-');
     var subText = esc(sub || '');
     var title = esc([main, sub].filter(Boolean).join(' / '));
-    return '<td data-label="' + esc(label) + '" title="' + title + '"><strong>' + mainText + '</strong>' + (subText ? '<small>' + subText + '</small>' : '') + '</td>';
+    return '<td data-label="' + esc(label) + '" title="' + title + '"><span class="inline-pair"><strong>' + mainText + '</strong>' + (subText ? '<small>' + subText + '</small>' : '') + '</span></td>';
   }
   function anydeskCell(id) {
     id = text(id);
     if (!id) return cell('AnyDesk', '-');
-    return '<td data-label="AnyDesk" title="Copiar AnyDesk ' + esc(id) + '"><button class="copy-chip anydesk-copy" type="button" data-copy="' + esc(id) + '">' + esc(id) + '</button></td>';
+    return '<td data-label="AnyDesk" title="Abrir AnyDesk ' + esc(id) + '"><span class="anydesk-actions"><a class="anydesk-link" href="anydesk:' + encodeURIComponent(id) + '">' + esc(id) + '</a><button class="copy-chip anydesk-copy" type="button" data-copy="' + esc(id) + '" title="Copiar ID">Copiar</button></span></td>';
   }
   function setStatus(msg) {
     var node = el('win-status');

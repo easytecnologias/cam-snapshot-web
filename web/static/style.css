@@ -5867,9 +5867,15 @@ body[data-theme="dark"] .auth-role-badge{
   font-size: 13px;
 }
 
+.windows-table-card table td{
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .windows-table-card table td strong,
 .windows-table-card table td small{
-  display: block;
+  display: inline;
   min-width: 0;
 }
 
@@ -5879,18 +5885,54 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-table-card table td small{
-  margin-top: 1px;
+  margin-top: 0;
   color: #93c5fd;
   font-size: 12px;
   line-height: 1.25;
 }
 
-.windows-table-card .copy-chip{
+.windows-table-card .inline-pair{
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  min-width: 0;
+  gap: 6px;
+}
+
+.windows-table-card .inline-pair small::before{
+  content: "/";
+  margin-right: 6px;
+  color: #475569;
+}
+
+.windows-table-card .anydesk-actions{
   display: inline-flex;
   align-items: center;
   max-width: 100%;
+  min-width: 0;
+  gap: 6px;
+}
+
+.windows-table-card .anydesk-link{
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #bae6fd;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.windows-table-card .anydesk-link:hover{
+  text-decoration: underline;
+}
+
+.windows-table-card .copy-chip{
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100%;
   min-height: 26px;
-  padding: 4px 9px;
+  padding: 4px 7px;
   border: 1px solid rgba(56, 189, 248, 0.45);
   border-radius: 7px;
   background: rgba(14, 165, 233, 0.12);
@@ -5956,6 +5998,9 @@ body[data-theme="dark"] .auth-role-badge{
     gap: 10px;
     border: 0;
     padding: 7px 0;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .windows-table-card table td::before{
