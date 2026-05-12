@@ -7,6 +7,7 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { backupsRouter } from './modules/backups/backups.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { machinesRouter } from './modules/machines/machines.routes.js';
+import { policiesRouter } from './modules/policies/policies.routes.js';
 import { storageRouter } from './modules/storage/storage.routes.js';
 import { urbackupRouter } from './modules/urbackup/urbackup.routes.js';
 
@@ -22,6 +23,7 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/dashboard', dashboardRouter);
   app.use('/api/machines', machinesRouter);
+  app.use('/api/policies', policiesRouter);
   app.use('/api/backups', backupsRouter);
   app.use('/api/alerts', alertsRouter);
   app.use('/api/storage', storageRouter);

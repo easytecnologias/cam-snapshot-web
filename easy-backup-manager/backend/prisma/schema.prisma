@@ -34,6 +34,7 @@ model Tenant {
   slug      String    @unique
   users     User[]
   machines  Machine[]
+  policies  BackupPolicy[]
   alerts    Alert[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -64,6 +65,8 @@ model Machine {
   company         String?
   status          MachineStatus @default(UNKNOWN)
   backupStatus    BackupStatus  @default(UNKNOWN)
+  backupPolicyId  String?
+  backupPolicy    BackupPolicy? @relation(fields: [backupPolicyId], references: [id])
   lastBackupAt    DateTime?
   totalBytes      BigInt?
   usedBytes       BigInt?
@@ -74,7 +77,26 @@ model Machine {
   updatedAt       DateTime      @updatedAt
 
   @@index([tenantId, status])
+  @@index([backupPolicyId])
   @@index([urbackupClientId])
+}
+
+model BackupPolicy {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  name                String
+  fileBackupMode      String   @default("all_without_system")
+  imageBackupMode     String   @default("all_internal")
+  fileBackupSchedule  String   @default("daily")
+  imageBackupSchedule String   @default("weekly")
+  retentionDays       Int      @default(30)
+  active              Boolean  @default(true)
+  machines            Machine[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId, active])
 }
 
 model BackupJob {

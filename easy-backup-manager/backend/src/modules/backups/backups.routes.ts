@@ -37,6 +37,10 @@ backupsRouter.post('/start', requireAuth, requireRole('OPERATOR'), asyncHandler(
       raw: result as Prisma.InputJsonValue,
     },
   });
+  await prisma.machine.update({
+    where: { id: machine.id },
+    data: { backupStatus: 'RUNNING', lastSeenAt: new Date() },
+  });
   res.status(202).json({ job, urbackup: result });
 }));
 
@@ -65,6 +69,10 @@ backupsRouter.post('/start-bulk', requireAuth, requireRole('OPERATOR'), asyncHan
         status: 'RUNNING',
         raw: result as Prisma.InputJsonValue,
       },
+    });
+    await prisma.machine.update({
+      where: { id: machine.id },
+      data: { backupStatus: 'RUNNING', lastSeenAt: new Date() },
     });
     jobs.push(job);
   }

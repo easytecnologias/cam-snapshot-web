@@ -28,6 +28,15 @@ type Machine = {
 };
 type BackupJob = { id: string; type: string; status: string; createdAt: string; machine?: Machine; error?: string };
 type Alert = { id: string; severity: string; title: string; message: string; createdAt: string; resolved: boolean };
+type BackupPolicy = {
+  id: string;
+  name: string;
+  fileBackupMode: 'all_without_system' | 'user_profiles' | 'manual';
+  imageBackupMode: 'system_volume' | 'all_internal' | 'manual';
+  fileBackupSchedule: 'daily' | 'manual';
+  imageBackupSchedule: 'weekly' | 'manual';
+  retentionDays: number;
+};
 
 const tokenKey = 'easy_backup_token_v1';
 
@@ -69,6 +78,7 @@ function App() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [jobs, setJobs] = useState<BackupJob[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [policies, setPolicies] = useState<BackupPolicy[]>([]);
   const [message, setMessage] = useState('Entre ou crie o primeiro admin para operar o backup.');
   const [loading, setLoading] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'bootstrap'>('login');
@@ -83,6 +93,14 @@ function App() {
   });
   const [machineForm, setMachineForm] = useState({ name: '', ip: '', os: 'Windows', group: '', company: '', urbackupClientId: '' });
   const [backupForm, setBackupForm] = useState({ machineId: '', type: 'incremental_file' });
+  const [policyForm, setPolicyForm] = useState({
+    name: 'Politica padrao EASY',
+    fileBackupMode: 'all_without_system',
+    imageBackupMode: 'all_internal',
+    fileBackupSchedule: 'daily',
+    imageBackupSchedule: 'weekly',
+    retentionDays: 30,
+  });
 
   const api = async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
     const headers = new Headers(init.headers || {});
@@ -100,12 +118,13 @@ function App() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${nextToken}` };
-      const [me, dash, machineData, backupData, alertData] = await Promise.all([
+      const [me, dash, machineData, backupData, alertData, policyData] = await Promise.all([
         fetch('/api/auth/me', { headers }).then((r) => r.json()),
         fetch('/api/dashboard', { headers }).then((r) => r.json()),
         fetch('/api/machines', { headers }).then((r) => r.json()),
         fetch('/api/backups', { headers }).then((r) => r.json()),
         fetch('/api/alerts', { headers }).then((r) => r.json()),
+        fetch('/api/policies', { headers }).then((r) => r.json()),
       ]);
       if (me.error || me.detail) throw new Error(me.error || me.detail);
       setUser(me.user ? { name: me.user.name, email: me.user.email, role: me.user.role, tenant: me.user.tenant?.name || '-' } : null);
@@ -113,6 +132,18 @@ function App() {
       setMachines(machineData.machines || []);
       setJobs(backupData.jobs || []);
       setAlerts(alertData.alerts || []);
+      setPolicies(policyData.policies || []);
+      if (policyData.policies?.[0]) {
+        const policy = policyData.policies[0];
+        setPolicyForm({
+          name: policy.name,
+          fileBackupMode: policy.fileBackupMode,
+          imageBackupMode: policy.imageBackupMode,
+          fileBackupSchedule: policy.fileBackupSchedule,
+          imageBackupSchedule: policy.imageBackupSchedule,
+          retentionDays: policy.retentionDays,
+        });
+      }
       setMessage('Dados atualizados da API real.');
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Falha ao carregar dados.');
@@ -250,6 +281,59 @@ function App() {
     }
   }
 
+  async function savePolicy() {
+    try {
+      const body = await api<{ policy: BackupPolicy }>('/api/policies/default', {
+        method: 'POST',
+        body: JSON.stringify(policyForm),
+      });
+      await refreshAll();
+      setMessage(`Politica salva: ${body.policy.name}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao salvar politica.');
+    }
+  }
+
+  async function applyPolicy() {
+    if (!selectedMachines.length) return setMessage('Selecione pelo menos uma maquina para aplicar a politica.');
+    const policyId = policies[0]?.id;
+    if (!policyId) return setMessage('Salve a politica EASY antes de aplicar.');
+    try {
+      const body = await api<{ applied: number }>('/api/policies/apply', {
+        method: 'POST',
+        body: JSON.stringify({ policyId, machineIds: selectedMachines }),
+      });
+      await refreshAll();
+      setMessage(`Politica aplicada em ${body.applied} maquina(s).`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao aplicar politica.');
+    }
+  }
+
+  async function applyPolicyAndRun() {
+    if (!selectedMachines.length) return setMessage('Selecione pelo menos uma maquina para aplicar e iniciar.');
+    if (!urbackupAuth.password) {
+      setShowUrBackupAuth(true);
+      return setMessage('Informe usuario e senha do UrBackup para o EASY executar a politica.');
+    }
+    const policyId = policies[0]?.id;
+    if (!policyId) return setMessage('Salve a politica EASY antes de iniciar.');
+    try {
+      const body = await api<{ jobs: BackupJob[]; skipped: Array<{ machineId: string; name?: string; reason: string }> }>('/api/policies/apply-and-run', {
+        method: 'POST',
+        body: JSON.stringify({ policyId, machineIds: selectedMachines, ...urbackupAuth }),
+      });
+      await refreshAll();
+      setUrbackupAuth({ username: urbackupAuth.username || 'admin', password: '' });
+      const skippedNames = body.skipped.map((item) => item.name || item.machineId).join(', ');
+      setMessage(body.skipped.length
+        ? `Politica iniciada com ${body.jobs.length} job(s). Ignoradas: ${skippedNames}.`
+        : `Politica EASY iniciada com ${body.jobs.length} job(s).`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Falha ao aplicar e iniciar politica.');
+    }
+  }
+
   async function stopSelectedBackup() {
     if (selectedMachines.length !== 1) return setMessage('Selecione exatamente uma maquina para parar o backup.');
     if (!urbackupAuth.password) {
@@ -323,7 +407,7 @@ function App() {
             <strong>{user?.name || user?.email}</strong><br />{user?.tenant} - {user?.role}
           </div>
           <nav className="mt-8 space-y-2 text-sm text-slate-300">
-            {['Dashboard', 'Maquinas', 'Backups', 'Alertas', 'Storage', 'UrBackup'].map((item) => (
+            {['Dashboard', 'Politica', 'Maquinas', 'Backups', 'Alertas', 'Storage', 'UrBackup'].map((item) => (
               <button key={item} onClick={() => setView(item)} className={`block w-full rounded-md px-3 py-2 text-left ${view === item ? 'bg-slate-800 text-white' : 'hover:bg-slate-800'}`}>{item}</button>
             ))}
           </nav>
@@ -387,6 +471,61 @@ function App() {
               <MachineTable machines={machines} selectedIds={selectedMachines} onSelectionChange={setSelectedMachines} />
             </section>
           </div>
+
+          <section className={`mt-6 rounded-lg border border-line bg-panel p-5 ${view === 'Politica' || view === 'Dashboard' ? '' : 'hidden'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Politica EASY Backup</h2>
+                <p className="mt-1 text-sm text-slate-400">Padrao operacional para nao depender da tela do UrBackup.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-secondary" onClick={savePolicy}>Salvar politica</button>
+                <button className="btn-secondary" onClick={applyPolicy}>Aplicar selecionadas</button>
+                <button className="btn-primary" onClick={applyPolicyAndRun}><PlayCircle size={18} /> Aplicar e iniciar</button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Nome</span>
+                <input className="input" value={policyForm.name} onChange={(e) => setPolicyForm({ ...policyForm, name: e.target.value })} />
+              </label>
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Arquivos</span>
+                <select className="input" value={policyForm.fileBackupMode} onChange={(e) => setPolicyForm({ ...policyForm, fileBackupMode: e.target.value })}>
+                  <option value="all_without_system">Todos, exceto sistema/cache</option>
+                  <option value="user_profiles">Perfis dos usuarios</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Imagem</span>
+                <select className="input" value={policyForm.imageBackupMode} onChange={(e) => setPolicyForm({ ...policyForm, imageBackupMode: e.target.value })}>
+                  <option value="all_internal">Todos os volumes internos</option>
+                  <option value="system_volume">Volume do sistema</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Backup de arquivos</span>
+                <select className="input" value={policyForm.fileBackupSchedule} onChange={(e) => setPolicyForm({ ...policyForm, fileBackupSchedule: e.target.value })}>
+                  <option value="daily">Diario</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Imagem completa</span>
+                <select className="input" value={policyForm.imageBackupSchedule} onChange={(e) => setPolicyForm({ ...policyForm, imageBackupSchedule: e.target.value })}>
+                  <option value="weekly">Semanal</option>
+                  <option value="manual">Manual</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm text-slate-300">
+                <span>Retencao</span>
+                <input className="input" type="number" min="1" max="365" value={policyForm.retentionDays} onChange={(e) => setPolicyForm({ ...policyForm, retentionDays: Number(e.target.value) })} />
+              </label>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">Nesta etapa o EASY Backup salva a politica, vincula nas maquinas e dispara os jobs no UrBackup. Agendamento automatico continuo entra na proxima rodada.</p>
+          </section>
 
           <div className={`mt-6 grid gap-4 lg:grid-cols-2 ${view === 'Maquinas' || view === 'Backups' ? '' : 'hidden'}`}>
             <form className={`rounded-lg border border-line bg-panel p-5 ${view === 'Maquinas' ? '' : 'hidden'}`} onSubmit={createMachine}>
