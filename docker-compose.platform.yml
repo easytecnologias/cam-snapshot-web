@@ -213,7 +213,7 @@ services:
   easy-backup-backend:
     build:
       context: ./easy-backup-manager/backend
-    image: easy-backup-backend:20260512-prepare-urbackup
+    image: easy-backup-backend:20260512-auto-prepare-urbackup
     container_name: easy-backup-backend
     environment:
       NODE_ENV: production
@@ -249,7 +249,7 @@ services:
   easy-backup-frontend:
     build:
       context: ./easy-backup-manager/frontend
-    image: easy-backup-frontend:20260512-prepare-urbackup
+    image: easy-backup-frontend:20260512-auto-prepare-urbackup
     container_name: easy-backup-frontend
     depends_on:
       - easy-backup-backend

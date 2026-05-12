@@ -52,25 +52,12 @@ function publicServerHost(reqHost: string, reqProto: string) {
   return new URL(easyBackupBaseUrl(reqHost, reqProto)).hostname || '10.10.12.7';
 }
 
-urbackupRouter.get('/health', requireAuth, asyncHandler(async (_req, res) => {
-  const status = await urbackupClient.health();
-  res.json({ ok: true, status });
-}));
-
-urbackupRouter.post('/prepare-server', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
-  const body = z.object({
-    serverHost: z.string().optional(),
-    port: z.coerce.number().int().min(1).max(65535).default(55415),
-  }).parse(req.body || {});
-  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
-  const serverHost = String(body.serverHost || publicServerHost(host, proto)).trim();
+export async function configureUrBackupInternetServer(serverHost: string, port = 55415) {
   const dbPath = process.env.URBACKUP_DB_PATH || '/urbackup-db/backup_server_settings.db';
-
   await access(dbPath);
   const rows: Array<[string, string]> = [
     ['internet_server', serverHost],
-    ['internet_server_port', String(body.port)],
+    ['internet_server_port', String(port)],
     ['internet_server_proxy', ''],
     ['internet_mode_enabled', 'true'],
     ['internet_image_backups', 'true'],
@@ -89,10 +76,29 @@ urbackupRouter.post('/prepare-server', requireAuth, requireRole('OPERATOR'), asy
     'COMMIT;',
   ].join('\n');
   await execFileAsync('sqlite3', [dbPath, sql], { timeout: 10000 });
+  return {
+    serverUrl: `urbackup://${serverHost}:${port}`,
+    configured: rows.map(([key]) => key),
+  };
+}
+
+urbackupRouter.get('/health', requireAuth, asyncHandler(async (_req, res) => {
+  const status = await urbackupClient.health();
+  res.json({ ok: true, status });
+}));
+
+urbackupRouter.post('/prepare-server', requireAuth, requireRole('OPERATOR'), asyncHandler(async (req, res) => {
+  const body = z.object({
+    serverHost: z.string().optional(),
+    port: z.coerce.number().int().min(1).max(65535).default(55415),
+  }).parse(req.body || {});
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0];
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '10.10.12.7:8090');
+  const serverHost = String(body.serverHost || publicServerHost(host, proto)).trim();
+  const prepared = await configureUrBackupInternetServer(serverHost, body.port);
   res.json({
     ok: true,
-    serverUrl: `urbackup://${serverHost}:${body.port}`,
-    configured: rows.map(([key]) => key),
+    ...prepared,
     restartRecommended: true,
   });
 }));
