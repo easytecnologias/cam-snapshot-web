@@ -5849,23 +5849,80 @@ body[data-theme="dark"] .auth-role-badge{
 
 .windows-table-wrap{
   max-height: 560px;
+  overflow-x: hidden;
 }
 
 .windows-table-card table th,
 .windows-table-card table td{
-  white-space: nowrap;
   text-align: left;
   vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+  padding: 10px 8px;
+}
+
+.windows-table-card table td{
+  font-size: 13px;
+}
+
+.windows-table-card table th{
+  font-size: 12px;
 }
 
 .windows-table-card table{
   table-layout: fixed;
-  min-width: 3260px;
+  width: 100%;
+  min-width: 0;
 }
 
 @media (max-width: 980px){
   .windows-grid{
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px){
+  .windows-table-wrap{
+    max-height: none;
+    overflow-x: hidden;
+  }
+
+  .windows-table-card table,
+  .windows-table-card thead,
+  .windows-table-card tbody,
+  .windows-table-card tr,
+  .windows-table-card td{
+    display: block;
+    width: 100%;
+  }
+
+  .windows-table-card colgroup,
+  .windows-table-card thead{
+    display: none;
+  }
+
+  .windows-table-card tbody tr{
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 8px;
+    margin: 10px 0;
+    padding: 8px 10px;
+    background: rgba(15, 23, 42, 0.35);
+  }
+
+  .windows-table-card table td{
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 10px;
+    border: 0;
+    padding: 7px 0;
+  }
+
+  .windows-table-card table td::before{
+    content: attr(data-label);
+    color: #93c5fd;
+    font-weight: 700;
   }
 }
 

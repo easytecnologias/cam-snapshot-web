@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=86" />
+  <link rel="stylesheet" href="/static/style.css?v=87" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -205,6 +205,10 @@
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
     });
   }
+  function cell(label, value) {
+    var safe = esc(value || '-');
+    return '<td data-label="' + esc(label) + '" title="' + safe + '">' + safe + '</td>';
+  }
   function setStatus(msg) {
     var node = el('win-status');
     if (node) node.textContent = msg || '';
@@ -241,7 +245,7 @@
     var name = text(cpu && cpu.name);
     var intel = name.match(/(?:Intel\(R\)\s+)?Core\(TM\)\s+i([3579])-?(\d{2})/i)
       || name.match(/i([3579])-?(\d{2})/i);
-    if (intel) return 'i' + intel[1] + ' ' + Number(intel[2]) + 'ª';
+    if (intel) return 'i' + intel[1] + ' ' + Number(intel[2]) + ' gen';
     var ryzen = name.match(/Ryzen\s+([3579])(?:\s+\w+)?\s+(\d{4})/i);
     if (ryzen) return 'Ryzen ' + ryzen[1] + ' ' + ryzen[2];
     return name.replace(/\s*@\s*[0-9.]+\s*GHz/i, '').replace(/\s+CPU\s*/i, ' ').trim();
@@ -277,15 +281,15 @@
         var os = row.os || {};
         var cpu = row.cpu || {};
         return '<tr>'
-          + '<td>' + esc(row.ip) + '</td>'
-          + '<td>' + esc(row.mac || '-') + '</td>'
-          + '<td>' + esc(row.hostname) + '</td>'
-          + '<td>' + esc(row.logged_user || '-') + '</td>'
-          + '<td>' + esc(windowsLabel(os)) + '</td>'
-          + '<td>' + esc(modelLabel(row)) + '</td>'
-          + '<td>' + esc(cpuLabel(cpu)) + '</td>'
-          + '<td>' + esc(memoryLabel(row)) + '</td>'
-          + '<td>' + esc(disksLabel(row)) + '</td>'
+          + cell('IP', row.ip)
+          + cell('MAC', row.mac)
+          + cell('Host', row.hostname)
+          + cell('Usuario', row.logged_user)
+          + cell('Windows', windowsLabel(os))
+          + cell('Modelo', modelLabel(row))
+          + cell('Processador', cpuLabel(cpu))
+          + cell('Memoria', memoryLabel(row))
+          + cell('Discos', disksLabel(row))
           + '</tr>';
       }).join('');
     }
