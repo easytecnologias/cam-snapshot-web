@@ -17,10 +17,25 @@ function withSession(path: string) {
 
 async function request(path: string, init?: RequestInit): Promise<Json> {
   const base = config.urbackupBaseUrl.replace(/\/$/, '');
-  const response = await fetch(`${base}${path}`, {
+  let url = `${base}${path}`;
+  let body: string | undefined;
+  let method = init?.method;
+  if (path.startsWith('/x?')) {
+    const query = path.split('?')[1] || '';
+    const params = new URLSearchParams(query);
+    const action = params.get('a') || '';
+    params.delete('a');
+    url = `${base}/x?a=${encodeURIComponent(action)}`;
+    body = params.toString();
+    method = 'POST';
+  }
+  const response = await fetch(url, {
     ...init,
+    method,
+    body: init?.body || body,
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       ...(init?.headers || {}),
     },
   });
@@ -61,7 +76,7 @@ async function login(credentials: UrBackupCredentials = {}): Promise<string> {
   let passwordHash = md5(`${salt}${password}`);
   const rounds = Number(saltPayload.pbkdf2_rounds || 0);
   if (rounds > 0) {
-    passwordHash = pbkdf2Sync(Buffer.from(passwordHash, 'hex'), salt, rounds, 32, 'sha1').toString('hex');
+    passwordHash = pbkdf2Sync(Buffer.from(passwordHash, 'hex'), salt, rounds, 32, 'sha256').toString('hex');
   }
   passwordHash = md5(`${rnd}${passwordHash}`);
 
