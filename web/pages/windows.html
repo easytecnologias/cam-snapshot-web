@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=88" />
+  <link rel="stylesheet" href="/static/style.css?v=89" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -164,12 +164,13 @@
         <table>
           <colgroup>
             <col style="width:210px" />
-            <col style="width:230px" />
-            <col style="width:170px" />
+            <col style="width:210px" />
+            <col style="width:145px" />
             <col style="width:260px" />
             <col style="width:130px" />
-            <col style="width:210px" />
-            <col style="width:170px" />
+            <col style="width:205px" />
+            <col style="width:165px" />
+            <col style="width:130px" />
           </colgroup>
           <thead>
             <tr>
@@ -180,10 +181,11 @@
               <th>CPU</th>
               <th>Memoria</th>
               <th>Discos</th>
+              <th>AnyDesk</th>
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="7" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="8" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -210,6 +212,11 @@
     var subText = esc(sub || '');
     var title = esc([main, sub].filter(Boolean).join(' / '));
     return '<td data-label="' + esc(label) + '" title="' + title + '"><strong>' + mainText + '</strong>' + (subText ? '<small>' + subText + '</small>' : '') + '</td>';
+  }
+  function anydeskCell(id) {
+    id = text(id);
+    if (!id) return cell('AnyDesk', '-');
+    return '<td data-label="AnyDesk" title="Copiar AnyDesk ' + esc(id) + '"><button class="copy-chip anydesk-copy" type="button" data-copy="' + esc(id) + '">' + esc(id) + '</button></td>';
   }
   function setStatus(msg) {
     var node = el('win-status');
@@ -252,6 +259,14 @@
     if (ryzen) return 'Ryzen ' + ryzen[1] + ' ' + ryzen[2];
     return name.replace(/\s*@\s*[0-9.]+\s*GHz/i, '').replace(/\s+CPU\s*/i, ' ').trim();
   }
+  function userLabel(row) {
+    var user = text(row && row.logged_user);
+    var host = text(row && row.hostname).toLowerCase();
+    if (!user) return '';
+    var parts = user.split('\\');
+    if (parts.length > 1 && parts[0].toLowerCase() === host) return parts.slice(1).join('\\');
+    return user;
+  }
   function memoryLabel(row) {
     var modules = Array.isArray(row && row.memory_modules) ? row.memory_modules : [];
     var total = row && row.ram_gb ? Math.round(Number(row.ram_gb)) + ' GB' : '';
@@ -266,7 +281,7 @@
       speed = text(module.configured_speed_mhz || module.speed_mhz);
       return !!(ddr || speed);
     });
-    var bankText = banks ? banks + ' banco' + (banks > 1 ? 's' : '') + ':' : '';
+    var bankText = banks ? banks + 'x' : '';
     return [bankText, total, ddr, speed ? speed + ' MHz' : ''].filter(Boolean).join(' ');
   }
   function diskKindFromDisks(row) {
@@ -290,19 +305,20 @@
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
         var cpu = row.cpu || {};
         return '<tr>'
           + stackCell('Rede', row.ip, row.mac)
-          + stackCell('Computador', row.hostname, row.logged_user)
+          + stackCell('Computador', row.hostname, userLabel(row))
           + cell('Windows', windowsLabel(os))
           + cell('Modelo', modelLabel(row))
           + cell('CPU', cpuLabel(cpu))
           + cell('Memoria', memoryLabel(row))
           + cell('Discos', disksLabel(row))
+          + anydeskCell(row.anydesk_id)
           + '</tr>';
       }).join('');
     }
@@ -315,6 +331,21 @@
     if (el('win-ssd')) el('win-ssd').textContent = ssd;
     if (el('win-no-ssd')) el('win-no-ssd').textContent = noSsd;
   }
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.anydesk-copy') : null;
+    if (!btn) return;
+    var value = btn.getAttribute('data-copy') || '';
+    if (!value) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(function () {
+        setStatus('AnyDesk ' + value + ' copiado.');
+      }).catch(function () {
+        window.prompt('Copie o ID do AnyDesk:', value);
+      });
+    } else {
+      window.prompt('Copie o ID do AnyDesk:', value);
+    }
+  });
   function loadInventory() {
     return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
       .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })

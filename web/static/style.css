@@ -5860,7 +5860,7 @@ body[data-theme="dark"] .auth-role-badge{
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.35;
-  padding: 10px 8px;
+  padding: 7px 8px;
 }
 
 .windows-table-card table td{
@@ -5879,10 +5879,31 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-table-card table td small{
-  margin-top: 3px;
+  margin-top: 1px;
   color: #93c5fd;
   font-size: 12px;
   line-height: 1.25;
+}
+
+.windows-table-card .copy-chip{
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 7px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #bae6fd;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.windows-table-card .copy-chip:hover{
+  border-color: rgba(125, 211, 252, 0.85);
+  background: rgba(14, 165, 233, 0.22);
 }
 
 .windows-table-card table th{
