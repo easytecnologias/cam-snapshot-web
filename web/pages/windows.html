@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=91" />
+  <link rel="stylesheet" href="/static/style.css?v=92" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -163,17 +163,19 @@
       <div class="table-wrap windows-table-wrap">
         <table>
           <colgroup>
-            <col style="width:210px" />
-            <col style="width:210px" />
-            <col style="width:145px" />
-            <col style="width:260px" />
-            <col style="width:130px" />
-            <col style="width:205px" />
-            <col style="width:165px" />
-            <col style="width:130px" />
+            <col style="width:38px" />
+            <col style="width:190px" />
+            <col style="width:190px" />
+            <col style="width:135px" />
+            <col style="width:220px" />
+            <col style="width:105px" />
+            <col style="width:190px" />
+            <col style="width:150px" />
+            <col style="width:115px" />
           </colgroup>
           <thead>
             <tr>
+              <th><input id="win-select-all" type="checkbox" aria-label="Selecionar todos" /></th>
               <th>Rede</th>
               <th>Computador</th>
               <th>Windows</th>
@@ -185,7 +187,7 @@
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="8" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -217,6 +219,10 @@
     id = text(id);
     if (!id) return cell('AnyDesk', '-');
     return '<td data-label="AnyDesk" title="Abrir AnyDesk ' + esc(id) + '"><a class="anydesk-link" href="anydesk:' + encodeURIComponent(id) + '">' + esc(id) + '</a></td>';
+  }
+  function selectCell(row) {
+    var value = text(row && (row.ip || row.hostname));
+    return '<td class="select-cell" data-label="Selecionar"><input class="win-row-select" type="checkbox" value="' + esc(value) + '" aria-label="Selecionar ' + esc(row && row.hostname || value || 'computador') + '" /></td>';
   }
   function setStatus(msg) {
     var node = el('win-status');
@@ -305,12 +311,13 @@
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
         var cpu = row.cpu || {};
         return '<tr>'
+          + selectCell(row)
           + stackCell('Rede', row.ip, row.mac)
           + stackCell('Computador', row.hostname, userLabel(row))
           + cell('Windows', windowsLabel(os))
@@ -330,7 +337,15 @@
     if (el('win-online')) el('win-online').textContent = online;
     if (el('win-ssd')) el('win-ssd').textContent = ssd;
     if (el('win-no-ssd')) el('win-no-ssd').textContent = noSsd;
+    var selectAll = el('win-select-all');
+    if (selectAll) selectAll.checked = false;
   }
+  document.addEventListener('change', function (ev) {
+    if (!ev.target || ev.target.id !== 'win-select-all') return;
+    document.querySelectorAll('#win-tbody .win-row-select').forEach(function (cb) {
+      cb.checked = ev.target.checked;
+    });
+  });
   function loadInventory() {
     return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
       .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })

@@ -5863,6 +5863,27 @@ body[data-theme="dark"] .auth-role-badge{
   padding: 7px 8px;
 }
 
+.windows-table-card table th{
+  text-align: center;
+}
+
+.windows-table-card table td:not(.select-cell){
+  text-align: center;
+}
+
+.windows-table-card table td.select-cell,
+.windows-table-card table th:first-child{
+  text-align: center;
+  vertical-align: middle;
+}
+
+.windows-table-card input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+  accent-color: #38bdf8;
+  cursor: pointer;
+}
+
 .windows-table-card table td{
   font-size: 13px;
 }
@@ -5894,6 +5915,7 @@ body[data-theme="dark"] .auth-role-badge{
 .windows-table-card .inline-pair{
   display: inline-flex;
   align-items: baseline;
+  justify-content: center;
   max-width: 100%;
   min-width: 0;
   gap: 6px;
@@ -5972,6 +5994,7 @@ body[data-theme="dark"] .auth-role-badge{
     white-space: normal;
     overflow: visible;
     text-overflow: clip;
+    text-align: left;
   }
 
   .windows-table-card table td::before{
