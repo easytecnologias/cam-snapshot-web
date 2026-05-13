@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=95" />
+  <link rel="stylesheet" href="/static/style.css?v=96" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -149,7 +149,6 @@
         <div class="windows-toolbar-group windows-toolbar-action">
           <span class="windows-toolbar-title">Selecionados</span>
           <span class="windows-summary-chip" id="win-selected-count">0</span>
-          <button class="btn-secondary" id="win-save-meta" type="button">Salvar locais</button>
           <button class="btn-secondary" id="win-filter-clear" type="button">Limpar</button>
         </div>
       </div>
@@ -219,11 +218,7 @@
     return '<td data-label="AnyDesk" title="Abrir AnyDesk ' + esc(id) + '"><a class="anydesk-link" href="anydesk:' + encodeURIComponent(id) + '">' + esc(id) + '</a></td>';
   }
   function locationCell(row) {
-    var key = rowKey(row);
-    return '<td class="location-cell" data-label="Site / Setor">'
-      + '<input class="win-meta-input" data-key="' + esc(key) + '" data-field="site" value="' + esc(row.site || '') + '" placeholder="Site" />'
-      + '<input class="win-meta-input" data-key="' + esc(key) + '" data-field="sector" value="' + esc(row.sector || row.setor || '') + '" placeholder="Setor" />'
-      + '</td>';
+    return stackCell('Site / Setor', row.site || '-', row.sector || row.setor || '');
   }
   function rowKey(row) {
     return text(row && (row.ip || row.hostname || row.serial));
@@ -454,25 +449,6 @@
       })
       .catch(function (err) { setStatus('Falha ao limpar: ' + err.message); });
   }
-  function saveMetadata() {
-    var items = allRows.map(function (row) {
-      return { ip: row.ip, site: text(row.site), sector: text(row.sector || row.setor) };
-    }).filter(function (item) { return !!item.ip; });
-    setStatus('Salvando site e setor...');
-    fetch('/api/windows/metadata', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: items })
-    })
-      .then(function (resp) { return resp.json().then(function (body) { if (!resp.ok) throw new Error(body.detail || 'HTTP ' + resp.status); return body; }); })
-      .then(function (body) {
-        allRows = Array.isArray(body.inventory) ? body.inventory : allRows;
-        refreshLocationFilters();
-        applyWindowsFilters();
-        setStatus('Site e setor salvos em ' + (body.updated || 0) + ' computador(es).');
-      })
-      .catch(function (err) { setStatus('Falha ao salvar locais: ' + err.message); });
-  }
   function downloadAgentScript() {
     setStatus('Gerando agente Windows...');
     fetch('/api/windows/agent-script', { cache: 'no-store' })
@@ -549,7 +525,6 @@
     var sectorFilterEl = el('win-sector-filter');
     var searchEl = el('win-search');
     var filterClearBtn = el('win-filter-clear');
-    var saveMetaBtn = el('win-save-meta');
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
     if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
@@ -559,15 +534,6 @@
     if (siteFilterEl) siteFilterEl.addEventListener('change', applyWindowsFilters);
     if (sectorFilterEl) sectorFilterEl.addEventListener('change', applyWindowsFilters);
     if (searchEl) searchEl.addEventListener('input', applyWindowsFilters);
-    document.addEventListener('input', function (ev) {
-      if (!ev.target || !ev.target.classList || !ev.target.classList.contains('win-meta-input')) return;
-      var key = text(ev.target.getAttribute('data-key'));
-      var field = text(ev.target.getAttribute('data-field'));
-      var row = allRows.find(function (item) { return rowKey(item) === key; });
-      if (!row || !field) return;
-      row[field] = text(ev.target.value);
-    });
-    if (saveMetaBtn) saveMetaBtn.addEventListener('click', saveMetadata);
     if (filterClearBtn) filterClearBtn.addEventListener('click', function () {
       if (filterEl) filterEl.value = 'all';
       if (siteFilterEl) siteFilterEl.value = '';

@@ -534,6 +534,8 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "error": error,
         "source": _text(data.get("source")) or ("agent" if status == "agent_reported" else "winrm"),
         "domain": _text(data.get("domain")),
+        "site": _text(data.get("site")),
+        "sector": _text(data.get("sector") or data.get("setor")),
         "logged_user": _text(data.get("logged_user")),
         "manufacturer": _text(data.get("manufacturer")),
         "model": _text(data.get("model")),
@@ -667,6 +669,8 @@ $SightOpsUrl = "{server}"
 $AgentToken = "{token}"
 
 Write-Host "Coletando inventario local para o SightOps..." -ForegroundColor Cyan
+$SightOpsSite = Read-Host "Site/unidade deste computador (ex: Matriz, Clinica Centro)"
+$SightOpsSector = Read-Host "Setor deste computador (ex: Recepcao, Financeiro, Consultorio 1)"
 
 $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -894,6 +898,8 @@ $payload = [PSCustomObject]@{{
   source = "agent"
   hostname = $env:COMPUTERNAME
   primary_ipv4 = $primaryIpv4
+  site = $SightOpsSite
+  sector = $SightOpsSector
   domain = $cs.Domain
   manufacturer = $cs.Manufacturer
   model = $cs.Model
@@ -1088,6 +1094,9 @@ def _merge_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) 
             order.append(ip)
         merged = dict(index.get(ip) or {})
         merged.update(row)
+        for keep_key in ("site", "sector"):
+            if not _text(merged.get(keep_key)) and _text(index.get(ip, {}).get(keep_key)):
+                merged[keep_key] = index[ip][keep_key]
         index[ip] = merged
     return [index[ip] for ip in order if ip in index]
 

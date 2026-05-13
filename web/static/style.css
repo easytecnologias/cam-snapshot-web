@@ -5949,35 +5949,8 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-toolbar-action{
-  grid-template-columns: auto auto auto auto;
+  grid-template-columns: auto auto auto;
   align-items: end;
-}
-
-.windows-table-card .location-cell{
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
-}
-
-.windows-table-card .win-meta-input{
-  width: 100%;
-  min-width: 0;
-  height: 28px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 7px;
-  background: rgba(2, 6, 23, 0.34);
-  color: #f8fafc;
-  padding: 0 8px;
-  font: inherit;
-  font-size: 12px;
-  outline: none;
-}
-
-.windows-table-card .win-meta-input:focus{
-  border-color: rgba(56, 189, 248, 0.72);
 }
 
 .windows-table-wrap{
