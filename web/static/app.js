@@ -1360,7 +1360,7 @@ function ensureWindowsNavLink() {
   label.className = 'nav-subitem nav-subitem-label';
   label.textContent = 'Infraestrutura';
   const link = document.createElement('a');
-  link.className = 'nav-subitem';
+  link.className = 'nav-subitem nav-subitem-child';
   link.href = 'windows.html';
   link.textContent = 'Windows';
   const path = String(window.location.pathname || '').toLowerCase();
