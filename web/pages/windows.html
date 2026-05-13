@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=93" />
+  <link rel="stylesheet" href="/static/style.css?v=94" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -86,29 +86,24 @@
 
 <main>
   <section class="tab-view active" id="tab-windows">
-    <div class="windows-grid">
-      <div class="card windows-scan-card">
-        <div class="card-title">Agente Windows</div>
-        <div class="card-sub">Baixe o agente, execute no computador e ele envia o inventario ao SightOps.</div>
-
-        <div class="actions-row">
+    <div class="card windows-command-bar">
+      <div class="windows-command-main">
+        <div>
+          <div class="card-title">Agente Windows</div>
+          <div class="card-sub" id="win-status">Execute o agente no PC Windows para enviar inventario, AnyDesk e hardware ao SightOps.</div>
+        </div>
+        <div class="actions-row windows-command-actions">
           <button class="btn-primary" id="btn-win-agent" type="button">Baixar agente Windows</button>
           <button class="btn-secondary" id="btn-win-photos" type="button">Buscar fotos</button>
           <button class="btn-secondary" id="btn-win-pdf" type="button">Relatorio PDF</button>
           <button class="btn-ghost" id="btn-win-clear" type="button">Limpar inventario</button>
         </div>
-        <div id="win-status" class="status-line">Modo recomendado: execute o agente no PC Windows para enviar inventario, AnyDesk e hardware ao SightOps.</div>
       </div>
-
-      <div class="card windows-summary-card">
-        <div class="card-title">Resumo Windows</div>
-        <div class="card-sub">Visao rapida do parque inventariado.</div>
-        <div class="windows-summary">
-          <div><span>Total</span><strong id="win-total">0</strong></div>
-          <div><span>Online</span><strong id="win-online">0</strong></div>
-          <div><span>Com SSD</span><strong id="win-ssd">0</strong></div>
-          <div><span>Sem SSD</span><strong id="win-no-ssd">0</strong></div>
-        </div>
+      <div class="windows-summary">
+        <div><span>Total</span><strong id="win-total">0</strong></div>
+        <div><span>Online</span><strong id="win-online">0</strong></div>
+        <div><span>SSD</span><strong id="win-ssd">0</strong></div>
+        <div><span>Sem SSD</span><strong id="win-no-ssd">0</strong></div>
       </div>
     </div>
 

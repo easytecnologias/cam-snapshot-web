@@ -5798,6 +5798,43 @@ body[data-theme="dark"] .auth-role-badge{
   margin-bottom: 12px;
 }
 
+.windows-command-bar{
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(500px, .9fr);
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.windows-command-main{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.windows-command-main .card-title{
+  margin-bottom: 4px;
+}
+
+.windows-command-main .card-sub{
+  margin-bottom: 0;
+}
+
+.windows-command-actions{
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 0;
+}
+
+.windows-command-actions .btn-primary,
+.windows-command-actions .btn-secondary,
+.windows-command-actions .btn-ghost{
+  min-height: 40px;
+  padding: 0 14px;
+}
+
 .windows-options{
   display: flex;
   flex-wrap: wrap;
@@ -5825,12 +5862,23 @@ body[data-theme="dark"] .auth-role-badge{
   margin-top: 14px;
 }
 
+.windows-command-bar .windows-summary{
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 0;
+}
+
 .windows-summary > div{
   min-height: 96px;
   padding: 14px;
   border-radius: 8px;
   border: 1px solid rgba(148,163,184,.16);
   background: rgba(15,23,42,.62);
+}
+
+.windows-command-bar .windows-summary > div{
+  min-height: 66px;
+  padding: 10px 12px;
 }
 
 .windows-summary span{
@@ -5845,6 +5893,11 @@ body[data-theme="dark"] .auth-role-badge{
   line-height: 1;
   color: #f8fafc;
   letter-spacing: 0;
+}
+
+.windows-command-bar .windows-summary strong{
+  margin-top: 5px;
+  font-size: 24px;
 }
 
 .windows-toolbar{
@@ -6009,6 +6062,15 @@ body[data-theme="dark"] .auth-role-badge{
     grid-template-columns: 1fr;
   }
 
+  .windows-command-bar{
+    grid-template-columns: 1fr;
+  }
+
+  .windows-command-main{
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .windows-toolbar{
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6069,6 +6131,14 @@ body[data-theme="dark"] .auth-role-badge{
 @media (max-width: 620px){
   .windows-summary{
     grid-template-columns: 1fr;
+  }
+
+  .windows-command-bar .windows-summary{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .windows-command-actions{
+    width: 100%;
   }
 
   .windows-toolbar{
