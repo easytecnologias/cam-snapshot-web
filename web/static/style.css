@@ -5965,8 +5965,8 @@ body[data-theme="dark"] .auth-role-badge{
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
-  line-height: 1.35;
-  padding: 7px 8px;
+  line-height: 1.2;
+  padding: 5px 4px;
 }
 
 .windows-table-card table th{
@@ -5984,14 +5984,14 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-table-card input[type="checkbox"]{
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   accent-color: #38bdf8;
   cursor: pointer;
 }
 
 .windows-table-card table td{
-  font-size: 13px;
+  font-size: 11.5px;
 }
 
 .windows-table-card table td{
@@ -6014,7 +6014,7 @@ body[data-theme="dark"] .auth-role-badge{
 .windows-table-card table td small{
   margin-top: 0;
   color: #93c5fd;
-  font-size: 12px;
+  font-size: 10.5px;
   line-height: 1.25;
 }
 
@@ -6024,23 +6024,25 @@ body[data-theme="dark"] .auth-role-badge{
   justify-content: center;
   max-width: 100%;
   min-width: 0;
-  gap: 6px;
+  gap: 4px;
 }
 
 .windows-table-card .inline-pair small::before{
   content: "/";
-  margin-right: 6px;
+  margin-right: 4px;
   color: #475569;
 }
 
 .windows-table-card .anydesk-link{
   display: inline-block;
   max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #bae6fd;
   font-weight: 700;
   text-decoration: none;
+  font-size: 12px;
 }
 
 .windows-table-card .anydesk-link:hover{
@@ -6048,7 +6050,7 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-table-card table th{
-  font-size: 12px;
+  font-size: 10.5px;
 }
 
 .windows-table-card table{
