@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=94" />
+  <link rel="stylesheet" href="/static/style.css?v=95" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -130,6 +130,18 @@
             <option value="missing_mac">Sem MAC</option>
           </select>
         </div>
+        <div class="windows-toolbar-group">
+          <span class="windows-toolbar-title">Site</span>
+          <select id="win-site-filter" class="windows-filter-control">
+            <option value="">Todos os sites</option>
+          </select>
+        </div>
+        <div class="windows-toolbar-group">
+          <span class="windows-toolbar-title">Setor</span>
+          <select id="win-sector-filter" class="windows-filter-control">
+            <option value="">Todos os setores</option>
+          </select>
+        </div>
         <div class="windows-toolbar-group windows-toolbar-search">
           <span class="windows-toolbar-title">Buscar</span>
           <input id="win-search" class="windows-filter-control" type="search" placeholder="IP, MAC, host, usuario, modelo, CPU, AnyDesk..." autocomplete="off" />
@@ -137,6 +149,7 @@
         <div class="windows-toolbar-group windows-toolbar-action">
           <span class="windows-toolbar-title">Selecionados</span>
           <span class="windows-summary-chip" id="win-selected-count">0</span>
+          <button class="btn-secondary" id="win-save-meta" type="button">Salvar locais</button>
           <button class="btn-secondary" id="win-filter-clear" type="button">Limpar</button>
         </div>
       </div>
@@ -148,6 +161,7 @@
             <col style="width:190px" />
             <col style="width:135px" />
             <col style="width:220px" />
+            <col style="width:190px" />
             <col style="width:105px" />
             <col style="width:190px" />
             <col style="width:150px" />
@@ -160,6 +174,7 @@
               <th>Computador</th>
               <th>Windows</th>
               <th>Modelo</th>
+              <th>Site / Setor</th>
               <th>CPU</th>
               <th>Memoria</th>
               <th>Discos</th>
@@ -167,7 +182,7 @@
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -202,6 +217,13 @@
     id = text(id);
     if (!id) return cell('AnyDesk', '-');
     return '<td data-label="AnyDesk" title="Abrir AnyDesk ' + esc(id) + '"><a class="anydesk-link" href="anydesk:' + encodeURIComponent(id) + '">' + esc(id) + '</a></td>';
+  }
+  function locationCell(row) {
+    var key = rowKey(row);
+    return '<td class="location-cell" data-label="Site / Setor">'
+      + '<input class="win-meta-input" data-key="' + esc(key) + '" data-field="site" value="' + esc(row.site || '') + '" placeholder="Site" />'
+      + '<input class="win-meta-input" data-key="' + esc(key) + '" data-field="sector" value="' + esc(row.sector || row.setor || '') + '" placeholder="Setor" />'
+      + '</td>';
   }
   function rowKey(row) {
     return text(row && (row.ip || row.hostname || row.serial));
@@ -298,7 +320,7 @@
     var cpu = row.cpu || {};
     return [
       row.ip, row.mac, row.hostname, userLabel(row), windowsLabel(os), modelLabel(row),
-      cpuLabel(cpu), memoryLabel(row), disksLabel(row), row.anydesk_id, row.status
+      row.site, row.sector, row.setor, cpuLabel(cpu), memoryLabel(row), disksLabel(row), row.anydesk_id, row.status
     ].map(text).join(' ').toLowerCase();
   }
   function rowMatchesFilter(row) {
@@ -312,6 +334,10 @@
     if (filter === 'windows11' && !/windows\s*11/i.test(windowsLabel(row.os || {}))) return false;
     if (filter === 'windows10' && !/windows\s*10/i.test(windowsLabel(row.os || {}))) return false;
     if (filter === 'missing_mac' && text(row.mac)) return false;
+    var site = text(el('win-site-filter') && el('win-site-filter').value);
+    var sector = text(el('win-sector-filter') && el('win-sector-filter').value);
+    if (site && text(row.site) !== site) return false;
+    if (sector && text(row.sector || row.setor) !== sector) return false;
     var query = text(el('win-search') && el('win-search').value).toLowerCase();
     if (query && rowBlob(row).indexOf(query) < 0) return false;
     return true;
@@ -343,12 +369,26 @@
     renderRows(filtered);
     updateToolbarCount(filtered);
   }
+  function fillSelectOptions(selectId, values, emptyLabel) {
+    var select = el(selectId);
+    if (!select) return;
+    var current = select.value;
+    var unique = Array.from(new Set(values.map(text).filter(Boolean))).sort(function (a, b) { return a.localeCompare(b); });
+    select.innerHTML = '<option value="">' + esc(emptyLabel) + '</option>' + unique.map(function (value) {
+      return '<option value="' + esc(value) + '">' + esc(value) + '</option>';
+    }).join('');
+    if (unique.indexOf(current) >= 0) select.value = current;
+  }
+  function refreshLocationFilters() {
+    fillSelectOptions('win-site-filter', allRows.map(function (row) { return row.site; }), 'Todos os sites');
+    fillSelectOptions('win-sector-filter', allRows.map(function (row) { return row.sector || row.setor; }), 'Todos os setores');
+  }
   function renderRows(rows) {
     rows = Array.isArray(rows) ? rows : [];
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
@@ -359,6 +399,7 @@
           + stackCell('Computador', row.hostname, userLabel(row))
           + cell('Windows', windowsLabel(os))
           + cell('Modelo', modelLabel(row))
+          + locationCell(row)
           + cell('CPU', cpuLabel(cpu))
           + cell('Memoria', memoryLabel(row))
           + cell('Discos', disksLabel(row))
@@ -394,6 +435,7 @@
       .then(function (payload) {
         allRows = Array.isArray(payload.inventory) ? payload.inventory : [];
         updateSummary(allRows);
+        refreshLocationFilters();
         applyWindowsFilters();
         return payload;
       })
@@ -411,6 +453,25 @@
         applyWindowsFilters();
       })
       .catch(function (err) { setStatus('Falha ao limpar: ' + err.message); });
+  }
+  function saveMetadata() {
+    var items = allRows.map(function (row) {
+      return { ip: row.ip, site: text(row.site), sector: text(row.sector || row.setor) };
+    }).filter(function (item) { return !!item.ip; });
+    setStatus('Salvando site e setor...');
+    fetch('/api/windows/metadata', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items })
+    })
+      .then(function (resp) { return resp.json().then(function (body) { if (!resp.ok) throw new Error(body.detail || 'HTTP ' + resp.status); return body; }); })
+      .then(function (body) {
+        allRows = Array.isArray(body.inventory) ? body.inventory : allRows;
+        refreshLocationFilters();
+        applyWindowsFilters();
+        setStatus('Site e setor salvos em ' + (body.updated || 0) + ' computador(es).');
+      })
+      .catch(function (err) { setStatus('Falha ao salvar locais: ' + err.message); });
   }
   function downloadAgentScript() {
     setStatus('Gerando agente Windows...');
@@ -484,17 +545,33 @@
     var clearBtn = el('btn-win-clear');
     var refreshBtn = el('windows-refresh');
     var filterEl = el('win-filter');
+    var siteFilterEl = el('win-site-filter');
+    var sectorFilterEl = el('win-sector-filter');
     var searchEl = el('win-search');
     var filterClearBtn = el('win-filter-clear');
+    var saveMetaBtn = el('win-save-meta');
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
     if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);
     if (filterEl) filterEl.addEventListener('change', applyWindowsFilters);
+    if (siteFilterEl) siteFilterEl.addEventListener('change', applyWindowsFilters);
+    if (sectorFilterEl) sectorFilterEl.addEventListener('change', applyWindowsFilters);
     if (searchEl) searchEl.addEventListener('input', applyWindowsFilters);
+    document.addEventListener('input', function (ev) {
+      if (!ev.target || !ev.target.classList || !ev.target.classList.contains('win-meta-input')) return;
+      var key = text(ev.target.getAttribute('data-key'));
+      var field = text(ev.target.getAttribute('data-field'));
+      var row = allRows.find(function (item) { return rowKey(item) === key; });
+      if (!row || !field) return;
+      row[field] = text(ev.target.value);
+    });
+    if (saveMetaBtn) saveMetaBtn.addEventListener('click', saveMetadata);
     if (filterClearBtn) filterClearBtn.addEventListener('click', function () {
       if (filterEl) filterEl.value = 'all';
+      if (siteFilterEl) siteFilterEl.value = '';
+      if (sectorFilterEl) sectorFilterEl.value = '';
       if (searchEl) searchEl.value = '';
       selectedRows.clear();
       applyWindowsFilters();

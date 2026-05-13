@@ -42,6 +42,28 @@ def api_windows_clear() -> Dict[str, Any]:
     return clear_windows_inventory()
 
 
+@router.post("/metadata")
+def api_windows_metadata(payload: Dict[str, Any]) -> Dict[str, Any]:
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="items obrigatorio")
+    rows = load_windows_inventory()
+    by_ip = {str(row.get("ip") or "").strip(): row for row in rows if isinstance(row, dict)}
+    updated = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        ip = str(item.get("ip") or "").strip()
+        row = by_ip.get(ip)
+        if not row:
+            continue
+        row["site"] = str(item.get("site") or "").strip()
+        row["sector"] = str(item.get("sector") or item.get("setor") or "").strip()
+        updated += 1
+    save_windows_inventory(rows)
+    return {"ok": True, "updated": updated, "count": len(rows), "inventory": rows}
+
+
 @router.post("/enrich/photos")
 def api_windows_enrich_photos() -> Dict[str, Any]:
     rows = load_windows_inventory()
