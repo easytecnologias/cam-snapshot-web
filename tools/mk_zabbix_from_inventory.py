@@ -19,6 +19,15 @@ TG_RELAY_URL = os.getenv("ZBX_TG_RELAY_URL","").strip()
 TG_RELAY_KEY = os.getenv("ZBX_TG_RELAY_KEY","").strip()
 ZBX_TG_TIMEZONE = os.getenv("ZBX_TG_TIMEZONE", "America/Sao_Paulo").strip() or "America/Sao_Paulo"
 
+WINDOWS_SERVICE_NAME_NOT_MATCHES = (
+    r"^(?:RemoteRegistry|MMCSS|gupdate|gupdatem|GoogleUpdate.*|GoogleUpdater.*|"
+    r"SysmonLog|clr_optimization_v.+|sppsvc|gpsvc|Pml Driver HPZ12|"
+    r"Net Driver HPZ12|MapsBroker|IntelAudioService|Intel\(R\) TPM Provisioning Service|"
+    r"dbupdate|DoSvc|CDPUserSvc_.+|WpnUserService_.+|OneSyncSvc_.+|WbioSrvc|BITS|"
+    r"tiledatamodelsvc|GISvc|ShellHWDetection|TrustedInstaller|TabletInputService|"
+    r"CDPSvc|wuauserv|edgeupdate|edgeupdatem|cbdhsvc_.+|SIMNextLocalRecording)$"
+)
+
 MEDIA_NAME = "Telegram (cam-snapshot)"
 ACTION_NAME_LEGACY_IP = "Cameras IP -> Telegram (cam-snapshot)"
 ACTION_NAME_LEGACY_DVR = "DVR -> Telegram (cam-snapshot)"
@@ -749,7 +758,7 @@ def main():
             ch_num = "1"
 
         host_groups = [groupid]
-        st, hostid = host_upsert(auth, host, title, ip, host_groups, templateids, {
+        macros = {
             "{$CAM_IP}": ip,
             "{$CAM_TITLE}": title,
             "{$CAM_LOCAL}": local,
@@ -777,7 +786,10 @@ def main():
             "{$DVR_PASS}": ZBX_DVR_PASS,
             "{$DVR_CH_INDEX}": ch_idx,
             "{$DVR_CH}": ch_num,
-        })
+        }
+        if source == "windows":
+            macros["{$SERVICE.NAME.NOT_MATCHES}"] = WINDOWS_SERVICE_NAME_NOT_MATCHES
+        st, hostid = host_upsert(auth, host, title, ip, host_groups, templateids, macros)
         n+=1
         print(f"{st}: {host} ({title})")
     print(f"OK: {n} hosts processados")
