@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>SightOps - Computadores Windows</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=97" />
+  <link rel="stylesheet" href="/static/style.css?v=98" />
 </head>
 <body class="windows-page" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
@@ -189,7 +189,7 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=86"></script>
+<script src="/static/app.js?v=100"></script>
 <script>
 (function () {
   var allRows = [];
@@ -231,6 +231,26 @@
   function setStatus(msg) {
     var node = el('win-status');
     if (node) node.textContent = msg || '';
+  }
+  function windowsAuthToken() {
+    try {
+      if (typeof authToken === 'function') return text(authToken());
+    } catch (_) {}
+    try {
+      var raw = localStorage.getItem('sightops_auth_v1');
+      var stored = raw ? JSON.parse(raw) : null;
+      return text(stored && stored.token);
+    } catch (_) {
+      return '';
+    }
+  }
+  function windowsApiFetch(url, init) {
+    var nextInit = init ? Object.assign({}, init) : {};
+    var headers = new Headers(nextInit.headers || {});
+    var token = windowsAuthToken();
+    if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+    nextInit.headers = headers;
+    return fetch(url, nextInit);
   }
   function diskLabel(row) {
     if (row.has_ssd) return row.disk_kind === 'mixed' ? 'SSD + HD' : 'SSD';
@@ -425,20 +445,45 @@
     }
   });
   function loadInventory() {
-    return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
-      .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
+    setStatus('Carregando inventario Windows...');
+    return windowsApiFetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (resp) {
+        if (resp.status === 401) throw new Error('LOGIN_REQUIRED');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
       .then(function (payload) {
         allRows = Array.isArray(payload.inventory) ? payload.inventory : [];
         updateSummary(allRows);
         refreshLocationFilters();
         applyWindowsFilters();
+        setStatus('Inventario Windows atualizado.');
         return payload;
       })
-      .catch(function (err) { setStatus('Falha ao carregar inventario: ' + err.message); });
+      .catch(function (err) {
+        if (err && err.message === 'LOGIN_REQUIRED') {
+          setStatus('Aguardando autenticacao. Entre no sistema para carregar o inventario Windows.');
+          return null;
+        }
+        setStatus('Falha ao carregar inventario: ' + err.message);
+        return null;
+      });
+  }
+  function loadInventoryWhenReady() {
+    return fetch('/api/auth/status?_=' + Date.now(), { cache: 'no-store' })
+      .then(function (resp) { return resp.json().catch(function () { return {}; }); })
+      .then(function (auth) {
+        if (auth && auth.enabled && !windowsAuthToken()) {
+          setStatus('Aguardando autenticacao. Entre no sistema para carregar o inventario Windows.');
+          return null;
+        }
+        return loadInventory();
+      })
+      .catch(function () { return loadInventory(); });
   }
   function clearInventory() {
     if (!confirm('Limpar inventario Windows salvo?')) return;
-    fetch('/api/windows/clear', { method: 'POST' })
+    windowsApiFetch('/api/windows/clear', { method: 'POST' })
       .then(function (resp) { if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
       .then(function () {
         setStatus('Inventario Windows limpo.');
@@ -451,7 +496,7 @@
   }
   function downloadAgentScript() {
     setStatus('Gerando agente Windows...');
-    fetch('/api/windows/agent-script', { cache: 'no-store' })
+    windowsApiFetch('/api/windows/agent-script', { cache: 'no-store' })
       .then(function (resp) {
         if (!resp.ok) {
           return resp.json().catch(function () { return {}; }).then(function (body) {
@@ -483,7 +528,7 @@
   function downloadPdfReport() {
     var url = '/api/windows/report.pdf';
     setStatus('Gerando relatorio PDF...');
-    fetch(url, { cache: 'no-store' })
+    windowsApiFetch(url, { cache: 'no-store' })
       .then(function (resp) {
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.blob().then(function (blob) {
@@ -506,7 +551,7 @@
   }
   function enrichPhotos() {
     setStatus('Buscando fotos de referencia na internet...');
-    fetch('/api/windows/enrich/photos', { method: 'POST', cache: 'no-store' })
+    windowsApiFetch('/api/windows/enrich/photos', { method: 'POST', cache: 'no-store' })
       .then(function (resp) { return resp.json().then(function (body) { if (!resp.ok) throw new Error(body.detail || 'HTTP ' + resp.status); return body; }); })
       .then(function (body) {
         setStatus('Fotos vinculadas: ' + (body.assets || 0) + '. Gere o PDF novamente.');
@@ -529,7 +574,7 @@
     if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
-    if (refreshBtn) refreshBtn.addEventListener('click', loadInventory);
+    if (refreshBtn) refreshBtn.addEventListener('click', loadInventoryWhenReady);
     if (filterEl) filterEl.addEventListener('change', applyWindowsFilters);
     if (siteFilterEl) siteFilterEl.addEventListener('change', applyWindowsFilters);
     if (sectorFilterEl) sectorFilterEl.addEventListener('change', applyWindowsFilters);
@@ -542,8 +587,8 @@
       selectedRows.clear();
       applyWindowsFilters();
     });
-    loadInventory();
     window.addEventListener('sightops:auth-ready', loadInventory);
+    loadInventoryWhenReady();
   });
 })();
 </script>
