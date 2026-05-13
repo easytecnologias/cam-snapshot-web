@@ -10027,7 +10027,7 @@ if (zbxSourceEl) {
 function loadZabbixSiteOptions() {
   const sel = byId('zbx-site');
   if (!sel) return Promise.resolve();
-  const source = safeTrim((byId('zbx-source') || {}).value || 'nvr') || 'nvr';
+  const source = safeTrim((byId('zbx-source') || {}).value || 'windows') || 'windows';
   if (source === 'windows') {
     return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json().catch(() => ({})))
@@ -10177,9 +10177,9 @@ function clearZabbixFields() {
   if (tgchat) tgchat.value = '';
 
   // defaults que você costuma usar
-  if (zgroup) zgroup.value = zgroup.value || 'Cameras';
-  if (ztpl) ztpl.value = 'Template Cam-Snapshot DVR Channel';
-  if (zsrc) zsrc.value = 'nvr';
+  if (zgroup) zgroup.value = zgroup.value || 'Computadores Windows';
+  if (ztpl) ztpl.value = 'Windows by Zabbix agent';
+  if (zsrc) zsrc.value = 'windows';
   if (zsite) zsite.value = '';
   if (zdvrUser) zdvrUser.value = zdvrUser.value || 'admin';
   if (zdvrPass) zdvrPass.value = '';
@@ -10417,8 +10417,8 @@ function runZabbixGenerate(evt) {
   const user = safeTrim((byId('zbx-user') || {}).value || '');
   const pass = (byId('zbx-pass') || {}).value || '';
   const group = safeTrim((byId('zbx-group') || {}).value || 'Cameras') || 'Cameras';
-  const tplSelected = safeTrim((byId('zbx-template') || {}).value || 'Template Module ICMP Ping') || 'Template Module ICMP Ping';
-  const source = safeTrim((byId('zbx-source') || {}).value || 'nvr') || 'nvr';
+  const tplSelected = safeTrim((byId('zbx-template') || {}).value || 'Windows by Zabbix agent') || 'Windows by Zabbix agent';
+  const source = safeTrim((byId('zbx-source') || {}).value || 'windows') || 'windows';
   const site = safeTrim((byId('zbx-site') || {}).value || '');
   const tpl = tplSelected;
   const tplDvr = ((source === 'dvr') || (source === 'nvr')) ? tplSelected : 'Template Cam-Snapshot DVR Channel';
@@ -10505,7 +10505,7 @@ function syncZabbixTemplateBySource() {
   const tplEl = byId('zbx-template');
   const dvrCredsEl = byId('zbx-dvr-creds');
   if (!sourceEl || !tplEl) return;
-  const source = safeTrim(sourceEl.value || 'nvr') || 'nvr';
+  const source = safeTrim(sourceEl.value || 'windows') || 'windows';
   const isRecorder = (source === 'dvr' || source === 'nvr');
   if (source === 'windows') {
     tplEl.value = 'Windows by Zabbix agent';
