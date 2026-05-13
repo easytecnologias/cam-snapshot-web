@@ -149,22 +149,50 @@
         <div class="windows-toolbar-group windows-toolbar-action">
           <span class="windows-toolbar-title">Selecionados</span>
           <span class="windows-summary-chip" id="win-selected-count">0</span>
+          <button class="btn-primary" id="win-edit-selected" type="button">Editar</button>
+          <button class="btn-secondary" id="win-delete-selected" type="button">Deletar</button>
           <button class="btn-secondary" id="win-filter-clear" type="button">Limpar</button>
+        </div>
+      </div>
+      <div class="windows-editor" id="win-editor" hidden>
+        <div class="windows-editor-head">
+          <div>
+            <strong id="win-editor-title">Editar computador</strong>
+            <small>Preencha o caminho fisico ate a tomada do usuario.</small>
+          </div>
+          <button class="btn-ghost" id="win-editor-close" type="button">Fechar</button>
+        </div>
+        <div class="windows-editor-grid">
+          <label>Switch<input id="win-physical-switch-name" class="windows-filter-control" placeholder="Ex: SW Recepcao" /></label>
+          <label>Porta switch<input id="win-physical-switch-port" class="windows-filter-control" placeholder="Ex: 1" /></label>
+          <label>Patch panel<input id="win-physical-patch-panel" class="windows-filter-control" placeholder="Ex: PP-01" /></label>
+          <label>Porta patch<input id="win-physical-patch-port" class="windows-filter-control" placeholder="Ex: 12" /></label>
+          <label>Tomada<input id="win-physical-outlet" class="windows-filter-control" placeholder="Ex: T-Recepcao-03" /></label>
+          <label>Rack<input id="win-physical-rack" class="windows-filter-control" placeholder="Ex: Rack TI" /></label>
+          <label>Cabo<input id="win-physical-cable-id" class="windows-filter-control" placeholder="Ex: CAT6-012" /></label>
+          <label>Patrimonio<input id="win-physical-asset-tag" class="windows-filter-control" placeholder="Ex: PC-0007" /></label>
+          <label class="windows-editor-notes">Observacoes<input id="win-physical-notes" class="windows-filter-control" placeholder="Ex: passa pelo patch 2 antes da tomada" /></label>
+        </div>
+        <div class="actions-row">
+          <button class="btn-primary" id="win-save-physical" type="button">Salvar</button>
+          <button class="btn-secondary" id="win-delete-selected-bottom" type="button">Deletar selecionados</button>
+          <button class="btn-ghost" id="win-clear-all-bottom" type="button">Apagar geral</button>
         </div>
       </div>
       <div class="table-wrap windows-table-wrap">
         <table>
           <colgroup>
             <col style="width:30px" />
-            <col style="width:145px" />
-            <col style="width:150px" />
-            <col style="width:106px" />
-            <col style="width:165px" />
-            <col style="width:120px" />
-            <col style="width:75px" />
+            <col style="width:135px" />
             <col style="width:140px" />
-            <col style="width:115px" />
-            <col style="width:150px" />
+            <col style="width:98px" />
+            <col style="width:155px" />
+            <col style="width:105px" />
+            <col style="width:155px" />
+            <col style="width:75px" />
+            <col style="width:135px" />
+            <col style="width:112px" />
+            <col style="width:105px" />
           </colgroup>
           <thead>
             <tr>
@@ -174,6 +202,7 @@
               <th>Windows</th>
               <th>Modelo</th>
               <th>Site / Setor</th>
+              <th>Fisico</th>
               <th>CPU</th>
               <th>Memoria</th>
               <th>Discos</th>
@@ -181,7 +210,7 @@
             </tr>
           </thead>
           <tbody id="win-tbody">
-            <tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>
+            <tr><td colspan="11" class="muted">Nenhum computador inventariado.</td></tr>
           </tbody>
         </table>
       </div>
@@ -219,6 +248,19 @@
   }
   function locationCell(row) {
     return stackCell('Site / Setor', row.site || '-', row.sector || row.setor || '');
+  }
+  function physicalLabel(row) {
+    var p = row && row.physical && typeof row.physical === 'object' ? row.physical : {};
+    var switchPart = [p.switch_name, p.switch_port ? 'P' + p.switch_port : ''].filter(Boolean).join(' ');
+    var patchPart = [p.patch_panel, p.patch_port ? 'P' + p.patch_port : ''].filter(Boolean).join(' ');
+    var outlet = text(p.outlet);
+    var main = [switchPart, patchPart, outlet].filter(Boolean).join(' > ');
+    var sub = [p.rack, p.cable_id, p.asset_tag].filter(Boolean).join(' / ');
+    return { main: main || '-', sub: sub };
+  }
+  function physicalCell(row) {
+    var label = physicalLabel(row);
+    return stackCell('Fisico', label.main, label.sub);
   }
   function rowKey(row) {
     return text(row && (row.ip || row.hostname || row.serial));
@@ -335,7 +377,7 @@
     var cpu = row.cpu || {};
     return [
       row.ip, row.mac, row.hostname, userLabel(row), windowsLabel(os), modelLabel(row),
-      row.site, row.sector, row.setor, cpuLabel(cpu), memoryLabel(row), disksLabel(row), row.anydesk_id, row.status
+      row.site, row.sector, row.setor, physicalLabel(row).main, physicalLabel(row).sub, cpuLabel(cpu), memoryLabel(row), disksLabel(row), row.anydesk_id, row.status
     ].map(text).join(' ').toLowerCase();
   }
   function rowMatchesFilter(row) {
@@ -398,12 +440,108 @@
     fillSelectOptions('win-site-filter', allRows.map(function (row) { return row.site; }), 'Todos os sites');
     fillSelectOptions('win-sector-filter', allRows.map(function (row) { return row.sector || row.setor; }), 'Todos os setores');
   }
+  function selectedKeys() {
+    return Array.from(selectedRows).filter(Boolean);
+  }
+  function selectedFirstRow() {
+    var keys = selectedKeys();
+    if (!keys.length) return null;
+    return allRows.find(function (row) { return keys.indexOf(rowKey(row)) >= 0; }) || null;
+  }
+  function field(id) {
+    return el('win-physical-' + id);
+  }
+  function setField(id, value) {
+    var node = field(id);
+    if (node) node.value = text(value);
+  }
+  function getField(id) {
+    var node = field(id);
+    return text(node && node.value);
+  }
+  function openEditor() {
+    var row = selectedFirstRow();
+    if (!row) {
+      setStatus('Selecione um computador para editar o caminho fisico.');
+      return;
+    }
+    var p = row.physical && typeof row.physical === 'object' ? row.physical : {};
+    if (el('win-editor-title')) el('win-editor-title').textContent = 'Editar: ' + (row.hostname || row.ip || 'computador');
+    setField('switch-name', p.switch_name);
+    setField('switch-port', p.switch_port);
+    setField('patch-panel', p.patch_panel);
+    setField('patch-port', p.patch_port);
+    setField('outlet', p.outlet);
+    setField('rack', p.rack);
+    setField('cable-id', p.cable_id);
+    setField('asset-tag', p.asset_tag);
+    setField('notes', p.notes);
+    if (el('win-editor')) el('win-editor').hidden = false;
+  }
+  function closeEditor() {
+    if (el('win-editor')) el('win-editor').hidden = true;
+  }
+  function savePhysical() {
+    var row = selectedFirstRow();
+    if (!row) {
+      setStatus('Selecione um computador antes de salvar.');
+      return;
+    }
+    var body = {
+      key: rowKey(row),
+      physical: {
+        switch_name: getField('switch-name'),
+        switch_port: getField('switch-port'),
+        patch_panel: getField('patch-panel'),
+        patch_port: getField('patch-port'),
+        outlet: getField('outlet'),
+        rack: getField('rack'),
+        cable_id: getField('cable-id'),
+        asset_tag: getField('asset-tag'),
+        notes: getField('notes')
+      }
+    };
+    setStatus('Salvando caminho fisico...');
+    windowsApiFetch('/api/windows/inventory/manual', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (data) { if (!resp.ok) throw new Error(data.detail || 'HTTP ' + resp.status); return data; }); })
+      .then(function () {
+        setStatus('Caminho fisico salvo.');
+        return loadInventory();
+      })
+      .then(openEditor)
+      .catch(function (err) { setStatus('Falha ao salvar: ' + err.message); });
+  }
+  function deleteSelectedRows() {
+    var keys = selectedKeys();
+    if (!keys.length) {
+      setStatus('Selecione ao menos um computador para deletar.');
+      return;
+    }
+    if (!confirm('Deletar ' + keys.length + ' computador(es) selecionado(s) do inventario Windows?')) return;
+    windowsApiFetch('/api/windows/inventory/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keys: keys })
+    })
+      .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (data) { if (!resp.ok) throw new Error(data.detail || 'HTTP ' + resp.status); return data; }); })
+      .then(function (data) {
+        selectedRows.clear();
+        closeEditor();
+        setStatus('Computadores deletados: ' + (data.removed || 0) + '.');
+        return loadInventory();
+      })
+      .catch(function (err) { setStatus('Falha ao deletar: ' + err.message); });
+  }
   function renderRows(rows) {
     rows = Array.isArray(rows) ? rows : [];
     var tbody = el('win-tbody');
     if (!tbody) return;
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="10" class="muted">Nenhum computador inventariado.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" class="muted">Nenhum computador inventariado.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(function (row) {
         var os = row.os || {};
@@ -415,6 +553,7 @@
           + cell('Windows', windowsLabel(os))
           + cell('Modelo', modelLabel(row))
           + locationCell(row)
+          + physicalCell(row)
           + cell('CPU', cpuLabel(cpu))
           + cell('Memoria', memoryLabel(row))
           + cell('Discos', disksLabel(row))
@@ -442,6 +581,7 @@
         else selectedRows.delete(value);
       }
       updateToolbarCount(allRows.filter(rowMatchesFilter));
+      if (selectedRows.size === 1 && el('win-editor') && !el('win-editor').hidden) openEditor();
     }
   });
   function loadInventory() {
@@ -570,10 +710,22 @@
     var sectorFilterEl = el('win-sector-filter');
     var searchEl = el('win-search');
     var filterClearBtn = el('win-filter-clear');
+    var editBtn = el('win-edit-selected');
+    var deleteBtn = el('win-delete-selected');
+    var deleteBottomBtn = el('win-delete-selected-bottom');
+    var clearAllBottomBtn = el('win-clear-all-bottom');
+    var savePhysicalBtn = el('win-save-physical');
+    var editorCloseBtn = el('win-editor-close');
     if (agentBtn) agentBtn.addEventListener('click', downloadAgentScript);
     if (photosBtn) photosBtn.addEventListener('click', enrichPhotos);
     if (pdfBtn) pdfBtn.addEventListener('click', downloadPdfReport);
     if (clearBtn) clearBtn.addEventListener('click', clearInventory);
+    if (editBtn) editBtn.addEventListener('click', openEditor);
+    if (deleteBtn) deleteBtn.addEventListener('click', deleteSelectedRows);
+    if (deleteBottomBtn) deleteBottomBtn.addEventListener('click', deleteSelectedRows);
+    if (clearAllBottomBtn) clearAllBottomBtn.addEventListener('click', clearInventory);
+    if (savePhysicalBtn) savePhysicalBtn.addEventListener('click', savePhysical);
+    if (editorCloseBtn) editorCloseBtn.addEventListener('click', closeEditor);
     if (refreshBtn) refreshBtn.addEventListener('click', loadInventoryWhenReady);
     if (filterEl) filterEl.addEventListener('change', applyWindowsFilters);
     if (siteFilterEl) siteFilterEl.addEventListener('change', applyWindowsFilters);

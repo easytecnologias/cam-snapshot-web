@@ -27,6 +27,65 @@ def api_windows_inventory() -> Dict[str, Any]:
     return {"ok": True, "count": len(rows), "inventory": rows}
 
 
+def _windows_row_key(row: Dict[str, Any]) -> str:
+    for key in ("ip", "hostname", "serial"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+@router.patch("/inventory/manual")
+def api_windows_inventory_manual(payload: Dict[str, Any]) -> Dict[str, Any]:
+    target = str(payload.get("key") or payload.get("ip") or "").strip()
+    manual = payload.get("physical") if isinstance(payload.get("physical"), dict) else {}
+    allowed = {
+        "switch_name",
+        "switch_port",
+        "patch_panel",
+        "patch_port",
+        "outlet",
+        "rack",
+        "cable_id",
+        "asset_tag",
+        "notes",
+    }
+    cleaned = {k: str(manual.get(k) or "").strip() for k in allowed}
+    rows = load_windows_inventory()
+    updated = False
+    for row in rows:
+        if target and target in {_windows_row_key(row), str(row.get("ip") or "").strip(), str(row.get("hostname") or "").strip(), str(row.get("serial") or "").strip()}:
+            current = row.get("physical") if isinstance(row.get("physical"), dict) else {}
+            row["physical"] = {**current, **cleaned}
+            updated = True
+            break
+    if not updated:
+        raise HTTPException(status_code=404, detail="computador nao encontrado")
+    save_windows_inventory(rows)
+    return {"ok": True, "updated": True}
+
+
+@router.post("/inventory/delete")
+def api_windows_inventory_delete(payload: Dict[str, Any]) -> Dict[str, Any]:
+    keys = payload.get("keys")
+    if not isinstance(keys, list):
+        keys = []
+    targets = {str(item or "").strip() for item in keys if str(item or "").strip()}
+    if not targets:
+        raise HTTPException(status_code=400, detail="nenhum computador selecionado")
+    rows = load_windows_inventory()
+    kept = [
+        row for row in rows
+        if _windows_row_key(row) not in targets
+        and str(row.get("ip") or "").strip() not in targets
+        and str(row.get("hostname") or "").strip() not in targets
+        and str(row.get("serial") or "").strip() not in targets
+    ]
+    removed = len(rows) - len(kept)
+    save_windows_inventory(kept)
+    return {"ok": True, "removed": removed, "count": len(kept)}
+
+
 @router.post("/scan")
 def api_windows_scan(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:

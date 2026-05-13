@@ -6032,8 +6032,55 @@ body[data-theme="dark"] .auth-role-badge{
 }
 
 .windows-toolbar-action{
-  grid-template-columns: auto auto auto;
+  grid-template-columns: auto auto auto auto auto;
   align-items: end;
+}
+
+.windows-editor{
+  margin: 10px 0 12px;
+  padding: 12px;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.36);
+}
+
+.windows-editor-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.windows-editor-head strong,
+.windows-editor-head small{
+  display: block;
+}
+
+.windows-editor-head small{
+  margin-top: 3px;
+  color: #93c5fd;
+}
+
+.windows-editor-grid{
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.windows-editor-grid label{
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.windows-editor-notes{
+  grid-column: span 2;
 }
 
 .windows-table-wrap{
@@ -6164,6 +6211,10 @@ body[data-theme="dark"] .auth-role-badge{
   .windows-toolbar-action{
     grid-column: 1 / -1;
   }
+
+  .windows-editor-grid{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px){
@@ -6232,6 +6283,12 @@ body[data-theme="dark"] .auth-role-badge{
 
   .windows-toolbar-action{
     grid-template-columns: 1fr;
+  }
+
+  .windows-editor-grid,
+  .windows-editor-notes{
+    grid-template-columns: 1fr;
+    grid-column: auto;
   }
 }
 

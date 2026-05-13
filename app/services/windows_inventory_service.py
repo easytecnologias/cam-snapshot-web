@@ -1232,6 +1232,8 @@ def _merge_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) 
         for keep_key in ("site", "sector"):
             if not _text(merged.get(keep_key)) and _text(index.get(ip, {}).get(keep_key)):
                 merged[keep_key] = index[ip][keep_key]
+        if isinstance(index.get(ip, {}).get("physical"), dict) and not isinstance(row.get("physical"), dict):
+            merged["physical"] = index[ip]["physical"]
         index[ip] = merged
     return [index[ip] for ip in order if ip in index]
 
