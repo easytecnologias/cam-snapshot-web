@@ -555,31 +555,34 @@ def _camera_telegram_messages() -> tuple[str, str]:
 
 def _windows_telegram_messages() -> tuple[str, str]:
     problem_msg = "\n".join([
-        "🖥️ <b>COMPUTADOR:</b> {$WIN_HOSTNAME}",
-        "👤 <b>USUÁRIO:</b> {$WIN_USER}",
-        "🏢 <b>SITE/SETOR:</b> {$WIN_SITE} / {$WIN_SECTOR}",
+        "🚨 <b>ALERTA NO COMPUTADOR</b>",
+        "",
+        "🖥️ <b>Computador:</b> {$WIN_HOSTNAME}",
+        "👤 <b>Usuário:</b> {$WIN_USER}",
+        "📍 <b>Local:</b> {$WIN_SITE} / {$WIN_SECTOR}",
         "🌐 <b>IP:</b> {HOST.IP}",
-        "💻 <b>MAC:</b> {$CAM_MAC}",
-        "🪟 <b>WINDOWS:</b> {$WIN_OS}",
-        "🏷️ <b>MODELO:</b> {$CAM_MODEL}",
-        "⚙️ <b>CPU:</b> {$WIN_CPU}",
+        "🔗 <b>AnyDesk:</b> {$WIN_ANYDESK_ID}",
+        "",
+        "⚠️ <b>Problema:</b> {EVENT.NAME}",
+        "✅ <b>Entenda:</b> se aparecer <b>Space is low</b>, o disco esta ficando cheio. Se aparecer <b>Memory</b>, a memoria esta alta. Se aparecer <b>not running</b>, algum servico parou. Se aparecer <b>Unavailable</b>, o computador ficou sem comunicacao.",
+        "🛠️ <b>Ação sugerida:</b> verificar o computador pelo AnyDesk ou presencialmente e corrigir o item acima.",
+        "",
+        "💻 <b>Equipamento:</b> {$CAM_MODEL}",
+        "🪟 <b>Windows:</b> {$WIN_OS}",
         "🧠 <b>RAM:</b> {$WIN_RAM_GB} GB",
-        "💾 <b>DISCO:</b> {$WIN_DISK_SUMMARY}",
-        "🔗 <b>ANYDESK:</b> {$WIN_ANYDESK_ID}",
-        "❌ <b>ALERTA:</b> {TRIGGER.NAME}",
-        "🕒 <b>EVENTO:</b> {EVENT.DATE} {EVENT.TIME}",
+        "💾 <b>Disco:</b> {$WIN_DISK_SUMMARY}",
+        "🕒 <b>Quando:</b> {EVENT.DATE} {EVENT.TIME}",
     ])
     recovery_msg = "\n".join([
-        "🖥️ <b>COMPUTADOR:</b> {$WIN_HOSTNAME}",
-        "👤 <b>USUÁRIO:</b> {$WIN_USER}",
-        "🏢 <b>SITE/SETOR:</b> {$WIN_SITE} / {$WIN_SECTOR}",
+        "✅ <b>COMPUTADOR RECUPERADO</b>",
+        "",
+        "🖥️ <b>Computador:</b> {$WIN_HOSTNAME}",
+        "👤 <b>Usuário:</b> {$WIN_USER}",
+        "📍 <b>Local:</b> {$WIN_SITE} / {$WIN_SECTOR}",
         "🌐 <b>IP:</b> {HOST.IP}",
-        "💻 <b>MAC:</b> {$CAM_MAC}",
-        "🪟 <b>WINDOWS:</b> {$WIN_OS}",
-        "🏷️ <b>MODELO:</b> {$CAM_MODEL}",
-        "✅ <b>STATUS:</b> RECUPERADO",
-        "🔔 <b>ALERTA:</b> {TRIGGER.NAME}",
-        "🕒 <b>EVENTO:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
+        "",
+        "🔔 <b>Problema resolvido:</b> {EVENT.NAME}",
+        "🕒 <b>Quando:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
     ])
     return problem_msg, recovery_msg
 
@@ -638,8 +641,11 @@ def ensure_action(
     return aid
 
 
-def disable_legacy_actions(auth: str) -> None:
+def disable_legacy_actions(auth: str, extra_names: list[str] | None = None) -> None:
     legacy_names = [ACTION_NAME_LEGACY_IP, ACTION_NAME_LEGACY_DVR, ACTION_NAME_LEGACY_WINDOWS]
+    for name in extra_names or []:
+        if name and name not in legacy_names:
+            legacy_names.append(name)
     for name in legacy_names:
         try:
             res = api("action.get", {"filter": {"name": [name]}, "output": ["actionid", "status"]}, auth)
@@ -699,7 +705,7 @@ def main():
                 mtid,
                 message_type="windows" if has_windows else "camera",
             )
-            disable_legacy_actions(auth)
+            disable_legacy_actions(auth, extra_names=[ACTION_NAME_GROUP] if has_windows else None)
             print(
                 f"Telegram auto: OK (mediatypeid={mtid}, userid={uid}, "
                 f"action={aid_ip})"
