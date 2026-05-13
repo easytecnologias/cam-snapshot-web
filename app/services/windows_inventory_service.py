@@ -191,9 +191,14 @@ try {
     last_full_scan = $mp.FullScanEndTime
   }
 } catch {}
-$hotfixes = Get-CimInstance Win32_QuickFixEngineering | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object {
-  [PSCustomObject]@{ id = $_.HotFixID; installed_on = $_.InstalledOn; description = $_.Description }
-}
+$hotfixes = @()
+try {
+  $hotfixes = Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {
+    $installed = ""
+    try { $installed = ($_.InstalledOn -as [string]).Trim() } catch {}
+    [PSCustomObject]@{ id = $_.HotFixID; installed_on = $installed; description = $_.Description }
+  } | Select-Object -First 8
+} catch {}
 $memoryModules = $mem | ForEach-Object {
   $ddr = switch ([int]$_.SMBIOSMemoryType) {
     20 { "DDR" }
@@ -969,9 +974,14 @@ try {{
     last_full_scan = $mp.FullScanEndTime
   }}
 }} catch {{}}
-$hotfixes = Get-CimInstance Win32_QuickFixEngineering | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object {{
-  [PSCustomObject]@{{ id = $_.HotFixID; installed_on = $_.InstalledOn; description = $_.Description }}
-}}
+$hotfixes = @()
+try {{
+  $hotfixes = Get-CimInstance Win32_QuickFixEngineering | ForEach-Object {{
+    $installed = ""
+    try {{ $installed = ($_.InstalledOn -as [string]).Trim() }} catch {{}}
+    [PSCustomObject]@{{ id = $_.HotFixID; installed_on = $installed; description = $_.Description }}
+  }} | Select-Object -First 8
+}} catch {{}}
 $memoryModules = $mem | ForEach-Object {{
   $ddr = switch ([int]$_.SMBIOSMemoryType) {{
     20 {{ "DDR" }}
