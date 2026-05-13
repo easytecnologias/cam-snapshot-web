@@ -4246,7 +4246,8 @@ body.inventory-revamp #inv-table{
   min-width: 1120px;
 }
 
-body.inventory-revamp #inv-table th{
+body.inventory-revamp #inv-table th,
+body.inventory-revamp #dvr-table th{
   padding: 8px 12px;
   font-size:11px;
   letter-spacing:0.12em;
@@ -4255,11 +4256,13 @@ body.inventory-revamp #inv-table th{
   background: rgba(255,255,255,0.9);
 }
 
-[data-theme="dark"].inventory-revamp #inv-table th{
+[data-theme="dark"].inventory-revamp #inv-table th,
+[data-theme="dark"].inventory-revamp #dvr-table th{
   background: rgba(2,6,23,0.94);
 }
 
-body.inventory-revamp #inv-table td{
+body.inventory-revamp #inv-table td,
+body.inventory-revamp #dvr-table td{
   padding: 8px 12px;
   font-size:13px;
   border-top:1px solid rgba(148,163,184,0.10);
@@ -4288,7 +4291,8 @@ body.inventory-revamp #inv-table td{
   color:var(--text-muted);
 }
 
-body.inventory-revamp #inv-table tbody tr:hover{
+body.inventory-revamp #inv-table tbody tr:hover,
+body.inventory-revamp #dvr-table tbody tr:hover{
   background: rgba(37,99,235,0.05);
 }
 
@@ -4344,6 +4348,85 @@ body.inventory-revamp .inventory-table-card .inventory-toolbar{
 
 [data-theme="dark"].inventory-revamp .inventory-actions-dock{
   border-top-color: rgba(71,85,105,0.22);
+}
+
+body.inventory-recorder .inventory-right{
+  width: 100%;
+  min-width: 0;
+}
+
+body.inventory-recorder .inventory-right .card.secondary{
+  width: 100%;
+  max-width: none;
+}
+
+body.inventory-recorder #dvr-table{
+  min-width: 1180px;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+body.inventory-recorder .inv-filter-row{
+  display: grid;
+  grid-template-columns: 170px 220px minmax(360px, 1fr) 136px;
+  gap: 12px;
+  align-items: end;
+  margin: 0 0 10px;
+}
+
+body.inventory-recorder .inv-filter-label,
+body.inventory-recorder .inv-filter-native{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.inventory-recorder .inv-filter-row .inv-dd,
+body.inventory-recorder .inv-filter-row .inv-filter-search,
+body.inventory-recorder .inv-filter-row .inv-filter-clear{
+  width: 100%;
+  min-width: 0;
+}
+
+body.inventory-recorder .inventory-actions-dock{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+body.inventory-recorder .inventory-actions-dock .inv-left{
+  display: block;
+  min-width: 230px;
+}
+
+body.inventory-recorder .inventory-action-buttons{
+  display: flex;
+  gap: 10px;
+}
+
+body.inventory-recorder .inventory-action-buttons .btn-small{
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+[data-theme="dark"].inventory-recorder #dvr-table tbody tr.inv-row-online td{
+  background: rgba(10, 36, 38, 0.78);
+}
+
+[data-theme="dark"].inventory-recorder #dvr-table tbody tr.inv-row-offline td,
+[data-theme="dark"].inventory-recorder #dvr-table tbody tr.inv-row-camera_offline td,
+[data-theme="dark"].inventory-recorder #dvr-table tbody tr.inv-row-sem_camera td{
+  background: rgba(42, 18, 32, 0.78);
+}
+
+@media (max-width: 1180px){
+  body.inventory-recorder .inv-filter-row{
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 @media (max-width: 1320px){

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <title>SightOps - Inventario NVR</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <link rel="stylesheet" href="/static/style.css?v=84" />
+  <link rel="stylesheet" href="/static/style.css?v=85" />
 </head>
-<body>
+<body class="inventory-revamp inventory-revamp-minimal inventory-recorder" data-inventory-view="nvr" data-force-theme="dark" data-theme="dark">
 <div id="scrim" class="scrim" aria-hidden="true"></div>
 
 <div class="topbar">
@@ -198,8 +198,14 @@
       </div>
 
       <div class="inventory-right">
-        <div class="card secondary">
-          <div class="card-title">Ultimo inventario NVR</div>
+        <div class="card secondary inventory-panel-card inventory-table-card">
+          <div class="inventory-card-head inventory-card-head-spread">
+            <div>
+              <div class="inventory-card-eyebrow">Ultimo inventario</div>
+              <div class="card-title">Canais NVR</div>
+              <div class="card-sub">Filtre, revise status e gere relatorios com o mesmo fluxo das cameras IP.</div>
+            </div>
+          </div>
 
           <div class="inv-filter-row">
             <span class="muted inv-filter-label">Filtro:</span>
@@ -244,7 +250,7 @@
             <button type="button" id="dvr-search-clear" class="btn-secondary inv-filter-clear">Limpar</button>
           </div>
 
-          <div class="table-wrap">
+          <div class="table-wrap inventory-table-wrap">
             <div class="table-overlay" id="dvr-overlay">Atualizando inventario NVR...</div>
             <table id="dvr-table">
               <thead>
@@ -268,12 +274,12 @@
             </table>
           </div>
 
-          <div class="inv-actions">
+          <div class="inv-actions inventory-actions-dock">
             <div class="inv-left">
               <div id="dvr-counter" class="status-line"></div>
               <div id="dvr-stats" class="status-line" style="margin-top:6px;"></div>
             </div>
-            <div class="inv-right">
+            <div class="inv-right inventory-action-buttons">
               <button id="btn-dvr-reload" class="btn-primary btn-small" type="button">Atualizar</button>
               <button id="btn-dvr-pdf-preview" class="btn-primary btn-small" type="button">Preview PDF</button>
               <button id="btn-dvr-pdf" class="btn-primary btn-small" type="button">Relatorio PDF</button>
@@ -426,16 +432,36 @@
     var sel = byId('dvr-site');
     var siteMenu = byId('dvr-site-menu');
     if (!sel) return Promise.resolve();
-    return fetch('/api/db/sites?source=nvr&_=' + Date.now(), { cache: 'no-store' })
-      .then(function(r){ return r.json().catch(function(){ return {}; }); })
-      .then(function(j){
-        var sites = (j && j.ok && Array.isArray(j.sites)) ? j.sites : [];
+    var seen = {};
+    var sites = [];
+    function addSite(name){
+      name = trim(name || '');
+      if (!name || seen[name.toLowerCase()]) return;
+      seen[name.toLowerCase()] = true;
+      sites.push(name);
+    }
+    return Promise.all([
+      fetch('/api/db/sites?source=nvr&_=' + Date.now(), { cache: 'no-store' })
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .catch(function(){ return {}; }),
+      fetch('/api/nvr/inventory?_=' + Date.now(), { cache: 'no-store' })
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .catch(function(){ return {}; })
+    ])
+      .then(function(results){
+        var j = results[0] || {};
+        var inv = results[1] || {};
+        ((j && j.ok && Array.isArray(j.sites)) ? j.sites : []).forEach(function(s){
+          addSite((s && s.name) || '');
+        });
+        ((inv && Array.isArray(inv.inventory)) ? inv.inventory : []).forEach(function(row){
+          addSite(row && (row.site || row.site_name || row.local));
+        });
+        sites.sort(function(a, b){ return a.localeCompare(b, 'pt-BR'); });
         var cur = trim(sel.value || '');
         sel.innerHTML = '<option value="">Todos os sites</option>';
         if (siteMenu) siteMenu.innerHTML = '<button type="button" class="inv-dd-item" data-value="" role="option">Todos os sites</button>';
-        sites.forEach(function(s){
-          var name = trim((s && s.name) || '');
-          if (!name) return;
+        sites.forEach(function(name){
           var opt = document.createElement('option');
           opt.value = name;
           opt.textContent = name;

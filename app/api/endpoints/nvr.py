@@ -2045,14 +2045,16 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
         camera_ip_norm = _norm_ip_text(ch_ips.get(ch) or "")
         ip_inventory_online_hit = bool(camera_ip_norm and ip_inventory_online.get(camera_ip_norm))
 
-        if ch in video_loss or snap_dark:
-            status = "sem_camera" if is_default_title else "camera_offline"
-        elif runtime_online is True:
+        if runtime_online is True:
             status = "online"
         elif ip_inventory_online_hit:
             status = "online"
+        elif snap_url and not snap_dark:
+            status = "online"
+        elif ch in video_loss or snap_dark:
+            status = "sem_camera" if is_default_title else "camera_offline"
         else:
-            status = "online" if snap_url else "offline"
+            status = "offline"
         if status == "online":
             online += 1
         row_local = local_default if bool(req.set_local) else old_local_map.get(ch, "")
@@ -2169,14 +2171,16 @@ def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
     camera_ip_norm = _norm_ip_text(ch_ips.get(ch) or "")
     ip_inventory_online_hit = bool(camera_ip_norm and ip_inventory_online.get(camera_ip_norm))
 
-    if ch in video_loss or snap_dark:
-        status = "sem_camera" if is_default_title else "camera_offline"
-    elif runtime_online is True:
+    if runtime_online is True:
         status = "online"
     elif ip_inventory_online_hit:
         status = "online"
+    elif snap_url and not snap_dark:
+        status = "online"
+    elif ch in video_loss or snap_dark:
+        status = "sem_camera" if is_default_title else "camera_offline"
     else:
-        status = "online" if snap_url else "offline"
+        status = "offline"
 
     row = {
         "source": "nvr",

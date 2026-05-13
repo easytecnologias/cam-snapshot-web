@@ -1001,10 +1001,12 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
         title_norm = (title or "").strip().lower()
         is_default_title = bool(re.fullmatch(r"canal\s*\d*", title_norm))
 
-        if ch in video_loss or snap_dark:
+        if snap_url and not snap_dark:
+            status = "online"
+        elif ch in video_loss or snap_dark:
             status = "sem_camera" if is_default_title else "camera_offline"
         else:
-            status = "online" if snap_url else "offline"
+            status = "offline"
         if status == "online":
             online += 1
         row_local = local_default if bool(req.set_local) else old_local_map.get(ch, "")
@@ -1093,10 +1095,12 @@ def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
     title_norm = (title or "").strip().lower()
     is_default_title = bool(re.fullmatch(r"canal\s*\d*", title_norm))
 
-    if ch in video_loss or snap_dark:
+    if snap_url and not snap_dark:
+        status = "online"
+    elif ch in video_loss or snap_dark:
         status = "sem_camera" if is_default_title else "camera_offline"
     else:
-        status = "online" if snap_url else "offline"
+        status = "offline"
 
     row = {
         "source": "dvr",
