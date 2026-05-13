@@ -22,6 +22,7 @@ ZBX_TG_TIMEZONE = os.getenv("ZBX_TG_TIMEZONE", "America/Sao_Paulo").strip() or "
 MEDIA_NAME = "Telegram (cam-snapshot)"
 ACTION_NAME_LEGACY_IP = "Cameras IP -> Telegram (cam-snapshot)"
 ACTION_NAME_LEGACY_DVR = "DVR -> Telegram (cam-snapshot)"
+ACTION_NAME_LEGACY_WINDOWS = "Computadores Windows -> Telegram (cam-snapshot)"
 
 
 def _slug_name(v: str) -> str:
@@ -41,6 +42,7 @@ def _host_safe(v: str) -> str:
 GROUP_SLUG = _slug_name(ZBX_GROUP)
 USER_ALIAS = f"telegram.cam-snapshot.{GROUP_SLUG}"
 ACTION_NAME_GROUP = f"{ZBX_GROUP} -> Telegram (cam-snapshot)"
+ACTION_NAME_WINDOWS = f"{ZBX_GROUP} -> Telegram Windows (cam-snapshot)"
 
 
 def _google_maps_url(lat_val: Any, lon_val: Any) -> str:
@@ -516,11 +518,7 @@ def ensure_user_with_media(auth: str, mediatypeid: str, chatid: str) -> str:
     api("user.update", payload, auth)
     return uid
 
-def ensure_action(auth: str, action_name: str, groupid: str, userid: str, mediatypeid: str) -> str:
-    res = api("action.get", {"filter":{"name":[action_name]}}, auth)
-
-    # Mensagens (parecidas com as notificações do MikroTik) usando macros de host.
-    # As macros {$CAM_TITLE}, {$CAM_LOCAL}, {$CAM_MAC}, {$ONU_SERIAL}, {$PON_ONU} são criadas/atualizadas no host.
+def _camera_telegram_messages() -> tuple[str, str]:
     problem_msg = "\n".join([
         "📷 <b>CÂMERA:</b> {$CAM_TITLE}",
         "📍 <b>LOCAL:</b> {$CAM_LOCAL}",
@@ -543,6 +541,55 @@ def ensure_action(auth: str, action_name: str, groupid: str, userid: str, mediat
         "🧩 <b>PON/ONU:</b> {$PON_ONU}",
         "🕒 <b>EVENTO:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
     ])
+    return problem_msg, recovery_msg
+
+
+def _windows_telegram_messages() -> tuple[str, str]:
+    problem_msg = "\n".join([
+        "🖥️ <b>COMPUTADOR:</b> {$WIN_HOSTNAME}",
+        "👤 <b>USUÁRIO:</b> {$WIN_USER}",
+        "🏢 <b>SITE/SETOR:</b> {$WIN_SITE} / {$WIN_SECTOR}",
+        "🌐 <b>IP:</b> {HOST.IP}",
+        "💻 <b>MAC:</b> {$CAM_MAC}",
+        "🪟 <b>WINDOWS:</b> {$WIN_OS}",
+        "🏷️ <b>MODELO:</b> {$CAM_MODEL}",
+        "⚙️ <b>CPU:</b> {$WIN_CPU}",
+        "🧠 <b>RAM:</b> {$WIN_RAM_GB} GB",
+        "💾 <b>DISCO:</b> {$WIN_DISK_SUMMARY}",
+        "🔗 <b>ANYDESK:</b> {$WIN_ANYDESK_ID}",
+        "❌ <b>ALERTA:</b> {TRIGGER.NAME}",
+        "🕒 <b>EVENTO:</b> {EVENT.DATE} {EVENT.TIME}",
+    ])
+    recovery_msg = "\n".join([
+        "🖥️ <b>COMPUTADOR:</b> {$WIN_HOSTNAME}",
+        "👤 <b>USUÁRIO:</b> {$WIN_USER}",
+        "🏢 <b>SITE/SETOR:</b> {$WIN_SITE} / {$WIN_SECTOR}",
+        "🌐 <b>IP:</b> {HOST.IP}",
+        "💻 <b>MAC:</b> {$CAM_MAC}",
+        "🪟 <b>WINDOWS:</b> {$WIN_OS}",
+        "🏷️ <b>MODELO:</b> {$CAM_MODEL}",
+        "✅ <b>STATUS:</b> RECUPERADO",
+        "🔔 <b>ALERTA:</b> {TRIGGER.NAME}",
+        "🕒 <b>EVENTO:</b> {EVENT.RECOVERY.DATE} {EVENT.RECOVERY.TIME}",
+    ])
+    return problem_msg, recovery_msg
+
+
+def ensure_action(
+    auth: str,
+    action_name: str,
+    groupid: str,
+    userid: str,
+    mediatypeid: str,
+    *,
+    message_type: str = "camera",
+) -> str:
+    res = api("action.get", {"filter":{"name":[action_name]}}, auth)
+
+    if str(message_type or "").strip().lower() == "windows":
+        problem_msg, recovery_msg = _windows_telegram_messages()
+    else:
+        problem_msg, recovery_msg = _camera_telegram_messages()
 
     operations=[{
         "operationtype": 0,
@@ -583,7 +630,7 @@ def ensure_action(auth: str, action_name: str, groupid: str, userid: str, mediat
 
 
 def disable_legacy_actions(auth: str) -> None:
-    legacy_names = [ACTION_NAME_LEGACY_IP, ACTION_NAME_LEGACY_DVR]
+    legacy_names = [ACTION_NAME_LEGACY_IP, ACTION_NAME_LEGACY_DVR, ACTION_NAME_LEGACY_WINDOWS]
     for name in legacy_names:
         try:
             res = api("action.get", {"filter": {"name": [name]}, "output": ["actionid", "status"]}, auth)
@@ -629,7 +676,20 @@ def main():
             print("Telegram auto: configurando media type + user + action...")
             mtid=ensure_telegram_mediatype(auth, TG_TOKEN, TG_CHAT)
             uid=ensure_user_with_media(auth, mtid, TG_CHAT)
-            aid_ip=ensure_action(auth, ACTION_NAME_GROUP, groupid, uid, mtid)
+            has_windows = any(
+                str((r or {}).get("source") or "").strip().lower() == "windows"
+                for r in rows
+                if isinstance(r, dict)
+            )
+            action_name = ACTION_NAME_WINDOWS if has_windows else ACTION_NAME_GROUP
+            aid_ip=ensure_action(
+                auth,
+                action_name,
+                groupid,
+                uid,
+                mtid,
+                message_type="windows" if has_windows else "camera",
+            )
             disable_legacy_actions(auth)
             print(
                 f"Telegram auto: OK (mediatypeid={mtid}, userid={uid}, "
