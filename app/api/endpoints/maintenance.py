@@ -21,6 +21,7 @@ from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, DVR_INVENTORY_JSON_PAT
 from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path
 from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.db_store import load_app_settings, save_app_settings, legacy_rows_from_db
+from app.services.windows_inventory_service import load_windows_inventory
 
 router = APIRouter(prefix="/api", tags=["maintenance"])
 
@@ -273,6 +274,20 @@ def _run_script(script_path: Path, env: Dict[str, str], args: List[str] | None =
 def _load_rows_for_source(source: str, site: str = "") -> list[dict[str, Any]]:
     src = _as_str(source).lower()
     site_name = _as_str(site)
+    if src == "windows":
+        rows = load_windows_inventory()
+        if site_name:
+            s = site_name.strip().lower()
+            rows = [
+                r for r in rows
+                if isinstance(r, dict)
+                and (
+                    _as_str(r.get("site")).lower() == s
+                    or _as_str(r.get("site_name")).lower() == s
+                    or _as_str(r.get("local")).lower() == s
+                )
+            ]
+        return rows
     if src in ("dvr", "nvr"):
         db_rows = legacy_rows_from_db(src, site=site_name)
         if db_rows:
@@ -302,6 +317,57 @@ def _load_rows_for_source(source: str, site: str = "") -> list[dict[str, Any]]:
 
 def _build_zabbix_rows(source: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     src = _as_str(source).lower()
+    if src == "windows":
+        out: list[dict[str, Any]] = []
+        for r in rows or []:
+            if not isinstance(r, dict):
+                continue
+            ip = _as_str(r.get("ip") or r.get("primary_ipv4"))
+            hostname = _as_str(r.get("hostname") or r.get("host") or r.get("nome"))
+            if not ip or not hostname:
+                continue
+            os_info = r.get("os") if isinstance(r.get("os"), dict) else {}
+            cpu_info = r.get("cpu") if isinstance(r.get("cpu"), dict) else {}
+            remote_access = r.get("remote_access") if isinstance(r.get("remote_access"), dict) else {}
+            anydesk = remote_access.get("anydesk") if isinstance(remote_access.get("anydesk"), dict) else {}
+            site = _as_str(r.get("site"))
+            sector = _as_str(r.get("sector") or r.get("setor"))
+            local = " / ".join([x for x in (site, sector) if x])
+            mac = _as_str(r.get("mac"))
+            if not mac:
+                network = r.get("network") if isinstance(r.get("network"), list) else []
+                for n in network:
+                    if isinstance(n, dict) and _as_str(n.get("mac")):
+                        mac = _as_str(n.get("mac"))
+                        break
+            out.append(
+                {
+                    "source": "windows",
+                    "ip": ip,
+                    "host": hostname,
+                    "hostname": hostname,
+                    "title": hostname,
+                    "titulo": hostname,
+                    "nome": hostname,
+                    "local": local,
+                    "site": site,
+                    "sector": sector,
+                    "mac": mac,
+                    "modelo": _as_str(r.get("model")),
+                    "manufacturer": _as_str(r.get("manufacturer")),
+                    "serial": _as_str(r.get("serial")),
+                    "os_name": _as_str(os_info.get("name")),
+                    "os_build": _as_str(os_info.get("build")),
+                    "logged_user": _as_str(r.get("logged_user")),
+                    "cpu": _as_str(cpu_info.get("name")),
+                    "ram_gb": _as_str(r.get("ram_gb")),
+                    "disk_summary": _as_str(r.get("disk_summary")),
+                    "anydesk_id": _as_str(r.get("anydesk_id") or anydesk.get("id")),
+                    "zabbix_agent_status": _as_str((r.get("zabbix_agent") or {}).get("service_status")) if isinstance(r.get("zabbix_agent"), dict) else "",
+                    "host_key": f"WIN-{hostname}",
+                }
+            )
+        return out
     if src not in ("dvr", "nvr"):
         return rows
 

@@ -522,6 +522,7 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
     network = data.get("network") if isinstance(data.get("network"), list) else []
     remote_access = data.get("remote_access") if isinstance(data.get("remote_access"), dict) else {}
     anydesk = remote_access.get("anydesk") if isinstance(remote_access.get("anydesk"), dict) else {}
+    zabbix_agent = data.get("zabbix_agent") if isinstance(data.get("zabbix_agent"), dict) else {}
     mac = ""
     if network and isinstance(network[0], dict):
         mac = _text(network[0].get("mac"))
@@ -578,6 +579,15 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
         "anydesk_id": _text(data.get("anydesk_id")) or _text(anydesk.get("id")),
         "anydesk_installed": bool(anydesk.get("installed")),
         "anydesk_status": _text(anydesk.get("service_status")),
+        "zabbix_agent": {
+            "installed": bool(zabbix_agent.get("installed")),
+            "service_status": _text(zabbix_agent.get("service_status")),
+            "server": _text(zabbix_agent.get("server")),
+            "server_active": _text(zabbix_agent.get("server_active")),
+            "hostname": _text(zabbix_agent.get("hostname")),
+            "version": _text(zabbix_agent.get("version")),
+            "error": _text(zabbix_agent.get("error")),
+        },
         "tpm": data.get("tpm") if isinstance(data.get("tpm"), dict) else {},
         "secure_boot": data.get("secure_boot"),
         "bitlocker": bitlocker,
@@ -769,11 +779,125 @@ function Install-And-Configure-AnyDesk {{
   return Get-AnyDeskInventory -ExePath $exe -ConfiguredPassword $passwordConfigured -ErrorMessage $errorMessage
 }}
 
+function Get-SightOpsServerHost {{
+  try {{
+    $uri = [Uri]$SightOpsUrl
+    if ($uri.Host) {{ return $uri.Host }}
+  }} catch {{}}
+  return "10.10.12.7"
+}}
+
+function Get-ZabbixAgentInventory {{
+  param([string]$ServerHost = "", [string]$ErrorMessage = "")
+  $service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
+  if (-not $service) {{ $service = Get-Service -Name "Zabbix Agent" -ErrorAction SilentlyContinue }}
+  $confCandidates = @(
+    "$env:ProgramFiles\Zabbix Agent 2\zabbix_agent2.conf",
+    "$env:ProgramFiles\Zabbix Agent\zabbix_agentd.conf",
+    "${{env:ProgramFiles(x86)}}\Zabbix Agent 2\zabbix_agent2.conf",
+    "${{env:ProgramFiles(x86)}}\Zabbix Agent\zabbix_agentd.conf"
+  )
+  $conf = $confCandidates | Where-Object {{ $_ -and (Test-Path $_) }} | Select-Object -First 1
+  $server = $ServerHost
+  $serverActive = $ServerHost
+  $agentHost = $env:COMPUTERNAME
+  if ($conf) {{
+    try {{
+      $lines = Get-Content $conf -ErrorAction SilentlyContinue
+      $serverLine = $lines | Where-Object {{ $_ -match '^Server=' }} | Select-Object -Last 1
+      $activeLine = $lines | Where-Object {{ $_ -match '^ServerActive=' }} | Select-Object -Last 1
+      $hostLine = $lines | Where-Object {{ $_ -match '^Hostname=' }} | Select-Object -Last 1
+      if ($serverLine) {{ $server = ($serverLine -replace '^Server=', '').Trim() }}
+      if ($activeLine) {{ $serverActive = ($activeLine -replace '^ServerActive=', '').Trim() }}
+      if ($hostLine) {{ $agentHost = ($hostLine -replace '^Hostname=', '').Trim() }}
+    }} catch {{}}
+  }}
+  $version = ""
+  try {{
+    $cmd = Get-Command zabbix_agent2.exe -ErrorAction SilentlyContinue
+    if ($cmd) {{
+      $raw = & $cmd.Source --version 2>$null | Select-Object -First 1
+      $version = ($raw -as [string]).Trim()
+    }}
+  }} catch {{}}
+  return [PSCustomObject]@{{
+    installed = [bool]$service
+    service_status = if ($service) {{ $service.Status.ToString() }} else {{ "" }}
+    server = $server
+    server_active = $serverActive
+    hostname = $agentHost
+    config_path = $conf
+    version = $version
+    error = $ErrorMessage
+  }}
+}}
+
+function Install-And-Configure-ZabbixAgent {{
+  $serverHost = Get-SightOpsServerHost
+  $errorMessage = ""
+  try {{
+    $choice = Read-Host "Instalar/configurar Zabbix Agent 2 para monitoramento? [S/n]"
+    if ($choice -match '^[Nn]') {{
+      return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage "Instalacao ignorada pelo operador"
+    }}
+    if (-not $IsAdmin) {{
+      return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage "Execute como Administrador para instalar/configurar Zabbix Agent"
+    }}
+    $service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
+    if (-not $service) {{
+      $installer = Join-Path $env:TEMP "zabbix_agent2_latest.msi"
+      $urls = @(
+        "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/latest/zabbix_agent2-7.0-latest-windows-amd64-openssl.msi",
+        "https://cdn.zabbix.com/zabbix/binaries/stable/6.0/latest/zabbix_agent2-6.0-latest-windows-amd64-openssl.msi"
+      )
+      foreach ($url in $urls) {{
+        try {{
+          Write-Host ("Baixando Zabbix Agent 2: " + $url) -ForegroundColor Cyan
+          Invoke-WebRequest -Uri $url -OutFile $installer -UseBasicParsing -TimeoutSec 300
+          if (Test-Path $installer) {{ break }}
+        }} catch {{
+          $errorMessage = $_.Exception.Message
+        }}
+      }}
+      if (-not (Test-Path $installer)) {{ throw "Nao foi possivel baixar o instalador do Zabbix Agent 2. $errorMessage" }}
+      $args = @(
+        "/i", "`"$installer`"",
+        "/qn",
+        "SERVER=$serverHost",
+        "SERVERACTIVE=$serverHost",
+        "HOSTNAME=$env:COMPUTERNAME",
+        "LISTENPORT=10050"
+      )
+      Write-Host "Instalando Zabbix Agent 2 em modo silencioso..." -ForegroundColor Cyan
+      $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $args -Wait -PassThru
+      if ($proc.ExitCode -ne 0) {{ Write-Host "Instalador Zabbix retornou codigo $($proc.ExitCode). Continuando validacao..." -ForegroundColor Yellow }}
+      Start-Sleep -Seconds 5
+    }}
+    $service = Get-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
+    if ($service) {{
+      Set-Service -Name "Zabbix Agent 2" -StartupType Automatic -ErrorAction SilentlyContinue
+      Start-Service -Name "Zabbix Agent 2" -ErrorAction SilentlyContinue
+      New-NetFirewallRule -DisplayName "SightOps Zabbix Agent 10050" -Direction Inbound -Protocol TCP -LocalPort 10050 -Action Allow -Profile Any -ErrorAction SilentlyContinue | Out-Null
+    }}
+  }} catch {{
+    $errorMessage = $_.Exception.Message
+    Write-Host ("Zabbix Agent: " + $errorMessage) -ForegroundColor Yellow
+  }}
+  return Get-ZabbixAgentInventory -ServerHost $serverHost -ErrorMessage $errorMessage
+}}
+
 $anydeskInfo = Install-And-Configure-AnyDesk
 if ($anydeskInfo.id) {{
   Write-Host ("AnyDesk ID: " + $anydeskInfo.id) -ForegroundColor Green
 }} elseif ($anydeskInfo.error) {{
   Write-Host ("AnyDesk sem ID: " + $anydeskInfo.error) -ForegroundColor Yellow
+}}
+
+$zabbixInfo = Install-And-Configure-ZabbixAgent
+if ($zabbixInfo.installed) {{
+  Write-Host ("Zabbix Agent: " + $zabbixInfo.service_status + " / Server: " + $zabbixInfo.server_active) -ForegroundColor Green
+}} elseif ($zabbixInfo.error) {{
+  Write-Host ("Zabbix Agent nao instalado: " + $zabbixInfo.error) -ForegroundColor Yellow
 }}
 
 $cs = Get-CimInstance Win32_ComputerSystem
@@ -937,6 +1061,7 @@ $payload = [PSCustomObject]@{{
   defender = $defender
   hotfixes = @($hotfixes)
   anydesk_id = $anydeskInfo.id
+  zabbix_agent = $zabbixInfo
   remote_access = [PSCustomObject]@{{
     anydesk = $anydeskInfo
   }}

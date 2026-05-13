@@ -31,6 +31,13 @@ def _slug_name(v: str) -> str:
     return s or "default"
 
 
+def _host_safe(v: str) -> str:
+    s = str(v or "").strip().upper()
+    s = re.sub(r"[^A-Z0-9_.-]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s or "HOST"
+
+
 GROUP_SLUG = _slug_name(ZBX_GROUP)
 USER_ALIAS = f"telegram.cam-snapshot.{GROUP_SLUG}"
 ACTION_NAME_GROUP = f"{ZBX_GROUP} -> Telegram (cam-snapshot)"
@@ -659,9 +666,12 @@ def main():
         http_port = int(c.get("http_port") or 80)
         host_key = str(c.get("host_key") or "").strip()
         if host_key:
-            host = host_key
+            host = _host_safe(host_key)
         elif source == "dvr" and channel:
             host = f"DVR-{ip}-CH{channel}"
+        elif source == "windows":
+            hostname = str(c.get("hostname") or c.get("host") or title or ip).strip()
+            host = f"WIN-{_host_safe(hostname)}"
         else:
             host = f"CAM-{ip}"
         status_raw = str(c.get("status") or "").strip().lower()
@@ -685,6 +695,16 @@ def main():
             "{$CAM_LOCAL}": local,
             "{$CAM_MAC}": mac,
             "{$CAM_MODEL}": model,
+            "{$WIN_HOSTNAME}": str(c.get("hostname") or c.get("host") or title).strip(),
+            "{$WIN_USER}": str(c.get("logged_user") or "").strip(),
+            "{$WIN_OS}": str(c.get("os_name") or "").strip(),
+            "{$WIN_SITE}": str(c.get("site") or "").strip(),
+            "{$WIN_SECTOR}": str(c.get("sector") or c.get("setor") or "").strip(),
+            "{$WIN_SERIAL}": str(c.get("serial") or "").strip(),
+            "{$WIN_CPU}": str(c.get("cpu") or "").strip(),
+            "{$WIN_RAM_GB}": str(c.get("ram_gb") or "").strip(),
+            "{$WIN_DISK_SUMMARY}": str(c.get("disk_summary") or "").strip(),
+            "{$WIN_ANYDESK_ID}": str(c.get("anydesk_id") or "").strip(),
             "{$ONU_SERIAL}": onu_serial,
             "{$PON_ONU}": pon_onu,
             "{$PON}": pon,

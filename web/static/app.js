@@ -10020,13 +10020,36 @@ if (cbAfter && pAfter) {
 const zbxSourceEl = byId('zbx-source');
 if (zbxSourceEl) {
   zbxSourceEl.addEventListener('change', syncZabbixTemplateBySource);
+  zbxSourceEl.addEventListener('change', loadZabbixSiteOptions);
   syncZabbixTemplateBySource();
 }
 
 function loadZabbixSiteOptions() {
   const sel = byId('zbx-site');
   if (!sel) return Promise.resolve();
-    return fetch('/api/db/sites?source=ip&_=' + Date.now(), { cache: 'no-store' })
+  const source = safeTrim((byId('zbx-source') || {}).value || 'nvr') || 'nvr';
+  if (source === 'windows') {
+    return fetch('/api/windows/inventory?_=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.json().catch(() => ({})))
+      .then(j => {
+        const rows = (j && Array.isArray(j.inventory)) ? j.inventory : [];
+        const cur = safeTrim(sel.value || '');
+        const seen = new Set();
+        sel.innerHTML = '<option value="">Todos os sites</option>';
+        rows.forEach(function (row) {
+          const name = safeTrim((row && row.site) || '');
+          if (!name || seen.has(name.toLowerCase())) return;
+          seen.add(name.toLowerCase());
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+        if (cur) sel.value = cur;
+      })
+      .catch(() => {});
+  }
+  return fetch('/api/db/sites?source=' + encodeURIComponent((source === 'dvr' || source === 'nvr') ? source : 'ip') + '&_=' + Date.now(), { cache: 'no-store' })
     .then(r => r.json().catch(() => ({})))
     .then(j => {
       const sites = (j && j.ok === true && Array.isArray(j.sites)) ? j.sites : [];
@@ -10484,8 +10507,17 @@ function syncZabbixTemplateBySource() {
   if (!sourceEl || !tplEl) return;
   const source = safeTrim(sourceEl.value || 'nvr') || 'nvr';
   const isRecorder = (source === 'dvr' || source === 'nvr');
-  tplEl.value = isRecorder ? 'Template Cam-Snapshot DVR Channel' : 'Template Module ICMP Ping';
+  if (source === 'windows') {
+    tplEl.value = 'Windows by Zabbix agent';
+  } else {
+    tplEl.value = isRecorder ? 'Template Cam-Snapshot DVR Channel' : 'Template Module ICMP Ping';
+  }
   if (dvrCredsEl) dvrCredsEl.style.display = isRecorder ? '' : 'none';
+  const groupEl = byId('zbx-group');
+  if (groupEl) {
+    if (source === 'windows' && (!groupEl.value || groupEl.value === 'Cameras')) groupEl.value = 'Computadores Windows';
+    if (source !== 'windows' && groupEl.value === 'Computadores Windows') groupEl.value = isRecorder ? 'Cameras' : 'Cameras';
+  }
 }
 
 
