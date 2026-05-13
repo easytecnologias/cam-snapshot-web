@@ -41,6 +41,14 @@ type BackupPolicy = {
 
 const tokenKey = 'easy_backup_token_v1';
 
+function isAuthError(value: unknown) {
+  const raw = String(value || '').toLowerCase();
+  return raw === 'invalid_token'
+    || raw === 'authentication_required'
+    || raw.includes('invalid_token')
+    || raw.includes('authentication_required');
+}
+
 function fmtBytes(raw?: string | number | null) {
   const value = Number(raw || 0);
   if (!Number.isFinite(value) || value <= 0) return '0 GB';
@@ -111,9 +119,38 @@ function App() {
     const resp = await fetch(path, { ...init, headers });
     const text = await resp.text();
     const body = text ? JSON.parse(text) : {};
-    if (!resp.ok) throw new Error(body.error || body.detail || `HTTP ${resp.status}`);
+    if (!resp.ok) {
+      const detail = body.error || body.detail || `HTTP ${resp.status}`;
+      if (isAuthError(detail)) clearEasySession('Sessao expirada. Entre novamente no EASY Backup para importar o inventario Windows.');
+      throw new Error(detail);
+    }
     return body as T;
   };
+
+  function clearEasySession(msg?: string) {
+    localStorage.removeItem(tokenKey);
+    setToken('');
+    setUser(null);
+    setSelectedMachines([]);
+    setMachines([]);
+    setJobs([]);
+    setAlerts([]);
+    setRuntime([]);
+    setDashboard(null);
+    if (msg) setMessage(msg);
+  }
+
+  function parseJsonResponse(resp: Response) {
+    return resp.text().then((text) => {
+      const body = text ? JSON.parse(text) : {};
+      if (!resp.ok || body.error || body.detail) {
+        const detail = body.error || body.detail || `HTTP ${resp.status}`;
+        if (isAuthError(detail)) clearEasySession('Sessao expirada. Entre novamente no EASY Backup para importar o inventario Windows.');
+        throw new Error(detail);
+      }
+      return body;
+    });
+  }
 
   async function refreshAll(nextToken = token) {
     if (!nextToken) return;
@@ -121,14 +158,13 @@ function App() {
     try {
       const headers = { Authorization: `Bearer ${nextToken}` };
       const [me, dash, machineData, backupData, alertData, policyData] = await Promise.all([
-        fetch('/api/auth/me', { headers }).then((r) => r.json()),
-        fetch('/api/dashboard', { headers }).then((r) => r.json()),
-        fetch('/api/machines', { headers }).then((r) => r.json()),
-        fetch('/api/backups', { headers }).then((r) => r.json()),
-        fetch('/api/alerts', { headers }).then((r) => r.json()),
-        fetch('/api/policies', { headers }).then((r) => r.json()),
+        fetch('/api/auth/me', { headers }).then(parseJsonResponse),
+        fetch('/api/dashboard', { headers }).then(parseJsonResponse),
+        fetch('/api/machines', { headers }).then(parseJsonResponse),
+        fetch('/api/backups', { headers }).then(parseJsonResponse),
+        fetch('/api/alerts', { headers }).then(parseJsonResponse),
+        fetch('/api/policies', { headers }).then(parseJsonResponse),
       ]);
-      if (me.error || me.detail) throw new Error(me.error || me.detail);
       setUser(me.user ? { name: me.user.name, email: me.user.email, role: me.user.role, tenant: me.user.tenant?.name || '-' } : null);
       setDashboard(dash);
       setMachines(machineData.machines || []);
@@ -148,7 +184,9 @@ function App() {
       }
       setMessage('Dados atualizados da API real.');
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Falha ao carregar dados.');
+      if (!(err instanceof Error && isAuthError(err.message))) {
+        setMessage(err instanceof Error ? err.message : 'Falha ao carregar dados.');
+      }
     } finally {
       setLoading(false);
     }
@@ -410,7 +448,7 @@ function App() {
     { label: 'Espaco usado', value: fmtBytes(dashboard?.usedBytes), icon: HardDrive, tone: 'text-indigo-300' },
   ], [dashboard]);
 
-  if (!token) {
+  if (!token || !user) {
     return (
       <main className="min-h-screen bg-ink px-6 py-12 text-slate-100">
         <section className="mx-auto max-w-md rounded-lg border border-line bg-panel p-6">
