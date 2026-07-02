@@ -574,6 +574,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
 
     inv_cmd: list[str] | None = None
     current_scan_ips: set[str] | None = None
+    discovered_count = 0
     if mode == "scan":
         old_rows_for_merge: list[dict[str, Any]] = []
         tmp_out: Path | None = None
@@ -632,6 +633,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
                 for r in new_rows
                 if isinstance(r, dict) and str((r or {}).get("ip") or (r or {}).get("IP") or "").strip()
             }
+            discovered_count = len(current_scan_ips) or len(new_rows)
 
             if should_merge:
                 new_rows = _merge_inventory_rows(old_rows_for_merge, new_rows)
@@ -706,11 +708,39 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     auth_warning = ""
     if auth_failed_count > 0 and online_count == 0:
         auth_warning = "Credencial rejeitada para os dispositivos ativos. Ajuste usuario/senha e rode novamente."
+
+    def _row_ip(row: dict[str, Any]) -> str:
+        return str((row or {}).get("ip") or (row or {}).get("IP") or "").strip()
+
+    def _has_snapshot(row: dict[str, Any]) -> bool:
+        return any(str((row or {}).get(k) or "").strip() for k in ("snapshot_url", "thumb_url", "snapshot_path", "snapshot_file"))
+
+    scoped_rows = [r for r in inventory_rows or [] if isinstance(r, dict)]
+    if current_scan_ips:
+        scoped_rows = [r for r in scoped_rows if _row_ip(r) in current_scan_ips]
+    snapshot_count = sum(1 for r in scoped_rows if _has_snapshot(r))
+    inventory_count = len(inventory_rows or [])
+    if mode == "update":
+        discovered_count = inventory_count
+
+    errors: list[str] = []
+    if imgbb_error:
+        errors.append(f"ImgBB: {imgbb_error}")
+    if excel_error:
+        errors.append(f"Excel: {excel_error}")
+    if auth_warning:
+        errors.append(auth_warning)
+
     return {
         "ok": True,
         "success": True,
         "mode": mode,
         "cmd": " ".join(inv_cmd) if inv_cmd else "",
+        "target": alvo,
+        "inventory_count": inventory_count,
+        "discovered_count": discovered_count,
+        "snapshot_count": snapshot_count,
+        "errors": errors,
         "local_applied": local_applied,
         "olt_enriched": olt_enriched,
         "switch_enriched": switch_enriched,

@@ -43,8 +43,9 @@ SIGHTOPS_DB_PATH = Path(os.getenv("SIGHTOPS_DB_PATH") or (DATA_DIR / "sightops.d
 DVR_SNAPSHOT_DIR = Path(os.getenv("DVR_SNAPSHOT_DIR") or (DATA_DIR / "dvr_snapshot"))
 NVR_SNAPSHOT_DIR = Path(os.getenv("NVR_SNAPSHOT_DIR") or (DATA_DIR / "nvr_snapshot"))
 
-WEB_DIR = Path(os.getenv("WEB_DIR") or (BASE_DIR / "web" / "pages"))
+WEB_DIR    = Path(os.getenv("WEB_DIR")     or (BASE_DIR / "web" / "pages"))
 STATIC_DIR = Path(os.getenv("STATIC_DIR") or (BASE_DIR / "web" / "static"))
+WEB_APP_DIR = Path(os.getenv("WEB_APP_DIR") or (BASE_DIR / "web" / "app"))
 
 # scripts CLI (rodados via subprocess pelo backend)
 TOOLS_DIR = Path(os.getenv("TOOLS_DIR") or (BASE_DIR / "app" / "cli" / "tools"))

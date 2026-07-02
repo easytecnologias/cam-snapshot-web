@@ -158,6 +158,7 @@ class DVRRebootRequest(BaseModel):
     timeout_sec: float = Field(default=8.0, ge=1.0, le=30.0)
 
 
+
 def _base(ip: str, port: int) -> str:
     return f"http://{ip}:{int(port)}" if int(port) != 80 else f"http://{ip}"
 

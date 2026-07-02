@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.core.observability import RequestContextMiddleware, configure_logging
-from app.core.paths import WEB_DIR, STATIC_DIR, SAIDA_DIR, DATA_DIR, ensure_dirs
+from app.core.paths import WEB_DIR, STATIC_DIR, SAIDA_DIR, DATA_DIR, WEB_APP_DIR, ensure_dirs
 from app.core.security import ApiAuthMiddleware
 from app.core.settings import get_settings
 from app.core.tenant_context import tenant_snapshot_dir
@@ -225,6 +225,9 @@ def chrome_devtools_manifest() -> JSONResponse:
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/saida", StaticFiles(directory=str(SAIDA_DIR)), name="saida")
 app.mount("/data/nvr_ai", StaticFiles(directory=str(DATA_DIR / "nvr_ai")), name="nvr_ai")
+# Novo frontend Vue — disponivel em /app/ durante a migracao
+WEB_APP_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/app", StaticFiles(directory=str(WEB_APP_DIR), html=True), name="vue_app")
 
 # Snapshots: URL estavel /data/snapshot/<arquivo> com fallback entre pastas.
 (DATA_DIR / "snapshot").mkdir(parents=True, exist_ok=True)

@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Ferramenta auxiliar: coleta MACs por ONU na OLT Intelbras 8820i (GPON)
-usando sessão interativa (invoke_shell) e gera saida/olt-cpe-macs.json.
+usando sessÃ£o interativa (invoke_shell) e gera saida/olt-cpe-macs.json.
 
-Uso típico (PowerShell):
+Uso tÃ­pico (PowerShell):
 
-    # PON específica
+    # PON especÃ­fica
     python .\tools\olt_8820i_collect_macs.py `
       --olt-ip 10.80.80.5 `
       --user admin `
@@ -39,11 +39,11 @@ DEBUG_OLT_COLLECT = str(os.getenv("OLT_DEBUG_COLLECT", "0")).strip().lower() in 
 
 
 def normalize_mac(s: str) -> str:
-    """Normaliza MAC para o formato aa:bb:cc:dd:ee:ff (minúsculo)."""
+    """Normaliza MAC para o formato aa:bb:cc:dd:ee:ff (minÃºsculo)."""
     if not s:
         return ""
     s = s.strip()
-    s = re.sub(r"[^0-9A-Fa-f]", "", s)  # remove tudo que não é hexa
+    s = re.sub(r"[^0-9A-Fa-f]", "", s)  # remove tudo que nÃ£o Ã© hexa
     s = s.lower()
     if len(s) == 12:
         return ":".join(s[i : i + 2] for i in range(0, 12, 2))
@@ -51,7 +51,7 @@ def normalize_mac(s: str) -> str:
 
 
 def open_shell(client: paramiko.SSHClient):
-    """Abre uma sessão interativa na OLT e sincroniza com o prompt."""
+    """Abre uma sessÃ£o interativa na OLT e sincroniza com o prompt."""
     chan = client.invoke_shell()
     time.sleep(0.25)
     _ = read_until_prompt(chan)
@@ -59,7 +59,7 @@ def open_shell(client: paramiko.SSHClient):
 
 
 def read_until_prompt(chan, timeout: float = 10.0) -> str:
-    """Lê dados da sessão até encontrar o PROMPT ou estourar timeout."""
+    """LÃª dados da sessÃ£o atÃ© encontrar o PROMPT ou estourar timeout."""
     buffer = ""
     start = time.time()
     while True:
@@ -76,8 +76,8 @@ def read_until_prompt(chan, timeout: float = 10.0) -> str:
 
 def cli_run(chan, cmd: str, timeout: float = 10.0) -> str:
     """
-    Envia um comando para a OLT via shell interativo e lê até o prompt retornar.
-    Remove eco do comando e o prompt final, deixando só o "miolo" da saída.
+    Envia um comando para a OLT via shell interativo e lÃª atÃ© o prompt retornar.
+    Remove eco do comando e o prompt final, deixando sÃ³ o "miolo" da saÃ­da.
     """
     time.sleep(0.05)
     while chan.recv_ready():
@@ -104,8 +104,15 @@ def cli_run(chan, cmd: str, timeout: float = 10.0) -> str:
 
 
 def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
-    """Parseia saída de 'onu status gpon <pon>'."""
+    """Parseia saida de 'onu status gpon <pon>' da Intelbras 8820i."""
     onus: List[Dict] = []
+    pon_id = pon if pon is not None else 1
+    # Formato observado no legado:
+    # 1  8B3E3755  Active  OK  -20.52 dBm  -18.83 dBm  0.758  7:22:52:22
+    full_re = re.compile(
+        r"^\s*(\d+)\s+([0-9A-Fa-f]+)\s+(\S+)\s+(\S+)\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+([\d\.]+)\s+([\d:]+)",
+        re.IGNORECASE,
+    )
 
     lines = output.splitlines()
     in_table = False
@@ -119,11 +126,39 @@ def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
             in_table = True
             continue
 
-        if not in_table:
-            continue
-
         if s.startswith("Configured ONUs"):
             break
+
+        m = full_re.search(s)
+        if m:
+            onu_id = int(m.group(1))
+            serial = m.group(2).strip()
+            rx_olt = m.group(5) or ""
+            rx_onu = m.group(6) or ""
+            onus.append(
+                {
+                    "pon": pon_id,
+                    "onu_id": onu_id,
+                    "enabled": "Yes",
+                    "serial": serial,
+                    "model": "",
+                    "profile": "",
+                    "name": f"gpon {pon_id} onu {onu_id}",
+                    "oper_status": m.group(3).strip(),
+                    "omci_status": m.group(4).strip(),
+                    "rx_olt": rx_olt,
+                    "rx_onu": rx_onu,
+                    "rx_power": rx_onu,
+                    "onu_rx_power": rx_onu,
+                    "signal": rx_onu,
+                    "distance_km": m.group(7) or "",
+                    "uptime": m.group(8) or "",
+                }
+            )
+            continue
+
+        if not in_table:
+            continue
 
         parts = s.split()
         if len(parts) < 2:
@@ -135,8 +170,6 @@ def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
             continue
 
         serial = parts[1]
-        pon_id = pon if pon is not None else 1
-
         onus.append(
             {
                 "pon": pon_id,
@@ -146,14 +179,81 @@ def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
                 "model": "",
                 "profile": "",
                 "name": f"gpon {pon_id} onu {onu_id}",
+                "oper_status": parts[2] if len(parts) > 2 else "",
+                "omci_status": parts[3] if len(parts) > 3 else "",
+                "rx_olt": "",
+                "rx_onu": "",
+                "rx_power": "",
+                "onu_rx_power": "",
+                "signal": "",
+                "distance_km": "",
+                "uptime": "",
             }
         )
 
     return onus
 
+def _first_number_after(labels: List[str], output: str) -> str:
+    for label in labels:
+        # Aceita variacoes como "RxONU: -18.8 dBm", "Rx ONU Power -18.8" ou "ONU Rx Power = -18.8".
+        pattern = label + r"[^\r\n\-\d]{0,40}(-?\d+(?:[\.,]\d+)?)\s*(?:dBm)?"
+        m = re.search(pattern, output, re.IGNORECASE)
+        if m:
+            return m.group(1).replace(",", ".")
+    return ""
+
+
+def parse_single_onu_status(output: str, pon: int, onu_id: int) -> Dict:
+    """Parseia detalhes do comando 'onu status gpon <pon> onu <onu_id>'."""
+    rows = parse_onu_status(output, pon)
+    for row in rows:
+        if str(row.get("onu_id") or "") == str(onu_id):
+            return row
+
+    compact = "\n".join(line.strip() for line in (output or "").splitlines() if line.strip())
+    rx_olt = _first_number_after([r"rx\s*olt", r"olt\s*rx", r"receive\s*power.*olt"], compact)
+    rx_onu = _first_number_after([r"rx\s*onu", r"onu\s*rx", r"receive\s*power.*onu", r"rx\s*power", r"signal"], compact)
+
+    oper = ""
+    omci = ""
+    m_oper = re.search(r"oper\s*status\s*[:=]?\s*(\S+)", compact, re.IGNORECASE)
+    if m_oper:
+        oper = m_oper.group(1)
+    m_omci = re.search(r"omci\s*status\s*[:=]?\s*(\S+)", compact, re.IGNORECASE)
+    if m_omci:
+        omci = m_omci.group(1)
+
+    return {
+        "pon": pon,
+        "onu_id": onu_id,
+        "oper_status": oper,
+        "omci_status": omci,
+        "rx_olt": rx_olt,
+        "rx_onu": rx_onu,
+        "rx_power": rx_onu,
+        "onu_rx_power": rx_onu,
+        "signal": rx_onu,
+        "distance_km": _first_number_after([r"distance", r"distancia"], compact),
+        "uptime": "",
+    }
+
+
+def enrich_onu_signal(chan, onu: Dict, pon: int, onu_id: int) -> Dict:
+    if onu.get("rx_onu") or onu.get("rx_olt"):
+        return onu
+    cmd = f"onu status gpon {pon} onu {onu_id}"
+    sys.stderr.write(f"[INFO] Lendo sinal de gpon {pon} onu {onu_id}...\n")
+    out = cli_run(chan, cmd, timeout=12.0)
+    detail = parse_single_onu_status(out, pon, onu_id)
+    enriched = dict(onu)
+    for key in ("oper_status", "omci_status", "rx_olt", "rx_onu", "rx_power", "onu_rx_power", "signal", "distance_km", "uptime"):
+        if detail.get(key):
+            enriched[key] = detail.get(key)
+    return enriched
+
 
 def parse_macs_from_output(output: str) -> List[Dict]:
-    """Parseia saída de:
+    """Parseia saÃ­da de:
 
         bridge show mac gpon <pon> onu <onu>
     """
@@ -198,13 +298,13 @@ def get_macs_for_onu(chan, pon: int, onu_id: int) -> List[Dict]:
         sys.stderr.write(f"[INFO] MACs encontrados para gpon {pon} onu {onu_id}.\n")
     else:
         sys.stderr.write(
-            f"[WARN] Nenhum MAC parseado para gpon {pon} onu {onu_id}. Veja a saída acima.\n"
+            f"[WARN] Nenhum MAC parseado para gpon {pon} onu {onu_id}. Veja a saÃ­da acima.\n"
         )
     return macs
 
 
 # ============
-# FUNÇÃO P/ BACKEND (FastAPI)
+# FUNÃ‡ÃƒO P/ BACKEND (FastAPI)
 # ============
 
 def collect_macs_8820i(
@@ -217,7 +317,7 @@ def collect_macs_8820i(
 ) -> List[Dict]:
     """
     Coleta MACs por ONU na OLT Intelbras 8820i e retorna lista de dicts.
-    Pode receber PON específica (ex: "1") ou "all".
+    Pode receber PON especÃ­fica (ex: "1") ou "all".
     """
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -240,7 +340,7 @@ def collect_macs_8820i(
 
         # Descobre quais PONs vamos varrer
         if pon.lower() == "all":
-            sys.stderr.write("[INFO] Varredura automática de PONs usando 'onu status gpon <pon>'...\n")
+            sys.stderr.write("[INFO] Varredura automÃ¡tica de PONs usando 'onu status gpon <pon>'...\n")
             pons: List[int] = []
             for p in range(1, 9):
                 out_status = cli_run(chan, f"onu status gpon {p}", timeout=10.0)
@@ -257,7 +357,7 @@ def collect_macs_8820i(
                 pons = [int(pon)]
             except ValueError:
                 sys.stderr.write(
-                    "[ERRO] Valor inválido para pon. Use um número (ex: 1) ou 'all'.\n"
+                    "[ERRO] Valor invÃ¡lido para pon. Use um nÃºmero (ex: 1) ou 'all'.\n"
                 )
                 return []
 
@@ -274,12 +374,13 @@ def collect_macs_8820i(
             if not onus:
                 sys.stderr.write(
                     f"[WARN] Nenhuma ONU encontrada em gpon {p}. "
-                    "Verifique se o comando e o parser estão corretos.\n"
+                    "Verifique se o comando e o parser estÃ£o corretos.\n"
                 )
                 continue
 
             for onu in onus:
                 onu_id = int(onu["onu_id"])
+                onu = enrich_onu_signal(chan, onu, p, onu_id)
                 sys.stderr.write(
                     f"[INFO] Coletando MACs de gpon {p} onu {onu_id}...\n"
                 )
@@ -293,6 +394,15 @@ def collect_macs_8820i(
                             "onu_name": onu["name"],
                             "onu_serial": onu["serial"],
                             "onu_model": onu["model"],
+                            "oper_status": onu.get("oper_status", ""),
+                            "omci_status": onu.get("omci_status", ""),
+                            "rx_olt": onu.get("rx_olt", ""),
+                            "rx_onu": onu.get("rx_onu", ""),
+                            "rx_power": onu.get("rx_power", ""),
+                            "onu_rx_power": onu.get("onu_rx_power", ""),
+                            "signal": onu.get("signal", ""),
+                            "distance_km": onu.get("distance_km", ""),
+                            "uptime": onu.get("uptime", ""),
                             "olt_ip": olt_ip,
                             "olt_name": olt_name,
                             "vlan": m.get("vlan", ""),
@@ -312,7 +422,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Coleta MACs por ONU na OLT Intelbras 8820i e gera saida/olt-cpe-macs.json. "
-            "Use --pon N para PON específica ou --pon all para todas (1-8)."
+            "Use --pon N para PON especÃ­fica ou --pon all para todas (1-8)."
         )
     )
     parser.add_argument("--olt-ip", required=True)
@@ -337,7 +447,7 @@ def main() -> None:
 
     if not rows:
         sys.stderr.write(
-            "[WARN] Nenhum MAC coletado. O CSV será criado, mas estará vazio.\n"
+            "[WARN] Nenhum MAC coletado. O CSV serÃ¡ criado, mas estarÃ¡ vazio.\n"
         )
 
     fieldnames = [
@@ -377,3 +487,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

@@ -105,7 +105,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                     new_cpes.append(rr)
 
                 if getattr(req, "reuse_json", False):
-                    all_cpes = existing_cpes + new_cpes
+                    all_cpes = new_cpes + existing_cpes
                 else:
                     # Atualiza apenas o escopo atual (site + olt_ip), mantendo outras OLTs/sites.
                     def _same_scope(x: dict[str, Any]) -> bool:

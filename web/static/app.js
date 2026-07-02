@@ -1301,6 +1301,8 @@ function initUiShell() {
   ensureDashboardNavLink();
   ensureWindowsNavLink();
   ensureBackupNavLink();
+  ensureNetworkOpsNavGroup();
+  ensureSuperMarketNavGroup();
   // Tema inicial
   const forcedTheme = (document.body && document.body.dataset && document.body.dataset.forceTheme) || '';
   let stored = null;
@@ -1386,6 +1388,68 @@ function ensureBackupNavLink() {
   const path = String(window.location.pathname || '').toLowerCase();
   if (path.endsWith('/backup.html')) link.classList.add('active');
   operationsGroup.appendChild(link);
+}
+
+function ensureNetworkOpsNavGroup() {
+  const nav = document.querySelector('header nav');
+  if (!nav || nav.querySelector('[data-nav-group="networkops"]')) return;
+  const toolsGroup = document.querySelector('[data-nav-subgroup="tools"]');
+  if (toolsGroup) {
+    const oldLink = toolsGroup.querySelector('a[href="network.html"]');
+    if (oldLink) oldLink.remove();
+  }
+  const path = String(window.location.pathname || '').toLowerCase();
+  const isActive = path.endsWith('/network.html') || path.endsWith('/network_operate.html') || path.endsWith('/network_actions.html') || path.endsWith('/network_learning.html');
+  const btn = document.createElement('button');
+  btn.className = 'nav-item nav-group-toggle' + (isActive ? ' active' : '');
+  btn.type = 'button';
+  btn.setAttribute('data-nav-group', 'networkops');
+  btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+  btn.textContent = 'NetworkOps';
+  const group = document.createElement('div');
+  group.className = 'nav-subgroup';
+  group.setAttribute('data-nav-subgroup', 'networkops');
+  if (!isActive) group.hidden = true;
+  const link = document.createElement('a');
+  link.className = 'nav-subitem' + (path.endsWith('/network.html') ? ' active' : '');
+  link.href = 'network.html';
+  link.textContent = 'Cadastrar dispositivos';
+  const actions = document.createElement('a');
+  actions.className = 'nav-subitem' + (path.endsWith('/network_operate.html') || path.endsWith('/network_actions.html') || path.endsWith('/network_learning.html') ? ' active' : '');
+  actions.href = 'network_operate.html';
+  actions.textContent = 'Operar equipamento';
+  group.appendChild(link);
+  group.appendChild(actions);
+  nav.appendChild(btn);
+  nav.appendChild(group);
+}
+
+function ensureSuperMarketNavGroup() {
+  const nav = document.querySelector('header nav');
+  if (!nav || nav.querySelector('[data-nav-group="supermarket"]')) return;
+  const path = String(window.location.pathname || '').toLowerCase();
+  const isActive = path.endsWith('/pdv.html');
+  const btn = document.createElement('button');
+  btn.className = 'nav-item nav-group-toggle' + (isActive ? ' active' : '');
+  btn.type = 'button';
+  btn.setAttribute('data-nav-group', 'supermarket');
+  btn.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+  btn.textContent = 'SUPER MERCADO';
+  const group = document.createElement('div');
+  group.className = 'nav-subgroup';
+  group.setAttribute('data-nav-subgroup', 'supermarket');
+  if (!isActive) group.hidden = true;
+  const label = document.createElement('div');
+  label.className = 'nav-subitem nav-subitem-label';
+  label.textContent = 'SightOps Cam Snapshot';
+  const link = document.createElement('a');
+  link.className = 'nav-subitem nav-subitem-child' + (isActive ? ' active' : '');
+  link.href = 'pdv.html';
+  link.textContent = 'PDV + CFTV Intelbras';
+  group.appendChild(label);
+  group.appendChild(link);
+  nav.appendChild(btn);
+  nav.appendChild(group);
 }
 
 /* =========================
@@ -10687,12 +10751,6 @@ function setupScriptsClearButtons(){
 
     document.addEventListener('keydown', onKey);
   }
-
-
-
-
-
-
 
 
 
