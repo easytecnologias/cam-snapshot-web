@@ -2832,7 +2832,7 @@ function openMntStream(ip, titulo) {
   img.classList.add('hidden');
   _refreshMntStreamSnap(ip);
   if (_mntStreamInterval) clearInterval(_mntStreamInterval);
-  _mntStreamInterval = setInterval(() => { if (_mntStreamIp) _refreshMntStreamSnap(_mntStreamIp); }, 3000);
+  _mntStreamInterval = setInterval(() => { if (_mntStreamIp) _refreshMntStreamSnap(_mntStreamIp); }, 1000);
 
   document.getElementById('modalMntStream').classList.remove('hidden');
   lucide.createIcons();
@@ -2847,10 +2847,12 @@ function closeMntStream() {
 function _refreshMntStreamSnap(ip) {
   const img = document.getElementById('mntStreamImg');
   if (!img) return;
-  const safe = ip.replace(/\./g, '_');
-  const url = `${API_BASE}/api/snapshot/${safe}.jpg?t=${Date.now()}`;
-  const tmp = new Image();
-  tmp.onload = () => { img.src = tmp.src; img.classList.remove('hidden'); };
+  const user = encodeURIComponent(document.getElementById('mntCamUser')?.value || 'admin');
+  const pass = encodeURIComponent(document.getElementById('mntCamPass')?.value || '');
+  const url  = `/api/maintenance/live/${ip}?user=${user}&password=${pass}&t=${Date.now()}`;
+  const tmp  = new Image();
+  tmp.onload  = () => { img.src = tmp.src; img.classList.remove('hidden'); };
+  tmp.onerror = () => {};
   tmp.src = url;
 }
 

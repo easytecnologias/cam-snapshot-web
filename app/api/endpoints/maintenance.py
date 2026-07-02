@@ -732,6 +732,35 @@ def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]
     return {"ok": True, "ip": ip, "message": "Snapshot capturado"}
 
 
+# ── Snapshot ao vivo (direto da câmera, sem disco) ───────────────────────────
+
+@router.get("/maintenance/live/{ip}")
+def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
+    """Busca snapshot direto da câmera e devolve como JPEG — para preview ao vivo."""
+    from fastapi.responses import Response
+    import requests as _req
+    from requests.auth import HTTPDigestAuth, HTTPBasicAuth
+
+    urls = [
+        f"http://{ip}/cgi-bin/snapshot.cgi?channel=0",
+        f"http://{ip}/cgi-bin/snapshot.cgi",
+        f"http://{ip}/snapshot.jpg",
+    ]
+    for url in urls:
+        for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+            try:
+                r = _req.get(url, auth=auth, timeout=5, stream=False)
+                if r.status_code == 200 and r.content[:2] == b'\xff\xd8':
+                    return Response(
+                        content=r.content,
+                        media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"},
+                    )
+            except Exception:
+                continue
+    return Response(status_code=503)
+
+
 # ── Novos endpoints batch ─────────────────────────────────────────────────────
 
 @router.post("/maintenance/batch/test")
