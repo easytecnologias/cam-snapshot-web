@@ -738,35 +738,66 @@
           <div>
             <p class="eyebrow">Manutenção</p>
             <h1>Câmeras IP</h1>
-            <p>Batch de operações: reboot, NTP, senha, renomear, trocar IP.</p>
+            <p>Selecione câmeras e execute operações em lote.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnMntCamRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
           </div>
         </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div><h2>Selecione as câmeras</h2><p>Marque e escolha a ação em lote</p></div>
-            <div class="panel-actions">
-              <button class="secondary-action" id="btnMntCamSelectAll"><i data-lucide="check-square"></i> Todos</button>
-              <button class="secondary-action" id="btnMntCamReboot"><i data-lucide="power-circle"></i> Reboot</button>
-              <button class="secondary-action" id="btnMntCamNtp"><i data-lucide="clock"></i> Acertar NTP</button>
-              <button class="secondary-action" id="btnMntCamIp"><i data-lucide="network"></i> Trocar IP</button>
-            </div>
+
+        <!-- Barra de credenciais + ações -->
+        <div class="panel mnt-action-bar">
+          <div class="mnt-credentials">
+            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
+            <label>Usuário</label>
+            <input type="text" id="mntCamUser" value="admin" placeholder="admin">
+            <label>Senha</label>
+            <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha">
           </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th><input type="checkbox" id="chkMntCamAll"></th>
-                  <th>IP</th>
-                  <th>Marca / Modelo</th>
-                  <th>Status</th>
-                  <th>Última ação</th>
-                </tr>
-              </thead>
-              <tbody id="mntCamTable">
-                <tr class="empty-row"><td colspan="5">Carregando…</td></tr>
-              </tbody>
-            </table>
+          <div class="mnt-actions-group">
+            <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar câmeras selecionadas">
+              <i data-lucide="power-circle"></i><span>Reboot</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
+              <i data-lucide="clock"></i><span>Acertar NTP</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamIp" title="Trocar IP">
+              <i data-lucide="network"></i><span>Trocar IP</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamPass" title="Trocar senha">
+              <i data-lucide="shield"></i><span>Senha</span>
+            </button>
           </div>
+        </div>
+
+        <!-- Filtros + seleção -->
+        <div class="mnt-filter-bar">
+          <input type="text" class="mnt-search" id="mntCamSearch" placeholder="Buscar por nome ou IP…">
+          <select id="mntCamSite"><option value="">Todos os sites</option></select>
+          <div class="mnt-status-btns">
+            <button class="mnt-status-btn active" data-mnt-status="">Todos</button>
+            <button class="mnt-status-btn" data-mnt-status="online">● Online</button>
+            <button class="mnt-status-btn" data-mnt-status="offline">● Offline</button>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <span id="mntCamSelectedCount" style="font-size:12px;color:var(--muted);white-space:nowrap">0 selecionadas</span>
+            <button class="secondary-action" id="btnMntCamSelectAll"><i data-lucide="check-square"></i> Todas</button>
+            <button class="secondary-action" id="btnMntCamDeselect"><i data-lucide="square"></i> Limpar</button>
+          </div>
+        </div>
+
+        <!-- Grid de cards -->
+        <div class="mnt-cam-grid" id="mntCamGrid">
+          <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando…</div>
+        </div>
+
+        <!-- Console de log (fixo na base) -->
+        <div class="mnt-console hidden" id="mntCamConsole">
+          <div class="mnt-console-header">
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <button onclick="document.getElementById('mntCamConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+          </div>
+          <div class="mnt-console-body" id="mntCamConsoleBody"></div>
         </div>
       </section>
 
@@ -778,30 +809,60 @@
             <h1>DVR</h1>
             <p>Operações em lote nos gravadores DVR.</p>
           </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnMntDvrRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
         </div>
+
+        <div class="panel mnt-action-bar">
+          <div class="mnt-credentials">
+            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
+            <label>Usuário</label>
+            <input type="text" id="mntDvrUser" value="admin" placeholder="admin">
+            <label>Senha</label>
+            <input type="password" id="mntDvrPass" value="intelbras" placeholder="Senha">
+          </div>
+          <div class="mnt-actions-group">
+            <button class="mnt-action-btn" id="btnMntDvrReboot"><i data-lucide="power-circle"></i><span>Reboot</span></button>
+            <button class="mnt-action-btn" id="btnMntDvrNtp"><i data-lucide="clock"></i><span>Acertar NTP</span></button>
+          </div>
+        </div>
+
         <div class="panel">
           <div class="panel-header">
-            <div><h2>Selecione os DVRs</h2></div>
-            <div class="panel-actions">
-              <button class="secondary-action" id="btnMntDvrReboot"><i data-lucide="power-circle"></i> Reboot</button>
-              <button class="secondary-action" id="btnMntDvrNtp"><i data-lucide="clock"></i> NTP</button>
+            <div>
+              <h2>Gravadores DVR</h2>
+              <p>Marque e execute a operação em lote</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="mntDvrSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
+              <button class="secondary-action" id="btnMntDvrSelectAll"><i data-lucide="check-square"></i> Todos</button>
             </div>
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th><input type="checkbox" id="chkMntDvrAll"></th>
-                  <th>IP</th>
+                  <th style="width:36px"><input type="checkbox" id="chkMntDvrAll"></th>
+                  <th>IP / Host</th>
                   <th>Marca / Modelo</th>
+                  <th>Site</th>
                   <th>Status</th>
+                  <th>Resultado</th>
                 </tr>
               </thead>
               <tbody id="mntDvrTable">
-                <tr class="empty-row"><td colspan="4">Carregando…</td></tr>
+                <tr class="empty-row"><td colspan="6">Carregando…</td></tr>
               </tbody>
             </table>
           </div>
+        </div>
+        <div class="mnt-console hidden" id="mntDvrConsole">
+          <div class="mnt-console-header">
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <button onclick="document.getElementById('mntDvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+          </div>
+          <div class="mnt-console-body" id="mntDvrConsoleBody"></div>
         </div>
       </section>
 
@@ -813,30 +874,60 @@
             <h1>NVR</h1>
             <p>Operações em lote nos gravadores NVR.</p>
           </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnMntNvrRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
         </div>
+
+        <div class="panel mnt-action-bar">
+          <div class="mnt-credentials">
+            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
+            <label>Usuário</label>
+            <input type="text" id="mntNvrUser" value="admin" placeholder="admin">
+            <label>Senha</label>
+            <input type="password" id="mntNvrPass" value="intelbras" placeholder="Senha">
+          </div>
+          <div class="mnt-actions-group">
+            <button class="mnt-action-btn" id="btnMntNvrReboot"><i data-lucide="power-circle"></i><span>Reboot</span></button>
+            <button class="mnt-action-btn" id="btnMntNvrNtp"><i data-lucide="clock"></i><span>Acertar NTP</span></button>
+          </div>
+        </div>
+
         <div class="panel">
           <div class="panel-header">
-            <div><h2>Selecione os NVRs</h2></div>
-            <div class="panel-actions">
-              <button class="secondary-action" id="btnMntNvrReboot"><i data-lucide="power-circle"></i> Reboot</button>
-              <button class="secondary-action" id="btnMntNvrNtp"><i data-lucide="clock"></i> NTP</button>
+            <div>
+              <h2>Gravadores NVR</h2>
+              <p>Marque e execute a operação em lote</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="mntNvrSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
+              <button class="secondary-action" id="btnMntNvrSelectAll"><i data-lucide="check-square"></i> Todos</button>
             </div>
           </div>
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th><input type="checkbox" id="chkMntNvrAll"></th>
-                  <th>IP</th>
+                  <th style="width:36px"><input type="checkbox" id="chkMntNvrAll"></th>
+                  <th>IP / Host</th>
                   <th>Marca / Modelo</th>
+                  <th>Site</th>
                   <th>Status</th>
+                  <th>Resultado</th>
                 </tr>
               </thead>
               <tbody id="mntNvrTable">
-                <tr class="empty-row"><td colspan="4">Carregando…</td></tr>
+                <tr class="empty-row"><td colspan="6">Carregando…</td></tr>
               </tbody>
             </table>
           </div>
+        </div>
+        <div class="mnt-console hidden" id="mntNvrConsole">
+          <div class="mnt-console-header">
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <button onclick="document.getElementById('mntNvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
+          </div>
+          <div class="mnt-console-body" id="mntNvrConsoleBody"></div>
         </div>
       </section>
 

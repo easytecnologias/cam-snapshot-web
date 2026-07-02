@@ -2719,50 +2719,244 @@ async function loadSnapNvr() {
 }
 
 // ── Manutenção ──────────────────────────────────────────
+let _mntCamAll = [];
+const _mntCamFilter = { q: '', site: '', status: '' };
+
 async function loadMntCam() {
-  const data = await apiJson('/api/cameras');
-  const cams = data?.cameras || data || [];
-  const tbody = document.getElementById('mntCamTable');
-  if (!cams.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhuma câmera.</td></tr>';
+  const grid = document.getElementById('mntCamGrid');
+  if (!grid) return;
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando…</div>';
+  const data = await apiJson('/api/cameras?mode=olt');
+  _mntCamAll = data?.cameras || data || [];
+
+  const sites = [...new Set(_mntCamAll.map(c => c.local).filter(Boolean))].sort();
+  const sel = document.getElementById('mntCamSite');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Todos os sites</option>' + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    sel.value = cur;
+  }
+  _mntCamRender();
+}
+
+function _mntCamRender() {
+  const grid = document.getElementById('mntCamGrid');
+  if (!grid) return;
+  const checked = new Set([...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value));
+  const { q, site, status } = _mntCamFilter;
+
+  let filtered = _mntCamAll.filter(c => {
+    if (site && (c.local || '') !== site) return false;
+    if (status && (c.status || '').toLowerCase() !== status) return false;
+    if (q) {
+      const ql = q.toLowerCase();
+      if (![c.ip, c.titulo, c.local, c.modelo, c.model].some(f => (f || '').toLowerCase().includes(ql))) return false;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Nenhuma câmera encontrada.</div>';
+    _mntCamUpdateCount();
     return;
   }
-  tbody.innerHTML = cams.map((c, i) => `
-    <tr>
-      <td><input type="checkbox" class="chk-cam" value="${esc(c.ip)}"></td>
-      <td class="monospace">${esc(c.ip)}</td>
-      <td>${esc(c.brand || '—')} ${esc(c.model || '')}</td>
-      <td>${statusBadge(c.status)}</td>
-      <td class="text-muted">—</td>
-    </tr>`).join('');
+
+  grid.innerHTML = filtered.map(c => {
+    const ip  = c.ip || '';
+    const st  = (c.status || '').toLowerCase();
+    const dot = st === 'online' ? 'online' : st === 'offline' ? 'offline' : 'unknown';
+    const snap = c.snapshot_url || c.imgbb_url || '';
+    const sel = checked.has(ip);
+    return `
+      <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" onclick="_mntCamCardClick(this,event)">
+        <input type="checkbox" class="mnt-cam-card-chk chk-mnt-cam" value="${esc(ip)}" ${sel ? 'checked' : ''} onclick="event.stopPropagation();_mntCamToggle(this)">
+        <div class="mnt-cam-card-img">
+          ${snap ? `<img src="${esc(snap)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="mnt-cam-no-snap"><i data-lucide="camera-off" style="width:22px;height:22px"></i></div>`}
+          <span class="mnt-cam-dot ${dot}"></span>
+        </div>
+        <div class="mnt-cam-card-info">
+          <div class="mnt-cam-card-title">${esc(c.titulo || ip)}</div>
+          <div class="mnt-cam-card-sub">${esc(ip)} · ${esc(c.local || '—')}</div>
+          <div class="mnt-cam-card-sub">${esc(c.modelo || c.model || '—')}</div>
+        </div>
+        <div class="mnt-cam-card-result" id="mntRes_${ip.replace(/\./g,'_')}"></div>
+      </div>`;
+  }).join('');
+
+  lucide.createIcons();
+  _mntCamUpdateCount();
+}
+
+function _mntCamCardClick(card, event) {
+  if (event.target.classList.contains('chk-mnt-cam')) return;
+  const chk = card.querySelector('.chk-mnt-cam');
+  if (chk) { chk.checked = !chk.checked; _mntCamToggle(chk); }
+}
+
+function _mntCamToggle(chk) {
+  chk.closest('.mnt-cam-card')?.classList.toggle('selected', chk.checked);
+  _mntCamUpdateCount();
+}
+
+function _mntCamUpdateCount() {
+  const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
+  const el = document.getElementById('mntCamSelectedCount');
+  if (el) el.textContent = n === 0 ? '0 selecionadas' : `${n} selecionada${n !== 1 ? 's' : ''}`;
+}
+
+function _mntLog(consoleId, bodyId, ip, msg, ok) {
+  document.getElementById(consoleId)?.classList.remove('hidden');
+  const body = document.getElementById(bodyId);
+  if (body) {
+    const line = document.createElement('div');
+    line.innerHTML = `<span style="color:${ok ? '#6ee7b7' : '#fca5a5'}">${ok ? '✓' : '✗'}</span> <span style="color:#8ab">${esc(ip || '')}</span>${ip ? ' — ' : ''}${esc(msg)}`;
+    body.appendChild(line);
+    body.scrollTop = body.scrollHeight;
+  }
+  if (ip) {
+    const res = document.getElementById(`mntRes_${ip.replace(/\./g,'_')}`);
+    if (res) res.innerHTML = `<span style="color:${ok ? 'var(--primary)' : 'var(--danger)'}">${ok ? '✓' : '✗'} ${esc(msg)}</span>`;
+  }
+}
+
+async function _mntCamRunAction(endpoint, extra = {}) {
+  const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
+  const user = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
+  const pass = document.getElementById('mntCamPass')?.value || '';
+
+  const body = document.getElementById('mntCamConsoleBody');
+  if (body) body.innerHTML = '';
+  _mntLog('mntCamConsole', 'mntCamConsoleBody', '', `[${new Date().toLocaleTimeString('pt-BR')}] ${endpoint.toUpperCase()} em ${ips.length} câmera(s)…`, true);
+
+  try {
+    const res  = await api(`/api/maintenance/batch/${endpoint}`, { method:'POST', body: JSON.stringify({ ips, user, pass, ...extra }) });
+    const data = await res.json().catch(() => ({}));
+    (data.results || []).forEach(r => _mntLog('mntCamConsole', 'mntCamConsoleBody', r.ip || '', r.message || (r.ok ? 'OK' : r.error || 'Erro'), r.ok));
+    if (!(data.results || []).length) _mntLog('mntCamConsole', 'mntCamConsoleBody', '', data.message || 'Concluído', data.ok !== false);
+    showToast(data.message || `${endpoint}: concluído`);
+  } catch (err) {
+    _mntLog('mntCamConsole', 'mntCamConsoleBody', '', err.message, false);
+    showToast(err.message, true);
+  }
 }
 
 async function loadMntDvr() {
-  const data = await apiJson('/api/dvr/inventory');
-  const dvrs = data?.dvrs || data || [];
+  const data  = await apiJson('/api/dvr/inventory');
+  const dvrs  = data?.dvrs || data || [];
   const tbody = document.getElementById('mntDvrTable');
-  if (!dvrs.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum DVR.</td></tr>'; return; }
-  tbody.innerHTML = dvrs.map(d => `
-    <tr>
-      <td><input type="checkbox" class="chk-dvr" value="${esc(d.ip)}"></td>
-      <td class="monospace">${esc(d.ip)}</td>
-      <td>${esc(d.brand || '—')} ${esc(d.model || '')}</td>
+  const uniq  = new Map();
+  dvrs.forEach(d => { if (!uniq.has(d.host || d.ip)) uniq.set(d.host || d.ip, d); });
+  const rows = [...uniq.values()];
+  if (!rows.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Nenhum DVR.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(d => {
+    const ip = d.host || d.ip || '';
+    return `<tr>
+      <td><input type="checkbox" class="chk-mnt-dvr" value="${esc(ip)}"></td>
+      <td class="monospace">${esc(ip)}</td>
+      <td>${esc(d.brand || d.fabricante || '—')} ${esc(d.model || d.modelo || '')}</td>
+      <td>${esc(d.local || d.site || '—')}</td>
       <td>${statusBadge(d.status)}</td>
-    </tr>`).join('');
+      <td class="text-muted" id="mntDvrRes_${ip.replace(/\./g,'_')}">—</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('chkMntDvrAll').onchange = function() {
+    document.querySelectorAll('.chk-mnt-dvr').forEach(c => c.checked = this.checked);
+    _mntDvrUpdateCount();
+  };
+  document.querySelectorAll('.chk-mnt-dvr').forEach(c => c.addEventListener('change', _mntDvrUpdateCount));
+  _mntDvrUpdateCount();
+}
+
+function _mntDvrUpdateCount() {
+  const n = document.querySelectorAll('.chk-mnt-dvr:checked').length;
+  const el = document.getElementById('mntDvrSelectedCount');
+  if (el) el.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
+}
+
+async function _mntDvrRunAction(endpoint) {
+  const ips = [...document.querySelectorAll('.chk-mnt-dvr:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos um DVR', true); return; }
+  const user = document.getElementById('mntDvrUser')?.value?.trim() || 'admin';
+  const pass = document.getElementById('mntDvrPass')?.value || '';
+  const body = document.getElementById('mntDvrConsoleBody');
+  if (body) body.innerHTML = '';
+  _mntLog('mntDvrConsole', 'mntDvrConsoleBody', '', `[${new Date().toLocaleTimeString('pt-BR')}] ${endpoint.toUpperCase()} em ${ips.length} DVR(s)…`, true);
+  try {
+    const res  = await api(`/api/maintenance/batch/${endpoint}`, { method:'POST', body: JSON.stringify({ ips, user, pass }) });
+    const data = await res.json().catch(() => ({}));
+    (data.results || []).forEach(r => {
+      const ip = r.ip || r.host || '';
+      _mntLog('mntDvrConsole', 'mntDvrConsoleBody', ip, r.message || (r.ok ? 'OK' : r.error || 'Erro'), r.ok);
+      const el = document.getElementById(`mntDvrRes_${ip.replace(/\./g,'_')}`);
+      if (el) el.innerHTML = `<span style="color:${r.ok ? 'var(--primary)' : 'var(--danger)'}">${r.ok ? '✓' : '✗'} ${esc(r.message || (r.ok ? 'OK' : 'Erro'))}</span>`;
+    });
+    if (!(data.results || []).length) _mntLog('mntDvrConsole', 'mntDvrConsoleBody', '', data.message || 'Concluído', data.ok !== false);
+    showToast(data.message || `${endpoint}: concluído`);
+  } catch (err) {
+    _mntLog('mntDvrConsole', 'mntDvrConsoleBody', '', err.message, false);
+    showToast(err.message, true);
+  }
 }
 
 async function loadMntNvr() {
-  const data = await apiJson('/api/nvr/inventory');
-  const nvrs = data?.nvrs || data || [];
+  const data  = await apiJson('/api/nvr/inventory');
+  const nvrs  = data?.nvrs || data || [];
   const tbody = document.getElementById('mntNvrTable');
-  if (!nvrs.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum NVR.</td></tr>'; return; }
-  tbody.innerHTML = nvrs.map(n => `
-    <tr>
-      <td><input type="checkbox" class="chk-nvr" value="${esc(n.ip)}"></td>
-      <td class="monospace">${esc(n.ip)}</td>
-      <td>${esc(n.brand || '—')} ${esc(n.model || '')}</td>
+  const uniq  = new Map();
+  nvrs.forEach(n => { if (!uniq.has(n.host || n.ip)) uniq.set(n.host || n.ip, n); });
+  const rows = [...uniq.values()];
+  if (!rows.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Nenhum NVR.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(n => {
+    const ip = n.host || n.ip || '';
+    return `<tr>
+      <td><input type="checkbox" class="chk-mnt-nvr" value="${esc(ip)}"></td>
+      <td class="monospace">${esc(ip)}</td>
+      <td>${esc(n.brand || n.fabricante || '—')} ${esc(n.model || n.modelo || '')}</td>
+      <td>${esc(n.local || n.site || '—')}</td>
       <td>${statusBadge(n.status)}</td>
-    </tr>`).join('');
+      <td class="text-muted" id="mntNvrRes_${ip.replace(/\./g,'_')}">—</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('chkMntNvrAll').onchange = function() {
+    document.querySelectorAll('.chk-mnt-nvr').forEach(c => c.checked = this.checked);
+    _mntNvrUpdateCount();
+  };
+  document.querySelectorAll('.chk-mnt-nvr').forEach(c => c.addEventListener('change', _mntNvrUpdateCount));
+  _mntNvrUpdateCount();
+}
+
+function _mntNvrUpdateCount() {
+  const n = document.querySelectorAll('.chk-mnt-nvr:checked').length;
+  const el = document.getElementById('mntNvrSelectedCount');
+  if (el) el.textContent = `${n} selecionado${n !== 1 ? 's' : ''}`;
+}
+
+async function _mntNvrRunAction(endpoint) {
+  const ips = [...document.querySelectorAll('.chk-mnt-nvr:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos um NVR', true); return; }
+  const user = document.getElementById('mntNvrUser')?.value?.trim() || 'admin';
+  const pass = document.getElementById('mntNvrPass')?.value || '';
+  const body = document.getElementById('mntNvrConsoleBody');
+  if (body) body.innerHTML = '';
+  _mntLog('mntNvrConsole', 'mntNvrConsoleBody', '', `[${new Date().toLocaleTimeString('pt-BR')}] ${endpoint.toUpperCase()} em ${ips.length} NVR(s)…`, true);
+  try {
+    const res  = await api(`/api/maintenance/batch/${endpoint}`, { method:'POST', body: JSON.stringify({ ips, user, pass }) });
+    const data = await res.json().catch(() => ({}));
+    (data.results || []).forEach(r => {
+      const ip = r.ip || r.host || '';
+      _mntLog('mntNvrConsole', 'mntNvrConsoleBody', ip, r.message || (r.ok ? 'OK' : r.error || 'Erro'), r.ok);
+      const el = document.getElementById(`mntNvrRes_${ip.replace(/\./g,'_')}`);
+      if (el) el.innerHTML = `<span style="color:${r.ok ? 'var(--primary)' : 'var(--danger)'}">${r.ok ? '✓' : '✗'} ${esc(r.message || (r.ok ? 'OK' : 'Erro'))}</span>`;
+    });
+    if (!(data.results || []).length) _mntLog('mntNvrConsole', 'mntNvrConsoleBody', '', data.message || 'Concluído', data.ok !== false);
+    showToast(data.message || `${endpoint}: concluído`);
+  } catch (err) {
+    _mntLog('mntNvrConsole', 'mntNvrConsoleBody', '', err.message, false);
+    showToast(err.message, true);
+  }
 }
 
 // ── Reprodução DVR ───────────────────────────────────────────
@@ -4732,6 +4926,63 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Varredura OLT (via inventário)
   document.getElementById('btnScanOlt')?.addEventListener('click', openScanModal);
+
+  // ── Manutenção Câmeras ──
+  document.getElementById('btnMntCamRefresh')?.addEventListener('click', () => { _mntCamAll = []; loadMntCam(); });
+  document.getElementById('btnMntCamReboot')?.addEventListener('click', () => _mntCamRunAction('reboot'));
+  document.getElementById('btnMntCamNtp')?.addEventListener('click', () => {
+    const addr = prompt('Servidor NTP (deixe vazio para usar servidor padrão):', '');
+    if (addr === null) return;
+    _mntCamRunAction('ntp', addr ? { address: addr } : { address: 'time.cloudflare.com' });
+  });
+  document.getElementById('btnMntCamIp')?.addEventListener('click', () => {
+    const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+    if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
+    document.getElementById('modalTrocarIp')?.classList.remove('hidden');
+    lucide.createIcons();
+  });
+  document.getElementById('btnMntCamPass')?.addEventListener('click', () => {
+    const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+    if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
+    document.getElementById('modalTrocarSenha')?.classList.remove('hidden');
+    lucide.createIcons();
+  });
+  document.getElementById('btnMntCamSelectAll')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-cam').forEach(c => { c.checked = true; c.closest('.mnt-cam-card')?.classList.add('selected'); });
+    _mntCamUpdateCount();
+  });
+  document.getElementById('btnMntCamDeselect')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-cam').forEach(c => { c.checked = false; c.closest('.mnt-cam-card')?.classList.remove('selected'); });
+    _mntCamUpdateCount();
+  });
+  document.getElementById('mntCamSearch')?.addEventListener('input', e => { _mntCamFilter.q = e.target.value; _mntCamRender(); });
+  document.getElementById('mntCamSite')?.addEventListener('change', e => { _mntCamFilter.site = e.target.value; _mntCamRender(); });
+  document.querySelectorAll('[data-mnt-status]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-mnt-status]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _mntCamFilter.status = btn.dataset.mntStatus;
+      _mntCamRender();
+    });
+  });
+
+  // ── Manutenção DVR ──
+  document.getElementById('btnMntDvrRefresh')?.addEventListener('click', loadMntDvr);
+  document.getElementById('btnMntDvrReboot')?.addEventListener('click', () => _mntDvrRunAction('reboot'));
+  document.getElementById('btnMntDvrNtp')?.addEventListener('click', () => _mntDvrRunAction('ntp'));
+  document.getElementById('btnMntDvrSelectAll')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-dvr').forEach(c => c.checked = true);
+    _mntDvrUpdateCount();
+  });
+
+  // ── Manutenção NVR ──
+  document.getElementById('btnMntNvrRefresh')?.addEventListener('click', loadMntNvr);
+  document.getElementById('btnMntNvrReboot')?.addEventListener('click', () => _mntNvrRunAction('reboot'));
+  document.getElementById('btnMntNvrNtp')?.addEventListener('click', () => _mntNvrRunAction('ntp'));
+  document.getElementById('btnMntNvrSelectAll')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-mnt-nvr').forEach(c => c.checked = true);
+    _mntNvrUpdateCount();
+  });
 
   // Auto-login se tem token
   if (_token) {

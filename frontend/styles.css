@@ -342,6 +342,49 @@ a { color: inherit; text-decoration: none; }
 .drawer-filter-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .drawer-filter-sep { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
 
+/* ── MANUTENÇÃO ── */
+.mnt-action-bar { display:flex; align-items:center; gap:16px; padding:14px 20px; flex-wrap:wrap; margin-bottom:12px; }
+.mnt-credentials { display:flex; align-items:center; gap:8px; }
+.mnt-credentials label { font-size:12px; color:var(--muted); white-space:nowrap; }
+.mnt-credentials input { border:1px solid var(--border); border-radius:7px; padding:6px 10px; font-size:13px; width:120px; background:var(--surface); }
+.mnt-actions-group { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+.mnt-action-btn { display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 18px; border:1px solid var(--border); border-radius:10px; background:var(--surface); cursor:pointer; font-size:11px; font-weight:500; color:var(--text); transition:all .15s; min-width:76px; }
+.mnt-action-btn:hover { background:var(--primary-soft); border-color:var(--primary); color:var(--primary); }
+.mnt-action-btn svg { width:20px; height:20px; }
+.mnt-action-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+.mnt-filter-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+.mnt-search { border:1px solid var(--border); border-radius:8px; padding:7px 12px; font-size:13px; min-width:200px; background:var(--surface); }
+.mnt-filter-bar select { border:1px solid var(--border); border-radius:8px; padding:7px 10px; font-size:13px; background:var(--surface); }
+.mnt-status-btns { display:flex; gap:4px; }
+.mnt-status-btn { padding:5px 12px; border-radius:20px; border:1px solid var(--border); font-size:12px; background:var(--surface); cursor:pointer; white-space:nowrap; transition:all .12s; }
+.mnt-status-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+
+.mnt-cam-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:12px; margin-bottom:80px; }
+.mnt-cam-card { background:var(--surface); border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color .15s, box-shadow .15s; position:relative; }
+.mnt-cam-card:hover { border-color:var(--primary); box-shadow:0 4px 16px rgba(8,127,91,.1); }
+.mnt-cam-card.selected { border-color:var(--primary); }
+.mnt-cam-card.selected .mnt-cam-card-img::after { content:''; position:absolute; inset:0; background:rgba(8,127,91,.12); }
+.mnt-cam-card-chk { position:absolute; top:7px; left:7px; z-index:3; width:17px; height:17px; cursor:pointer; accent-color:var(--primary); }
+.mnt-cam-card-img { position:relative; aspect-ratio:16/9; background:#1a2a30; overflow:hidden; }
+.mnt-cam-card-img img { width:100%; height:100%; object-fit:cover; }
+.mnt-cam-no-snap { display:flex; align-items:center; justify-content:center; height:100%; color:#3a5a60; }
+.mnt-cam-dot { position:absolute; bottom:6px; right:6px; width:10px; height:10px; border-radius:50%; border:2px solid rgba(255,255,255,.8); }
+.mnt-cam-dot.online { background:var(--primary); }
+.mnt-cam-dot.offline { background:var(--danger); }
+.mnt-cam-dot.unknown { background:var(--muted); }
+.mnt-cam-card-info { padding:9px 11px 5px; }
+.mnt-cam-card-title { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mnt-cam-card-sub { font-size:11px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mnt-cam-card-result { padding:3px 11px 8px; font-size:11px; min-height:18px; }
+
+.mnt-console { position:fixed; bottom:0; left:220px; right:0; background:#13252d; color:#c8f0e0; z-index:99; border-top:2px solid var(--primary); max-height:240px; display:flex; flex-direction:column; }
+.mnt-console.hidden { display:none; }
+.mnt-console-header { display:flex; align-items:center; justify-content:space-between; padding:7px 14px; font-size:12px; font-weight:600; border-bottom:1px solid rgba(255,255,255,.1); flex-shrink:0; color:#e0f5ec; }
+.mnt-console-header button { background:none; border:none; color:inherit; cursor:pointer; opacity:.7; display:flex; align-items:center; }
+.mnt-console-header button:hover { opacity:1; }
+.mnt-console-body { overflow-y:auto; flex:1; padding:8px 14px; font-size:12px; font-family:'Courier New',monospace; line-height:1.7; }
+
 /* ── PANEL / TABLE ── */
 .panel {
   background: var(--surface);
