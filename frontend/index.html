@@ -760,9 +760,32 @@
             <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar câmeras selecionadas">
               <i data-lucide="power-circle"></i><span>Reboot</span>
             </button>
+            <button class="mnt-action-btn" id="btnMntCamSnapshot" title="Forçar captura de snapshot agora">
+              <i data-lucide="camera"></i><span>Snapshot</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamTest" title="Testar credenciais e ver firmware">
+              <i data-lucide="shield-check"></i><span>Testar</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamRename" title="Renomear câmeras selecionadas">
+              <i data-lucide="pencil"></i><span>Renomear</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamTimeCheck" title="Verificar hora das câmeras">
+              <i data-lucide="clock-alert"></i><span>Hora câmera</span>
+            </button>
+            <div class="mnt-bar-divider"></div>
             <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
               <i data-lucide="clock"></i><span>Acertar NTP</span>
             </button>
+            <button class="mnt-action-btn" id="btnMntCamDayNight" title="Modo dia/noite">
+              <i data-lucide="sun-moon"></i><span>Dia/Noite</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamMirror" title="Espelhar ou virar imagem">
+              <i data-lucide="flip-horizontal-2"></i><span>Espelhar</span>
+            </button>
+            <button class="mnt-action-btn" id="btnMntCamQuality" title="Qualidade de vídeo">
+              <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
+            </button>
+            <div class="mnt-bar-divider"></div>
             <button class="mnt-action-btn" id="btnMntCamIp" title="Trocar IP">
               <i data-lucide="network"></i><span>Trocar IP</span>
             </button>
@@ -2364,8 +2387,162 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- ═══ MODAL: STREAM / LINKS DA CÂMERA ═══ -->
+  <div class="modal-overlay hidden" id="modalMntStream" onclick="if(event.target===this)closeMntStream()">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Câmera</p><h2 id="mntStreamTitle">—</h2></div>
+        <button class="icon-button" id="mntStreamClose"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px">
+        <div style="background:#111;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;margin-bottom:16px;position:relative">
+          <img id="mntStreamImg" class="hidden" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0">
+          <div style="color:#445;font-size:12px;text-align:center"><i data-lucide="camera-off" style="width:32px;height:32px;opacity:.3;display:block;margin:0 auto 8px"></i>Aguardando snapshot…</div>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP – Stream principal (1080p)</p>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <input id="mntStreamRtspMain" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
+          <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspMain')"><i data-lucide="copy"></i></button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP – Sub-stream (baixa resolução)</p>
+        <div style="display:flex;gap:6px;margin-bottom:16px">
+          <input id="mntStreamRtspSub" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
+          <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspSub')"><i data-lucide="copy"></i></button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <a id="mntStreamOpenWeb" class="primary-action" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none">
+            <i data-lucide="external-link"></i> Abrir interface web
+          </a>
+        </div>
+        <p style="font-size:11px;color:var(--muted);margin-top:12px;text-align:center">Preview atualiza a cada 3s · Para stream ao vivo use VLC com a URL RTSP</p>
+        <p id="mntStreamIp" style="font-size:11px;color:var(--muted);text-align:center;font-family:monospace"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: ESPELHAR / VIRAR ═══ -->
+  <div class="modal-overlay hidden" id="modalMntMirror" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:380px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Espelhar / Virar imagem</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntMirror').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="mntMirrorCheck" style="width:16px;height:16px;accent-color:var(--primary)">
+          <div><strong>Espelhar horizontalmente</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem da esquerda para direita</p></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="mntFlipCheck" style="width:16px;height:16px;accent-color:var(--primary)">
+          <div><strong>Virar verticalmente (Flip)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem de cima para baixo (câmera de cabeça para baixo)</p></div>
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntMirror').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntMirror()"><i data-lucide="flip-horizontal-2"></i> Aplicar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: DIA / NOITE ═══ -->
+  <div class="modal-overlay hidden" id="modalMntDayNight" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:360px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Modo Dia / Noite</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntDayNight').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:10px">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:6px">Selecione o modo de operação para as câmeras selecionadas:</p>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="radio" name="mntDayNightMode" value="0" checked style="accent-color:var(--primary)">
+          <div><strong>🔄 Automático</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Câmera decide sozinha conforme luminosidade</p></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="radio" name="mntDayNightMode" value="1" style="accent-color:var(--primary)">
+          <div><strong>☀️ Colorido (forçado)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Mantém imagem colorida mesmo à noite (IR desligado)</p></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="radio" name="mntDayNightMode" value="2" style="accent-color:var(--primary)">
+          <div><strong>🌙 Preto e branco (forçado)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Mantém modo noturno P&B mesmo de dia</p></div>
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntDayNight').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntDayNight()"><i data-lucide="sun-moon"></i> Aplicar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: QUALIDADE DE VÍDEO ═══ -->
+  <div class="modal-overlay hidden" id="modalMntQuality" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Qualidade de vídeo</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntQuality').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
+        <p style="color:var(--muted);font-size:13px">Deixe em branco para não alterar. Aplica no stream principal.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Bitrate (kbps)</label>
+            <select id="mntQualityBitrate" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
+              <option value="">— não alterar —</option>
+              <option value="512">512 kbps (baixo)</option>
+              <option value="1024">1024 kbps</option>
+              <option value="2048" selected>2048 kbps (padrão)</option>
+              <option value="4096">4096 kbps (alto)</option>
+              <option value="6144">6144 kbps (muito alto)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">FPS</label>
+            <select id="mntQualityFps" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
+              <option value="">— não alterar —</option>
+              <option value="5">5 fps</option>
+              <option value="10">10 fps</option>
+              <option value="15">15 fps</option>
+              <option value="20" selected>20 fps (padrão)</option>
+              <option value="25">25 fps</option>
+              <option value="30">30 fps</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Codec</label>
+          <select id="mntQualityCodec" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
+            <option value="">— não alterar —</option>
+            <option value="H.265">H.265 (recomendado — menor tamanho)</option>
+            <option value="H.264">H.264 (compatibilidade)</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntQuality').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntQuality()"><i data-lucide="sliders-horizontal"></i> Aplicar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: RENOMEAR ═══ -->
+  <div class="modal-overlay hidden" id="modalMntRename" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:500px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Renomear câmeras</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntRename').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Edite o nome de cada câmera. O título é gravado no OSD da câmera e no inventário.</p>
+        <div id="mntRenameRows" style="max-height:320px;overflow-y:auto"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntRename').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntRename()"><i data-lucide="pencil"></i> Renomear tudo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=27"></script>
+  <script src="app.js?v=28"></script>
 </body>
 </html>

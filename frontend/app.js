@@ -2770,11 +2770,14 @@ function _mntCamRender() {
     const snap = c.snapshot_url || c.imgbb_url || '';
     const sel = checked.has(ip);
     return `
-      <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" onclick="_mntCamCardClick(this,event)">
+      <div class="mnt-cam-card${sel ? ' selected' : ''}" data-ip="${esc(ip)}" data-titulo="${esc(c.titulo||ip)}" onclick="_mntCamCardClick(this,event)">
         <input type="checkbox" class="mnt-cam-card-chk chk-mnt-cam" value="${esc(ip)}" ${sel ? 'checked' : ''} onclick="event.stopPropagation();_mntCamToggle(this)">
         <div class="mnt-cam-card-img">
           ${snap ? `<img src="${esc(snap)}" loading="lazy" onerror="this.style.display='none'">` : `<div class="mnt-cam-no-snap"><i data-lucide="camera-off" style="width:22px;height:22px"></i></div>`}
           <span class="mnt-cam-dot ${dot}"></span>
+          <button class="mnt-stream-btn" onclick="event.stopPropagation();openMntStream('${esc(ip)}','${esc(c.titulo||ip)}')" title="Ver stream / links">
+            <i data-lucide="play-circle" style="width:16px;height:16px"></i>
+          </button>
         </div>
         <div class="mnt-cam-card-info">
           <div class="mnt-cam-card-title">${esc(c.titulo || ip)}</div>
@@ -2804,6 +2807,141 @@ function _mntCamUpdateCount() {
   const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
   const el = document.getElementById('mntCamSelectedCount');
   if (el) el.textContent = n === 0 ? '0 selecionadas' : `${n} selecionada${n !== 1 ? 's' : ''}`;
+}
+
+// ── Stream modal ───────────────────────────────────────────────────────────
+let _mntStreamIp = '';
+let _mntStreamInterval = null;
+
+function openMntStream(ip, titulo) {
+  _mntStreamIp = ip;
+  const user = document.getElementById('mntCamUser')?.value || 'admin';
+  const pass = document.getElementById('mntCamPass')?.value || '';
+  const rtsp = `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
+  const rtspSub = `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=1`;
+
+  document.getElementById('mntStreamTitle').textContent = titulo || ip;
+  document.getElementById('mntStreamIp').textContent = ip;
+  document.getElementById('mntStreamRtspMain').value = rtsp;
+  document.getElementById('mntStreamRtspSub').value = rtspSub;
+  const webLink = document.getElementById('mntStreamOpenWeb');
+  if (webLink) webLink.href = `http://${ip}/`;
+
+  const img = document.getElementById('mntStreamImg');
+  img.src = '';
+  img.classList.add('hidden');
+  _refreshMntStreamSnap(ip);
+  if (_mntStreamInterval) clearInterval(_mntStreamInterval);
+  _mntStreamInterval = setInterval(() => { if (_mntStreamIp) _refreshMntStreamSnap(_mntStreamIp); }, 3000);
+
+  document.getElementById('modalMntStream').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeMntStream() {
+  if (_mntStreamInterval) { clearInterval(_mntStreamInterval); _mntStreamInterval = null; }
+  _mntStreamIp = '';
+  document.getElementById('modalMntStream').classList.add('hidden');
+}
+
+function _refreshMntStreamSnap(ip) {
+  const img = document.getElementById('mntStreamImg');
+  if (!img) return;
+  const safe = ip.replace(/\./g, '_');
+  const url = `${API_BASE}/api/snapshot/${safe}.jpg?t=${Date.now()}`;
+  const tmp = new Image();
+  tmp.onload = () => { img.src = tmp.src; img.classList.remove('hidden'); };
+  tmp.src = url;
+}
+
+function _mntStreamCopy(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard?.writeText(el.value).then(() => showToast('Copiado!')).catch(() => {});
+}
+
+// ── Modals de configuração ──────────────────────────────────────────────────
+function openMntMirrorModal() {
+  const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
+  if (!n) { showToast('Selecione ao menos uma câmera', true); return; }
+  document.getElementById('modalMntMirror').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function openMntDayNightModal() {
+  const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
+  if (!n) { showToast('Selecione ao menos uma câmera', true); return; }
+  document.getElementById('modalMntDayNight').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function openMntQualityModal() {
+  const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
+  if (!n) { showToast('Selecione ao menos uma câmera', true); return; }
+  document.getElementById('modalMntQuality').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function openMntRenameModal() {
+  const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
+  const grid = document.getElementById('mntRenameRows');
+  grid.innerHTML = ips.map(ip => {
+    const card = document.querySelector(`.mnt-cam-card[data-ip="${CSS.escape(ip)}"]`);
+    const titulo = card?.dataset.titulo || ip;
+    return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;color:var(--muted);min-width:100px;flex-shrink:0;font-family:monospace">${esc(ip)}</span>
+      <input type="text" data-rename-ip="${esc(ip)}" value="${esc(titulo)}" style="flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:13px">
+    </div>`;
+  }).join('');
+  document.getElementById('modalMntRename').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+async function runMntRename() {
+  const user = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
+  const pass = document.getElementById('mntCamPass')?.value || '';
+  const targets = [...document.querySelectorAll('[data-rename-ip]')].map(inp => ({
+    ip: inp.dataset.renameIp, title: inp.value.trim()
+  })).filter(t => t.title);
+  if (!targets.length) return;
+  document.getElementById('modalMntRename').classList.add('hidden');
+  const body = document.getElementById('mntCamConsoleBody');
+  if (body) body.innerHTML = '';
+  _mntLog('mntCamConsole', 'mntCamConsoleBody', '', `[${new Date().toLocaleTimeString('pt-BR')}] RENOMEAR ${targets.length} câmera(s)…`, true);
+  try {
+    const res  = await api('/api/maintenance/batch/rename', { method:'POST', body: JSON.stringify({ user, pass, targets }) });
+    const data = await res.json().catch(() => ({}));
+    (data.results || []).forEach(r => _mntLog('mntCamConsole', 'mntCamConsoleBody', r.ip || '', r.title ? `→ "${r.title}" ${r.ok ? '' : '— ' + (r.error||'erro')}` : (r.error||'erro'), r.ok));
+    showToast(data.message || 'Renomear: concluído');
+    _mntCamAll = [];
+    loadMntCam();
+  } catch (err) {
+    _mntLog('mntCamConsole', 'mntCamConsoleBody', '', err.message, false);
+    showToast(err.message, true);
+  }
+}
+
+async function runMntMirror() {
+  const mirror = document.getElementById('mntMirrorCheck')?.checked || false;
+  const flip   = document.getElementById('mntFlipCheck')?.checked || false;
+  document.getElementById('modalMntMirror').classList.add('hidden');
+  await _mntCamRunAction('mirror', { mirror, flip });
+}
+
+async function runMntDayNight() {
+  const selected = document.querySelector('input[name="mntDayNightMode"]:checked');
+  const mode = parseInt(selected?.value || '0');
+  document.getElementById('modalMntDayNight').classList.add('hidden');
+  await _mntCamRunAction('day_night', { mode });
+}
+
+async function runMntQuality() {
+  const bitrate = parseInt(document.getElementById('mntQualityBitrate')?.value || '0') || null;
+  const fps     = parseInt(document.getElementById('mntQualityFps')?.value || '0') || null;
+  const codec   = document.getElementById('mntQualityCodec')?.value || '';
+  document.getElementById('modalMntQuality').classList.add('hidden');
+  await _mntCamRunAction('video_quality', { bitrate, fps, codec: codec || undefined });
 }
 
 function _mntLog(consoleId, bodyId, ip, msg, ok) {
@@ -4932,10 +5070,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Manutenção Câmeras ──
   document.getElementById('btnMntCamRefresh')?.addEventListener('click', () => { _mntCamAll = []; loadMntCam(); });
   document.getElementById('btnMntCamReboot')?.addEventListener('click', () => _mntCamRunAction('reboot'));
+  document.getElementById('btnMntCamSnapshot')?.addEventListener('click', () => _mntCamRunAction('snapshot_force'));
+  document.getElementById('btnMntCamTest')?.addEventListener('click', () => _mntCamRunAction('test'));
+  document.getElementById('btnMntCamRename')?.addEventListener('click', openMntRenameModal);
+  document.getElementById('btnMntCamTimeCheck')?.addEventListener('click', () => _mntCamRunAction('time_check'));
+  document.getElementById('btnMntCamDayNight')?.addEventListener('click', openMntDayNightModal);
+  document.getElementById('btnMntCamMirror')?.addEventListener('click', openMntMirrorModal);
+  document.getElementById('btnMntCamQuality')?.addEventListener('click', openMntQualityModal);
   document.getElementById('btnMntCamNtp')?.addEventListener('click', () => {
-    const addr = prompt('Servidor NTP (deixe vazio para usar servidor padrão):', '');
+    const addr = prompt('Servidor NTP (vazio = time.cloudflare.com):', '');
     if (addr === null) return;
-    _mntCamRunAction('ntp', addr ? { address: addr } : { address: 'time.cloudflare.com' });
+    _mntCamRunAction('ntp', { address: addr || 'time.cloudflare.com' });
   });
   document.getElementById('btnMntCamIp')?.addEventListener('click', () => {
     const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
@@ -4949,6 +5094,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modalTrocarSenha')?.classList.remove('hidden');
     lucide.createIcons();
   });
+  document.getElementById('mntStreamClose')?.addEventListener('click', closeMntStream);
   document.getElementById('btnMntCamSelectAll')?.addEventListener('click', () => {
     document.querySelectorAll('.chk-mnt-cam').forEach(c => { c.checked = true; c.closest('.mnt-cam-card')?.classList.add('selected'); });
     _mntCamUpdateCount();

@@ -602,6 +602,237 @@ def maintenance_batch_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Reboot em lote: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
+# ── Helpers para novos endpoints ─────────────────────────────────────────────
+
+def _cam_get(ip: str, user: str, password: str, path: str, timeout: int = 6) -> tuple[bool, str]:
+    """GET com digest/basic fallback, http/https fallback. Retorna (ok, body)."""
+    for proto in ("http", "https"):
+        url = f"{proto}://{ip}{path}"
+        for auth in (HTTPDigestAuth(user, password), (user, password)):
+            try:
+                r = requests.get(url, auth=auth, timeout=timeout, verify=False)
+                if r.status_code == 200:
+                    return True, r.text
+                if r.status_code in (401, 403):
+                    return False, f"HTTP {r.status_code} — credenciais inválidas"
+            except Exception as e:
+                continue
+    return False, "Câmera inacessível"
+
+
+def _set_config_one(ip: str, user: str, password: str, params: list) -> Dict[str, Any]:
+    q = "&".join(params)
+    for proto in ("http", "https"):
+        url = f"{proto}://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}"
+        ok, err = _request_with_auth(url, user, password, timeout=8)
+        if ok:
+            return {"ok": True, "ip": ip}
+    return {"ok": False, "ip": ip, "error": "falha ao configurar"}
+
+
+def _get_firmware_one(ip: str, user: str, password: str) -> Dict[str, Any]:
+    ok, body = _cam_get(ip, user, password, "/cgi-bin/magicBox.cgi?action=getSoftwareVersion")
+    if not ok:
+        return {"ok": False, "ip": ip, "error": body}
+    firmware = next((l.split("=", 1)[1].strip() for l in body.splitlines() if l.startswith("version=")), "")
+    return {"ok": True, "ip": ip, "firmware": firmware, "message": f"Firmware: {firmware}"}
+
+
+def _get_cam_time_one(ip: str, user: str, password: str) -> Dict[str, Any]:
+    from datetime import datetime
+    ok, body = _cam_get(ip, user, password, "/cgi-bin/global.cgi?action=getCurrentTime")
+    if not ok:
+        return {"ok": False, "ip": ip, "error": body}
+    cam_time = next((l.split("=", 1)[1].strip() for l in body.splitlines() if l.startswith("result=")), "")
+    if not cam_time:
+        return {"ok": False, "ip": ip, "error": "Hora não obtida"}
+    try:
+        cam_dt = datetime.strptime(cam_time, "%Y-%m-%d %H:%M:%S")
+        diff = abs((datetime.now() - cam_dt).total_seconds())
+        if diff < 60:
+            status = f"sincronizada (±{int(diff)}s)"
+        elif diff < 3600:
+            status = f"DEFASADA {int(diff // 60)}min"
+        else:
+            status = f"DEFASADA {int(diff // 3600)}h{int((diff % 3600) // 60)}min"
+    except Exception:
+        status = "obtida"
+    return {"ok": True, "ip": ip, "cam_time": cam_time, "message": f"{cam_time} — {status}"}
+
+
+def _set_mirror_one(ip: str, user: str, password: str, mirror: bool, flip: bool) -> Dict[str, Any]:
+    r = _set_config_one(ip, user, password, [
+        f"VideoInOptions[0].Mirror={'true' if mirror else 'false'}",
+        f"VideoInOptions[0].Flip={'true' if flip else 'false'}",
+    ])
+    if r.get("ok"):
+        r["message"] = f"{'Espelhado' if mirror else 'Normal'} / {'Virado' if flip else 'Normal'}"
+    return r
+
+
+def _set_day_night_one(ip: str, user: str, password: str, mode: int) -> Dict[str, Any]:
+    labels = {0: "Automático", 1: "Colorido", 2: "Preto e branco"}
+    r = _set_config_one(ip, user, password, [f"VideoInOptions[0].DayNightColor={int(mode)}"])
+    if r.get("ok"):
+        r["message"] = labels.get(mode, f"Modo {mode}")
+    return r
+
+
+def _set_video_quality_one(ip: str, user: str, password: str,
+                            bitrate: int | None, fps: int | None, codec: str | None) -> Dict[str, Any]:
+    params = []
+    if bitrate is not None:
+        params += [f"Encode[0].MainFormat[0].Video.BitRate={int(bitrate)}",
+                   f"Encode[0].ExtraFormat[0].Video.BitRate={int(max(256, bitrate // 4))}"]
+    if fps is not None:
+        params += [f"Encode[0].MainFormat[0].Video.FPS={int(fps)}"]
+    if codec:
+        params += [f"Encode[0].MainFormat[0].Video.Compression={quote(codec)}"]
+    if not params:
+        return {"ok": False, "ip": ip, "error": "Nenhum parâmetro informado"}
+    r = _set_config_one(ip, user, password, params)
+    if r.get("ok"):
+        parts = []
+        if bitrate: parts.append(f"{bitrate} kbps")
+        if fps: parts.append(f"{fps} fps")
+        if codec: parts.append(codec)
+        r["message"] = " · ".join(parts)
+    return r
+
+
+def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]:
+    import shutil
+    from app.services.photo_store import attach_snapshot_fields, snapshot_storage_dir
+    from app.services.camsnapshot.device_info import get_snapshot
+    dst_dir = snapshot_storage_dir()
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        saved_path = get_snapshot(ip, user, password, str(dst_dir), timeout=(1.5, 8.0), retries=1)
+    except Exception as e:
+        return {"ok": False, "ip": ip, "error": str(e)}
+    safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")
+    out_name = f"{safe_ip}.jpg"
+    out_path = dst_dir / out_name
+    try:
+        legacy = Path(str(saved_path)) if saved_path else dst_dir / f"{ip}.jpg"
+        if legacy.exists() and legacy.resolve() != out_path.resolve():
+            if out_path.exists(): out_path.unlink()
+            shutil.move(str(legacy), str(out_path))
+    except Exception:
+        pass
+    if not out_path.exists():
+        return {"ok": False, "ip": ip, "error": "Não foi possível capturar snapshot"}
+    rows = load_inventory_json() or []
+    for cam in rows:
+        if isinstance(cam, dict) and str(cam.get("ip") or "").strip() == ip:
+            from app.services.photo_store import attach_snapshot_fields
+            attach_snapshot_fields(cam, ip, out_name)
+            break
+    save_inventory_json(rows)
+    return {"ok": True, "ip": ip, "message": "Snapshot capturado"}
+
+
+# ── Novos endpoints batch ─────────────────────────────────────────────────────
+
+@router.post("/maintenance/batch/test")
+def maintenance_batch_test(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_get_firmware_one(_as_str(ip), user, password) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Teste de acesso: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
+@router.post("/maintenance/batch/snapshot_force")
+def maintenance_batch_snapshot_force(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_force_snapshot_one_mnt(_as_str(ip), user, password) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Snapshot forçado: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
+@router.post("/maintenance/batch/time_check")
+def maintenance_batch_time_check(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_get_cam_time_one(_as_str(ip), user, password) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Hora verificada: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
+@router.post("/maintenance/batch/mirror")
+def maintenance_batch_mirror(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    mirror = bool(payload.get("mirror", False))
+    flip = bool(payload.get("flip", False))
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_set_mirror_one(_as_str(ip), user, password, mirror, flip) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Espelhar/Virar: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
+@router.post("/maintenance/batch/day_night")
+def maintenance_batch_day_night(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    mode = int(payload.get("mode", 0))
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_set_day_night_one(_as_str(ip), user, password, mode) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Modo dia/noite: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
+@router.post("/maintenance/batch/video_quality")
+def maintenance_batch_video_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
+    user = _as_str(payload.get("user"))
+    password = _as_str(payload.get("pass"))
+    ips = payload.get("ips") or []
+    bitrate = payload.get("bitrate")
+    fps = payload.get("fps")
+    codec = _as_str(payload.get("codec"))
+    if not user or not password:
+        return {"ok": False, "error": "user e pass sao obrigatorios"}
+    if not isinstance(ips, list) or not ips:
+        return {"ok": False, "error": "ips vazio"}
+    results = [_set_video_quality_one(_as_str(ip), user, password,
+               int(bitrate) if bitrate else None,
+               int(fps) if fps else None,
+               codec or None) for ip in ips]
+    ok_n = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"Qualidade de vídeo: {ok_n} ok, {fail_n} falhas.", "results": results}
+
+
 @router.post("/scripts/netwatch")
 def scripts_netwatch(payload: Dict[str, Any]) -> Dict[str, Any]:
     token = _as_str(payload.get("token"))
