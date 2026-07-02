@@ -166,48 +166,56 @@
           <div class="live-indicator"><span></span>Atualização ao vivo</div>
         </div>
 
+        <!-- KPIs -->
         <div class="metrics" id="dashMetrics">
           <article>
             <div class="metric-icon green"><i data-lucide="camera"></i></div>
-            <div><span>Câmeras online</span><strong id="mCamsOnline">—</strong></div>
+            <div><span>Câmeras IP</span><strong id="mCamsOnline">—</strong><small id="mCamsTotal"></small></div>
           </article>
           <article>
             <div class="metric-icon blue"><i data-lucide="hard-drive"></i></div>
-            <div><span>DVRs / NVRs</span><strong id="mDvrNvr">—</strong></div>
+            <div><span>Gravadores</span><strong id="mDvrNvr">—</strong><small id="mDvrNvrCanais"></small></div>
           </article>
           <article>
-            <div class="metric-icon cyan"><i data-lucide="radio"></i></div>
-            <div><span>OLTs ativas</span><strong id="mOlts">—</strong></div>
+            <div class="metric-icon purple"><i data-lucide="image"></i></div>
+            <div><span>Snapshots</span><strong id="mSnapshots">—</strong></div>
           </article>
           <article>
-            <div class="metric-icon amber"><i data-lucide="alert-triangle"></i></div>
-            <div><span>Sem acesso</span><strong id="mSemAcesso">—</strong></div>
+            <div class="metric-icon amber"><i data-lucide="map-pin"></i></div>
+            <div><span>Sites</span><strong id="mSites">—</strong></div>
           </article>
         </div>
 
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h2>Câmeras recentes</h2>
-              <p>Últimas câmeras identificadas no inventário</p>
+        <!-- Alertas -->
+        <div id="dashAlerts" style="display:none;margin-bottom:16px">
+          <div id="dashAlertsList" style="display:flex;flex-direction:column;gap:6px"></div>
+        </div>
+
+        <!-- Grid de status por tipo + Atividade recente -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+          <!-- Status por tipo -->
+          <div class="panel" style="margin:0">
+            <div class="panel-header"><div><h2>Status por tipo</h2><p>Online / Offline por categoria</p></div></div>
+            <div id="dashStatusGrid" style="display:flex;flex-direction:column;gap:0">
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
             </div>
           </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>IP</th>
-                  <th>Marca / Modelo</th>
-                  <th>Localização</th>
-                  <th>Status</th>
-                  <th>Último ping</th>
-                </tr>
-              </thead>
-              <tbody id="dashCamerasTable">
-                <tr class="empty-row"><td colspan="5">Carregando…</td></tr>
-              </tbody>
-            </table>
+
+          <!-- Atividade recente -->
+          <div class="panel" style="margin:0">
+            <div class="panel-header"><div><h2>Atividade recente</h2><p>Última atualização de cada inventário</p></div></div>
+            <div id="dashActivity" style="display:flex;flex-direction:column;gap:0">
+              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
+            </div>
           </div>
+
+        </div>
+
+        <!-- Sites -->
+        <div class="panel" id="dashSitesPanel" style="display:none">
+          <div class="panel-header"><div><h2>Sites monitorados</h2><p id="dashSitesCount"></p></div></div>
+          <div id="dashSitesList" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 8px"></div>
         </div>
       </section>
 

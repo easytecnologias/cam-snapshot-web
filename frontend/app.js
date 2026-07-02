@@ -242,26 +242,116 @@ async function loadDashboard() {
   const data = await apiJson('/api/dashboard/summary');
   if (!data) return;
 
-  setText('mCamsOnline', data.cameras_online ?? '—');
-  setText('mDvrNvr', (data.dvr_count ?? 0) + ' / ' + (data.nvr_count ?? 0));
-  setText('mOlts', data.olt_count ?? '—');
-  setText('mSemAcesso', data.cameras_offline ?? '—');
+  const inv = data.inventory || {};
+  const ip  = inv.ip  || {};
+  const dvr = inv.dvr || {};
+  const nvr = inv.nvr || {};
+  const win = inv.windows || {};
+  const tot = data.totals || {};
 
-  // Últimas câmeras
-  const cams = data.recent_cameras || [];
-  const tbody = document.getElementById('dashCamerasTable');
-  if (!cams.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhuma câmera no inventário.</td></tr>';
-    return;
+  // KPIs
+  const ipOnline = ip.online ?? '—';
+  const ipTotal  = ip.total  ?? '';
+  setText('mCamsOnline', ipOnline);
+  setText('mCamsTotal',  ipTotal ? `de ${ipTotal} total` : '');
+
+  const dvrRec = dvr.recorders ?? 0;
+  const nvrRec = nvr.recorders ?? 0;
+  setText('mDvrNvr',      `${dvrRec} DVR · ${nvrRec} NVR`);
+  const dvrCh  = dvr.total ?? 0;
+  const nvrCh  = nvr.total ?? 0;
+  setText('mDvrNvrCanais', (dvrCh || nvrCh) ? `${dvrCh + nvrCh} canais` : '');
+
+  setText('mSnapshots', tot.snapshots ?? '—');
+  setText('mSites',     tot.sites     ?? '—');
+
+  // Alertas
+  const alerts = data.alerts || [];
+  const alertsEl = document.getElementById('dashAlerts');
+  const alertsList = document.getElementById('dashAlertsList');
+  if (alerts.length) {
+    const colorMap = { danger: '#fa5252', warning: '#fd7e14', info: '#339af0' };
+    const iconMap  = { danger: 'alert-circle', warning: 'alert-triangle', info: 'info' };
+    alertsList.innerHTML = alerts.map(a => {
+      const color = colorMap[a.level] || '#888';
+      const icon  = iconMap[a.level]  || 'info';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--surface);border-left:3px solid ${color}">
+        <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};flex-shrink:0"></i>
+        <span style="flex:1;font-size:13px">${esc(a.label)}</span>
+        <span style="font-size:13px;font-weight:700;color:${color}">${a.count}</span>
+      </div>`;
+    }).join('');
+    alertsEl.style.display = '';
+    lucide.createIcons();
+  } else {
+    alertsEl.style.display = 'none';
   }
-  tbody.innerHTML = cams.map(c => `
-    <tr>
-      <td class="monospace">${esc(c.ip)}</td>
-      <td>${esc(c.brand || '—')} ${esc(c.model || '')}</td>
-      <td>${esc(c.location || '—')}</td>
-      <td>${statusBadge(c.status)}</td>
-      <td class="text-muted">${esc(c.last_ping || '—')}</td>
-    </tr>`).join('');
+
+  // Status por tipo
+  const statusGrid = document.getElementById('dashStatusGrid');
+  const statusTypes = [
+    { label: 'Câmeras IP',  icon: 'camera',     s: ip  },
+    { label: 'DVR canais',  icon: 'hard-drive',  s: dvr },
+    { label: 'NVR canais',  icon: 'hard-drive',  s: nvr },
+    { label: 'Windows',     icon: 'monitor',     s: win },
+  ];
+  statusGrid.innerHTML = statusTypes.map(t => {
+    const total   = t.s.total   ?? 0;
+    const online  = t.s.online  ?? 0;
+    const offline = t.s.offline ?? 0;
+    const pct     = total > 0 ? Math.round((online / total) * 100) : null;
+    const barColor = pct === null ? 'var(--muted)' : pct >= 80 ? 'var(--primary)' : pct >= 50 ? '#fd7e14' : '#fa5252';
+    return `<div class="dash-status-row">
+      <i data-lucide="${t.icon}" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
+      <span style="flex:1;font-size:13px">${t.label}</span>
+      <span style="font-size:12px;color:var(--primary);font-weight:600">${online} online</span>
+      <span style="font-size:12px;color:var(--muted);margin-left:4px">/ ${total}</span>
+      ${offline ? `<span style="font-size:11px;color:#fa5252;margin-left:6px">${offline} off</span>` : ''}
+      <div style="width:60px;height:4px;background:var(--border);border-radius:2px;margin-left:8px;overflow:hidden">
+        <div style="height:100%;width:${pct ?? 0}%;background:${barColor};transition:width .4s"></div>
+      </div>
+    </div>`;
+  }).join('');
+  lucide.createIcons();
+
+  // Atividade recente
+  const activity = data.recent_activity || [];
+  const actEl = document.getElementById('dashActivity');
+  if (activity.length) {
+    actEl.innerHTML = activity.map(a => {
+      let ago = '';
+      try {
+        const diff = Date.now() - new Date(a.updated_at).getTime();
+        const mins = Math.floor(diff / 60000);
+        const hrs  = Math.floor(mins / 60);
+        const days = Math.floor(hrs / 24);
+        ago = days  > 0 ? `${days}d atrás` :
+              hrs   > 0 ? `${hrs}h atrás`  :
+              mins  > 0 ? `${mins}min atrás` : 'agora';
+      } catch {}
+      return `<div class="dash-status-row">
+        <i data-lucide="file-text" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
+        <span style="flex:1;font-size:13px">${esc(a.label)}</span>
+        <span style="font-size:11px;color:var(--muted)">${ago}</span>
+      </div>`;
+    }).join('');
+  } else {
+    actEl.innerHTML = '<div class="dash-status-row"><span style="color:var(--muted);font-size:13px">Nenhuma atividade registrada.</span></div>';
+  }
+  lucide.createIcons();
+
+  // Sites
+  const sites = data.sites || [];
+  const sitesPanel = document.getElementById('dashSitesPanel');
+  if (sites.length) {
+    setText('dashSitesCount', `${sites.length} localidade${sites.length !== 1 ? 's' : ''} no inventário`);
+    document.getElementById('dashSitesList').innerHTML = sites.map(s =>
+      `<span style="padding:4px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);font-size:12px">${esc(s)}</span>`
+    ).join('');
+    sitesPanel.style.display = '';
+  } else {
+    sitesPanel.style.display = 'none';
+  }
   lucide.createIcons();
 }
 
