@@ -264,14 +264,14 @@ function closeDashDrawer() {
 function _drawerGoToInventory(view, searchValue) {
   closeDashDrawer();
   setTimeout(() => {
-    loadView(view);
+    navigateTo(view);
     if (searchValue) {
       setTimeout(() => {
         const inputMap = { 'inv-olt': 'searchInvOlt', 'inv-dvr': 'searchInvDvr', 'inv-nvr': 'searchInvNvr' };
         const applyMap = { 'inv-olt': applyInvOltFilters };
         const inp = document.getElementById(inputMap[view]);
         if (inp) { inp.value = searchValue; (applyMap[view] || (() => {}))(); }
-      }, 200);
+      }, 300);
     }
   }, 150);
 }
@@ -291,7 +291,7 @@ function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onS
       `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
     ).join('') + `</div>`;
   const siteHtml = sites.length > 1
-    ? `<div class="drawer-filter-row">` +
+    ? `<hr class="drawer-filter-sep"><div class="drawer-filter-row">` +
       [`<button class="drawer-filter-btn${!activeSite ? ' active' : ''}" data-site="">Todos os sites</button>`,
        ...sites.map(s => `<button class="drawer-filter-btn${s === activeSite ? ' active' : ''}" data-site="${esc(s)}">${esc(s)}</button>`)
       ].join('') + `</div>`
