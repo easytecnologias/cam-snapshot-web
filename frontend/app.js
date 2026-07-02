@@ -310,6 +310,7 @@ async function openDashDrawerIp(filterKey) {
   if (filterKey === 'offline') filtered = rows.filter(isOffline);
   if (filterKey === 'no_snap') filtered = rows.filter(noSnap);
 
+  filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => `
     <div class="drawer-item">
       ${_drawerStatusDot(r.status)}
@@ -346,6 +347,10 @@ async function openDashDrawerRecorder(source, filterKey) {
   if (filterKey === 'online')  filtered = rows.filter(isOnline);
   if (filterKey === 'offline') filtered = rows.filter(isOffline);
 
+  filtered.sort((a, b) => {
+    const hostCmp = (a.host||a.ip||'').localeCompare(b.host||b.ip||'', 'pt');
+    return hostCmp !== 0 ? hostCmp : (a.channel||0) - (b.channel||0);
+  });
   _drawerRenderRows(filtered.map(r => `
     <div class="drawer-item">
       ${_drawerStatusDot(r.status)}
@@ -380,6 +385,7 @@ async function openDashDrawerWindows(filterKey) {
   if (filterKey === 'online')  filtered = rows.filter(isOnline);
   if (filterKey === 'offline') filtered = rows.filter(isOffline);
 
+  filtered.sort((a, b) => (a.hostname || a.ip || '').localeCompare(b.hostname || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => `
     <div class="drawer-item">
       ${_drawerStatusDot(r.status)}
