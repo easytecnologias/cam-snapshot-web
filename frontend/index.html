@@ -2388,7 +2388,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- ═══ MODAL: STREAM / LINKS DA CÂMERA ═══ -->
-  <div class="modal-overlay hidden" id="modalMntStream" onclick="if(event.target===this)closeMntStream()">
+  <div class="modal-backdrop hidden" id="modalMntStream" onclick="if(event.target===this)closeMntStream()">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
         <div><p class="eyebrow">Câmera</p><h2 id="mntStreamTitle">—</h2></div>
@@ -2421,7 +2421,7 @@
   </div>
 
   <!-- ═══ MODAL: ESPELHAR / VIRAR ═══ -->
-  <div class="modal-overlay hidden" id="modalMntMirror" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-backdrop hidden" id="modalMntMirror" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
         <div><p class="eyebrow">Manutenção</p><h2>Espelhar / Virar imagem</h2></div>
@@ -2445,7 +2445,7 @@
   </div>
 
   <!-- ═══ MODAL: DIA / NOITE ═══ -->
-  <div class="modal-overlay hidden" id="modalMntDayNight" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-backdrop hidden" id="modalMntDayNight" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:360px">
       <div class="modal-header">
         <div><p class="eyebrow">Manutenção</p><h2>Modo Dia / Noite</h2></div>
@@ -2474,7 +2474,7 @@
   </div>
 
   <!-- ═══ MODAL: QUALIDADE DE VÍDEO ═══ -->
-  <div class="modal-overlay hidden" id="modalMntQuality" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-backdrop hidden" id="modalMntQuality" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
         <div><p class="eyebrow">Manutenção</p><h2>Qualidade de vídeo</h2></div>
@@ -2524,7 +2524,7 @@
   </div>
 
   <!-- ═══ MODAL: RENOMEAR ═══ -->
-  <div class="modal-overlay hidden" id="modalMntRename" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal-backdrop hidden" id="modalMntRename" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:500px">
       <div class="modal-header">
         <div><p class="eyebrow">Manutenção</p><h2>Renomear câmeras</h2></div>
@@ -2543,6 +2543,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=28"></script>
+  <script src="app.js?v=29"></script>
 </body>
 </html>
