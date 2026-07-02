@@ -2811,13 +2811,13 @@ function _mntCamUpdateCount() {
 
 // ── Stream modal ───────────────────────────────────────────────────────────
 let _mntStreamIp = '';
-let _mntStreamInterval = null;
+let _mntStreamInterval = null;  // usado só no fallback snapshot
 
 function openMntStream(ip, titulo) {
   _mntStreamIp = ip;
   const user = document.getElementById('mntCamUser')?.value || 'admin';
   const pass = document.getElementById('mntCamPass')?.value || '';
-  const rtsp = `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
+  const rtsp    = `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
   const rtspSub = `rtsp://${user}:${pass}@${ip}:554/cam/realmonitor?channel=1&subtype=1`;
 
   document.getElementById('mntStreamTitle').textContent = titulo || ip;
@@ -2827,12 +2827,24 @@ function openMntStream(ip, titulo) {
   const webLink = document.getElementById('mntStreamOpenWeb');
   if (webLink) webLink.href = `http://${ip}/`;
 
-  const img = document.getElementById('mntStreamImg');
+  // MJPEG nativo — browser exibe como stream contínuo via multipart/x-mixed-replace
+  const uEnc = encodeURIComponent(user);
+  const pEnc = encodeURIComponent(pass);
+  const img  = document.getElementById('mntStreamImg');
   img.src = '';
-  img.classList.add('hidden');
-  _refreshMntStreamSnap(ip);
-  if (_mntStreamInterval) clearInterval(_mntStreamInterval);
-  _mntStreamInterval = setInterval(() => { if (_mntStreamIp) _refreshMntStreamSnap(_mntStreamIp); }, 1000);
+  img.onload  = () => img.classList.remove('hidden');
+  img.onerror = () => {
+    // fallback: snapshot a cada 2s
+    img.classList.remove('hidden');
+    if (_mntStreamInterval) clearInterval(_mntStreamInterval);
+    _mntStreamInterval = setInterval(() => {
+      if (!_mntStreamIp) return;
+      const fb = new Image();
+      fb.onload = () => { img.src = fb.src; };
+      fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}&t=${Date.now()}`;
+    }, 2000);
+  };
+  img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}`;
 
   document.getElementById('modalMntStream').classList.remove('hidden');
   lucide.createIcons();
@@ -2841,19 +2853,9 @@ function openMntStream(ip, titulo) {
 function closeMntStream() {
   if (_mntStreamInterval) { clearInterval(_mntStreamInterval); _mntStreamInterval = null; }
   _mntStreamIp = '';
-  document.getElementById('modalMntStream').classList.add('hidden');
-}
-
-function _refreshMntStreamSnap(ip) {
   const img = document.getElementById('mntStreamImg');
-  if (!img) return;
-  const user = encodeURIComponent(document.getElementById('mntCamUser')?.value || 'admin');
-  const pass = encodeURIComponent(document.getElementById('mntCamPass')?.value || '');
-  const url  = `/api/maintenance/live/${ip}?user=${user}&password=${pass}&t=${Date.now()}`;
-  const tmp  = new Image();
-  tmp.onload  = () => { img.src = tmp.src; img.classList.remove('hidden'); };
-  tmp.onerror = () => {};
-  tmp.src = url;
+  if (img) { img.src = ''; img.classList.add('hidden'); }
+  document.getElementById('modalMntStream').classList.add('hidden');
 }
 
 function _mntStreamCopy(id) {

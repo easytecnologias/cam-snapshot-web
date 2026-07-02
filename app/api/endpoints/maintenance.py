@@ -732,30 +732,93 @@ def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]
     return {"ok": True, "ip": ip, "message": "Snapshot capturado"}
 
 
-# ── Snapshot ao vivo (direto da câmera, sem disco) ───────────────────────────
+# ── Stream ao vivo — MJPEG proxy (multipart/x-mixed-replace) ─────────────────
+
+@router.get("/maintenance/stream/{ip}")
+async def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
+    """Proxia o stream MJPEG da câmera como multipart/x-mixed-replace.
+    O browser exibe nativamente via <img src="...">, sem JS de polling."""
+    import asyncio
+    from fastapi import Request
+    from fastapi.responses import StreamingResponse
+
+    cam_urls = [
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=1",
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=0",
+    ]
+
+    async def generate():
+        for cam_url in cam_urls:
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "--no-buffer", "--digest",
+                "-u", f"{user}:{password}",
+                "--max-time", "300",
+                cam_url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            buf = b""
+            try:
+                while True:
+                    try:
+                        chunk = await asyncio.wait_for(proc.stdout.read(8192), timeout=10)
+                    except asyncio.TimeoutError:
+                        break
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while True:
+                        m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
+                        if not m:
+                            break
+                        flen = int(m.group(1))
+                        s = m.end()
+                        if len(buf) < s + flen:
+                            break
+                        frame = buf[s:s + flen]
+                        buf = buf[s + flen:]
+                        if frame[:2] == b'\xff\xd8':
+                            yield (
+                                b"--myboundary\r\nContent-Type: image/jpeg\r\n"
+                                b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n" +
+                                frame + b"\r\n"
+                            )
+                    if len(buf) > 2_000_000:
+                        buf = buf[-200_000:]
+                # Se chegou aqui sem nenhum frame na primeira URL, tenta a próxima
+                if buf and buf[:2] != b'\xff\xd8':
+                    continue
+            except Exception:
+                pass
+            finally:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except Exception:
+                    proc.kill()
+            break  # se saiu normalmente da primeira URL, não tenta outra
+
+    return StreamingResponse(
+        generate(),
+        media_type="multipart/x-mixed-replace; boundary=myboundary",
+        headers={"Cache-Control": "no-store, no-cache"},
+    )
+
 
 @router.get("/maintenance/live/{ip}")
 def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
-    """Busca snapshot direto da câmera e devolve como JPEG — para preview ao vivo."""
+    """Snapshot único direto da câmera — fallback quando MJPEG não disponível."""
     from fastapi.responses import Response
     import requests as _req
-    from requests.auth import HTTPDigestAuth, HTTPBasicAuth
+    from requests.auth import HTTPBasicAuth
 
-    urls = [
-        f"http://{ip}/cgi-bin/snapshot.cgi?channel=0",
-        f"http://{ip}/cgi-bin/snapshot.cgi",
-        f"http://{ip}/snapshot.jpg",
-    ]
-    for url in urls:
+    for url in [f"http://{ip}/cgi-bin/snapshot.cgi?channel=0", f"http://{ip}/cgi-bin/snapshot.cgi"]:
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
-                r = _req.get(url, auth=auth, timeout=5, stream=False)
+                r = _req.get(url, auth=auth, timeout=5)
                 if r.status_code == 200 and r.content[:2] == b'\xff\xd8':
-                    return Response(
-                        content=r.content,
-                        media_type="image/jpeg",
-                        headers={"Cache-Control": "no-store"},
-                    )
+                    return Response(content=r.content, media_type="image/jpeg",
+                                    headers={"Cache-Control": "no-store"})
             except Exception:
                 continue
     return Response(status_code=503)
