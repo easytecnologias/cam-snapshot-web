@@ -786,6 +786,9 @@
               <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
             </button>
             <div class="mnt-bar-divider"></div>
+            <button class="mnt-action-btn" id="btnMntCamNetwork" title="Alterar IP, máscara e gateway das câmeras selecionadas">
+              <i data-lucide="network"></i><span>Rede</span>
+            </button>
             <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
               <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
             </button>
@@ -2536,6 +2539,51 @@
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
           <button class="secondary-action" onclick="document.getElementById('modalMntRename').classList.add('hidden')">Cancelar</button>
           <button class="primary-action" onclick="runMntRename()"><i data-lucide="pencil"></i> Renomear tudo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ MODAL: CONFIGURAÇÃO DE REDE ═══ -->
+  <div class="modal-backdrop hidden" id="modalMntNetwork" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Configuração de rede</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntNetwork').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
+        <p style="color:var(--muted);font-size:13px">Altere máscara e gateway para todas as câmeras. Edite os IPs individualmente se precisar trocá-los também.</p>
+
+        <!-- Máscara + Gateway compartilhados -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Máscara de rede</label>
+            <select id="mntNetMask" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
+              <option value="">— não alterar —</option>
+              <option value="255.255.255.0" selected>/24 — 255.255.255.0 (256 hosts)</option>
+              <option value="255.255.254.0">/23 — 255.255.254.0 (512 hosts)</option>
+              <option value="255.255.252.0">/22 — 255.255.252.0 (1024 hosts)</option>
+              <option value="255.255.248.0">/21 — 255.255.248.0 (2048 hosts)</option>
+              <option value="255.255.0.0">/16 — 255.255.0.0</option>
+              <option value="255.255.255.128">/25 — 255.255.255.128 (128 hosts)</option>
+              <option value="255.255.255.192">/26 — 255.255.255.192 (64 hosts)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gateway</label>
+            <input id="mntNetGateway" type="text" placeholder="ex: 10.10.10.1" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
+          </div>
+        </div>
+
+        <!-- IPs individuais editáveis -->
+        <div>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">IPs das câmeras selecionadas <span style="opacity:.6">(edite para alterar)</span></p>
+          <div id="mntNetRows" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto"></div>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntNetwork').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntNetwork()"><i data-lucide="network"></i> Aplicar</button>
         </div>
       </div>
     </div>

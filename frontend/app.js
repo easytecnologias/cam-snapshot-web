@@ -2944,6 +2944,61 @@ async function runMntQuality() {
   await _mntCamRunAction('video_quality', { bitrate, fps, codec: codec || undefined });
 }
 
+// ── Configuração de rede em lote ────────────────────────────────────────────
+function openMntNetworkModal() {
+  const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
+  if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
+  const rows = document.getElementById('mntNetRows');
+  rows.innerHTML = ips.sort((a, b) => {
+    const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+    for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+    return 0;
+  }).map(ip => `
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:11px;color:var(--muted);min-width:110px;font-family:monospace;flex-shrink:0">${esc(ip)}</span>
+      <span style="color:var(--muted)">→</span>
+      <input type="text" data-net-old="${esc(ip)}" value="${esc(ip)}"
+        style="flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
+    </div>`).join('');
+  document.getElementById('modalMntNetwork').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+async function runMntNetwork() {
+  const mask    = document.getElementById('mntNetMask')?.value || '';
+  const gateway = document.getElementById('mntNetGateway')?.value?.trim() || '';
+  const user    = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
+  const pass    = document.getElementById('mntCamPass')?.value || '';
+  const targets = [...document.querySelectorAll('[data-net-old]')].map(inp => ({
+    old_ip: inp.dataset.netOld, new_ip: inp.value.trim()
+  })).filter(t => t.new_ip);
+
+  if (!targets.length) return;
+  if (!mask && !gateway && targets.every(t => t.old_ip === t.new_ip)) {
+    showToast('Nada a alterar — preencha máscara, gateway ou edite algum IP', true); return;
+  }
+  document.getElementById('modalMntNetwork').classList.add('hidden');
+  const consoleId = 'mntCamConsole', bodyId = 'mntCamConsoleBody';
+  document.getElementById(consoleId)?.classList.remove('hidden');
+  document.getElementById(bodyId).innerHTML = '';
+  _mntLog(consoleId, bodyId, null, `Aplicando configuração de rede em ${targets.length} câmera(s)…`, true);
+  try {
+    const r = await fetch('/api/maintenance/batch/network_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targets, mask, gateway, user, pass })
+    });
+    const data = await r.json();
+    (data.results || []).forEach(res => {
+      const detail = res.new_ip !== res.ip ? `→ ${res.new_ip}` : '';
+      _mntLog(consoleId, bodyId, res.ip, `${detail}  ${res.msg}`, res.ok);
+    });
+    _mntLog(consoleId, bodyId, null, 'Concluído. Câmeras reiniciam em ~30s.', true);
+  } catch (e) {
+    _mntLog(consoleId, bodyId, null, `Erro: ${e.message}`, false);
+  }
+}
+
 // ── Deslocar IPs em lote ────────────────────────────────────────────────────
 function openMntShiftIpModal() {
   const firstIp = document.querySelector('.chk-mnt-cam:checked')?.value || '';
@@ -5154,6 +5209,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (addr === null) return;
     _mntCamRunAction('ntp', { address: addr || 'time.cloudflare.com' });
   });
+  document.getElementById('btnMntCamNetwork')?.addEventListener('click', openMntNetworkModal);
   document.getElementById('btnMntCamShiftIp')?.addEventListener('click', openMntShiftIpModal);
   document.getElementById('btnMntCamPass')?.addEventListener('click', () => {
     const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);

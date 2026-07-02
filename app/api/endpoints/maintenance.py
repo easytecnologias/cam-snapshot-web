@@ -848,6 +848,31 @@ def _change_ip_one(ip: str, user: str, password: str,
     return {"ip": ip, "new_ip": new_ip, "ok": ok, "msg": txt.strip() if ok else txt}
 
 
+@router.post("/maintenance/batch/network_config")
+def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    targets  = payload.get("targets", [])   # [{old_ip, new_ip}]
+    mask     = _as_str(payload.get("mask", ""))
+    gateway  = _as_str(payload.get("gateway", ""))
+    user     = _as_str(payload.get("user", "admin"))
+    password = _as_str(payload.get("pass", ""))
+
+    if not targets:
+        return {"ok": False, "error": "Nenhuma câmera informada"}
+
+    results = []
+    for t in targets:
+        old_ip = _as_str(t.get("old_ip", ""))
+        new_ip = _as_str(t.get("new_ip", "")) or old_ip
+        use_mask    = mask or "255.255.255.0"
+        use_gateway = gateway
+        r = _change_ip_one(old_ip, user, password, new_ip, use_mask, use_gateway)
+        results.append(r)
+
+    ok_n   = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"{ok_n} câmeras configuradas, {fail_n} falhas.", "results": results}
+
+
 @router.post("/maintenance/batch/shift_ips")
 def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     prefix     = _as_str(payload.get("prefix", ""))
