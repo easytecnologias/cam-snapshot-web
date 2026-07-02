@@ -286,14 +286,15 @@ function _drawerStatusDot(status) {
 
 function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onStatusSelect, onSiteSelect) {
   const el = document.getElementById('dashDrawerFilters');
-  const statusHtml = statusFilters.map(f =>
-    `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
-  ).join('');
+  const statusHtml = `<div class="drawer-filter-row">` +
+    statusFilters.map(f =>
+      `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
+    ).join('') + `</div>`;
   const siteHtml = sites.length > 1
-    ? `<div style="width:100%;height:1px;background:var(--border);margin:4px 0"></div>` +
+    ? `<div class="drawer-filter-row">` +
       [`<button class="drawer-filter-btn${!activeSite ? ' active' : ''}" data-site="">Todos os sites</button>`,
        ...sites.map(s => `<button class="drawer-filter-btn${s === activeSite ? ' active' : ''}" data-site="${esc(s)}">${esc(s)}</button>`)
-      ].join('')
+      ].join('') + `</div>`
     : '';
   el.innerHTML = statusHtml + siteHtml;
   el.querySelectorAll('.drawer-filter-btn[data-filter]').forEach(btn => btn.addEventListener('click', () => onStatusSelect(btn.dataset.filter)));
