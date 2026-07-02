@@ -833,6 +833,55 @@ def maintenance_batch_video_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Qualidade de vídeo: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
+def _change_ip_one(ip: str, user: str, password: str,
+                   new_ip: str, mask: str = "255.255.255.0", gateway: str = "") -> Dict[str, Any]:
+    if not gateway:
+        parts = new_ip.rsplit(".", 1)
+        gateway = parts[0] + ".1"
+    path = (
+        f"/cgi-bin/configManager.cgi?action=setConfig"
+        f"&Network.eth0.IPAddress={new_ip}"
+        f"&Network.eth0.SubnetMask={mask}"
+        f"&Network.eth0.DefaultGateway={gateway}"
+    )
+    ok, txt = _cam_get(ip, user, password, path, timeout=8)
+    return {"ip": ip, "new_ip": new_ip, "ok": ok, "msg": txt.strip() if ok else txt}
+
+
+@router.post("/maintenance/batch/shift_ips")
+def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
+    prefix     = _as_str(payload.get("prefix", ""))
+    start      = int(payload.get("start_octet", 0))
+    end        = int(payload.get("end_octet", 0))
+    delta      = int(payload.get("delta", 1))
+    user       = _as_str(payload.get("user", "admin"))
+    password   = _as_str(payload.get("pass", ""))
+    mask       = _as_str(payload.get("mask", "255.255.255.0"))
+    gateway    = _as_str(payload.get("gateway", ""))
+
+    if not prefix or start < 1 or end > 254 or start > end or delta == 0:
+        return {"ok": False, "error": "Parâmetros inválidos"}
+
+    octets = list(range(start, end + 1))
+    # Shift up → highest first to avoid colisão; shift down → lowest first
+    octets = sorted(octets, reverse=(delta > 0))
+
+    results = []
+    for octet in octets:
+        old_ip  = f"{prefix}{octet}"
+        new_oct = octet + delta
+        new_ip  = f"{prefix}{new_oct}"
+        if new_oct < 1 or new_oct > 254:
+            results.append({"ip": old_ip, "new_ip": new_ip, "ok": False, "msg": "Octet fora do intervalo (1–254)"})
+            continue
+        r = _change_ip_one(old_ip, user, password, new_ip, mask, gateway)
+        results.append(r)
+
+    ok_n   = sum(1 for r in results if r.get("ok"))
+    fail_n = len(results) - ok_n
+    return {"ok": fail_n == 0, "message": f"{ok_n} IPs alterados, {fail_n} falhas.", "results": results}
+
+
 @router.post("/scripts/netwatch")
 def scripts_netwatch(payload: Dict[str, Any]) -> Dict[str, Any]:
     token = _as_str(payload.get("token"))

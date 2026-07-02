@@ -786,8 +786,8 @@
               <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
             </button>
             <div class="mnt-bar-divider"></div>
-            <button class="mnt-action-btn" id="btnMntCamIp" title="Trocar IP">
-              <i data-lucide="network"></i><span>Trocar IP</span>
+            <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
+              <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
             </button>
             <button class="mnt-action-btn" id="btnMntCamPass" title="Trocar senha">
               <i data-lucide="shield"></i><span>Senha</span>
@@ -2541,8 +2541,56 @@
     </div>
   </div>
 
+  <!-- ═══ MODAL: DESLOCAR IPs EM LOTE ═══ -->
+  <div class="modal-backdrop hidden" id="modalMntShiftIp" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutenção</p><h2>Deslocar intervalo de IPs</h2></div>
+        <button class="icon-button" onclick="document.getElementById('modalMntShiftIp').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
+        <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. Útil para abrir espaço ou reorganizar câmeras em sequência.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Prefixo de rede</label>
+            <input id="mntShiftPrefix" type="text" value="10.10.10." placeholder="10.10.10." style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)" oninput="_mntShiftPreview()">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gateway (vazio = prefixo + .1)</label>
+            <input id="mntShiftGateway" type="text" placeholder="auto" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Octet inicial</label>
+            <input id="mntShiftStart" type="number" min="1" max="254" placeholder="20" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)" oninput="_mntShiftPreview()">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Octet final</label>
+            <input id="mntShiftEnd" type="number" min="1" max="254" placeholder="25" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)" oninput="_mntShiftPreview()">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Delta (ex: +1 ou -2)</label>
+            <input id="mntShiftDelta" type="number" value="1" placeholder="+1" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)" oninput="_mntShiftPreview()">
+          </div>
+        </div>
+        <!-- Preview da operação -->
+        <div>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview da operação</p>
+          <div id="mntShiftPreviewBox" style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;font-family:monospace;max-height:200px;overflow-y:auto;color:var(--text)">
+            <em style="color:var(--muted)">Preencha os campos acima…</em>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="secondary-action" onclick="document.getElementById('modalMntShiftIp').classList.add('hidden')">Cancelar</button>
+          <button class="primary-action" onclick="runMntShiftIp()"><i data-lucide="arrow-right-left"></i> Deslocar IPs</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=29"></script>
+  <script src="app.js?v=30"></script>
 </body>
 </html>

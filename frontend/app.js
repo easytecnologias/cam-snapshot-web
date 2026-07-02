@@ -2944,6 +2944,78 @@ async function runMntQuality() {
   await _mntCamRunAction('video_quality', { bitrate, fps, codec: codec || undefined });
 }
 
+// ── Deslocar IPs em lote ────────────────────────────────────────────────────
+function openMntShiftIpModal() {
+  const firstIp = document.querySelector('.chk-mnt-cam:checked')?.value || '';
+  if (firstIp) {
+    const parts = firstIp.split('.');
+    if (parts.length === 4) {
+      document.getElementById('mntShiftPrefix').value = parts.slice(0, 3).join('.') + '.';
+    }
+  }
+  _mntShiftPreview();
+  document.getElementById('modalMntShiftIp').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function _mntShiftPreview() {
+  const prefix = document.getElementById('mntShiftPrefix')?.value || '';
+  const start  = parseInt(document.getElementById('mntShiftStart')?.value || '');
+  const end    = parseInt(document.getElementById('mntShiftEnd')?.value || '');
+  const delta  = parseInt(document.getElementById('mntShiftDelta')?.value || '0');
+  const box    = document.getElementById('mntShiftPreviewBox');
+  if (!box) return;
+  if (!prefix || isNaN(start) || isNaN(end) || isNaN(delta) || delta === 0 || start > end) {
+    box.innerHTML = '<em style="color:var(--muted)">Preencha os campos acima…</em>';
+    return;
+  }
+  let octets = [];
+  for (let i = start; i <= end; i++) octets.push(i);
+  if (delta > 0) octets = octets.slice().reverse();
+  const sign = delta > 0 ? '+' : '';
+  const lines = octets.map(o => {
+    const n = o + delta;
+    const ok = n >= 1 && n <= 254;
+    const color = ok ? 'var(--primary)' : 'var(--danger)';
+    const warn  = ok ? '' : ' ⚠ inválido';
+    return `<div style="display:flex;gap:12px;padding:2px 0"><span style="opacity:.6;min-width:120px">${prefix}${o}</span><span style="color:var(--muted)">→</span><span style="color:${color};font-weight:600">${prefix}${n}${warn}</span></div>`;
+  });
+  box.innerHTML = `<div style="margin-bottom:6px;opacity:.6;font-size:11px">Ordem de execução (delta ${sign}${delta}) · ${octets.length} câmera(s)</div>` + lines.join('');
+}
+
+async function runMntShiftIp() {
+  const prefix  = document.getElementById('mntShiftPrefix')?.value?.trim() || '';
+  const start   = parseInt(document.getElementById('mntShiftStart')?.value || '');
+  const end     = parseInt(document.getElementById('mntShiftEnd')?.value || '');
+  const delta   = parseInt(document.getElementById('mntShiftDelta')?.value || '0');
+  const user    = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
+  const pass    = document.getElementById('mntCamPass')?.value || '';
+  const gateway = document.getElementById('mntShiftGateway')?.value?.trim() || '';
+
+  if (!prefix || isNaN(start) || isNaN(end) || isNaN(delta) || delta === 0 || start > end) {
+    showToast('Preencha todos os campos corretamente', true); return;
+  }
+  document.getElementById('modalMntShiftIp').classList.add('hidden');
+  const consoleId = 'mntCamConsole', bodyId = 'mntCamConsoleBody';
+  document.getElementById(consoleId)?.classList.remove('hidden');
+  document.getElementById(bodyId).innerHTML = '';
+  _mntLog(consoleId, bodyId, null, `Deslocando ${prefix}${start}–${prefix}${end} por ${delta > 0 ? '+' : ''}${delta}…`, true);
+  try {
+    const r = await fetch('/api/maintenance/batch/shift_ips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefix, start_octet: start, end_octet: end, delta, user, pass, gateway })
+    });
+    const data = await r.json();
+    (data.results || []).forEach(res => {
+      _mntLog(consoleId, bodyId, res.ip, `→ ${res.new_ip}  ${res.msg}`, res.ok);
+    });
+    _mntLog(consoleId, bodyId, null, 'Concluído. Aguarde as câmeras reiniciarem (~30s).', true);
+  } catch (e) {
+    _mntLog(consoleId, bodyId, null, `Erro: ${e.message}`, false);
+  }
+}
+
 function _mntLog(consoleId, bodyId, ip, msg, ok) {
   document.getElementById(consoleId)?.classList.remove('hidden');
   const body = document.getElementById(bodyId);
@@ -5082,12 +5154,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (addr === null) return;
     _mntCamRunAction('ntp', { address: addr || 'time.cloudflare.com' });
   });
-  document.getElementById('btnMntCamIp')?.addEventListener('click', () => {
-    const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
-    if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
-    document.getElementById('modalTrocarIp')?.classList.remove('hidden');
-    lucide.createIcons();
-  });
+  document.getElementById('btnMntCamShiftIp')?.addEventListener('click', openMntShiftIpModal);
   document.getElementById('btnMntCamPass')?.addEventListener('click', () => {
     const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
     if (!ips.length) { showToast('Selecione ao menos uma câmera', true); return; }
