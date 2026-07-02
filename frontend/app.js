@@ -263,14 +263,16 @@ function closeDashDrawer() {
 
 function _drawerGoToInventory(view, searchValue) {
   closeDashDrawer();
+  if (view === 'inv-olt' && searchValue) {
+    _pendingOpenCamIp = searchValue;
+  }
   setTimeout(() => {
     navigateTo(view);
-    if (searchValue) {
+    if (searchValue && view !== 'inv-olt') {
       setTimeout(() => {
-        const inputMap = { 'inv-olt': 'searchInvOlt', 'inv-dvr': 'searchInvDvr', 'inv-nvr': 'searchInvNvr' };
-        const applyMap = { 'inv-olt': applyInvOltFilters };
+        const inputMap = { 'inv-dvr': 'searchInvDvr', 'inv-nvr': 'searchInvNvr' };
         const inp = document.getElementById(inputMap[view]);
-        if (inp) { inp.value = searchValue; (applyMap[view] || (() => {}))(); }
+        if (inp) inp.value = searchValue;
       }, 300);
     }
   }, 150);
@@ -607,6 +609,7 @@ const _invCam   = { basico: [], olt: [], switch: [] };
 let _invOltView   = 'basico';
 let _invOltActive = null;
 let _pingInterval = null;
+let _pendingOpenCamIp = null;
 
 function _invOltAll_get() { return _invCam[_invOltView] || []; }
 
@@ -1317,6 +1320,17 @@ function renderInvOlt(cameras) {
       if (cam) openCamPanel(cam);
     });
   });
+
+  if (_pendingOpenCamIp) {
+    const ip  = _pendingOpenCamIp;
+    _pendingOpenCamIp = null;
+    const cam = _invOltAll_get().find(c => c.ip === ip);
+    if (cam) {
+      const tr = tbody.querySelector(`[data-ip="${CSS.escape(ip)}"]`);
+      if (tr) tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      openCamPanel(cam);
+    }
+  }
 
   document.getElementById('chkOltAll').onchange = function() {
     document.querySelectorAll('.chk-olt').forEach(c => c.checked = this.checked);
