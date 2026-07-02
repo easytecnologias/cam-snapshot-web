@@ -239,7 +239,7 @@ function closeSidebar() {
 
 // ── Dashboard ───────────────────────────────────────────
 // ── Dashboard Drawer ─────────────────────────────────────────────
-let _dashDrawerData = null; // cache do último fetch do drawer
+let _dashDrawerData = null;
 
 function _openDashDrawer(eyebrow, title) {
   document.getElementById('dashDrawerEyebrow').textContent = eyebrow;
@@ -261,6 +261,21 @@ function closeDashDrawer() {
   setTimeout(() => { drawer.classList.add('hidden'); overlay.classList.add('hidden'); }, 270);
 }
 
+function _drawerGoToInventory(view, searchValue) {
+  closeDashDrawer();
+  setTimeout(() => {
+    loadView(view);
+    if (searchValue) {
+      setTimeout(() => {
+        const inputMap = { 'inv-olt': 'searchInvOlt', 'inv-dvr': 'searchInvDvr', 'inv-nvr': 'searchInvNvr' };
+        const applyMap = { 'inv-olt': applyInvOltFilters };
+        const inp = document.getElementById(inputMap[view]);
+        if (inp) { inp.value = searchValue; (applyMap[view] || (() => {}))(); }
+      }, 200);
+    }
+  }, 150);
+}
+
 function _drawerStatusDot(status) {
   const s = (status || '').toLowerCase();
   const online  = ['online','ok','up','ativo','active'].includes(s);
@@ -269,14 +284,20 @@ function _drawerStatusDot(status) {
   return `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
 }
 
-function _drawerFilterBar(filters, activeKey, onSelect) {
+function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onStatusSelect, onSiteSelect) {
   const el = document.getElementById('dashDrawerFilters');
-  el.innerHTML = filters.map(f =>
-    `<button class="drawer-filter-btn${f.key === activeKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
+  const statusHtml = statusFilters.map(f =>
+    `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
   ).join('');
-  el.querySelectorAll('.drawer-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => onSelect(btn.dataset.filter));
-  });
+  const siteHtml = sites.length > 1
+    ? `<div style="width:100%;height:1px;background:var(--border);margin:4px 0"></div>` +
+      [`<button class="drawer-filter-btn${!activeSite ? ' active' : ''}" data-site="">Todos os sites</button>`,
+       ...sites.map(s => `<button class="drawer-filter-btn${s === activeSite ? ' active' : ''}" data-site="${esc(s)}">${esc(s)}</button>`)
+      ].join('')
+    : '';
+  el.innerHTML = statusHtml + siteHtml;
+  el.querySelectorAll('.drawer-filter-btn[data-filter]').forEach(btn => btn.addEventListener('click', () => onStatusSelect(btn.dataset.filter)));
+  el.querySelectorAll('.drawer-filter-btn[data-site]').forEach(btn => btn.addEventListener('click', () => onSiteSelect(btn.dataset.site || null)));
 }
 
 function _drawerRenderRows(html) {
@@ -284,8 +305,9 @@ function _drawerRenderRows(html) {
   lucide.createIcons();
 }
 
-async function openDashDrawerIp(filterKey) {
-  filterKey = filterKey || 'all';
+async function openDashDrawerIp(filterKey, activeSite) {
+  filterKey  = filterKey  || 'all';
+  activeSite = activeSite || null;
   _openDashDrawer('Inventário', 'Câmeras IP');
   if (!_dashDrawerData?.ip) {
     const res = await apiJson('/api/cameras?mode=olt');
@@ -297,69 +319,84 @@ async function openDashDrawerIp(filterKey) {
   const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error'].includes((r.status||'').toLowerCase());
   const noSnap    = r => !r.snapshot_url && !r.imgbb_url;
 
+  const sites = [...new Set(rows.map(r => r.local || '').filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
   const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length, no_snap: rows.filter(noSnap).length };
-  _drawerFilterBar([
-    { key: 'all',     label: 'Todos',        count: counts.all     },
-    { key: 'online',  label: '● Online',     count: counts.online  },
-    { key: 'offline', label: '● Offline',    count: counts.offline },
-    { key: 'no_snap', label: 'Sem snapshot', count: counts.no_snap },
-  ], filterKey, k => openDashDrawerIp(k));
+
+  _drawerFilterBar(
+    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:'● Online', count:counts.online },
+     { key:'offline', label:'● Offline', count:counts.offline }, { key:'no_snap', label:'Sem snapshot', count:counts.no_snap }],
+    filterKey, sites, activeSite,
+    k => openDashDrawerIp(k, activeSite),
+    s => openDashDrawerIp(filterKey, s)
+  );
 
   let filtered = rows;
-  if (filterKey === 'online')  filtered = rows.filter(isOnline);
-  if (filterKey === 'offline') filtered = rows.filter(isOffline);
-  if (filterKey === 'no_snap') filtered = rows.filter(noSnap);
+  if (filterKey === 'online')  filtered = filtered.filter(isOnline);
+  if (filterKey === 'offline') filtered = filtered.filter(isOffline);
+  if (filterKey === 'no_snap') filtered = filtered.filter(noSnap);
+  if (activeSite) filtered = filtered.filter(r => (r.local||'') === activeSite);
 
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
-  _drawerRenderRows(filtered.map(r => `
-    <div class="drawer-item">
+  _drawerRenderRows(filtered.map(r => {
+    const ip = esc(r.ip || '');
+    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('inv-olt','${ip}')" title="Abrir no inventário">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(r.titulo || r.ip || '—')}</div>
         <div class="drawer-item-sub">${esc(r.ip)} · ${esc(r.local || '—')} · ${esc(r.modelo || r.model || '—')}</div>
       </div>
-      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : ''}
-    </div>`).join(''));
+      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
+      <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
+    </div>`;
+  }).join(''));
 }
 
-async function openDashDrawerRecorder(source, filterKey) {
-  filterKey = filterKey || 'all';
+async function openDashDrawerRecorder(source, filterKey, activeSite) {
+  filterKey  = filterKey  || 'all';
+  activeSite = activeSite || null;
   const label = source === 'dvr' ? 'DVR' : 'NVR';
+  const view  = source === 'dvr' ? 'inv-dvr' : 'inv-nvr';
   _openDashDrawer('Gravadores', `Canais ${label}`);
-  const cacheKey = source;
-  if (!_dashDrawerData?.[cacheKey]) {
+  if (!_dashDrawerData?.[source]) {
     const res = await apiJson(`/api/${source}/inventory`);
     if (!_dashDrawerData) _dashDrawerData = {};
-    _dashDrawerData[cacheKey] = res?.inventory || [];
+    _dashDrawerData[source] = res?.inventory || [];
   }
-  const rows = _dashDrawerData[cacheKey];
+  const rows = _dashDrawerData[source];
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
   const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss'].includes((r.status||'').toLowerCase());
 
+  const sites = [...new Set(rows.map(r => r.local || '').filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
   const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
-  _drawerFilterBar([
-    { key: 'all',     label: 'Todos',     count: counts.all     },
-    { key: 'online',  label: '● Online',  count: counts.online  },
-    { key: 'offline', label: '● Offline', count: counts.offline },
-  ], filterKey, k => openDashDrawerRecorder(source, k));
+
+  _drawerFilterBar(
+    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:'● Online', count:counts.online }, { key:'offline', label:'● Offline', count:counts.offline }],
+    filterKey, sites, activeSite,
+    k => openDashDrawerRecorder(source, k, activeSite),
+    s => openDashDrawerRecorder(source, filterKey, s)
+  );
 
   let filtered = rows;
-  if (filterKey === 'online')  filtered = rows.filter(isOnline);
-  if (filterKey === 'offline') filtered = rows.filter(isOffline);
+  if (filterKey === 'online')  filtered = filtered.filter(isOnline);
+  if (filterKey === 'offline') filtered = filtered.filter(isOffline);
+  if (activeSite) filtered = filtered.filter(r => (r.local||'') === activeSite);
 
   filtered.sort((a, b) => {
     const hostCmp = (a.host||a.ip||'').localeCompare(b.host||b.ip||'', 'pt');
     return hostCmp !== 0 ? hostCmp : (a.channel||0) - (b.channel||0);
   });
-  _drawerRenderRows(filtered.map(r => `
-    <div class="drawer-item">
+  _drawerRenderRows(filtered.map(r => {
+    const host = esc(r.host||r.ip||'');
+    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('${view}','${host}')" title="Abrir no inventário">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')} · ${esc(r.title || r.titulo || '—')}</div>
         <div class="drawer-item-sub">${esc(r.host||r.ip||'—')} · ${esc(r.local||'—')}</div>
       </div>
-      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : ''}
-    </div>`).join(''));
+      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
+      <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
+    </div>`;
+  }).join(''));
 }
 
 async function openDashDrawerWindows(filterKey) {
@@ -375,24 +412,25 @@ async function openDashDrawerWindows(filterKey) {
   const isOffline = r => ['offline','error','erro'].includes((r.status||'').toLowerCase());
 
   const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
-  _drawerFilterBar([
-    { key: 'all',     label: 'Todos',     count: counts.all     },
-    { key: 'online',  label: '● Online',  count: counts.online  },
-    { key: 'offline', label: '● Offline', count: counts.offline },
-  ], filterKey, k => openDashDrawerWindows(k));
+  _drawerFilterBar(
+    [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:'● Online', count:counts.online }, { key:'offline', label:'● Offline', count:counts.offline }],
+    filterKey, [], null,
+    k => openDashDrawerWindows(k), () => {}
+  );
 
   let filtered = rows;
-  if (filterKey === 'online')  filtered = rows.filter(isOnline);
-  if (filterKey === 'offline') filtered = rows.filter(isOffline);
+  if (filterKey === 'online')  filtered = filtered.filter(isOnline);
+  if (filterKey === 'offline') filtered = filtered.filter(isOffline);
 
   filtered.sort((a, b) => (a.hostname || a.ip || '').localeCompare(b.hostname || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => `
-    <div class="drawer-item">
+    <div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('inv-windows','')" title="Abrir no inventário">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(r.hostname || r.ip || '—')}</div>
         <div class="drawer-item-sub">${esc(r.ip||'—')} · ${esc(r.local||r.site||'—')} · SSD: ${r.has_ssd ? 'Sim' : 'Não'}</div>
       </div>
+      <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
     </div>`).join(''));
 }
 

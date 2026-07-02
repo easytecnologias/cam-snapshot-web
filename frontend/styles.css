@@ -333,7 +333,7 @@ a { color: inherit; text-decoration: none; }
 .drawer-item { display: flex; align-items: center; gap: 10px; padding: 11px 20px; border-bottom: 1px solid var(--border); transition: background .12s; }
 .drawer-item:last-child { border-bottom: none; }
 .drawer-item:hover { background: var(--hover); }
-.drawer-item-main { flex: 1; min-width: 0; }
+.drawer-item-main { flex: 1; min-width: 0; overflow: hidden; }
 .drawer-item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-item-sub { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-filter-btn { padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; background: var(--surface); cursor: pointer; transition: background .12s, border-color .12s; }
