@@ -217,6 +217,38 @@ def _set_ntp_one(ip: str, user: str, password: str, address: str, port: int, tim
     return {"ok": False, "ip": ip, "error": last_err or "falha ao configurar NTP"}
 
 
+def _set_datetime_one(ip: str, user: str, password: str, dt: str) -> Dict[str, Any]:
+    ip = _as_str(ip)
+    user = _as_str(user)
+    password = _as_str(password)
+    dt = _as_str(dt)
+    if not ip or not user or not password or not dt:
+        return {"ok": False, "ip": ip, "error": "ip/user/pass/datetime sao obrigatorios"}
+
+    dt_norm = dt.replace("T", " ").strip()
+    if len(dt_norm) == 16:
+        dt_norm += ":00"
+    q = "&".join(
+        [
+            "Time.SyncMode=0",
+            f"Time.LocalTime={quote(dt_norm)}",
+            f"Time.SystemTime={quote(dt_norm)}",
+        ]
+    )
+    urls = [
+        f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+        f"https://{ip}/cgi-bin/configManager.cgi?action=setConfig&{q}",
+    ]
+
+    last_err = ""
+    for url in urls:
+        ok, err = _request_with_auth(url, user, password, timeout=8)
+        if ok:
+            return {"ok": True, "ip": ip, "url": url}
+        last_err = err or "falha"
+    return {"ok": False, "ip": ip, "error": last_err or "falha ao configurar data/hora"}
+
+
 def _change_password_one(ip: str, user: str, old_pass: str, new_pass: str) -> Dict[str, Any]:
     ip = _as_str(ip)
     user = _as_str(user)
@@ -523,21 +555,29 @@ def maintenance_batch_ntp(payload: Dict[str, Any]) -> Dict[str, Any]:
     password = _as_str(payload.get("pass"))
     ips = payload.get("ips") or []
     address = _as_str(payload.get("address"))
+    if not address:
+        address = _as_str(payload.get("ntp_server"))
+    datetime_value = _as_str(payload.get("datetime"))
     port = int(payload.get("port") or 123)
     timezone = int(payload.get("timezone") or 22)
     update_period = int(payload.get("update_period") or 60)
 
     if not user or not password:
         return {"ok": False, "error": "user e pass sao obrigatorios"}
-    if not address:
-        return {"ok": False, "error": "address e obrigatorio"}
     if not isinstance(ips, list) or not ips:
         return {"ok": False, "error": "ips vazio"}
 
-    results = [_set_ntp_one(_as_str(ip), user, password, address, port, timezone, update_period) for ip in ips]
+    if datetime_value:
+        results = [_set_datetime_one(_as_str(ip), user, password, datetime_value) for ip in ips]
+        label = "Data/hora aplicada"
+    else:
+        if not address:
+            return {"ok": False, "error": "address e obrigatorio"}
+        results = [_set_ntp_one(_as_str(ip), user, password, address, port, timezone, update_period) for ip in ips]
+        label = "NTP aplicado"
     ok_n = sum(1 for r in results if r.get("ok"))
     fail_n = len(results) - ok_n
-    return {"ok": fail_n == 0, "message": f"NTP aplicado: {ok_n} ok, {fail_n} falhas.", "results": results}
+    return {"ok": fail_n == 0, "message": f"{label}: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
 @router.post("/maintenance/batch/reboot")

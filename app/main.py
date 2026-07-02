@@ -31,6 +31,7 @@ from app.api.endpoints import (
     dashboard_router,
     windows_router,
     backup_router,
+    playback_router,
 )
 
 ensure_dirs()
@@ -75,6 +76,7 @@ app.include_router(database_router)
 app.include_router(dashboard_router)
 app.include_router(windows_router)
 app.include_router(backup_router)
+app.include_router(playback_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
@@ -247,7 +249,7 @@ def data_snapshot_file(filename: str) -> Response:
     for p in candidates:
         try:
             if p.exists() and p.is_file():
-                return FileResponse(p)
+                return FileResponse(p, headers={"Cache-Control": "no-cache"})
         except Exception:
             continue
     return Response(status_code=404)
@@ -270,7 +272,7 @@ def data_dvr_snapshot_file(filename: str) -> Response:
     for p in candidates:
         try:
             if p.exists() and p.is_file():
-                return FileResponse(p)
+                return FileResponse(p, headers={"Cache-Control": "no-cache"})
         except Exception:
             continue
     return Response(status_code=404)
@@ -293,7 +295,7 @@ def data_nvr_snapshot_file(filename: str) -> Response:
     for p in candidates:
         try:
             if p.exists() and p.is_file():
-                return FileResponse(p)
+                return FileResponse(p, headers={"Cache-Control": "no-cache"})
         except Exception:
             continue
     return Response(status_code=404)

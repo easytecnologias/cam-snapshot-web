@@ -125,6 +125,14 @@ class DVRApplyLocalRequest(BaseModel):
     local: str = ""
 
 
+class RecorderSaveRequest(BaseModel):
+    recorders: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class RecorderDeleteRequest(BaseModel):
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class DVRChangeIpRequest(BaseModel):
     ip: str
     user: str = "admin"
@@ -561,6 +569,98 @@ def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
         rows = _read_rows()
         rows = decorate_legacy_rows("dvr", rows, site=site)
     return {"ok": True, "inventory": rows}
+
+
+@router.post("/save")
+def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
+    rows = _read_rows()
+    updates: Dict[tuple[str, int], Dict[str, Any]] = {}
+    for item in req.recorders or []:
+        host = str(item.get("host") or item.get("ip") or "").strip()
+        try:
+            channel = int(item.get("channel") or 0)
+        except Exception:
+            channel = 0
+        if host and channel > 0:
+            updates[(host, channel)] = item
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nenhum canal informado para salvar.")
+
+    editable_fields = {
+        "title", "local", "status", "mac", "modelo", "model", "equip_serial",
+        "pon", "onu_id", "onu_name", "onu_serial", "switch_ip", "switch_port",
+        "switch_vlan", "video_loss", "snapshot_url", "imgbb_url", "imgbb_thumb_url",
+    }
+    updated = 0
+    found: set[tuple[str, int]] = set()
+    for row in rows:
+        host = str(row.get("host") or row.get("ip") or "").strip()
+        try:
+            channel = int(row.get("channel") or 0)
+        except Exception:
+            channel = 0
+        key = (host, channel)
+        item = updates.get(key)
+        if not item:
+            continue
+        found.add(key)
+        before = dict(row)
+        for field in editable_fields:
+            if field in item:
+                row[field] = item.get(field)
+        if "camera_mac" in item and "mac" not in item:
+            row["mac"] = item.get("camera_mac")
+        if "camera_model" in item and "modelo" not in item:
+            row["modelo"] = item.get("camera_model")
+        if row != before:
+            updated += 1
+
+    inserted = 0
+    for key, item in updates.items():
+        if key in found:
+            continue
+        new_row = {field: item.get(field, "") for field in editable_fields if field in item}
+        new_row["host"] = key[0]
+        new_row["channel"] = key[1]
+        new_row.setdefault("title", str(item.get("title") or f"Canal {key[1]:02d}").strip())
+        new_row.setdefault("status", str(item.get("status") or "online").strip())
+        rows.append(new_row)
+        inserted += 1
+
+    _write_rows(rows)
+    return {"ok": True, "updated": updated, "inserted": inserted, "total": len(rows)}
+
+
+@router.post("/delete")
+def api_dvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
+    keys: set[tuple[str, int]] = set()
+    for item in req.items or []:
+        host = str(item.get("host") or item.get("ip") or "").strip()
+        try:
+            channel = int(item.get("channel") or 0)
+        except Exception:
+            channel = 0
+        if host and channel > 0:
+            keys.add((host, channel))
+    if not keys:
+        raise HTTPException(status_code=400, detail="Nenhum canal informado para apagar.")
+
+    rows = _read_rows()
+    kept = []
+    removed = 0
+    for row in rows:
+        host = str(row.get("host") or row.get("ip") or "").strip()
+        try:
+            channel = int(row.get("channel") or 0)
+        except Exception:
+            channel = 0
+        if (host, channel) in keys:
+            removed += 1
+            continue
+        kept.append(row)
+    _write_rows(kept)
+    return {"ok": True, "removed": removed, "total": len(kept)}
 
 
 @router.post("/clear")

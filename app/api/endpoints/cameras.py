@@ -5,6 +5,8 @@ import asyncio
 import time
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
+from pathlib import Path
+import shutil
 
 from fastapi import APIRouter, HTTPException
 from fastapi import Query
@@ -16,6 +18,7 @@ from app.core.paths import INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
 from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
+from app.services.camsnapshot.device_info import get_snapshot
 
 # Requests para dispositivos locais costumam usar HTTPS com certificado self-signed.
 # Evita poluir o console com InsecureRequestWarning em cada tentativa/fallback.
@@ -217,14 +220,35 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
         return row
 
     updated_count = 0
+    found_ips: set[str] = set()
     for idx, row in enumerate(rows):
         ip = (row.get("ip") or "").strip()
         if ip in updates:
+            found_ips.add(ip)
             before = dict(row)
             row = apply_update(row, updates[ip])
             if row != before:
                 updated_count += 1
             rows[idx] = row
+
+    for ip, cam in updates.items():
+        if ip in found_ips:
+            continue
+        new_row = {
+            "ip": ip,
+            "mac": cam.mac or "",
+            "fabricante": cam.fabricante or "",
+            "modelo": cam.model or "",
+            "titulo": cam.titulo or "",
+            "status": cam.status or "online",
+            "local": cam.local or "",
+            "pon": cam.pon or "",
+            "onu_id": cam.onu_id or "",
+            "onu_name": cam.onu_name or "",
+            "onu_serial": cam.onu_serial or "",
+        }
+        rows.append(new_row)
+        updated_count += 1
 
     save_inventory_json(rows, mode=mode)
     return {"ok": True, "path": str(INVENTORY_JSON_PATH), "updated": updated_count, "received": len(updates)}
@@ -317,8 +341,15 @@ class PortscanApplyRequest(BaseModel):
 
 
 class SnapshotSaveRequest(BaseModel):
-    path: str
+    path: str = ""
     ip: str | None = None
+
+
+class SnapshotCaptureRequest(BaseModel):
+    ip: str
+    user: str = "admin"
+    password: str = ""
+    timeout_sec: float = 5.0
 
 
 class PTZMoveRequest(BaseModel):
@@ -392,9 +423,6 @@ def api_portscan_apply(req: PortscanApplyRequest) -> Dict[str, Any]:
 
 @router.post("/snapshot/save", tags=["cameras"])
 def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
-    from pathlib import Path
-    import shutil
-
     src = resolve_snapshot_file(path_hint=req.path, ip=(req.ip or ""))
     if src is None:
         cand = Path(req.path)
@@ -439,6 +467,53 @@ def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
             pass
 
     return {"ok": True, "message": f"Snapshot salvo em {dst.name}", "filename": dst.name, "path": str(dst)}
+
+
+@router.post("/cameras/snapshot/capture", tags=["cameras"])
+def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
+    ip = str(req.ip or "").strip()
+    user = str(req.user or "admin").strip()
+    password = str(req.password or "")
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip obrigatorio")
+    if not user or not password:
+        raise HTTPException(status_code=400, detail="usuario e senha obrigatorios")
+
+    dst_dir = snapshot_storage_dir()
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    saved_path = get_snapshot(ip, user, password, str(dst_dir), timeout=(1.5, float(req.timeout_sec or 5.0)), retries=1)
+    safe_ip = ip.replace(":", "__").replace(".", "_").replace("/", "_")
+    out_name = f"{safe_ip}.jpg"
+    out_path = dst_dir / out_name
+
+    try:
+        legacy = Path(str(saved_path)) if saved_path else dst_dir / f"{ip}.jpg"
+        if legacy.exists() and legacy.is_file():
+            if legacy.resolve() != out_path.resolve():
+                if out_path.exists():
+                    out_path.unlink()
+                shutil.move(str(legacy), str(out_path))
+    except Exception:
+        pass
+
+    if not out_path.exists() or not out_path.is_file():
+        raise HTTPException(status_code=502, detail="Nao foi possivel capturar snapshot da camera.")
+
+    rows = load_inventory_json() or []
+    updated = False
+    for cam in rows:
+        if not isinstance(cam, dict):
+            continue
+        if str(cam.get("ip") or "").strip() == ip:
+            attach_snapshot_fields(cam, ip, out_name)
+            updated = True
+            break
+    if not updated:
+        cam = {"ip": ip, "titulo": "Captura manual"}
+        attach_snapshot_fields(cam, ip, out_name)
+        rows.append(cam)
+    save_inventory_json(rows)
+    return {"ok": True, "url": f"/data/snapshot/{out_name}", "filename": out_name}
 
 @router.get("/cameras/ptz_capability", tags=["cameras"])
 def api_cameras_ptz_capability(

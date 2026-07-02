@@ -18,3 +18,4 @@ from .system import router as system_router
 from .dashboard import router as dashboard_router
 from .windows import router as windows_router
 from .backup import router as backup_router
+from .playback import router as playback_router
