@@ -747,13 +747,15 @@
 
         <!-- Barra de credenciais + ações -->
         <div class="panel mnt-action-bar">
-          <div class="mnt-credentials">
-            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
-            <label>Usuário</label>
-            <input type="text" id="mntCamUser" value="admin" placeholder="admin">
-            <label>Senha</label>
-            <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha">
+          <div class="mnt-cred-group">
+            <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
+            <span class="mnt-cred-label">Usuário</span>
+            <input type="text" id="mntCamUser" value="admin" placeholder="admin" class="mnt-cred-input">
+            <span class="mnt-cred-sep"></span>
+            <span class="mnt-cred-label">Senha</span>
+            <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
           </div>
+          <div class="mnt-bar-divider"></div>
           <div class="mnt-actions-group">
             <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar câmeras selecionadas">
               <i data-lucide="power-circle"></i><span>Reboot</span>
@@ -815,13 +817,15 @@
         </div>
 
         <div class="panel mnt-action-bar">
-          <div class="mnt-credentials">
-            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
-            <label>Usuário</label>
-            <input type="text" id="mntDvrUser" value="admin" placeholder="admin">
-            <label>Senha</label>
-            <input type="password" id="mntDvrPass" value="intelbras" placeholder="Senha">
+          <div class="mnt-cred-group">
+            <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
+            <span class="mnt-cred-label">Usuário</span>
+            <input type="text" id="mntDvrUser" value="admin" placeholder="admin" class="mnt-cred-input">
+            <span class="mnt-cred-sep"></span>
+            <span class="mnt-cred-label">Senha</span>
+            <input type="password" id="mntDvrPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
           </div>
+          <div class="mnt-bar-divider"></div>
           <div class="mnt-actions-group">
             <button class="mnt-action-btn" id="btnMntDvrReboot"><i data-lucide="power-circle"></i><span>Reboot</span></button>
             <button class="mnt-action-btn" id="btnMntDvrNtp"><i data-lucide="clock"></i><span>Acertar NTP</span></button>
@@ -880,13 +884,15 @@
         </div>
 
         <div class="panel mnt-action-bar">
-          <div class="mnt-credentials">
-            <i data-lucide="key-round" style="width:15px;height:15px;color:var(--muted)"></i>
-            <label>Usuário</label>
-            <input type="text" id="mntNvrUser" value="admin" placeholder="admin">
-            <label>Senha</label>
-            <input type="password" id="mntNvrPass" value="intelbras" placeholder="Senha">
+          <div class="mnt-cred-group">
+            <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
+            <span class="mnt-cred-label">Usuário</span>
+            <input type="text" id="mntNvrUser" value="admin" placeholder="admin" class="mnt-cred-input">
+            <span class="mnt-cred-sep"></span>
+            <span class="mnt-cred-label">Senha</span>
+            <input type="password" id="mntNvrPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
           </div>
+          <div class="mnt-bar-divider"></div>
           <div class="mnt-actions-group">
             <button class="mnt-action-btn" id="btnMntNvrReboot"><i data-lucide="power-circle"></i><span>Reboot</span></button>
             <button class="mnt-action-btn" id="btnMntNvrNtp"><i data-lucide="clock"></i><span>Acertar NTP</span></button>

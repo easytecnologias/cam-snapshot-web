@@ -2755,6 +2755,8 @@ function _mntCamRender() {
     return true;
   });
 
+  filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
+
   if (!filtered.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Nenhuma câmera encontrada.</div>';
     _mntCamUpdateCount();

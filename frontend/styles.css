@@ -343,11 +343,13 @@ a { color: inherit; text-decoration: none; }
 .drawer-filter-sep { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
 
 /* ── MANUTENÇÃO ── */
-.mnt-action-bar { display:flex; align-items:center; gap:16px; padding:14px 20px; flex-wrap:wrap; margin-bottom:12px; }
-.mnt-credentials { display:flex; align-items:center; gap:8px; }
-.mnt-credentials label { font-size:12px; color:var(--muted); white-space:nowrap; }
-.mnt-credentials input { border:1px solid var(--border); border-radius:7px; padding:6px 10px; font-size:13px; width:120px; background:var(--surface); }
-.mnt-actions-group { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+.mnt-action-bar { display:flex; align-items:center; gap:0; padding:12px 20px; margin-bottom:12px; flex-wrap:wrap; }
+.mnt-cred-group { display:flex; align-items:center; gap:8px; }
+.mnt-cred-label { font-size:12px; color:var(--muted); white-space:nowrap; }
+.mnt-cred-input { border:1px solid var(--border); border-radius:7px; padding:6px 10px; font-size:13px; width:120px; background:var(--surface); }
+.mnt-cred-sep { width:1px; height:20px; background:var(--border); margin:0 4px; }
+.mnt-bar-divider { width:1px; height:36px; background:var(--border); margin:0 20px; flex-shrink:0; }
+.mnt-actions-group { display:flex; gap:8px; flex-wrap:wrap; }
 .mnt-action-btn { display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 18px; border:1px solid var(--border); border-radius:10px; background:var(--surface); cursor:pointer; font-size:11px; font-weight:500; color:var(--text); transition:all .15s; min-width:76px; }
 .mnt-action-btn:hover { background:var(--primary-soft); border-color:var(--primary); color:var(--primary); }
 .mnt-action-btn svg { width:20px; height:20px; }
