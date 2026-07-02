@@ -168,21 +168,25 @@
 
         <!-- KPIs -->
         <div class="metrics" id="dashMetrics">
-          <article>
+          <article class="dash-kpi-card" id="kpiCamerasIp" data-dash-type="ip" title="Ver câmeras IP">
             <div class="metric-icon green"><i data-lucide="camera"></i></div>
             <div><span>Câmeras IP</span><strong id="mCamsOnline">—</strong><small id="mCamsTotal"></small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
-          <article>
+          <article class="dash-kpi-card" id="kpiGravadores" data-dash-type="dvr" title="Ver gravadores">
             <div class="metric-icon blue"><i data-lucide="hard-drive"></i></div>
             <div><span>Gravadores</span><strong id="mDvrNvr">—</strong><small id="mDvrNvrCanais"></small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
-          <article>
+          <article class="dash-kpi-card" id="kpiSnapshots" data-dash-type="snapshots" title="Ver snapshots">
             <div class="metric-icon purple"><i data-lucide="image"></i></div>
             <div><span>Snapshots</span><strong id="mSnapshots">—</strong></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
-          <article>
+          <article class="dash-kpi-card" id="kpiSites" data-dash-type="sites" title="Ver sites">
             <div class="metric-icon amber"><i data-lucide="map-pin"></i></div>
             <div><span>Sites</span><strong id="mSites">—</strong></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
         </div>
 
@@ -2246,6 +2250,20 @@
 
   <!-- ═══ TOAST ═══ -->
   <div id="toast" class="toast"><i data-lucide="circle-check"></i><span id="toastMsg">Ok</span></div>
+
+  <!-- ═══ DASHBOARD DRAWER ═══ -->
+  <div id="dashDrawerOverlay" class="dash-drawer-overlay hidden"></div>
+  <div id="dashDrawer" class="dash-drawer hidden">
+    <div class="dash-drawer-header">
+      <div>
+        <p class="eyebrow" id="dashDrawerEyebrow" style="margin:0 0 2px"></p>
+        <h3 id="dashDrawerTitle" style="margin:0;font-size:16px;font-weight:600"></h3>
+      </div>
+      <button id="dashDrawerClose" class="icon-button"><i data-lucide="x"></i></button>
+    </div>
+    <div id="dashDrawerFilters" style="display:flex;gap:6px;padding:10px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap"></div>
+    <div id="dashDrawerBody" style="overflow-y:auto;flex:1;padding:0"></div>
+  </div>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

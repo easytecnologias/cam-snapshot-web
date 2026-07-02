@@ -238,7 +238,161 @@ function closeSidebar() {
 }
 
 // ── Dashboard ───────────────────────────────────────────
+// ── Dashboard Drawer ─────────────────────────────────────────────
+let _dashDrawerData = null; // cache do último fetch do drawer
+
+function _openDashDrawer(eyebrow, title) {
+  document.getElementById('dashDrawerEyebrow').textContent = eyebrow;
+  document.getElementById('dashDrawerTitle').textContent = title;
+  document.getElementById('dashDrawerBody').innerHTML = '<div style="padding:32px 20px;text-align:center;color:var(--muted);font-size:13px">Carregando…</div>';
+  document.getElementById('dashDrawerFilters').innerHTML = '';
+  const drawer  = document.getElementById('dashDrawer');
+  const overlay = document.getElementById('dashDrawerOverlay');
+  drawer.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+  requestAnimationFrame(() => requestAnimationFrame(() => drawer.classList.add('open')));
+  lucide.createIcons();
+}
+
+function closeDashDrawer() {
+  const drawer  = document.getElementById('dashDrawer');
+  const overlay = document.getElementById('dashDrawerOverlay');
+  drawer.classList.remove('open');
+  setTimeout(() => { drawer.classList.add('hidden'); overlay.classList.add('hidden'); }, 270);
+}
+
+function _drawerStatusDot(status) {
+  const s = (status || '').toLowerCase();
+  const online  = ['online','ok','up','ativo','active'].includes(s);
+  const offline = ['offline','down','inativo','inactive','auth_failed','timeout','erro','error'].includes(s);
+  const color = online ? 'var(--primary)' : offline ? 'var(--danger)' : 'var(--muted)';
+  return `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
+}
+
+function _drawerFilterBar(filters, activeKey, onSelect) {
+  const el = document.getElementById('dashDrawerFilters');
+  el.innerHTML = filters.map(f =>
+    `<button class="drawer-filter-btn${f.key === activeKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
+  ).join('');
+  el.querySelectorAll('.drawer-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => onSelect(btn.dataset.filter));
+  });
+}
+
+function _drawerRenderRows(html) {
+  document.getElementById('dashDrawerBody').innerHTML = html || '<div style="padding:32px 20px;text-align:center;color:var(--muted);font-size:13px">Nenhum item encontrado.</div>';
+  lucide.createIcons();
+}
+
+async function openDashDrawerIp(filterKey) {
+  filterKey = filterKey || 'all';
+  _openDashDrawer('Inventário', 'Câmeras IP');
+  if (!_dashDrawerData?.ip) {
+    const res = await apiJson('/api/cameras?mode=olt');
+    if (!_dashDrawerData) _dashDrawerData = {};
+    _dashDrawerData.ip = res?.cameras || [];
+  }
+  const rows = _dashDrawerData.ip;
+  const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
+  const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error'].includes((r.status||'').toLowerCase());
+  const noSnap    = r => !r.snapshot_url && !r.imgbb_url;
+
+  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length, no_snap: rows.filter(noSnap).length };
+  _drawerFilterBar([
+    { key: 'all',     label: 'Todos',        count: counts.all     },
+    { key: 'online',  label: '● Online',     count: counts.online  },
+    { key: 'offline', label: '● Offline',    count: counts.offline },
+    { key: 'no_snap', label: 'Sem snapshot', count: counts.no_snap },
+  ], filterKey, k => openDashDrawerIp(k));
+
+  let filtered = rows;
+  if (filterKey === 'online')  filtered = rows.filter(isOnline);
+  if (filterKey === 'offline') filtered = rows.filter(isOffline);
+  if (filterKey === 'no_snap') filtered = rows.filter(noSnap);
+
+  _drawerRenderRows(filtered.map(r => `
+    <div class="drawer-item">
+      ${_drawerStatusDot(r.status)}
+      <div class="drawer-item-main">
+        <div class="drawer-item-title">${esc(r.titulo || r.ip || '—')}</div>
+        <div class="drawer-item-sub">${esc(r.ip)} · ${esc(r.local || '—')} · ${esc(r.modelo || r.model || '—')}</div>
+      </div>
+      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : ''}
+    </div>`).join(''));
+}
+
+async function openDashDrawerRecorder(source, filterKey) {
+  filterKey = filterKey || 'all';
+  const label = source === 'dvr' ? 'DVR' : 'NVR';
+  _openDashDrawer('Gravadores', `Canais ${label}`);
+  const cacheKey = source;
+  if (!_dashDrawerData?.[cacheKey]) {
+    const res = await apiJson(`/api/${source}/inventory`);
+    if (!_dashDrawerData) _dashDrawerData = {};
+    _dashDrawerData[cacheKey] = res?.inventory || [];
+  }
+  const rows = _dashDrawerData[cacheKey];
+  const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
+  const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss'].includes((r.status||'').toLowerCase());
+
+  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
+  _drawerFilterBar([
+    { key: 'all',     label: 'Todos',     count: counts.all     },
+    { key: 'online',  label: '● Online',  count: counts.online  },
+    { key: 'offline', label: '● Offline', count: counts.offline },
+  ], filterKey, k => openDashDrawerRecorder(source, k));
+
+  let filtered = rows;
+  if (filterKey === 'online')  filtered = rows.filter(isOnline);
+  if (filterKey === 'offline') filtered = rows.filter(isOffline);
+
+  _drawerRenderRows(filtered.map(r => `
+    <div class="drawer-item">
+      ${_drawerStatusDot(r.status)}
+      <div class="drawer-item-main">
+        <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')} · ${esc(r.title || r.titulo || '—')}</div>
+        <div class="drawer-item-sub">${esc(r.host||r.ip||'—')} · ${esc(r.local||'—')}</div>
+      </div>
+      ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : ''}
+    </div>`).join(''));
+}
+
+async function openDashDrawerWindows(filterKey) {
+  filterKey = filterKey || 'all';
+  _openDashDrawer('Inventário', 'Windows');
+  if (!_dashDrawerData?.windows) {
+    const res = await apiJson('/api/windows/inventory');
+    if (!_dashDrawerData) _dashDrawerData = {};
+    _dashDrawerData.windows = res?.inventory || [];
+  }
+  const rows = _dashDrawerData.windows;
+  const isOnline  = r => (r.status||'').toLowerCase() === 'online';
+  const isOffline = r => ['offline','error','erro'].includes((r.status||'').toLowerCase());
+
+  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
+  _drawerFilterBar([
+    { key: 'all',     label: 'Todos',     count: counts.all     },
+    { key: 'online',  label: '● Online',  count: counts.online  },
+    { key: 'offline', label: '● Offline', count: counts.offline },
+  ], filterKey, k => openDashDrawerWindows(k));
+
+  let filtered = rows;
+  if (filterKey === 'online')  filtered = rows.filter(isOnline);
+  if (filterKey === 'offline') filtered = rows.filter(isOffline);
+
+  _drawerRenderRows(filtered.map(r => `
+    <div class="drawer-item">
+      ${_drawerStatusDot(r.status)}
+      <div class="drawer-item-main">
+        <div class="drawer-item-title">${esc(r.hostname || r.ip || '—')}</div>
+        <div class="drawer-item-sub">${esc(r.ip||'—')} · ${esc(r.local||r.site||'—')} · SSD: ${r.has_ssd ? 'Sim' : 'Não'}</div>
+      </div>
+    </div>`).join(''));
+}
+
+// ─────────────────────────────────────────────────────────────────
 async function loadDashboard() {
+  _dashDrawerData = null; // limpa cache ao recarregar
   const data = await apiJson('/api/dashboard/summary');
   if (!data) return;
 
@@ -265,20 +419,31 @@ async function loadDashboard() {
   setText('mSnapshots', tot.snapshots ?? '—');
   setText('mSites',     tot.sites     ?? '—');
 
-  // Alertas
+  // Alertas — clicáveis
   const alerts = data.alerts || [];
   const alertsEl = document.getElementById('dashAlerts');
   const alertsList = document.getElementById('dashAlertsList');
+  const alertActionMap = {
+    'Cameras IP sem snapshot':         'no_snapshot',
+    'Itens offline ou com erro':       'ip_offline',
+    'Itens sem local':                  null,
+    'Possiveis duplicidades IP/MAC':    null,
+    'Computadores Windows sem SSD detectado': 'win_offline',
+  };
   if (alerts.length) {
     const colorMap = { danger: '#fa5252', warning: '#fd7e14', info: '#339af0' };
     const iconMap  = { danger: 'alert-circle', warning: 'alert-triangle', info: 'info' };
     alertsList.innerHTML = alerts.map(a => {
-      const color = colorMap[a.level] || '#888';
-      const icon  = iconMap[a.level]  || 'info';
-      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--surface);border-left:3px solid ${color}">
+      const color      = colorMap[a.level] || '#888';
+      const icon       = iconMap[a.level]  || 'info';
+      const actionKey  = alertActionMap[a.label];
+      const clickable  = actionKey ? `data-dash-alert="${actionKey}" style="cursor:pointer"` : '';
+      const hint       = actionKey ? `<i data-lucide="chevron-right" style="width:13px;height:13px;color:${color};flex-shrink:0"></i>` : '';
+      return `<div ${clickable} style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--surface);border-left:3px solid ${color};transition:background .15s" onmouseenter="if(this.dataset.dashAlert)this.style.background='var(--hover)'" onmouseleave="this.style.background='var(--surface)'">
         <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};flex-shrink:0"></i>
         <span style="flex:1;font-size:13px">${esc(a.label)}</span>
         <span style="font-size:13px;font-weight:700;color:${color}">${a.count}</span>
+        ${hint}
       </div>`;
     }).join('');
     alertsEl.style.display = '';
@@ -287,13 +452,13 @@ async function loadDashboard() {
     alertsEl.style.display = 'none';
   }
 
-  // Status por tipo
+  // Status por tipo — clicáveis
   const statusGrid = document.getElementById('dashStatusGrid');
   const statusTypes = [
-    { label: 'Câmeras IP',  icon: 'camera',     s: ip  },
-    { label: 'DVR canais',  icon: 'hard-drive',  s: dvr },
-    { label: 'NVR canais',  icon: 'hard-drive',  s: nvr },
-    { label: 'Windows',     icon: 'monitor',     s: win },
+    { label: 'Câmeras IP',  icon: 'camera',     s: ip,  type: 'ip'      },
+    { label: 'DVR canais',  icon: 'hard-drive',  s: dvr, type: 'dvr'     },
+    { label: 'NVR canais',  icon: 'hard-drive',  s: nvr, type: 'nvr'     },
+    { label: 'Windows',     icon: 'monitor',     s: win, type: 'windows' },
   ];
   statusGrid.innerHTML = statusTypes.map(t => {
     const total   = t.s.total   ?? 0;
@@ -301,15 +466,16 @@ async function loadDashboard() {
     const offline = t.s.offline ?? 0;
     const pct     = total > 0 ? Math.round((online / total) * 100) : null;
     const barColor = pct === null ? 'var(--muted)' : pct >= 80 ? 'var(--primary)' : pct >= 50 ? '#fd7e14' : '#fa5252';
-    return `<div class="dash-status-row">
+    return `<div class="dash-status-row clickable" data-type="${t.type}" title="Ver detalhes">
       <i data-lucide="${t.icon}" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
       <span style="flex:1;font-size:13px">${t.label}</span>
       <span style="font-size:12px;color:var(--primary);font-weight:600">${online} online</span>
       <span style="font-size:12px;color:var(--muted);margin-left:4px">/ ${total}</span>
-      ${offline ? `<span style="font-size:11px;color:#fa5252;margin-left:6px">${offline} off</span>` : ''}
+      ${offline ? `<span style="font-size:11px;color:#fa5252;margin-left:6px;font-weight:600">${offline} off</span>` : ''}
       <div style="width:60px;height:4px;background:var(--border);border-radius:2px;margin-left:8px;overflow:hidden">
         <div style="height:100%;width:${pct ?? 0}%;background:${barColor};transition:width .4s"></div>
       </div>
+      <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);margin-left:4px;flex-shrink:0"></i>
     </div>`;
   }).join('');
   lucide.createIcons();
@@ -352,6 +518,42 @@ async function loadDashboard() {
   } else {
     sitesPanel.style.display = 'none';
   }
+
+  // Click handlers: KPI cards
+  document.getElementById('kpiCamerasIp')?.addEventListener('click', () => openDashDrawerIp('all'));
+  document.getElementById('kpiGravadores')?.addEventListener('click', () => openDashDrawerRecorder('dvr', 'all'));
+  document.getElementById('kpiSnapshots')?.addEventListener('click', () => openDashDrawerIp('no_snap'));
+  document.getElementById('kpiSites')?.addEventListener('click', () => {
+    _openDashDrawer('Sites', 'Sites monitorados');
+    document.getElementById('dashDrawerFilters').innerHTML = '';
+    _drawerRenderRows(sites.length
+      ? sites.map(s => `<div class="drawer-item"><i data-lucide="map-pin" style="width:14px;height:14px;color:var(--primary)"></i><div class="drawer-item-main"><div class="drawer-item-title">${esc(s)}</div></div></div>`).join('')
+      : '');
+  });
+
+  // Click handlers: status rows (adicionados via dataset)
+  document.querySelectorAll('.dash-status-row.clickable').forEach(row => {
+    row.addEventListener('click', () => {
+      const type = row.dataset.type;
+      if (type === 'ip')      openDashDrawerIp('all');
+      if (type === 'dvr')     openDashDrawerRecorder('dvr', 'all');
+      if (type === 'nvr')     openDashDrawerRecorder('nvr', 'all');
+      if (type === 'windows') openDashDrawerWindows('all');
+    });
+  });
+
+  // Click handlers: alertas
+  document.querySelectorAll('[data-dash-alert]').forEach(el => {
+    el.addEventListener('click', () => {
+      const a = el.dataset.dashAlert;
+      if (a === 'ip_offline')   openDashDrawerIp('offline');
+      if (a === 'dvr_offline')  openDashDrawerRecorder('dvr', 'offline');
+      if (a === 'nvr_offline')  openDashDrawerRecorder('nvr', 'offline');
+      if (a === 'win_offline')  openDashDrawerWindows('offline');
+      if (a === 'no_snapshot')  openDashDrawerIp('no_snap');
+    });
+  });
+
   lucide.createIcons();
 }
 
@@ -3267,6 +3469,10 @@ function initNavGroups() {
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   initNavGroups();
+
+  // Dashboard drawer
+  document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
+  document.getElementById('dashDrawerOverlay')?.addEventListener('click', closeDashDrawer);
 
   // Login
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
