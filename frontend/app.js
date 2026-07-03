@@ -2836,19 +2836,25 @@ function openMntStream(ip, titulo) {
   img.onerror = null;
   img.classList.add('hidden');
   setTimeout(() => {
-    const tok = _token ? `&token=${encodeURIComponent(_token)}` : '';
+    const authQ = _token ? `token=${encodeURIComponent(_token)}` : '';
+    const snapFallback = (curIp) => {
+      const safe = curIp.replace(/\./g, '_');
+      return `/api/snapshot/${safe}.jpg${authQ ? '?' + authQ : ''}`;
+    };
     img.onload  = () => img.classList.remove('hidden');
     img.onerror = () => {
-      // fallback: snapshot polling a cada 2s
+      // MJPEG indisponível — mostra snapshot do disco (capturado pelo scanner)
       if (_mntStreamInterval) clearInterval(_mntStreamInterval);
-      _mntStreamInterval = setInterval(() => {
+      const loadSnap = () => {
         if (!_mntStreamIp) return;
         const fb = new Image();
-        fb.onload = () => { img.src = fb.src; img.classList.remove('hidden'); };
-        fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}${tok}&t=${Date.now()}`;
-      }, 2000);
+        fb.onload = () => { img.src = fb.src + `&t=${Date.now()}`; img.classList.remove('hidden'); };
+        fb.src = snapFallback(_mntStreamIp) + `&t=${Date.now()}`;
+      };
+      loadSnap();
+      _mntStreamInterval = setInterval(loadSnap, 5000);
     };
-    img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}${tok}`;
+    img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}${authQ ? '&' + authQ : ''}`;
   }, 50);
 
   document.getElementById('modalMntStream').classList.remove('hidden');

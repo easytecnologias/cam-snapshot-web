@@ -737,54 +737,69 @@ def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]
 @router.get("/maintenance/stream/{ip}")
 def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
     """Proxia MJPEG da câmera como multipart/x-mixed-replace usando requests streaming."""
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import StreamingResponse, Response
     import requests as _req
     from requests.auth import HTTPBasicAuth
 
     cam_urls = [
-        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=1",  # sub-stream (fluido)
-        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=0",  # main stream
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=1",
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=0",
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=1",
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=0",
     ]
 
-    def generate():
-        for cam_url in cam_urls:
-            for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
-                try:
-                    resp = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 300))
-                    if resp.status_code != 200:
-                        continue
-                    buf = b""
-                    got_frame = False
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        if not chunk:
-                            continue
-                        buf += chunk
-                        while True:
-                            m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
-                            if not m:
-                                break
-                            flen = int(m.group(1))
-                            s = m.end()
-                            if len(buf) < s + flen:
-                                break
-                            frame = buf[s:s + flen]
-                            buf = buf[s + flen:]
-                            if frame[:2] == b'\xff\xd8':
-                                got_frame = True
-                                yield (
-                                    b"--myboundary\r\nContent-Type: image/jpeg\r\n"
-                                    b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
-                                    + frame + b"\r\n"
-                                )
-                        if len(buf) > 2_000_000:
-                            buf = buf[-200_000:]
-                    if got_frame:
-                        return
-                except Exception:
+    # Testa conexão antes de retornar StreamingResponse
+    active_resp = None
+    for cam_url in cam_urls:
+        for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+            try:
+                r = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 30))
+                if r.status_code == 200 and "multipart" in r.headers.get("Content-Type", ""):
+                    active_resp = r
+                    break
+            except Exception:
+                continue
+        if active_resp:
+            break
+
+    if not active_resp:
+        return Response(status_code=503, content=b"Camera MJPEG unavailable")
+
+    def generate(resp):
+        buf = b""
+        try:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if not chunk:
                     continue
+                buf += chunk
+                while True:
+                    m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
+                    if not m:
+                        break
+                    flen = int(m.group(1))
+                    s = m.end()
+                    if len(buf) < s + flen:
+                        break
+                    frame = buf[s:s + flen]
+                    buf = buf[s + flen:]
+                    if frame[:2] == b'\xff\xd8':
+                        yield (
+                            b"--myboundary\r\nContent-Type: image/jpeg\r\n"
+                            b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                            + frame + b"\r\n"
+                        )
+                if len(buf) > 2_000_000:
+                    buf = buf[-200_000:]
+        except Exception:
+            pass
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     return StreamingResponse(
-        generate(),
+        generate(active_resp),
         media_type="multipart/x-mixed-replace; boundary=myboundary",
         headers={"Cache-Control": "no-store, no-cache"},
     )
