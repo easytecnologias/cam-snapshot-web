@@ -2836,6 +2836,7 @@ function openMntStream(ip, titulo) {
   img.onerror = null;
   img.classList.add('hidden');
   setTimeout(() => {
+    const tok = _token ? `&token=${encodeURIComponent(_token)}` : '';
     img.onload  = () => img.classList.remove('hidden');
     img.onerror = () => {
       // fallback: snapshot polling a cada 2s
@@ -2844,10 +2845,10 @@ function openMntStream(ip, titulo) {
         if (!_mntStreamIp) return;
         const fb = new Image();
         fb.onload = () => { img.src = fb.src; img.classList.remove('hidden'); };
-        fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}&t=${Date.now()}`;
+        fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}${tok}&t=${Date.now()}`;
       }, 2000);
     };
-    img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}`;
+    img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}${tok}`;
   }, 50);
 
   document.getElementById('modalMntStream').classList.remove('hidden');
