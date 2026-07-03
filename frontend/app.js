@@ -2837,22 +2837,25 @@ function openMntStream(ip, titulo) {
   img.classList.add('hidden');
   setTimeout(() => {
     const authQ = _token ? `token=${encodeURIComponent(_token)}` : '';
-    const snapFallback = (curIp) => {
-      const safe = curIp.replace(/\./g, '_');
-      return `/api/snapshot/${safe}.jpg${authQ ? '?' + authQ : ''}`;
-    };
     img.onload  = () => img.classList.remove('hidden');
     img.onerror = () => {
-      // MJPEG indisponível — mostra snapshot do disco (capturado pelo scanner)
+      // MJPEG indisponível — polling live a 1.5s; se live falhar, disco como último recurso
       if (_mntStreamInterval) clearInterval(_mntStreamInterval);
-      const loadSnap = () => {
+      const loadLive = () => {
         if (!_mntStreamIp) return;
+        const ts = Date.now();
         const fb = new Image();
-        fb.onload = () => { img.src = fb.src + `&t=${Date.now()}`; img.classList.remove('hidden'); };
-        fb.src = snapFallback(_mntStreamIp) + `&t=${Date.now()}`;
+        fb.onload = () => { img.src = fb.src; img.classList.remove('hidden'); };
+        fb.onerror = () => {
+          const safe = _mntStreamIp.replace(/\./g, '_');
+          const fb2 = new Image();
+          fb2.onload = () => { img.src = fb2.src; img.classList.remove('hidden'); };
+          fb2.src = `/api/snapshot/${safe}.jpg?${authQ ? authQ + '&' : ''}t=${ts}`;
+        };
+        fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}${authQ ? '&' + authQ : ''}&t=${ts}`;
       };
-      loadSnap();
-      _mntStreamInterval = setInterval(loadSnap, 5000);
+      loadLive();
+      _mntStreamInterval = setInterval(loadLive, 1500);
     };
     img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}${authQ ? '&' + authQ : ''}`;
   }, 50);

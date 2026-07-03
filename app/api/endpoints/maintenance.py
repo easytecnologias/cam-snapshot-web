@@ -773,16 +773,31 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
                     continue
                 buf += chunk
                 while True:
+                    # Estratégia 1: Content-Length explícito no header MJPEG
                     m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
-                    if not m:
-                        break
-                    flen = int(m.group(1))
-                    s = m.end()
-                    if len(buf) < s + flen:
-                        break
-                    frame = buf[s:s + flen]
-                    buf = buf[s + flen:]
-                    if frame[:2] == b'\xff\xd8':
+                    if m:
+                        flen = int(m.group(1))
+                        s = m.end()
+                        if len(buf) < s + flen:
+                            break
+                        frame = buf[s:s + flen]
+                        buf = buf[s + flen:]
+                        if frame[:2] == b'\xff\xd8':
+                            yield (
+                                b"--myboundary\r\nContent-Type: image/jpeg\r\n"
+                                b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                                + frame + b"\r\n"
+                            )
+                    else:
+                        # Estratégia 2: detecta frame pelos marcadores JPEG (câmeras sem Content-Length)
+                        start = buf.find(b'\xff\xd8')
+                        if start < 0:
+                            break
+                        end = buf.find(b'\xff\xd9', start + 2)
+                        if end < 0:
+                            break
+                        frame = buf[start:end + 2]
+                        buf = buf[end + 2:]
                         yield (
                             b"--myboundary\r\nContent-Type: image/jpeg\r\n"
                             b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
