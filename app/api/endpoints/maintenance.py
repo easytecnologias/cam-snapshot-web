@@ -735,68 +735,53 @@ def _force_snapshot_one_mnt(ip: str, user: str, password: str) -> Dict[str, Any]
 # ── Stream ao vivo — MJPEG proxy (multipart/x-mixed-replace) ─────────────────
 
 @router.get("/maintenance/stream/{ip}")
-async def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
-    """Proxia o stream MJPEG da câmera como multipart/x-mixed-replace.
-    O browser exibe nativamente via <img src="...">, sem JS de polling."""
-    import asyncio
-    from fastapi import Request
+def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
+    """Proxia MJPEG da câmera como multipart/x-mixed-replace usando requests streaming."""
     from fastapi.responses import StreamingResponse
+    import requests as _req
+    from requests.auth import HTTPBasicAuth
 
     cam_urls = [
-        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=1",
-        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=0",
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=1",  # sub-stream (fluido)
+        f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=0",  # main stream
     ]
 
-    async def generate():
+    def generate():
         for cam_url in cam_urls:
-            proc = await asyncio.create_subprocess_exec(
-                "curl", "-s", "--no-buffer", "--digest",
-                "-u", f"{user}:{password}",
-                "--max-time", "300",
-                cam_url,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            buf = b""
-            try:
-                while True:
-                    try:
-                        chunk = await asyncio.wait_for(proc.stdout.read(8192), timeout=10)
-                    except asyncio.TimeoutError:
-                        break
-                    if not chunk:
-                        break
-                    buf += chunk
-                    while True:
-                        m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
-                        if not m:
-                            break
-                        flen = int(m.group(1))
-                        s = m.end()
-                        if len(buf) < s + flen:
-                            break
-                        frame = buf[s:s + flen]
-                        buf = buf[s + flen:]
-                        if frame[:2] == b'\xff\xd8':
-                            yield (
-                                b"--myboundary\r\nContent-Type: image/jpeg\r\n"
-                                b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n" +
-                                frame + b"\r\n"
-                            )
-                    if len(buf) > 2_000_000:
-                        buf = buf[-200_000:]
-                # Se chegou aqui sem nenhum frame na primeira URL, tenta a próxima
-                if buf and buf[:2] != b'\xff\xd8':
-                    continue
-            except Exception:
-                pass
-            finally:
-                proc.terminate()
+            for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
                 try:
-                    await asyncio.wait_for(proc.wait(), timeout=2)
+                    resp = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 300))
+                    if resp.status_code != 200:
+                        continue
+                    buf = b""
+                    got_frame = False
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if not chunk:
+                            continue
+                        buf += chunk
+                        while True:
+                            m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
+                            if not m:
+                                break
+                            flen = int(m.group(1))
+                            s = m.end()
+                            if len(buf) < s + flen:
+                                break
+                            frame = buf[s:s + flen]
+                            buf = buf[s + flen:]
+                            if frame[:2] == b'\xff\xd8':
+                                got_frame = True
+                                yield (
+                                    b"--myboundary\r\nContent-Type: image/jpeg\r\n"
+                                    b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n"
+                                    + frame + b"\r\n"
+                                )
+                        if len(buf) > 2_000_000:
+                            buf = buf[-200_000:]
+                    if got_frame:
+                        return
                 except Exception:
-                    proc.kill()
-            break  # se saiu normalmente da primeira URL, não tenta outra
+                    continue
 
     return StreamingResponse(
         generate(),

@@ -2831,20 +2831,24 @@ function openMntStream(ip, titulo) {
   const uEnc = encodeURIComponent(user);
   const pEnc = encodeURIComponent(pass);
   const img  = document.getElementById('mntStreamImg');
-  img.src = '';
-  img.onload  = () => img.classList.remove('hidden');
-  img.onerror = () => {
-    // fallback: snapshot a cada 2s
-    img.classList.remove('hidden');
-    if (_mntStreamInterval) clearInterval(_mntStreamInterval);
-    _mntStreamInterval = setInterval(() => {
-      if (!_mntStreamIp) return;
-      const fb = new Image();
-      fb.onload = () => { img.src = fb.src; };
-      fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}&t=${Date.now()}`;
-    }, 2000);
-  };
-  img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}`;
+  // Limpa handlers antes de trocar src para não disparar onerror do src anterior
+  img.onload  = null;
+  img.onerror = null;
+  img.classList.add('hidden');
+  setTimeout(() => {
+    img.onload  = () => img.classList.remove('hidden');
+    img.onerror = () => {
+      // fallback: snapshot polling a cada 2s
+      if (_mntStreamInterval) clearInterval(_mntStreamInterval);
+      _mntStreamInterval = setInterval(() => {
+        if (!_mntStreamIp) return;
+        const fb = new Image();
+        fb.onload = () => { img.src = fb.src; img.classList.remove('hidden'); };
+        fb.src = `/api/maintenance/live/${_mntStreamIp}?user=${uEnc}&password=${pEnc}&t=${Date.now()}`;
+      }, 2000);
+    };
+    img.src = `/api/maintenance/stream/${ip}?user=${uEnc}&password=${pEnc}`;
+  }, 50);
 
   document.getElementById('modalMntStream').classList.remove('hidden');
   lucide.createIcons();
