@@ -870,7 +870,7 @@ def maintenance_stream_register(ip: str, user: str = "admin", password: str = ""
     stream_name = f"cam_{ip.replace('.', '_')}"
     rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype=1"
     # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
-    source_url = f"ffmpeg:{rtsp_url}#video=h264&audio=opus"
+    source_url = f"ffmpeg:{rtsp_url}#video=h264#audio=opus"
 
     try:
         # Remove stream anterior para garantir que a nova fonte (ffmpeg) seja usada
