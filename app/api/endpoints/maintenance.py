@@ -861,6 +861,29 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
     return Response(status_code=503)
 
 
+@router.post("/maintenance/stream_register/{ip}")
+def maintenance_stream_register(ip: str, user: str = "admin", password: str = ""):
+    """Registra câmera no go2rtc e retorna o nome do stream para WebRTC."""
+    from fastapi.responses import JSONResponse
+    import requests as _req
+
+    stream_name = f"cam_{ip.replace('.', '_')}"
+    rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype=1"
+
+    try:
+        r = _req.put(
+            "http://172.28.0.1:1984/api/streams",
+            params={"name": stream_name, "src": rtsp_url},
+            timeout=5,
+        )
+        if r.status_code not in (200, 201, 204):
+            return JSONResponse({"ok": False, "error": f"go2rtc {r.status_code}"}, status_code=502)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+    return {"ok": True, "stream_name": stream_name}
+
+
 # ── Novos endpoints batch ─────────────────────────────────────────────────────
 
 @router.post("/maintenance/batch/test")

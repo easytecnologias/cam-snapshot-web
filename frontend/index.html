@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -7,36 +7,36 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=19">
 </head>
 <body>
 
-  <!-- ═══ LOGIN ═══ -->
+  <!-- --- LOGIN --- -->
   <div id="loginScreen" class="login-screen">
     <div class="login-card">
       <div class="login-brand">
         <div class="brand-mark">S</div>
         <div>
           <strong>SightOps</strong>
-          <span>Gestão de CFTV</span>
+          <span>Gestao de CFTV</span>
         </div>
       </div>
       <h2>Entrar</h2>
-      <p>Acesse o painel de operações.</p>
+      <p>Acesse o painel de operacoes.</p>
       <p id="loginError" class="login-error" hidden></p>
       <form id="loginForm">
-        <label>Usuário
+        <label>Usuario
           <input id="loginUser" type="text" autocomplete="username" placeholder="admin" required>
         </label>
         <label>Senha
-          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" required>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="********" required>
         </label>
         <button type="submit" class="primary-action" style="width:100%;justify-content:center" id="loginBtn">Entrar</button>
       </form>
     </div>
   </div>
 
-  <!-- ═══ APP SHELL ═══ -->
+  <!-- --- APP SHELL --- -->
   <div id="appShell" class="app-shell" hidden>
     <div id="mobileBackdrop" class="mobile-backdrop"></div>
 
@@ -45,7 +45,7 @@
         <div class="brand-mark">S</div>
         <div>
           <strong>SightOps</strong>
-          <span>Gestão de CFTV</span>
+          <span>Gestao de CFTV</span>
         </div>
       </div>
 
@@ -55,9 +55,9 @@
           <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
         </button>
 
-        <!-- Inventário -->
-        <div class="nav-section-label">Inventário</div>
-        <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
+        <!-- Inventario -->
+        <div class="nav-section-label">Inventario</div>
+        <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Cameras IP</span></button>
         <button class="nav-item" data-view="inv-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="olt"><i data-lucide="radio"></i><span>OLT</span></button>
         <div class="nav-group" id="ngSnapshots">
@@ -66,38 +66,37 @@
             <i data-lucide="chevron-right" class="nav-chevron"></i>
           </button>
           <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="snap-cam"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="snap-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
             <button class="nav-item nav-sub-item" data-view="snap-dvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
         <button class="nav-item" data-view="switch"><i data-lucide="server"></i><span>Switch</span></button>
         <button class="nav-item" data-view="inv-windows"><i data-lucide="monitor"></i><span>Windows</span></button>
 
-        <!-- Integrações (logo após Inventário) -->
-        <div class="nav-section-label">Integrações</div>
+        <!-- Integracoes (logo apos Inventario) -->
+        <div class="nav-section-label">Integracoes</div>
         <button class="nav-item" data-view="script-grafana"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
         <button class="nav-item" data-view="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
-        <button class="nav-item" data-view="script-netwatch"><i data-lucide="activity"></i><span>Netwatch</span></button>
         <button class="nav-item" data-view="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
+        <button class="nav-item" data-view="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
 
-        <!-- Manutenção -->
-        <div class="nav-section-label">Manutenção</div>
+        <!-- Manutencao -->
+        <div class="nav-section-label">Manutencao</div>
         <div class="nav-group" id="ngManutencao">
           <button class="nav-item nav-group-toggle">
-            <i data-lucide="wrench"></i><span>Manutenção</span>
+            <i data-lucide="wrench"></i><span>Manutencao</span>
             <i data-lucide="chevron-right" class="nav-chevron"></i>
           </button>
           <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Câmeras IP</span></button>
-            <button class="nav-item nav-sub-item" data-view="mnt-dvr"><i data-lucide="hard-drive"></i><span>DVR</span></button>
-            <button class="nav-item nav-sub-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>NVR</span></button>
+            <button class="nav-item nav-sub-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+            <button class="nav-item nav-sub-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
           </div>
         </div>
 
         <!-- IA / Rede -->
-        <div class="nav-section-label">Análise</div>
-        <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reprodução</span></button>
-        <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA · NVR</span></button>
+        <div class="nav-section-label">Analise</div>
+        <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
+        <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
         <div class="nav-group" id="ngRede">
           <button class="nav-item nav-group-toggle">
             <i data-lucide="globe"></i><span>Rede</span>
@@ -106,7 +105,7 @@
           <div class="nav-sub">
             <button class="nav-item nav-sub-item" data-view="net-devices"><i data-lucide="router"></i><span>Dispositivos</span></button>
             <button class="nav-item nav-sub-item" data-view="net-learn"><i data-lucide="brain"></i><span>Aprendizado</span></button>
-            <button class="nav-item nav-sub-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operações</span></button>
+            <button class="nav-item nav-sub-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
           </div>
         </div>
 
@@ -118,14 +117,14 @@
 
       <div class="sidebar-footer">
         <button class="nav-item" data-view="settings" style="width:100%">
-          <i data-lucide="settings"></i><span>Configurações</span>
+          <i data-lucide="settings"></i><span>Configuracoes</span>
         </button>
         <button class="nav-item" id="logoutBtn" style="width:100%;color:#ff8787">
           <i data-lucide="log-out"></i><span>Sair</span>
         </button>
         <div class="environment">
           <span class="status-dot online"></span>
-          Produção
+          Producao
         </div>
       </div>
     </aside>
@@ -136,7 +135,7 @@
           <button class="icon-button mobile-menu" id="menuBtn" aria-label="Abrir menu"><i data-lucide="menu"></i></button>
           <div class="topbar-context" id="topbarContext">
             <strong>Dashboard</strong>
-            <span>Visão geral do parque</span>
+            <span>Vis-o geral do parque</span>
           </div>
         </div>
         <div class="topbar-actions">
@@ -146,7 +145,7 @@
           <button class="icon-button" id="btnRefreshTopbar" title="Atualizar"><i data-lucide="refresh-cw"></i></button>
           <div class="profile" id="profileMenu">
             <div class="avatar" id="profileAvatar">?</div>
-            <div><strong id="profileName">—</strong><span id="profileRole">—</span></div>
+            <div><strong id="profileName">-</strong><span id="profileRole">-</span></div>
             <i data-lucide="chevron-down"></i>
             <div class="profile-dropdown" id="profileDropdown">
               <button id="logoutBtnTop"><i data-lucide="log-out"></i> Sair</button>
@@ -155,37 +154,37 @@
         </div>
       </header>
 
-      <!-- ═══ VIEW: DASHBOARD ═══ -->
+      <!-- --- VIEW: DASHBOARD --- -->
       <section class="workspace" id="viewDashboard">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Visão geral</p>
+            <p class="eyebrow">Vis-o geral</p>
             <h1>Dashboard</h1>
-            <p>Resumo do parque de câmeras e status dos serviços.</p>
+            <p>Resumo do parque de cameras e status dos servi-os.</p>
           </div>
-          <div class="live-indicator"><span></span>Atualização ao vivo</div>
+          <div class="live-indicator"><span></span>Atualizacao ao vivo</div>
         </div>
 
         <!-- KPIs -->
         <div class="metrics" id="dashMetrics">
-          <article class="dash-kpi-card" id="kpiCamerasIp" data-dash-type="ip" title="Ver câmeras IP">
+          <article class="dash-kpi-card" id="kpiCamerasIp" data-dash-type="ip" title="Ver cameras IP">
             <div class="metric-icon green"><i data-lucide="camera"></i></div>
-            <div><span>Câmeras IP</span><strong id="mCamsOnline">—</strong><small id="mCamsTotal"></small></div>
+            <div><span>Cameras IP</span><strong id="mCamsOnline">-</strong><small id="mCamsTotal"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
           <article class="dash-kpi-card" id="kpiGravadores" data-dash-type="dvr" title="Ver gravadores">
             <div class="metric-icon blue"><i data-lucide="hard-drive"></i></div>
-            <div><span>Gravadores</span><strong id="mDvrNvr">—</strong><small id="mDvrNvrCanais"></small></div>
+            <div><span>Gravadores</span><strong id="mDvrNvr">-</strong><small id="mDvrNvrCanais"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
           <article class="dash-kpi-card" id="kpiSnapshots" data-dash-type="snapshots" title="Ver snapshots">
             <div class="metric-icon purple"><i data-lucide="image"></i></div>
-            <div><span>Snapshots</span><strong id="mSnapshots">—</strong></div>
+            <div><span>Snapshots</span><strong id="mSnapshots">-</strong></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
           <article class="dash-kpi-card" id="kpiSites" data-dash-type="sites" title="Ver sites">
             <div class="metric-icon amber"><i data-lucide="map-pin"></i></div>
-            <div><span>Sites</span><strong id="mSites">—</strong></div>
+            <div><span>Sites</span><strong id="mSites">-</strong></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
         </div>
@@ -202,15 +201,15 @@
           <div class="panel" style="margin:0">
             <div class="panel-header"><div><h2>Status por tipo</h2><p>Online / Offline por categoria</p></div></div>
             <div id="dashStatusGrid" style="display:flex;flex-direction:column;gap:0">
-              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
           </div>
 
           <!-- Atividade recente -->
           <div class="panel" style="margin:0">
-            <div class="panel-header"><div><h2>Atividade recente</h2><p>Última atualização de cada inventário</p></div></div>
+            <div class="panel-header"><div><h2>Atividade recente</h2><p>Ultima atualizacao de cada invent-rio</p></div></div>
             <div id="dashActivity" style="display:flex;flex-direction:column;gap:0">
-              <div class="dash-status-row skeleton-row"><span>Carregando…</span></div>
+              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
           </div>
 
@@ -223,33 +222,33 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: INVENTÁRIO OLT ═══ -->
+      <!-- --- VIEW: INVENT-RIO OLT --- -->
       <section class="workspace hidden" id="viewInvOlt">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Inventário</p>
-            <h1>Câmeras IP</h1>
-            <p>Varredura, filtros e casamento com informações da OLT e Switch.</p>
+            <p class="eyebrow">Inventario</p>
+            <h1>Cameras IP</h1>
+            <p>Varredura, filtros e casamento com informa--es da OLT e Switch.</p>
           </div>
           <button class="primary-action" id="btnScanOlt"><i data-lucide="scan-search"></i> Varrer</button>
         </div>
 
         <!-- Resumo -->
         <div class="inv-summary" id="invOltSummary">
-          <span>Total visíveis: <strong id="invOltTotal">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--primary)">Online: <strong id="invOltOnline">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--danger)">Offline: <strong id="invOltOffline">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--amber)">Outros: <strong id="invOltOutros">—</strong></span>
+          <span>Total vis-veis: <strong id="invOltTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--primary)">Online: <strong id="invOltOnline">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--danger)">Offline: <strong id="invOltOffline">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--amber)">Outros: <strong id="invOltOutros">-</strong></span>
         </div>
 
-        <!-- Seletor de visão -->
+        <!-- Seletor de vis-o -->
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px">
-          <span style="font-size:12px;color:var(--muted);font-weight:500">Visão:</span>
+          <span style="font-size:12px;color:var(--muted);font-weight:500">Vis-o:</span>
           <div class="inv-view-tabs">
-            <button class="inv-view-tab active" data-view="basico">Básico</button>
+            <button class="inv-view-tab active" data-view="basico">Basico</button>
             <button class="inv-view-tab" data-view="olt">OLT</button>
             <button class="inv-view-tab" data-view="switch">Switch</button>
           </div>
@@ -267,7 +266,7 @@
             <option value="offline">Offline</option>
             <option value="auth_failed">Auth failed</option>
             <option value="missing_data">Faltando dados</option>
-            <option value="default_title">Título padrão</option>
+            <option value="default_title">Titulo padr-o</option>
             <option value="imgbb_down">ImgBB down</option>
             <option value="no_olt">Sem dados OLT</option>
           </select>
@@ -304,7 +303,7 @@
                     <th>MAC</th>
                     <th>Fabricante</th>
                     <th>Modelo</th>
-                    <th>Título</th>
+                    <th>Titulo</th>
                     <th>Status</th>
                     <th>ImgBB</th>
                     <th>Local</th>
@@ -320,44 +319,44 @@
               </table>
             </div>
             <div class="table-footer">
-              <span id="invOltFooter">0 câmeras</span>
+              <span id="invOltFooter">0 cameras</span>
               <div style="display:flex;gap:6px;align-items:center">
                 <button class="icon-action" id="btnOltBackup" data-tip="Backup"><i data-lucide="archive"></i></button>
-                <button class="icon-action" id="btnOltPdf" data-tip="Relatório PDF"><i data-lucide="file-text"></i></button>
+                <button class="icon-action" id="btnOltPdf" data-tip="Relat-rio PDF"><i data-lucide="file-text"></i></button>
                 <button class="icon-action" id="btnOltImgbb" data-tip="Atualizar ImgBB"><i data-lucide="image-up"></i></button>
                 <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
                 <button class="icon-action" id="btnOltPingSelected" data-tip="Ping selecionados"><i data-lucide="activity"></i></button>
                 <button class="icon-action primary" id="btnOltEditar" data-tip="Editar selecionado"><i data-lucide="pencil"></i></button>
                 <button class="icon-action danger" id="btnOltDeleteSelected" data-tip="Apagar selecionados"><i data-lucide="trash-2"></i></button>
                 <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
-                <button class="icon-action danger" id="btnOltClear" data-tip="Apagar todo o inventário"><i data-lucide="trash"></i></button>
+                <button class="icon-action danger" id="btnOltClear" data-tip="Apagar todo o invent-rio"><i data-lucide="trash"></i></button>
               </div>
             </div>
           </div>
 
-        <!-- Painel lateral da câmera (overlay fixo) -->
+        <!-- Painel lateral da camera (overlay fixo) -->
           <div id="camPanelBackdrop" class="cam-panel-backdrop hidden"></div>
           <div id="camPanel" class="cam-panel hidden">
             <div class="cam-panel-header">
               <div>
-                <p class="eyebrow" id="camPanelStatus">—</p>
-                <strong id="camPanelTitulo">Câmera</strong>
+                <p class="eyebrow" id="camPanelStatus">-</p>
+                <strong id="camPanelTitulo">Camera</strong>
               </div>
               <button class="icon-button" id="btnCloseCamPanel"><i data-lucide="x"></i></button>
             </div>
             <div class="cam-panel-info">
-              <div class="cam-info-row"><span>MAC</span><span id="cpMac">—</span></div>
-              <div class="cam-info-row"><span>Modelo</span><span id="cpModelo">—</span></div>
-              <div class="cam-info-row"><span>Local</span><span id="cpLocal">—</span></div>
-              <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">—</span></div>
-              <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">—</span></div>
+              <div class="cam-info-row"><span>MAC</span><span id="cpMac">-</span></div>
+              <div class="cam-info-row"><span>Modelo</span><span id="cpModelo">-</span></div>
+              <div class="cam-info-row"><span>Local</span><span id="cpLocal">-</span></div>
+              <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">-</span></div>
+              <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">-</span></div>
             </div>
             <div class="cam-snapshot-wrap">
               <img id="cpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none'">
               <div id="cpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
               <div class="cam-snap-overlay">
-                <span id="cpSnapshotTitle">—</span>
-                <span id="cpSnapshotTime">—</span>
+                <span id="cpSnapshotTitle">-</span>
+                <span id="cpSnapshotTime">-</span>
               </div>
             </div>
             <div class="cam-actions">
@@ -379,13 +378,13 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: INVENTÁRIO DVR ═══ -->
+      <!-- --- VIEW: INVENT-RIO DVR --- -->
       <section class="workspace hidden" id="viewInvDvr">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Inventário</p>
+            <p class="eyebrow">Inventario</p>
             <h1>DVR</h1>
-            <p>Gravadores digitais de vídeo catalogados.</p>
+            <p>Gravadores digitais de v-deo catalogados.</p>
           </div>
           <button class="primary-action" id="btnScanDvr"><i data-lucide="scan-search"></i> Varrer</button>
         </div>
@@ -393,7 +392,7 @@
           <div class="filters">
             <label class="search-box" style="flex:1">
               <i data-lucide="search"></i>
-              <input id="searchInvDvr" placeholder="Buscar IP, marca ou site…">
+              <input id="searchInvDvr" placeholder="Buscar IP, marca ou site-">
             </label>
           </div>
           <div class="table-wrap">
@@ -404,7 +403,7 @@
                   <th>Marca / Modelo</th>
                   <th>Canais</th>
                   <th>Firmware</th>
-                  <th>Último snapshot</th>
+                  <th>Ultimo snapshot</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -418,13 +417,13 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: INVENTÁRIO NVR ═══ -->
+      <!-- --- VIEW: INVENT-RIO NVR --- -->
       <section class="workspace hidden" id="viewInvNvr">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Inventário</p>
+            <p class="eyebrow">Inventario</p>
             <h1>Gravadores</h1>
-            <p>Canais dos gravadores NVR com câmeras associadas.</p>
+            <p>Canais dos gravadores NVR com cameras associadas.</p>
           </div>
           <div style="display:flex;gap:8px">
             <button class="secondary-action" id="btnNvrClear"><i data-lucide="trash-2"></i> Apagar</button>
@@ -434,28 +433,28 @@
 
         <!-- Resumo -->
         <div class="inv-summary">
-          <span>Total canais: <strong id="nvrTotal">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--primary)">Online: <strong id="nvrOnline">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--danger)">Offline: <strong id="nvrOffline">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--amber)">Video loss: <strong id="nvrVloss">—</strong></span>
+          <span>Total canais: <strong id="nvrTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--primary)">Online: <strong id="nvrOnline">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--danger)">Offline: <strong id="nvrOffline">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--amber)">Video loss: <strong id="nvrVloss">-</strong></span>
         </div>
 
-        <!-- Seletor de tipo e visão -->
+        <!-- Seletor de tipo e vis-o -->
         <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px;color:var(--muted);font-weight:500">Tipo:</span>
             <div class="inv-view-tabs">
-              <button class="inv-view-tab active" data-rec-type="nvr">NVR · IP</button>
-              <button class="inv-view-tab" data-rec-type="dvr">Analógico</button>
+              <button class="inv-view-tab active" data-rec-type="nvr">NVR - IP</button>
+              <button class="inv-view-tab" data-rec-type="dvr">Anal-gico</button>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:var(--muted);font-weight:500">Visão:</span>
+            <span style="font-size:12px;color:var(--muted);font-weight:500">Vis-o:</span>
             <div class="inv-view-tabs">
-              <button class="inv-view-tab active" data-nvr-view="basico">Básico</button>
+              <button class="inv-view-tab active" data-nvr-view="basico">Basico</button>
               <button class="inv-view-tab" data-nvr-view="olt">Via OLT</button>
               <button class="inv-view-tab" data-nvr-view="switch">Via Switch</button>
             </div>
@@ -466,7 +465,7 @@
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchInvNvr" placeholder="Buscar host, canal, título, câmera, local…">
+            <input id="searchInvNvr" placeholder="Buscar host, canal, titulo, camera, local-">
           </label>
           <select class="filter-select" id="filterNvrStatus">
             <option value="">Todos</option>
@@ -474,9 +473,9 @@
             <option value="offline">Offline</option>
             <option value="video_loss">Video loss</option>
             <option value="missing_data">Faltando dados</option>
-            <option value="default_title">Título padrão</option>
+            <option value="default_title">Titulo padr-o</option>
             <option value="imgbb_down">ImgBB down</option>
-            <option value="no_camera">Sem câmera vinculada</option>
+            <option value="no_camera">Sem camera vinculada</option>
             <option value="no_olt">Sem dados OLT</option>
           </select>
           <select class="filter-select" id="filterNvrLocal">
@@ -496,12 +495,12 @@
                 <col style="width:10%"><!-- Host NVR -->
                 <col style="width:9%"><!-- Modelo NVR -->
                 <col style="width:5%"><!-- Canal -->
-                <col style="width:13%"><!-- Título -->
+                <col style="width:13%"><!-- Titulo -->
                 <col style="width:8%"><!-- Local -->
                 <col style="width:7%"><!-- Status -->
-                <col style="width:9%"><!-- IP Câmera -->
-                <col style="width:10%"><!-- Modelo Câmera -->
-                <col style="width:11%"><!-- MAC Câmera -->
+                <col style="width:9%"><!-- IP Camera -->
+                <col style="width:10%"><!-- Modelo Camera -->
+                <col style="width:11%"><!-- MAC Camera -->
                 <col style="width:11%"><!-- Serial NVR -->
                 <col style="width:5%"><!-- V.Loss -->
               </colgroup>
@@ -511,12 +510,12 @@
                   <th>Host NVR</th>
                   <th>Modelo NVR</th>
                   <th>Canal</th>
-                  <th>Título</th>
+                  <th>Titulo</th>
                   <th>Local</th>
                   <th>Status</th>
-                  <th>IP Câmera</th>
-                  <th>Modelo Câmera</th>
-                  <th>MAC Câmera</th>
+                  <th>IP Camera</th>
+                  <th>Modelo Camera</th>
+                  <th>MAC Camera</th>
                   <th>Serial</th>
                   <th>V.Loss</th>
                 </tr>
@@ -540,28 +539,28 @@
         <div id="recPanel" class="cam-panel hidden">
           <div class="cam-panel-header">
             <div>
-              <p class="eyebrow" id="recPanelStatus">—</p>
+              <p class="eyebrow" id="recPanelStatus">-</p>
               <strong id="recPanelTitulo">Gravador</strong>
             </div>
             <button class="icon-button" id="btnCloseRecPanel"><i data-lucide="x"></i></button>
           </div>
           <div class="cam-panel-info">
-            <div class="cam-info-row"><span>Tipo</span><span id="rpTipo">—</span></div>
-            <div class="cam-info-row"><span>Host</span><span id="rpHost">—</span></div>
-            <div class="cam-info-row"><span>Canal</span><span id="rpChannel">—</span></div>
-            <div class="cam-info-row"><span>Local</span><span id="rpLocal">—</span></div>
-            <div class="cam-info-row"><span>Modelo</span><span id="rpModelo">—</span></div>
-            <div class="cam-info-row"><span>IP câmera</span><span id="rpCameraIp">—</span></div>
-            <div class="cam-info-row"><span>MAC</span><span id="rpMac">—</span></div>
-            <div class="cam-info-row"><span>PON / ONU ID</span><span id="rpPonOnu">—</span></div>
-            <div class="cam-info-row"><span>Serial</span><span id="rpSerial">—</span></div>
+            <div class="cam-info-row"><span>Tipo</span><span id="rpTipo">-</span></div>
+            <div class="cam-info-row"><span>Host</span><span id="rpHost">-</span></div>
+            <div class="cam-info-row"><span>Canal</span><span id="rpChannel">-</span></div>
+            <div class="cam-info-row"><span>Local</span><span id="rpLocal">-</span></div>
+            <div class="cam-info-row"><span>Modelo</span><span id="rpModelo">-</span></div>
+            <div class="cam-info-row"><span>IP camera</span><span id="rpCameraIp">-</span></div>
+            <div class="cam-info-row"><span>MAC</span><span id="rpMac">-</span></div>
+            <div class="cam-info-row"><span>PON / ONU ID</span><span id="rpPonOnu">-</span></div>
+            <div class="cam-info-row"><span>Serial</span><span id="rpSerial">-</span></div>
           </div>
           <div class="cam-snapshot-wrap">
             <img id="rpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none'">
             <div id="rpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
             <div class="cam-snap-overlay">
-              <span id="rpSnapshotTitle">—</span>
-              <span id="rpSnapshotTime">—</span>
+              <span id="rpSnapshotTitle">-</span>
+              <span id="rpSnapshotTime">-</span>
             </div>
           </div>
           <div class="cam-actions">
@@ -581,51 +580,164 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: INVENTÁRIO WINDOWS ═══ -->
+      <!-- --- VIEW: INVENT-RIO WINDOWS --- -->
       <section class="workspace hidden" id="viewInvWindows">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Inventário</p>
+            <p class="eyebrow">Inventario</p>
             <h1>Windows</h1>
-            <p>Hosts Windows identificados na rede.</p>
+            <p>Inventario de computadores, hardware, acesso remoto e caminho fisico.</p>
           </div>
-          <button class="primary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varrer</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnWinAgent"><i data-lucide="download"></i> Agente</button>
+            <button class="secondary-action" id="btnWinPhotos"><i data-lucide="image-plus"></i> Fotos</button>
+            <button class="secondary-action" id="btnWinPdf"><i data-lucide="file-text"></i> PDF</button>
+            <button class="primary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varrer</button>
+          </div>
         </div>
+
+        <div class="inv-summary" id="winSummary">
+          <span>Total: <strong id="winTotal">0</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--primary)">Online: <strong id="winOnline">0</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--danger)">Offline: <strong id="winOffline">0</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--blue)">SSD: <strong id="winSsd">0</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--amber)">Sem SSD: <strong id="winNoSsd">0</strong></span>
+        </div>
+
+        <div class="filters" style="padding:0 0 12px;border:none">
+          <label class="search-box" style="flex:1;min-width:320px">
+            <i data-lucide="search"></i>
+            <input id="searchInvWindows" placeholder="Buscar IP, MAC, hostname, usuario, modelo, CPU ou AnyDesk">
+          </label>
+          <select id="filterWinStatus" class="filter-select" style="min-width:150px">
+            <option value="">Todos</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="with_ssd">Com SSD/NVMe</option>
+            <option value="without_ssd">Sem SSD</option>
+            <option value="with_anydesk">Com AnyDesk</option>
+            <option value="without_anydesk">Sem AnyDesk</option>
+            <option value="windows11">Windows 11</option>
+            <option value="windows10">Windows 10</option>
+            <option value="missing_data">Faltando dados</option>
+          </select>
+          <select id="filterWinSite" class="filter-select" style="min-width:170px"><option value="">Todos os sites</option></select>
+          <select id="filterWinSector" class="filter-select" style="min-width:170px"><option value="">Todos os setores</option></select>
+          <button class="secondary-action" id="btnWinClearFilters">Limpar</button>
+        </div>
+
         <div class="panel">
-          <div class="filters">
-            <label class="search-box" style="flex:1">
-              <i data-lucide="search"></i>
-              <input id="searchInvWindows" placeholder="Buscar IP, hostname ou usuário…">
-            </label>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
+          <div class="table-wrap windows-table-wrap">
+            <table class="data-table windows-inventory-table">
               <thead>
                 <tr>
+                  <th style="width:36px"><input type="checkbox" id="chkWinAll"></th>
                   <th>IP</th>
+                  <th>MAC</th>
                   <th>Hostname</th>
-                  <th>OS</th>
-                  <th>Usuário</th>
-                  <th>Última varredura</th>
-                  <th></th>
+                  <th>Usuario</th>
+                  <th>Windows</th>
+                  <th>Fabricante</th>
+                  <th>Modelo</th>
+                  <th>Site</th>
+                  <th>Setor</th>
+                  <th>Status</th>
+                  <th>CPU</th>
+                  <th>Memoria</th>
+                  <th>Disco modelo</th>
+                  <th>Disco tipo</th>
+                  <th>Disco GB</th>
+                  <th>Disco serial</th>
+                  <th>AnyDesk</th>
+                  <th>Switch</th>
+                  <th>Porta SW</th>
+                  <th>Patch panel</th>
+                  <th>Porta patch</th>
+                  <th>Tomada</th>
+                  <th>Rack</th>
+                  <th>Cabo</th>
+                  <th>Patrimonio</th>
+                  <th>Obs.</th>
                 </tr>
               </thead>
               <tbody id="invWindowsTable">
-                <tr class="empty-row"><td colspan="6">Nenhum dado. Execute uma varredura.</td></tr>
+                <tr class="empty-row"><td colspan="27">Nenhum dado. Baixe o agente ou execute uma varredura.</td></tr>
               </tbody>
             </table>
           </div>
-          <div class="table-footer"><span id="invWindowsFooter">0 hosts</span></div>
+          <div class="table-footer">
+            <span id="invWindowsFooter">0 hosts</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="winSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
+              <button class="secondary-action" id="btnWinEdit" title="Editar fisico"><i data-lucide="pencil"></i></button>
+              <button class="secondary-action" id="btnWinDelete" title="Excluir selecionados"><i data-lucide="trash-2"></i></button>
+              <button class="secondary-action" id="btnWinClearAll" title="Apagar inventario"><i data-lucide="archive-x"></i></button>
+            </div>
+          </div>
         </div>
-      </section>
+        <div id="winPanelBackdrop" class="cam-panel-backdrop hidden"></div>
+        <div id="winPanel" class="cam-panel hidden win-panel">
+          <div class="cam-panel-header">
+            <div>
+              <p class="eyebrow" id="winPanelStatus">-</p>
+              <strong id="winPanelTitle">Windows</strong>
+            </div>
+            <button class="icon-button" id="btnCloseWinPanel"><i data-lucide="x"></i></button>
+          </div>
+          <div class="cam-panel-info">
+            <div class="cam-info-row"><span>IP</span><span id="wpIp">-</span></div>
+            <div class="cam-info-row"><span>MAC</span><span id="wpMac">-</span></div>
+            <div class="cam-info-row"><span>Usuario</span><span id="wpUser">-</span></div>
+            <div class="cam-info-row"><span>Windows</span><span id="wpOs">-</span></div>
+            <div class="cam-info-row"><span>Fabricante</span><span id="wpManufacturer">-</span></div>
+            <div class="cam-info-row"><span>Modelo</span><span id="wpModel">-</span></div>
+            <div class="cam-info-row"><span>Serial</span><span id="wpSerial">-</span></div>
+            <div class="cam-info-row"><span>Site</span><span id="wpSite">-</span></div>
+            <div class="cam-info-row"><span>Setor</span><span id="wpSector">-</span></div>
+            <div class="cam-info-row"><span>CPU</span><span id="wpCpu">-</span></div>
+            <div class="cam-info-row"><span>Memoria</span><span id="wpMemory">-</span></div>
+            <div class="cam-info-row"><span>Disco</span><span id="wpDisk">-</span></div>
+            <div class="cam-info-row"><span>AnyDesk</span><span id="wpAnydesk">-</span></div>
+            <div class="cam-info-row"><span>Ultima coleta</span><span id="wpUpdated">-</span></div>
+          </div>
+          <div class="win-panel-section">
+            <strong>Fisico</strong>
+            <div class="win-physical-grid">
+              <span>Switch</span><b id="wpSwitch">-</b>
+              <span>Porta SW</span><b id="wpSwitchPort">-</b>
+              <span>Patch</span><b id="wpPatch">-</b>
+              <span>Porta patch</span><b id="wpPatchPort">-</b>
+              <span>Tomada</span><b id="wpOutlet">-</b>
+              <span>Rack</span><b id="wpRack">-</b>
+              <span>Cabo</span><b id="wpCable">-</b>
+              <span>Patrimonio</span><b id="wpAsset">-</b>
+              <span>Obs.</span><b id="wpNotes">-</b>
+            </div>
+          </div>
+          <div class="cam-actions">
+            <button class="cam-btn cam-btn-ping" id="wpBtnPing"><i data-lucide="activity"></i> Testar ping</button>
+            <div class="cam-btn-grid">
+              <button class="cam-btn cam-btn-secondary" id="wpBtnAnydesk"><i data-lucide="monitor-up"></i> AnyDesk</button>
+              <button class="cam-btn cam-btn-secondary" id="wpBtnEdit"><i data-lucide="pencil"></i> Fisico</button>
+              <button class="cam-btn cam-btn-secondary" id="wpBtnAgent"><i data-lucide="download"></i> Agente</button>
+              <button class="cam-btn cam-btn-secondary" id="wpBtnPrepare"><i data-lucide="terminal-square"></i> Preparar</button>
+              <button class="cam-btn cam-btn-secondary" id="wpBtnPdf"><i data-lucide="file-text"></i> PDF</button>
+              <button class="cam-btn cam-btn-secondary" id="wpBtnRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            </div>
+          </div>
+        </div>      </section>
 
-      <!-- ═══ VIEW: SNAPSHOTS CAM ═══ -->
+      <!-- --- VIEW: SNAPSHOTS CAM --- -->
       <section class="workspace hidden" id="viewSnapCam">
         <div class="page-heading">
           <div>
             <p class="eyebrow">Snapshots</p>
-            <h1>Câmeras IP</h1>
-            <p>Fotos capturadas das câmeras do inventário.</p>
+            <h1>Cameras IP</h1>
+            <p>Fotos capturadas das cameras do invent-rio.</p>
           </div>
           <div style="display:flex;gap:8px">
             <button class="secondary-action" id="btnSnapCamSelected"><i data-lucide="camera"></i> Capturar selecionadas</button>
@@ -635,18 +747,18 @@
 
         <!-- Resumo -->
         <div class="inv-summary">
-          <span>Total: <strong id="snapCamTotal">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--primary)">Com foto: <strong id="snapCamComFoto">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--danger)">Sem foto: <strong id="snapCamSemFoto">—</strong></span>
+          <span>Total: <strong id="snapCamTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--primary)">Com foto: <strong id="snapCamComFoto">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--danger)">Sem foto: <strong id="snapCamSemFoto">-</strong></span>
         </div>
 
         <!-- Filtros -->
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchSnapCam" placeholder="Buscar IP, título ou local…">
+            <input id="searchSnapCam" placeholder="Buscar IP, titulo ou local-">
           </label>
           <select class="filter-select" id="filterSnapCamStatus">
             <option value="">Todas</option>
@@ -661,11 +773,11 @@
 
         <!-- Grid de fotos -->
         <div id="snapCamGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px">
-          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando…</p>
+          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando-</p>
         </div>
       </section>
 
-      <!-- ═══ VIEW: SNAPSHOTS GRAVADORES ═══ -->
+      <!-- --- VIEW: SNAPSHOTS GRAVADORES --- -->
       <section class="workspace hidden" id="viewSnapDvr">
         <div class="page-heading">
           <div>
@@ -681,18 +793,18 @@
 
         <!-- Resumo -->
         <div class="inv-summary">
-          <span>Total: <strong id="snapGravTotal">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--primary)">Com foto: <strong id="snapGravComFoto">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span style="color:var(--danger)">Sem foto: <strong id="snapGravSemFoto">—</strong></span>
+          <span>Total: <strong id="snapGravTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--primary)">Com foto: <strong id="snapGravComFoto">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span style="color:var(--danger)">Sem foto: <strong id="snapGravSemFoto">-</strong></span>
         </div>
 
         <!-- Filtros -->
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="searchSnapGrav" placeholder="Buscar host, canal, título ou local…">
+            <input id="searchSnapGrav" placeholder="Buscar host, canal, titulo ou local-">
           </label>
           <select class="filter-select" id="filterSnapGravTipo">
             <option value="">DVR + NVR</option>
@@ -711,11 +823,11 @@
         </div>
 
         <div id="snapGravGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px">
-          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando…</p>
+          <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Carregando-</p>
         </div>
       </section>
 
-      <!-- ═══ VIEW: SNAPSHOTS NVR ═══ -->
+      <!-- --- VIEW: SNAPSHOTS NVR --- -->
       <section class="workspace hidden" id="viewSnapNvr">
         <div class="page-heading">
           <div>
@@ -727,87 +839,113 @@
         </div>
         <div class="panel">
           <div class="snapshot-grid" id="snapNvrGrid">
-            <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Nenhum snapshot disponível.</p>
+            <p style="padding:40px;color:var(--muted);grid-column:1/-1;text-align:center">Nenhum snapshot dispon-vel.</p>
           </div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: MANUTENÇÃO CÂMERAS ═══ -->
+      <!-- --- VIEW: MANUTEN--O C-MERAS --- -->
       <section class="workspace hidden" id="viewMntCam">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Manutenção</p>
-            <h1>Câmeras IP</h1>
-            <p>Selecione câmeras e execute operações em lote.</p>
+            <p class="eyebrow">Manutencao</p>
+            <h1>Cameras IP</h1>
+            <p>Selecione cameras e execute operacoes em lote.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnMntCamRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
           </div>
         </div>
 
-        <!-- Barra de credenciais + ações -->
-        <div class="panel mnt-action-bar">
-          <div class="mnt-cred-group">
-            <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
-            <span class="mnt-cred-label">Usuário</span>
-            <input type="text" id="mntCamUser" value="admin" placeholder="admin" class="mnt-cred-input">
-            <span class="mnt-cred-sep"></span>
-            <span class="mnt-cred-label">Senha</span>
-            <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
+        <!-- Barra de credenciais + acoes -->
+        <div class="panel mnt-action-bar mnt-action-bar-grid">
+          <div class="mnt-cred-row">
+            <div class="mnt-cred-title">
+              <i data-lucide="key-round"></i>
+              <span>Credenciais</span>
+            </div>
+            <label class="mnt-cred-field">
+              <span>Usuario</span>
+              <input type="text" id="mntCamUser" value="admin" placeholder="admin" class="mnt-cred-input">
+            </label>
+            <label class="mnt-cred-field">
+              <span>Senha</span>
+              <input type="password" id="mntCamPass" value="intelbras" placeholder="Senha" class="mnt-cred-input">
+            </label>
           </div>
-          <div class="mnt-bar-divider"></div>
-          <div class="mnt-actions-group">
-            <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar câmeras selecionadas">
-              <i data-lucide="power-circle"></i><span>Reboot</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamSnapshot" title="Forçar captura de snapshot agora">
-              <i data-lucide="camera"></i><span>Snapshot</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamTest" title="Testar credenciais e ver firmware">
-              <i data-lucide="shield-check"></i><span>Testar</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamRename" title="Renomear câmeras selecionadas">
-              <i data-lucide="pencil"></i><span>Renomear</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamTimeCheck" title="Verificar hora das câmeras">
-              <i data-lucide="clock-alert"></i><span>Hora câmera</span>
-            </button>
-            <div class="mnt-bar-divider"></div>
-            <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
-              <i data-lucide="clock"></i><span>Acertar NTP</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamDayNight" title="Modo dia/noite">
-              <i data-lucide="sun-moon"></i><span>Dia/Noite</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamMirror" title="Espelhar ou virar imagem">
-              <i data-lucide="flip-horizontal-2"></i><span>Espelhar</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamQuality" title="Qualidade de vídeo">
-              <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
-            </button>
-            <div class="mnt-bar-divider"></div>
-            <button class="mnt-action-btn" id="btnMntCamNetwork" title="Alterar IP, máscara e gateway das câmeras selecionadas">
-              <i data-lucide="network"></i><span>Rede</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
-              <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
-            </button>
-            <button class="mnt-action-btn" id="btnMntCamPass" title="Trocar senha">
-              <i data-lucide="shield"></i><span>Senha</span>
-            </button>
+          <div class="mnt-action-sections">
+            <div class="mnt-action-section">
+              <span class="mnt-action-label">Estado</span>
+              <div class="mnt-actions-group">
+                <button class="mnt-action-btn" id="btnMntCamReboot" title="Reiniciar cameras selecionadas">
+                  <i data-lucide="power-circle"></i><span>Reboot</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamSnapshot" title="Forcar captura de snapshot agora">
+                  <i data-lucide="camera"></i><span>Snapshot</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamTest" title="Testar credenciais e ver firmware">
+                  <i data-lucide="shield-check"></i><span>Testar</span>
+                </button>
+              </div>
+            </div>
+            <div class="mnt-action-section">
+              <span class="mnt-action-label">Identificacao</span>
+              <div class="mnt-actions-group">
+                <button class="mnt-action-btn" id="btnMntCamRename" title="Renomear cameras selecionadas">
+                  <i data-lucide="pencil"></i><span>Renomear</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamPass" title="Trocar senha">
+                  <i data-lucide="shield"></i><span>Senha</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamTimeCheck" title="Verificar hora das cameras">
+                  <i data-lucide="clock-alert"></i><span>Hora camera</span>
+                </button>
+              </div>
+            </div>
+            <div class="mnt-action-section">
+              <span class="mnt-action-label">Imagem</span>
+              <div class="mnt-actions-group">
+                <button class="mnt-action-btn" id="btnMntCamDayNight" title="Modo dia/noite">
+                  <i data-lucide="sun-moon"></i><span>Dia/Noite</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamMirror" title="Espelhar ou virar imagem">
+                  <i data-lucide="flip-horizontal-2"></i><span>Espelhar</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamQuality" title="Qualidade de video">
+                  <i data-lucide="sliders-horizontal"></i><span>Qualidade</span>
+                </button>
+              </div>
+            </div>
+            <div class="mnt-action-section">
+              <span class="mnt-action-label">Rede</span>
+              <div class="mnt-actions-group">
+                <button class="mnt-action-btn" id="btnMntCamNtp" title="Sincronizar data e hora via NTP">
+                  <i data-lucide="clock"></i><span>Acertar NTP</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamNetwork" title="Alterar IP, mascara e gateway das cameras selecionadas">
+                  <i data-lucide="network"></i><span>Rede</span>
+                </button>
+                <button class="mnt-action-btn" id="btnMntCamShiftIp" title="Deslocar intervalo de IPs em lote">
+                  <i data-lucide="arrow-right-left"></i><span>Deslocar IPs</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- Filtros + seleção -->
+        <!-- Filtros + selecao -->
         <div class="mnt-filter-bar">
-          <input type="text" class="mnt-search" id="mntCamSearch" placeholder="Buscar por nome ou IP…">
-          <select id="mntCamSite"><option value="">Todos os sites</option></select>
+          <label class="mnt-search-box">
+            <i data-lucide="search"></i>
+            <input type="text" class="mnt-search" id="mntCamSearch" placeholder="Buscar por nome, IP, MAC ou modelo">
+          </label>
+          <select id="mntCamSite" class="mnt-filter-select"><option value="">Todos os sites</option></select>
           <div class="mnt-status-btns">
             <button class="mnt-status-btn active" data-mnt-status="">Todos</button>
-            <button class="mnt-status-btn" data-mnt-status="online">● Online</button>
-            <button class="mnt-status-btn" data-mnt-status="offline">● Offline</button>
+            <button class="mnt-status-btn" data-mnt-status="online"><span class="status-dot-mini online"></span>Online</button>
+            <button class="mnt-status-btn" data-mnt-status="offline"><span class="status-dot-mini offline"></span>Offline</button>
           </div>
-          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <div class="mnt-selection-actions">
             <span id="mntCamSelectedCount" style="font-size:12px;color:var(--muted);white-space:nowrap">0 selecionadas</span>
             <button class="secondary-action" id="btnMntCamSelectAll"><i data-lucide="check-square"></i> Todas</button>
             <button class="secondary-action" id="btnMntCamDeselect"><i data-lucide="square"></i> Limpar</button>
@@ -816,26 +954,26 @@
 
         <!-- Grid de cards -->
         <div class="mnt-cam-grid" id="mntCamGrid">
-          <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando…</div>
+          <div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando-</div>
         </div>
 
         <!-- Console de log (fixo na base) -->
         <div class="mnt-console hidden" id="mntCamConsole">
           <div class="mnt-console-header">
-            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execu--o</span>
             <button onclick="document.getElementById('mntCamConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
           </div>
           <div class="mnt-console-body" id="mntCamConsoleBody"></div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: MANUTENÇÃO DVR ═══ -->
+      <!-- --- VIEW: MANUTEN--O DVR --- -->
       <section class="workspace hidden" id="viewMntDvr">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Manutenção</p>
+            <p class="eyebrow">Manutencao</p>
             <h1>DVR</h1>
-            <p>Operações em lote nos gravadores DVR.</p>
+            <p>Operacoes em lote nos gravadores DVR.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnMntDvrRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
@@ -845,7 +983,7 @@
         <div class="panel mnt-action-bar">
           <div class="mnt-cred-group">
             <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
-            <span class="mnt-cred-label">Usuário</span>
+            <span class="mnt-cred-label">Usuario</span>
             <input type="text" id="mntDvrUser" value="admin" placeholder="admin" class="mnt-cred-input">
             <span class="mnt-cred-sep"></span>
             <span class="mnt-cred-label">Senha</span>
@@ -862,7 +1000,7 @@
           <div class="panel-header">
             <div>
               <h2>Gravadores DVR</h2>
-              <p>Marque e execute a operação em lote</p>
+              <p>Marque e execute a operacao em lote</p>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <span id="mntDvrSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
@@ -882,27 +1020,27 @@
                 </tr>
               </thead>
               <tbody id="mntDvrTable">
-                <tr class="empty-row"><td colspan="6">Carregando…</td></tr>
+                <tr class="empty-row"><td colspan="6">Carregando-</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         <div class="mnt-console hidden" id="mntDvrConsole">
           <div class="mnt-console-header">
-            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execu--o</span>
             <button onclick="document.getElementById('mntDvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
           </div>
           <div class="mnt-console-body" id="mntDvrConsoleBody"></div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: MANUTENÇÃO NVR ═══ -->
+      <!-- --- VIEW: MANUTEN--O NVR --- -->
       <section class="workspace hidden" id="viewMntNvr">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Manutenção</p>
-            <h1>NVR</h1>
-            <p>Operações em lote nos gravadores NVR.</p>
+            <p class="eyebrow">Manutencao</p>
+            <h1>Gravadores</h1>
+            <p>Operacoes em lote nos gravadores.</p>
           </div>
           <div class="page-heading-actions">
             <button class="secondary-action" id="btnMntNvrRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
@@ -912,7 +1050,7 @@
         <div class="panel mnt-action-bar">
           <div class="mnt-cred-group">
             <i data-lucide="key-round" style="width:14px;height:14px;color:var(--muted);flex-shrink:0"></i>
-            <span class="mnt-cred-label">Usuário</span>
+            <span class="mnt-cred-label">Usuario</span>
             <input type="text" id="mntNvrUser" value="admin" placeholder="admin" class="mnt-cred-input">
             <span class="mnt-cred-sep"></span>
             <span class="mnt-cred-label">Senha</span>
@@ -928,8 +1066,8 @@
         <div class="panel">
           <div class="panel-header">
             <div>
-              <h2>Gravadores NVR</h2>
-              <p>Marque e execute a operação em lote</p>
+            <p>Operacoes em lote nos gravadores.</p>
+              <p>Marque e execute a operacao em lote</p>
             </div>
             <div style="display:flex;gap:8px;align-items:center">
               <span id="mntNvrSelectedCount" style="font-size:12px;color:var(--muted)">0 selecionados</span>
@@ -949,34 +1087,34 @@
                 </tr>
               </thead>
               <tbody id="mntNvrTable">
-                <tr class="empty-row"><td colspan="6">Carregando…</td></tr>
+                <tr class="empty-row"><td colspan="6">Carregando-</td></tr>
               </tbody>
             </table>
           </div>
         </div>
         <div class="mnt-console hidden" id="mntNvrConsole">
           <div class="mnt-console-header">
-            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execução</span>
+            <span><i data-lucide="terminal" style="width:13px;height:13px;margin-right:6px"></i>Log de execu--o</span>
             <button onclick="document.getElementById('mntNvrConsole').classList.add('hidden')"><i data-lucide="x" style="width:14px;height:14px"></i></button>
           </div>
           <div class="mnt-console-body" id="mntNvrConsoleBody"></div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: REPRODUCAO DVR ═══ -->
+      <!-- --- VIEW: REPRODUCAO DVR --- -->
       <section class="workspace hidden" id="viewPlayback">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Análise</p>
-            <h1>Reprodução</h1>
-            <p>Consulta direta em gravações Intelbras por DVR, canal e horário.</p>
+            <p class="eyebrow">Analise</p>
+            <h1>Reproducao</h1>
+            <p>Consulta direta em grava--es Intelbras por DVR, canal e hor-rio.</p>
           </div>
         </div>
 
         <div class="playback-layout">
           <div class="panel playback-panel">
             <div class="panel-header">
-              <div><h2>Busca de gravação</h2><p>DVR Intelbras via HTTP Digest</p></div>
+              <div><h2>Busca de gravacao</h2><p>DVR Intelbras via HTTP Digest</p></div>
             </div>
             <form id="playbackForm" class="playback-form">
               <div class="form-row">
@@ -991,7 +1129,7 @@
               </div>
               <div class="form-row">
                 <div class="form-group">
-                  <label for="playbackUser">Usuário</label>
+                  <label for="playbackUser">Usuario</label>
                   <input id="playbackUser" autocomplete="username" value="admin" required>
                 </div>
                 <div class="form-group">
@@ -1014,7 +1152,7 @@
               </div>
               <div class="form-row">
                 <div class="form-group">
-                  <label for="playbackStart">Início</label>
+                  <label for="playbackStart">Inicio</label>
                   <input id="playbackStart" type="time" step="1" required>
                 </div>
                 <div class="form-group">
@@ -1045,7 +1183,7 @@
               <div><h2>Resultado</h2><p id="playbackStatus">Aguardando consulta.</p></div>
             </div>
             <div class="playback-result">
-              <img id="playbackPreview" class="playback-preview hidden" alt="Frame da gravação">
+              <img id="playbackPreview" class="playback-preview hidden" alt="Frame da gravacao">
               <div id="playbackDownloads" class="playback-downloads"></div>
               <div id="playbackFramesGrid" class="playback-frames-grid"></div>
             </div>
@@ -1053,46 +1191,46 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: IA NVR ═══ -->
+      <!-- --- VIEW: IA NVR --- -->
       <section class="workspace hidden" id="viewIaNvr">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Análise</p>
-            <h1>IA · NVR</h1>
-            <p>Indexação e busca inteligente nas gravações dos NVRs.</p>
+            <p class="eyebrow">Analise</p>
+            <h1>IA - NVR</h1>
+            <p>Indexacao e busca inteligente nas grava--es dos NVRs.</p>
           </div>
           <button class="primary-action" id="btnIaIndex"><i data-lucide="cpu"></i> Indexar</button>
         </div>
         <div class="metrics">
           <article>
             <div class="metric-icon blue"><i data-lucide="film"></i></div>
-            <div><span>Gravações indexadas</span><strong id="mIaIndexed">—</strong></div>
+            <div><span>Grava--es indexadas</span><strong id="mIaIndexed">-</strong></div>
           </article>
           <article>
             <div class="metric-icon cyan"><i data-lucide="search"></i></div>
-            <div><span>Buscas realizadas</span><strong id="mIaSearches">—</strong></div>
+            <div><span>Buscas realizadas</span><strong id="mIaSearches">-</strong></div>
           </article>
         </div>
         <div class="panel">
           <div class="panel-header">
-            <div><h2>Busca semântica</h2><p>Descreva o que quer encontrar nas gravações</p></div>
+            <div><h2>Busca sem-ntica</h2><p>Descreva o que quer encontrar nas grava--es</p></div>
           </div>
           <div style="padding:20px">
             <div style="display:flex;gap:10px">
               <label class="search-box" style="flex:1">
                 <i data-lucide="search"></i>
-                <input id="iaNvrQuery" placeholder="Ex: pessoa de camisa vermelha…">
+                <input id="iaNvrQuery" placeholder="Ex: pessoa de camisa vermelha-">
               </label>
               <button class="primary-action" id="btnIaSearch"><i data-lucide="search"></i> Buscar</button>
             </div>
           </div>
           <div id="iaNvrResults" style="padding:0 20px 20px;color:var(--muted);font-size:13px">
-            Faça uma busca para ver os resultados.
+            Fa-a uma busca para ver os resultados.
           </div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: REDE DISPOSITIVOS ═══ -->
+      <!-- --- VIEW: REDE DISPOSITIVOS --- -->
       <section class="workspace hidden" id="viewNetDevices">
         <div class="page-heading">
           <div>
@@ -1106,7 +1244,7 @@
           <div class="filters">
             <label class="search-box" style="flex:1">
               <i data-lucide="search"></i>
-              <input id="searchNetDevices" placeholder="Buscar hostname ou IP…">
+              <input id="searchNetDevices" placeholder="Buscar hostname ou IP-">
             </label>
           </div>
           <div class="table-wrap">
@@ -1121,20 +1259,20 @@
                 </tr>
               </thead>
               <tbody id="netDevicesTable">
-                <tr class="empty-row"><td colspan="5">Carregando…</td></tr>
+                <tr class="empty-row"><td colspan="5">Carregando-</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: OLT ═══ -->
+      <!-- --- VIEW: OLT --- -->
       <section class="workspace hidden" id="viewOlt">
         <div class="page-heading">
           <div>
             <p class="eyebrow">Infraestrutura</p>
-            <h1>OLT · MACs por ONU</h1>
-            <p>Saída do bridge show mac gpon — CPEs conectadas nas ONUs.</p>
+            <h1>OLT - MACs por ONU</h1>
+            <p>Sa-da do bridge show mac gpon - CPEs conectadas nas ONUs.</p>
           </div>
           <div style="display:flex;gap:8px">
             <button class="secondary-action" id="btnOltClearTable"><i data-lucide="trash-2"></i> Apagar</button>
@@ -1144,18 +1282,18 @@
 
         <!-- Resumo -->
         <div class="inv-summary">
-          <span>Total: <strong id="oltTotal">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span>Sites: <strong id="oltSiteCount">—</strong></span>
-          <span class="inv-sum-sep">·</span>
-          <span>OLTs: <strong id="oltCount">—</strong></span>
+          <span>Total: <strong id="oltTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>Sites: <strong id="oltSiteCount">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>OLTs: <strong id="oltCount">-</strong></span>
         </div>
 
         <!-- Filtros -->
         <div class="filters" style="padding:0 0 12px;border:none">
           <label class="search-box" style="flex:1">
             <i data-lucide="search"></i>
-            <input id="oltSearch" placeholder="Buscar: site, OLT IP, PON, ONU, serial, MAC, VLAN…">
+            <input id="oltSearch" placeholder="Buscar: site, OLT IP, PON, ONU, serial, MAC, VLAN-">
           </label>
           <select class="filter-select" id="oltFilterSite">
             <option value="">Todos os sites</option>
@@ -1189,13 +1327,13 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: SWITCH ═══ -->
+      <!-- --- VIEW: SWITCH --- -->
       <section class="workspace hidden" id="viewSwitch">
         <div class="page-heading">
           <div>
             <p class="eyebrow">Infraestrutura</p>
             <h1>Switch</h1>
-            <p>Coleta de MACs dos switches gerenciáveis.</p>
+            <p>Coleta de MACs dos switches gerenci-veis.</p>
           </div>
           <button class="primary-action" id="btnScanSwitch"><i data-lucide="scan-search"></i> Coletar MACs</button>
         </div>
@@ -1207,7 +1345,7 @@
                   <th>Porta</th>
                   <th>MAC</th>
                   <th>VLAN</th>
-                  <th>Câmera</th>
+                  <th>Camera</th>
                 </tr>
               </thead>
               <tbody id="switchTable">
@@ -1219,19 +1357,19 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: KMZ / MAPA ═══ -->
+      <!-- --- VIEW: KMZ / MAPA --- -->
       <section class="hidden" id="viewKmz" style="display:flex;flex-direction:column;height:calc(100vh - 68px);padding:0">
 
         <!-- Topbar do mapa -->
         <div style="display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
           <div style="flex:1;min-width:0">
-            <strong style="font-size:14px">Mapa de Câmeras</strong>
-            <span style="font-size:11px;color:var(--muted);margin-left:8px" id="mapCounter">—</span>
+            <strong style="font-size:14px">Mapa de Cameras</strong>
+            <span style="font-size:11px;color:var(--muted);margin-left:8px" id="mapCounter">-</span>
           </div>
           <!-- Legenda -->
           <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#16a34a;border:1px solid white"></span>Câmera online</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#dc2626;border:1px solid white"></span>Câmera offline</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#16a34a;border:1px solid white"></span>Camera online</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#dc2626;border:1px solid white"></span>Camera offline</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:11px;border-radius:2px;background:#1971c2;border:1px solid white"></span>CTO</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:16px;height:9px;border-radius:5px;background:#7950f2;border:1px solid white"></span>Emenda/CDO</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:12px;border-radius:50% 50% 50% 0;background:#d97706;border:1px solid white;transform:rotate(-45deg)"></span>Outros</span>
@@ -1245,18 +1383,18 @@
           <select class="filter-select" id="mapFilterSite" style="font-size:12px;padding:5px 8px">
             <option value="">Todos os sites</option>
           </select>
-          <!-- Ações -->
+          <!-- A--es -->
           <button class="secondary-action" id="btnMapReload" style="font-size:12px;padding:5px 12px"><i data-lucide="refresh-cw"></i> Atualizar</button>
           <button class="primary-action" id="btnMapTools" style="font-size:12px;padding:5px 14px"><i data-lucide="settings-2"></i> Ferramentas KMZ</button>
         </div>
 
         <div style="display:flex;flex:1;min-height:0">
 
-          <!-- Painel lateral — só camadas -->
+          <!-- Painel lateral - s- camadas -->
           <div style="width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column">
             <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Camadas</div>
             <div id="mapLayersList" style="padding:8px;display:flex;flex-direction:column;gap:4px">
-              <div style="font-size:12px;color:var(--muted);padding:6px;text-align:center">Carregando…</div>
+              <div style="font-size:12px;color:var(--muted);padding:6px;text-align:center">Carregando-</div>
             </div>
           </div>
 
@@ -1265,27 +1403,27 @@
         </div>
       </section>
 
-      <!-- ═══ VIEW: GRAFANA ═══ -->
+      <!-- --- VIEW: GRAFANA --- -->
       <section class="workspace hidden" id="viewScriptGrafana" style="display:flex;flex-direction:column">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Integrações</p>
+            <p class="eyebrow">Integracoes</p>
             <h1>Grafana</h1>
-            <p>Importa o dashboard de câmeras no Grafana via API.</p>
+            <p>Importa o dashboard de cameras no Grafana via API.</p>
           </div>
           <a href="http://10.10.12.7:3000" target="_blank" class="secondary-action" style="text-decoration:none">
             <i data-lucide="external-link"></i> Abrir Grafana
           </a>
         </div>
 
-        <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;flex:1;min-height:0;overflow:hidden">
+        <div class="grafana-layout">
 
-          <!-- Configuração -->
-          <div class="panel" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
+          <!-- Configuracao -->
+          <div class="panel grafana-config-card" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
 
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conexão Grafana</span>
-              <span class="info-tip" data-tip="Cria/atualiza um dashboard no Grafana com status das câmeras via Zabbix. Requer o plugin alexanderzobnin-zabbix-app instalado."><i data-lucide="info" style="width:13px;height:13px"></i></span>
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conex-o Grafana</span>
+              <span class="info-tip" data-tip="Cria/atualiza um dashboard no Grafana com status das cameras via Zabbix. Requer o plugin alexanderzobnin-zabbix-app instalado."><i data-lucide="info" style="width:13px;height:13px"></i></span>
             </div>
             <div class="form-group" style="margin:0">
               <label>URL do Grafana</label>
@@ -1307,8 +1445,8 @@
             <div style="border-top:1px solid var(--border);padding-top:12px">
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Como gerar a API Key</div>
               <ol style="font-size:12px;color:var(--muted);margin:0;padding-left:16px;line-height:1.8">
-                <li>Abra o Grafana → <strong>Administration</strong></li>
-                <li>Vá em <strong>Service Accounts</strong></li>
+                <li>Abra o Grafana ? <strong>Administration</strong></li>
+                <li>V- em <strong>Service Accounts</strong></li>
                 <li>Crie uma conta com papel <strong>Editor</strong></li>
                 <li>Gere um token e cole aqui</li>
               </ol>
@@ -1321,53 +1459,39 @@
             </div>
           </div>
 
-          <!-- Log — preenche toda altura -->
-          <div class="panel" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
+          <!-- Log - preenche toda altura -->
+          <div class="panel grafana-log-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
               <div>
-                <strong style="font-size:14px">Log de execução</strong>
-                <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da importação no Grafana</span>
+                <strong style="font-size:14px">Log de execu--o</strong>
+                <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da importacao no Grafana</span>
               </div>
               <span id="gfStatusBadge" style="display:none;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600"></span>
             </div>
-            <div class="ws-log" id="grafanaLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuração…</div>
+            <div class="ws-log grafana-log-terminal" id="grafanaLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuracao-</div>
           </div>
         </div>
       </section>
-
-      <section class="workspace hidden" id="viewScriptNetwatch">
-        <div class="page-heading">
-          <div><p class="eyebrow">Scripts</p><h1>Netwatch</h1><p>Exportação de scripts Netwatch para Mikrotik.</p></div>
-          <div style="display:flex;gap:8px">
-            <button class="secondary-action" id="btnDownloadNetwatch"><i data-lucide="download"></i> Download</button>
-            <button class="primary-action" id="btnGenNetwatch"><i data-lucide="activity"></i> Gerar</button>
-          </div>
-        </div>
-        <div class="panel" style="padding:20px">
-          <div class="ws-log" id="netwatchLog">Clique em Gerar para executar…</div>
-        </div>
-      </section>
-
-      <section class="workspace hidden" id="viewScriptZabbix" style="display:flex;flex-direction:column">
+<section class="workspace hidden" id="viewScriptZabbix" style="display:flex;flex-direction:column">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Integrações</p>
+            <p class="eyebrow">Integracoes</p>
             <h1>Zabbix</h1>
-            <p>Sincroniza o inventário de câmeras como hosts no Zabbix.</p>
+            <p>Sincroniza o invent-rio de cameras como hosts no Zabbix.</p>
           </div>
           <a href="http://10.10.12.7:8081" target="_blank" class="secondary-action" style="text-decoration:none">
             <i data-lucide="external-link"></i> Abrir Zabbix
           </a>
         </div>
 
-        <div style="display:grid;grid-template-columns:340px 1fr;gap:16px;flex:1;min-height:0;overflow:hidden">
+        <div class="grafana-layout">
 
-          <!-- Configuração (coluna esquerda) -->
-          <div class="panel" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
+          <!-- Configuracao (coluna esquerda) -->
+          <div class="panel grafana-config-card" style="overflow-y:auto;overflow-x:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0">
 
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conexão Zabbix</span>
-              <span class="info-tip" data-tip="Exporta câmeras do inventário como hosts no Zabbix. Hosts existentes são atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
+              <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Conex-o Zabbix</span>
+              <span class="info-tip" data-tip="Exporta cameras do invent-rio como hosts no Zabbix. Hosts existentes s-o atualizados, novos criados automaticamente. A mensagem do Telegram se adapta ao modo OLT ou Switch."><i data-lucide="info" style="width:13px;height:13px"></i></span>
             </div>
             <div class="form-group" style="margin:0">
               <label>URL</label>
@@ -1375,32 +1499,32 @@
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0">
               <div class="form-group" style="margin:0;min-width:0">
-                <label>Usuário</label>
+                <label>Usuario</label>
                 <input id="zbxUser" type="text" placeholder="Admin" style="width:100%">
               </div>
               <div class="form-group" style="margin:0;min-width:0">
                 <label>Senha</label>
-                <input id="zbxPass" type="password" placeholder="••••••••" style="width:100%">
+                <input id="zbxPass" type="password" placeholder="********" style="width:100%">
               </div>
             </div>
 
             <div style="border-top:1px solid var(--border);margin:4px 0"></div>
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Configuração</div>
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Configuracao</div>
 
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0">
               <div class="form-group" style="margin:0;min-width:0">
                 <label>Fonte</label>
                 <select id="zbxSource" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;outline:none">
-                  <optgroup label="Câmeras IP">
-                    <option value="ip">Câmeras IP · Básico</option>
-                    <option value="ip-olt">Câmeras IP · Via OLT (+ PON/ONU)</option>
-                    <option value="ip-switch">Câmeras IP · Via Switch (+ Porta/VLAN)</option>
+                  <optgroup label="Cameras IP">
+                    <option value="ip">Cameras IP - Basico</option>
+                    <option value="ip-olt">Cameras IP - Via OLT (+ PON/ONU)</option>
+                    <option value="ip-switch">Cameras IP - Via Switch (+ Porta/VLAN)</option>
                   </optgroup>
                   <optgroup label="Gravadores">
-                    <option value="dvr">DVR · Analógico</option>
-                    <option value="nvr">NVR · IP · Básico</option>
-                    <option value="nvr-olt">NVR · IP · Via OLT (+ PON/ONU)</option>
-                    <option value="nvr-switch">NVR · IP · Via Switch (+ Porta/VLAN)</option>
+                    <option value="dvr">DVR - Anal-gico</option>
+                    <option value="nvr">NVR - IP - Basico</option>
+                    <option value="nvr-olt">NVR - IP - Via OLT (+ PON/ONU)</option>
+                    <option value="nvr-switch">NVR - IP - Via Switch (+ Porta/VLAN)</option>
                   </optgroup>
                 </select>
               </div>
@@ -1423,12 +1547,12 @@
               <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Credenciais DVR/NVR</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0">
                 <div class="form-group" style="margin:0;min-width:0">
-                  <label>Usuário</label>
+                  <label>Usuario</label>
                   <input id="zbxDvrUser" type="text" value="admin" style="width:100%">
                 </div>
                 <div class="form-group" style="margin:0;min-width:0">
                   <label>Senha</label>
-                  <input id="zbxDvrPass" type="password" placeholder="••••••••" style="width:100%">
+                  <input id="zbxDvrPass" type="password" placeholder="********" style="width:100%">
                 </div>
               </div>
             </div>
@@ -1437,7 +1561,7 @@
             <div style="border-top:1px solid var(--border);padding-top:12px">
               <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
                 <input type="checkbox" id="zbxTgAuto" style="accent-color:var(--primary);width:15px;height:15px">
-                <span style="font-size:13px;font-weight:600">Notificações Telegram</span>
+                <span style="font-size:13px;font-weight:600">Notifica--es Telegram</span>
               </label>
               <div id="zbxTgFields" style="display:none">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0">
@@ -1460,34 +1584,112 @@
             </div>
           </div>
 
-          <!-- Log — preenche toda altura -->
-          <div class="panel" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
+          <!-- Log - preenche toda altura -->
+          <div class="panel grafana-log-card" style="padding:0;overflow:hidden;display:flex;flex-direction:column;height:100%">
             <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
               <div>
-                <strong style="font-size:14px">Log de execução</strong>
-                <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da sincronização com o Zabbix</span>
+                <strong style="font-size:14px">Log de execu--o</strong>
+                <span style="font-size:12px;color:var(--muted);margin-left:8px">Resultado da sincronizacao com o Zabbix</span>
               </div>
               <span id="zbxStatusBadge" style="display:none;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600"></span>
             </div>
-            <div class="ws-log" id="zabbixLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuração…</div>
+            <div class="ws-log grafana-log-terminal" id="zabbixLog" style="flex:1;border-radius:0;min-height:0">Aguardando configuracao-</div>
           </div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: FERRAMENTAS ═══ -->
+      <!-- --- VIEW: FERRAMENTAS --- -->
       <section class="workspace hidden" id="viewTools">
         <div class="page-heading">
-          <div><p class="eyebrow">Ferramentas</p><h1>Ferramentas</h1><p>Utilitários de diagnóstico e configuração.</p></div>
+          <div><p class="eyebrow">Ferramentas</p><h1>Ferramentas</h1><p>Utilit-rios de diagn-stico e configuracao.</p></div>
         </div>
         <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">
-          Em construção.
+          Em constru--o.
         </div>
       </section>
 
-      <!-- ═══ VIEW: BACKUP ═══ -->
+      <!-- --- VIEW: CONECTORES --- -->
+      <section class="workspace hidden" id="viewConnectors">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">SaaS</p>
+            <h1>Conectores</h1>
+            <p>Agentes Windows instalados nos clientes para coletar dados locais.</p>
+          </div>
+          <button class="primary-action" id="btnConnectorRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+
+        <div class="connectors-layout">
+          <div class="panel connector-card">
+            <div class="panel-header">
+              <div><h2>Novo conector</h2><p>Gere um token e baixe o agente PowerShell.</p></div>
+            </div>
+            <div class="connector-form">
+              <label>Nome
+                <input id="connName" placeholder="Cliente - Matriz">
+              </label>
+              <label>Cliente
+                <input id="connClient" placeholder="Perucaba">
+              </label>
+              <label>Site
+                <input id="connSite" placeholder="Reserva">
+              </label>
+              <button class="primary-action" id="btnCreateConnector" style="width:100%;justify-content:center">
+                <i data-lucide="plus"></i> Criar conector
+              </button>
+            </div>
+            <div class="connector-token-box hidden" id="connCreatedBox">
+              <strong>Conector criado</strong>
+              <span id="connCreatedText"></span>
+              <button class="secondary-action" id="btnDownloadCreatedAgent">
+                <i data-lucide="download"></i> Baixar agente
+              </button>
+            </div>
+          </div>
+
+          <div class="panel connector-card connector-main-card">
+            <div class="panel-header">
+              <div><h2>Agentes</h2><p id="connectorsSummary">Carregando.</p></div>
+            </div>
+            <div class="table-wrap connectors-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Conector</th>
+                    <th>Cliente</th>
+                    <th>Site</th>
+                    <th>Status</th>
+                    <th>Host</th>
+                    <th>IP remoto</th>
+                    <th>Ultimo sinal</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="connectorsTable">
+                  <tr class="empty-row"><td colspan="8">Carregando.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel connector-jobs-panel">
+          <div class="panel-header">
+            <div><h2>Teste remoto</h2><p>Envie um job de ping para o agente selecionado.</p></div>
+          </div>
+          <div class="connector-job-form">
+            <select id="connJobConnector"></select>
+            <input id="connJobTargets" placeholder="8.8.8.8, 10.10.12.7 ou 192.168.0.1-192.168.0.10">
+            <button class="primary-action" id="btnSendPingJob"><i data-lucide="send"></i> Enviar ping</button>
+          </div>
+          <div class="connector-job-log" id="connectorJobsLog">Nenhum job enviado ainda.</div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: BACKUP --- -->
       <section class="workspace hidden" id="viewBackup">
         <div class="page-heading">
-          <div><p class="eyebrow">Sistema</p><h1>Backup</h1><p>Exportação e importação do banco de dados.</p></div>
+          <div><p class="eyebrow">Sistema</p><h1>Backup</h1><p>Exportacao e importacao do banco de dados.</p></div>
           <div style="display:flex;gap:8px">
             <button class="secondary-action" id="btnImportBackup"><i data-lucide="upload"></i> Importar</button>
             <button class="primary-action" id="btnExportBackup"><i data-lucide="download"></i> Exportar</button>
@@ -1497,44 +1699,114 @@
           <div class="panel-header">
             <div><h2>Status do banco</h2></div>
           </div>
-          <div id="backupStatus" style="padding:20px;color:var(--muted);font-size:13px">Carregando…</div>
+          <div id="backupStatus" style="padding:20px;color:var(--muted);font-size:13px">Carregando-</div>
         </div>
       </section>
 
-      <!-- ═══ VIEW: CONFIGURAÇÕES ═══ -->
+      <!-- --- VIEW: CONFIGURA--ES --- -->
       <section class="workspace hidden" id="viewSettings">
         <div class="page-heading">
-          <div><p class="eyebrow">Sistema</p><h1>Configurações</h1><p>Usuários, banco de dados e parâmetros gerais.</p></div>
+          <div><p class="eyebrow">Sistema</p><h1>Configuracoes</h1><p>Usuarios, banco de dados e parametros gerais.</p></div>
         </div>
         <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">
-          Em construção.
+          Em constru--o.
         </div>
       </section>
 
-      <!-- Views stub para subpáginas não implementadas -->
+      <!-- Views stub para subp-ginas nao implementadas -->
       <section class="workspace hidden" id="viewInvSwitch">
-        <div class="page-heading"><div><p class="eyebrow">Inventário</p><h1>Câmeras via Switch</h1><p>Câmeras descobertas via varredura no switch gerenciável.</p></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em construção.</div>
+        <div class="page-heading"><div><p class="eyebrow">Inventario</p><h1>Cameras via Switch</h1><p>Cameras descobertas via varredura no switch gerenciavel.</p></div></div>
+        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
       <section class="workspace hidden" id="viewNetLearn">
         <div class="page-heading"><div><p class="eyebrow">Rede</p><h1>Aprendizado</h1></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em construção.</div>
+        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
       <section class="workspace hidden" id="viewNetOperate">
-        <div class="page-heading"><div><p class="eyebrow">Rede</p><h1>Operações</h1></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em construção.</div>
+        <div class="page-heading"><div><p class="eyebrow">Rede</p><h1>Operacoes</h1></div></div>
+        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
 
     </main>
   </div>
 
-  <!-- ═══ MODAL: EDITAR CÂMERAS ═══ -->
+  <!-- --- MODAL: EDITAR C-MERAS --- -->
+  <div id="modalWinScan" class="modal-backdrop hidden" onclick="if(event.target===this)closeWinScanModal()">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Windows</p><h2>Varredura remota</h2></div>
+        <button class="icon-button" id="closeWinScan"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:1fr 120px;gap:12px;margin-bottom:12px">
+          <label style="font-size:13px;color:var(--muted)">Alvo, range, CIDR ou lista
+            <input id="winScanTargets" placeholder="10.10.12.20-10.10.12.60" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+          <label style="font-size:13px;color:var(--muted)">Timeout
+            <input id="winScanTimeout" type="number" min="1" max="30" value="8" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="font-size:13px;color:var(--muted)">Usuario
+            <input id="winScanUser" value="Administrador" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+          <label style="font-size:13px;color:var(--muted)">Senha
+            <input id="winScanPass" type="password" placeholder="Senha do Windows" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <label style="font-size:13px;color:var(--muted)">Dominio opcional
+            <input id="winScanDomain" placeholder="DOMINIO" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+          <label style="font-size:13px;color:var(--muted)">Concorrencia
+            <input id="winScanConcurrency" type="number" min="1" max="128" value="32" style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--border);border-radius:8px">
+          </label>
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:end;gap:8px;padding-bottom:11px">
+            <input id="winScanHttps" type="checkbox"> WinRM HTTPS
+          </label>
+        </div>
+        <div id="winScanLog" class="mnt-console-body" style="min-height:92px;max-height:180px;border-radius:8px">Aguardando inicio...</div>
+        <p id="winScanErro" class="form-error" hidden style="margin-top:10px"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelWinScan">Fechar</button>
+        <button class="primary-action" id="startWinScan"><i data-lucide="scan-search"></i> Executar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalWinPhysical" class="modal-backdrop hidden" onclick="if(event.target===this)closeWinPhysicalModal()">
+    <div class="modal" style="max-width:min(94vw,860px);width:94vw">
+      <div class="modal-header">
+        <div><p class="eyebrow">Windows</p><h2 id="winPhysicalTitle">Editar caminho fisico</h2></div>
+        <button class="icon-button" id="closeWinPhysical"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+          <label style="font-size:13px;color:var(--muted)">Switch<input id="winPhysicalSwitchName" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Porta switch<input id="winPhysicalSwitchPort" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Patch panel<input id="winPhysicalPatchPanel" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Porta patch<input id="winPhysicalPatchPort" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Tomada<input id="winPhysicalOutlet" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Rack<input id="winPhysicalRack" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Cabo<input id="winPhysicalCableId" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted)">Patrimonio<input id="winPhysicalAssetTag" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+          <label style="font-size:13px;color:var(--muted);grid-column:1/-1">Observacoes<input id="winPhysicalNotes" style="width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--border);border-radius:8px"></label>
+        </div>
+        <p id="winPhysicalErro" class="form-error" hidden style="margin-top:12px"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelWinPhysical">Cancelar</button>
+        <button class="primary-action" id="saveWinPhysical"><i data-lucide="check"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
   <div id="modalEditCam" class="modal-backdrop hidden">
     <div class="modal" style="max-width:min(96vw,1100px);width:96vw">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Inventário</p>
-          <h2 id="modalEditCamTitle">Editar câmeras</h2>
+          <p class="eyebrow">Inventario</p>
+          <h2 id="modalEditCamTitle">Editar cameras</h2>
         </div>
         <button id="closeEditCam" class="icon-button"><i data-lucide="x"></i></button>
       </div>
@@ -1543,7 +1815,7 @@
           <table class="data-table" id="editCamTable" style="table-layout:fixed;width:100%;min-width:1000px">
             <colgroup>
               <col style="width:90px">  <!-- IP -->
-              <col style="width:16%">   <!-- Título -->
+              <col style="width:16%">   <!-- Titulo -->
               <col style="width:9%">    <!-- Fabricante -->
               <col style="width:10%">   <!-- Modelo -->
               <col style="width:9%">    <!-- Local -->
@@ -1556,7 +1828,7 @@
             <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
               <tr>
                 <th>IP</th>
-                <th>Título</th>
+                <th>Titulo</th>
                 <th>Fabricante</th>
                 <th>Modelo</th>
                 <th>Local</th>
@@ -1576,7 +1848,7 @@
             Renomear no equipamento
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:140px">
-            Usuário
+            Usuario
             <input id="editCamDeviceUser" type="text" value="admin" autocomplete="off" style="padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)">
           </label>
           <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:180px">
@@ -1593,12 +1865,12 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: EDITAR GRAVADORES ═══ -->
+  <!-- --- MODAL: EDITAR GRAVADORES --- -->
   <div id="modalEditRec" class="modal-backdrop hidden">
     <div class="modal" style="max-width:min(96vw,1200px);width:96vw">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Inventário</p>
+          <p class="eyebrow">Inventario</p>
           <h2 id="modalEditRecTitle">Editar canais</h2>
         </div>
         <button id="closeEditRec" class="icon-button"><i data-lucide="x"></i></button>
@@ -1623,10 +1895,10 @@
               <tr>
                 <th>Host</th>
                 <th>CH</th>
-                <th>Título</th>
+                <th>Titulo</th>
                 <th>Local</th>
                 <th>Modelo</th>
-                <th>IP câmera</th>
+                <th>IP camera</th>
                 <th>MAC</th>
                 <th>PON</th>
                 <th>ONU ID</th>
@@ -1646,29 +1918,29 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: TROCAR IP ═══ -->
+  <!-- --- MODAL: TROCAR IP --- -->
   <div id="modalCamAuthAction" class="modal-backdrop hidden">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow" id="camAuthEyebrow">Câmera</p>
-          <h2 id="camAuthTitle">Confirmar ação</h2>
+          <p class="eyebrow" id="camAuthEyebrow">Camera</p>
+          <h2 id="camAuthTitle">Confirmar acao</h2>
         </div>
         <button class="icon-button" id="closeCamAuthAction"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Câmera</label>
+          <label>Camera</label>
           <input id="camAuthIp" type="text" disabled>
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="camAuthUser" type="text" value="admin" autocomplete="off">
           </div>
           <div class="form-group">
             <label>Senha</label>
-            <input id="camAuthPass" type="password" placeholder="Senha da câmera" autocomplete="new-password">
+            <input id="camAuthPass" type="password" placeholder="Senha da camera" autocomplete="new-password">
           </div>
         </div>
         <p id="camAuthErro" class="login-error" hidden></p>
@@ -1685,7 +1957,7 @@
       <div class="modal-header">
         <div>
           <p class="eyebrow" id="recActionEyebrow">Gravador</p>
-          <h2 id="recActionTitle">Confirmar ação</h2>
+          <h2 id="recActionTitle">Confirmar acao</h2>
         </div>
         <button class="icon-button" id="closeRecAction"><i data-lucide="x"></i></button>
       </div>
@@ -1696,7 +1968,7 @@
         </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="recActionUser" type="text" value="admin" autocomplete="off">
           </div>
           <div class="form-group">
@@ -1705,7 +1977,7 @@
           </div>
         </div>
         <div class="form-group hidden" id="recActionTitleGroup">
-          <label>Título do canal</label>
+          <label>Titulo do canal</label>
           <input id="recActionChannelTitle" type="text" autocomplete="off">
         </div>
         <div class="hidden" id="recActionIpGroup">
@@ -1715,7 +1987,7 @@
           </div>
           <div class="form-grid">
             <div class="form-group">
-              <label>Máscara</label>
+              <label>M-scara</label>
               <input id="recActionMask" type="text" placeholder="255.255.255.0" autocomplete="off">
             </div>
             <div class="form-group">
@@ -1753,7 +2025,7 @@
     <div class="modal" style="max-width:400px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Manutenção</p>
+          <p class="eyebrow">Manutencao</p>
           <h2>Trocar IP</h2>
         </div>
         <button class="icon-button" onclick="document.getElementById('modalTrocarIp').classList.add('hidden')"><i data-lucide="x"></i></button>
@@ -1769,7 +2041,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="trocarIpUser" type="text" value="admin" autocomplete="off">
           </div>
           <div class="form-group">
@@ -1779,7 +2051,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label>Máscara</label>
+            <label>M-scara</label>
             <input id="trocarIpMask" type="text" placeholder="255.255.255.0 (opcional)">
           </div>
           <div class="form-group">
@@ -1787,7 +2059,7 @@
             <input id="trocarIpGw" type="text" placeholder="10.10.9.1 (opcional)">
           </div>
         </div>
-        <p style="font-size:12px;color:var(--amber);margin:0"><i data-lucide="triangle-alert" style="width:13px;vertical-align:middle"></i> A câmera ficará offline temporariamente ao trocar o IP.</p>
+        <p style="font-size:12px;color:var(--amber);margin:0"><i data-lucide="triangle-alert" style="width:13px;vertical-align:middle"></i> A camera ficar- offline temporariamente ao trocar o IP.</p>
         <p id="trocarIpErro" class="login-error" hidden></p>
       </div>
       <div class="modal-actions">
@@ -1797,36 +2069,36 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: TROCAR SENHA ═══ -->
+  <!-- --- MODAL: TROCAR SENHA --- -->
   <div id="modalTrocarSenha" class="modal-backdrop hidden">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Manutenção</p>
+          <p class="eyebrow">Manutencao</p>
           <h2>Trocar senha</h2>
         </div>
         <button class="icon-button" onclick="document.getElementById('modalTrocarSenha').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Câmera</label>
+          <label>Camera</label>
           <input id="trocarSenhaIp" type="text" disabled style="background:var(--surface-soft);color:var(--muted)">
         </div>
         <div class="form-group">
-          <label>Usuário da câmera</label>
+          <label>Usuario da camera</label>
           <input id="trocarSenhaUser" type="text" placeholder="admin" value="admin">
         </div>
         <div class="form-group">
           <label>Senha atual</label>
-          <input id="trocarSenhaAtual" type="password" placeholder="••••••••" autocomplete="current-password">
+          <input id="trocarSenhaAtual" type="password" placeholder="********" autocomplete="current-password">
         </div>
         <div class="form-group">
           <label>Nova senha</label>
-          <input id="trocarSenhaNova" type="password" placeholder="••••••••" autocomplete="new-password">
+          <input id="trocarSenhaNova" type="password" placeholder="********" autocomplete="new-password">
         </div>
         <div class="form-group">
           <label>Confirmar nova senha</label>
-          <input id="trocarSenhaConfirm" type="password" placeholder="••••••••" autocomplete="new-password">
+          <input id="trocarSenhaConfirm" type="password" placeholder="********" autocomplete="new-password">
         </div>
         <p id="trocarSenhaErro" class="login-error" hidden></p>
       </div>
@@ -1837,19 +2109,19 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: DATA/HORA ═══ -->
+  <!-- --- MODAL: DATA/HORA --- -->
   <div id="modalDataHora" class="modal-backdrop hidden">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Manutenção</p>
+          <p class="eyebrow">Manutencao</p>
           <h2>Data e hora</h2>
         </div>
         <button class="icon-button" onclick="document.getElementById('modalDataHora').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Câmera</label>
+          <label>Camera</label>
           <input id="dataHoraIp" type="text" disabled style="background:var(--surface-soft);color:var(--muted)">
         </div>
         <div class="form-group">
@@ -1861,7 +2133,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="dataHoraUser" type="text" value="admin" autocomplete="off">
           </div>
           <div class="form-group">
@@ -1896,7 +2168,7 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: VARREDURA ═══ -->
+  <!-- --- MODAL: VARREDURA --- -->
   <div id="modalScan" class="modal-backdrop hidden">
     <div class="modal" style="max-width:620px">
       <div class="modal-header">
@@ -1906,19 +2178,19 @@
       <div class="modal-body">
 
         <!-- Alvo + credenciais -->
-        <div class="scan-section-label">Configuração</div>
+        <div class="scan-section-label">Configuracao</div>
         <div class="form-group">
           <label>Alvo <span style="color:var(--muted);font-size:11px">IP, range, CIDR ou lista</span></label>
           <input id="scanAlvo" type="text" placeholder="Ex: 10.10.9.0/24  ou  10.10.9.1-10.10.9.50">
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
           <div class="form-group" style="margin:0">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="scanUsuario" type="text" placeholder="admin" value="admin">
           </div>
           <div class="form-group" style="margin:0">
             <label>Senha</label>
-            <input id="scanSenha" type="password" placeholder="••••••••">
+            <input id="scanSenha" type="password" placeholder="********">
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
@@ -1926,7 +2198,7 @@
           <select id="scanMode" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
             <option value="olt">OLT</option>
             <option value="switch">Switch</option>
-            <option value="basic">Básico</option>
+            <option value="basic">Basico</option>
           </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanAppend" style="accent-color:var(--primary);width:15px;height:15px"> Acumular</label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanNat" style="accent-color:var(--primary);width:15px;height:15px"> NAT</label>
@@ -1935,12 +2207,12 @@
         <!-- Tarefas individuais -->
         <div class="scan-section-label" style="display:flex;align-items:center;justify-content:space-between">
           <span>Tarefas</span>
-          <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted)">▶ executa individualmente</span>
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted)">? executa individualmente</span>
         </div>
         <div class="scan-tasks">
           <div class="scan-task-row">
             <input type="checkbox" class="scan-chk" id="scanDiscover" checked>
-            <div class="scan-task-label"><i data-lucide="scan-search"></i><span>Descoberta de câmeras</span></div>
+            <div class="scan-task-label"><i data-lucide="scan-search"></i><span>Descoberta de cameras</span></div>
             <button class="scan-task-btn" data-task="discover"><i data-lucide="play"></i></button>
           </div>
           <div class="scan-task-row">
@@ -1961,7 +2233,7 @@
         </div>
 
         <!-- Log -->
-        <div class="ws-log" id="scanLog" style="min-height:80px;max-height:160px;margin-top:14px">Aguardando início…</div>
+        <div class="ws-log" id="scanLog" style="min-height:80px;max-height:160px;margin-top:14px">Aguardando inicio-</div>
       </div>
       <div class="modal-actions">
         <button class="secondary-action" id="cancelScan">Fechar</button>
@@ -1970,7 +2242,7 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: NVR SCAN ═══ -->
+  <!-- --- MODAL: NVR SCAN --- -->
   <div id="modalNvrScan" class="modal-backdrop hidden">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
@@ -1978,8 +2250,8 @@
         <button id="closeNvrScanModal" class="icon-button"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
-        <!-- Configuração -->
-        <div class="scan-section-label">Configuração</div>
+        <!-- Configuracao -->
+        <div class="scan-section-label">Configuracao</div>
         <div style="display:grid;grid-template-columns:1fr auto;gap:10px;min-width:0;margin-bottom:10px">
           <div class="form-group" style="margin:0;min-width:0">
             <label id="nvrScanIpLabel">IP do NVR</label>
@@ -1992,27 +2264,27 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0;margin-bottom:10px">
           <div class="form-group" style="margin:0;min-width:0">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="nvrScanUser" type="text" value="admin" autocomplete="off" style="width:100%">
           </div>
           <div class="form-group" style="margin:0;min-width:0">
             <label>Senha</label>
-            <input id="nvrScanPass" type="password" placeholder="••••••••" autocomplete="new-password" style="width:100%">
+            <input id="nvrScanPass" type="password" placeholder="********" autocomplete="new-password" style="width:100%">
           </div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
           <input id="nvrScanLocal" type="text" placeholder="Site / Local (opcional)" autocomplete="off" style="flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none">
           <select id="nvrScanType" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none">
-            <option value="nvr">NVR · IP</option>
-            <option value="dvr">Analógico (DVR)</option>
+            <option value="nvr">NVR - IP</option>
+            <option value="dvr">Anal-gico (DVR)</option>
           </select>
           <select id="nvrScanMode" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface);color:var(--text);outline:none">
-            <option value="basico">Básico</option>
+            <option value="basico">Basico</option>
             <option value="olt">Via OLT</option>
             <option value="switch">Via Switch</option>
           </select>
           <label style="display:flex;align-items:center;gap:5px;font-size:13px;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);cursor:pointer">
-            <input type="number" id="nvrScanStart" value="1" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center"> até
+            <input type="number" id="nvrScanStart" value="1" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center"> at-
             <input type="number" id="nvrScanEnd" value="32" min="1" max="256" style="width:36px;border:0;outline:none;font-size:13px;padding:0;text-align:center">
             <span style="color:var(--muted);font-size:11px">canais</span>
           </label>
@@ -2021,7 +2293,7 @@
         <!-- Tarefas -->
         <div class="scan-section-label" style="display:flex;align-items:center;justify-content:space-between">
           <span>Tarefas</span>
-          <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted)">▶ executa individualmente</span>
+          <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted)">? executa individualmente</span>
         </div>
         <div class="scan-tasks">
           <div class="scan-task-row">
@@ -2041,7 +2313,7 @@
           </div>
         </div>
 
-        <div class="ws-log" id="nvrScanLog" style="min-height:60px;max-height:120px;margin-top:14px">Aguardando início…</div>
+        <div class="ws-log" id="nvrScanLog" style="min-height:60px;max-height:120px;margin-top:14px">Aguardando inicio-</div>
         <div style="display:flex;justify-content:flex-end;margin-top:4px;min-height:16px">
           <span id="nvrScanFooter" style="font-size:11px;color:var(--muted);font-family:monospace"></span>
         </div>
@@ -2055,7 +2327,7 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: FERRAMENTAS KMZ ═══ -->
+  <!-- --- MODAL: FERRAMENTAS KMZ --- -->
   <div id="modalMapTools" class="modal-backdrop hidden">
     <div class="modal" style="max-width:480px">
       <div class="modal-header">
@@ -2084,19 +2356,19 @@
           <div style="display:flex;align-items:flex-start;gap:14px">
             <span style="width:28px;height:28px;border-radius:50%;background:var(--blue);color:white;font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0;margin-top:2px">2</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;margin-bottom:2px">Aplicar coordenadas ao inventário</div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Preenche lat/lon nas câmeras com os pontos do KMZ</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:2px">Aplicar coordenadas ao invent-rio</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Preenche lat/lon nas cameras com os pontos do KMZ</div>
               <div style="display:flex;align-items:center;gap:8px">
                 <select id="mapApplySource" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);outline:none">
-                  <option value="ip">Câmeras IP</option>
-                  <option value="dvr">DVR · Analógico</option>
-                  <option value="nvr">NVR · IP</option>
+                  <option value="ip">Cameras IP</option>
+                  <option value="dvr">DVR - Anal-gico</option>
+                  <option value="nvr">NVR - IP</option>
                 </select>
                 <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap;flex:1">
                   <input type="checkbox" id="mapApplyOverwrite" style="accent-color:var(--primary);width:14px;height:14px">
                   Sobrescrever
                 </label>
-                <button class="secondary-action" id="btnMapApplyPreview" style="font-size:12px;padding:6px 12px;white-space:nowrap">Prévia</button>
+                <button class="secondary-action" id="btnMapApplyPreview" style="font-size:12px;padding:6px 12px;white-space:nowrap">Previa</button>
                 <button class="primary-action" id="btnMapApply" style="font-size:12px;padding:6px 14px;white-space:nowrap">Aplicar</button>
               </div>
               <div id="mapApplyStatus" style="font-size:11px;margin-top:8px;line-height:1.5"></div>
@@ -2110,7 +2382,7 @@
             <span style="width:28px;height:28px;border-radius:50%;background:#7950f2;color:white;font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0">3</span>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:600;margin-bottom:2px">Gerar KMZ enriquecido</div>
-              <div style="font-size:11px;color:var(--muted)">KMZ com inventário + coordenadas importadas</div>
+              <div style="font-size:11px;color:var(--muted)">KMZ com invent-rio + coordenadas importadas</div>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -2130,7 +2402,7 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: OLT COLLECT ═══ -->
+  <!-- --- MODAL: OLT COLLECT --- -->
   <div id="modalOltCollect" class="modal-backdrop hidden">
     <div class="modal" style="max-width:440px">
       <div class="modal-header">
@@ -2148,12 +2420,12 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0">
           <div class="form-group" style="margin:0;min-width:0">
-            <label>Usuário</label>
+            <label>Usuario</label>
             <input id="oltUser" type="text" placeholder="admin" autocomplete="off" style="width:100%">
           </div>
           <div class="form-group" style="margin:0;min-width:0">
             <label>Senha</label>
-            <input id="oltPassword" type="password" placeholder="••••••••" autocomplete="new-password" style="width:100%">
+            <input id="oltPassword" type="password" placeholder="********" autocomplete="new-password" style="width:100%">
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0">
@@ -2200,23 +2472,23 @@
         <button class="ping-term-btn" id="oltTermClose" title="Fechar"><i data-lucide="x"></i></button>
       </div>
     </div>
-    <div class="ping-term-body" id="oltConsole">Aguardando início…</div>
+    <div class="ping-term-body" id="oltConsole">Aguardando inicio-</div>
     <div class="ping-term-footer" id="oltTermFooter"></div>
   </div>
 
-  <!-- ═══ MODAL: IMGBB SETTINGS ═══ -->
+  <!-- --- MODAL: IMGBB SETTINGS --- -->
   <div id="modalImgbb" class="modal-backdrop hidden" style="z-index:70">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow">Integração</p>
+          <p class="eyebrow">Integracao</p>
           <h2>Configurar ImgBB</h2>
         </div>
         <button id="closeImgbbModal" class="icon-button"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body">
         <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
-          O ImgBB hospeda as fotos das câmeras na nuvem. Gere sua chave em <strong>imgbb.com → API</strong>.
+          O ImgBB hospeda as fotos das cameras na nuvem. Gere sua chave em <strong>imgbb.com ? API</strong>.
         </p>
         <div class="form-group">
           <label>API Key</label>
@@ -2235,12 +2507,12 @@
     </div>
   </div>
 
-  <!-- ═══ PING TERMINAL ═══ -->
+  <!-- --- PING TERMINAL --- -->
   <div id="pingTerminal" class="ping-terminal hidden">
     <div class="ping-term-header">
       <div style="display:flex;align-items:center;gap:8px">
         <i data-lucide="terminal" style="width:14px;height:14px;color:#69db7c"></i>
-        <span id="pingTermTitle" style="font-size:13px;font-weight:600;color:#e9ecef">ping —</span>
+        <span id="pingTermTitle" style="font-size:13px;font-weight:600;color:#e9ecef">ping -</span>
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <button class="ping-term-btn" id="pingTermRestart" title="Reiniciar"><i data-lucide="rotate-ccw"></i></button>
@@ -2253,7 +2525,7 @@
     <div class="ping-term-footer" id="pingTermStats"></div>
   </div>
 
-  <!-- ═══ MODAL: IMGBB UPLOAD SELECIONADOS ═══ -->
+  <!-- --- MODAL: IMGBB UPLOAD SELECIONADOS --- -->
   <div id="modalImgbbUpload" class="modal-backdrop hidden">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
@@ -2265,7 +2537,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size:13px;color:var(--muted);margin:0 0 14px" id="imgbbUploadDesc">
-          Serão enviadas as fotos das câmeras selecionadas.
+          Ser-o enviadas as fotos das cameras selecionadas.
         </p>
         <div id="imgbbUploadList" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
         <div id="imgbbUploadProgress" style="display:none;margin-top:14px">
@@ -2282,7 +2554,7 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: CONFIRMAÇÃO ═══ -->
+  <!-- --- MODAL: CONFIRMA--O --- -->
   <div id="modalConfirm" class="modal-backdrop hidden" style="z-index:80">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
@@ -2301,15 +2573,15 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: CARROSSEL DE SNAPSHOTS ═══ -->
+  <!-- --- MODAL: CARROSSEL DE SNAPSHOTS --- -->
   <div id="modalCarrossel" style="display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.92);flex-direction:column;align-items:center;justify-content:center">
 
     <!-- Header -->
     <div style="position:absolute;top:0;left:0;right:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:linear-gradient(rgba(0,0,0,.6),transparent)">
       <div>
         <div style="font-size:11px;color:#a0aec0;font-weight:500;text-transform:uppercase;letter-spacing:.06em" id="carIdx">1 / 4</div>
-        <div style="font-size:18px;font-weight:700;color:white" id="carTitulo">—</div>
-        <div style="font-size:12px;color:#a0aec0" id="carSub">—</div>
+        <div style="font-size:18px;font-weight:700;color:white" id="carTitulo">-</div>
+        <div style="font-size:12px;color:#a0aec0" id="carSub">-</div>
       </div>
       <div style="display:flex;gap:8px">
         <button id="carBtnDetalhes" style="padding:7px 14px;border:1px solid rgba(255,255,255,.2);border-radius:7px;background:rgba(255,255,255,.1);color:white;font-size:12px;cursor:pointer"><i data-lucide="info" style="width:14px;vertical-align:middle"></i> Detalhes</button>
@@ -2323,25 +2595,25 @@
       <img id="carImg" src="" alt="Snapshot" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
       <div id="carNoImg" style="display:none;flex-direction:column;align-items:center;gap:12px;color:#718096">
         <i data-lucide="image-off" style="width:64px;height:64px"></i>
-        <p style="margin:0;font-size:14px">Sem snapshot disponível</p>
+        <p style="margin:0;font-size:14px">Sem snapshot dispon-vel</p>
       </div>
     </div>
 
-    <!-- Navegação -->
-    <button id="carPrev" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(255,255,255,.1);color:white;cursor:pointer;display:grid;place-items:center;font-size:24px">‹</button>
-    <button id="carNext" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(255,255,255,.1);color:white;cursor:pointer;display:grid;place-items:center;font-size:24px">›</button>
+    <!-- Navegacao -->
+    <button id="carPrev" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(255,255,255,.1);color:white;cursor:pointer;display:grid;place-items:center;font-size:24px">-</button>
+    <button id="carNext" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);z-index:10;width:48px;height:48px;border:1px solid rgba(255,255,255,.2);border-radius:50%;background:rgba(255,255,255,.1);color:white;cursor:pointer;display:grid;place-items:center;font-size:24px">-</button>
 
     <!-- Thumbnails -->
     <div id="carThumbs" style="position:absolute;bottom:0;left:0;right:0;z-index:10;padding:12px 20px;background:linear-gradient(transparent,rgba(0,0,0,.6));display:flex;gap:6px;overflow-x:auto;justify-content:center"></div>
   </div>
 
-  <!-- ═══ MODAL: DETALHES CÂMERA (carrossel) ═══ -->
+  <!-- --- MODAL: DETALHES C-MERA (carrossel) --- -->
   <div id="modalCamDetalhes" class="modal-backdrop hidden" style="z-index:95">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
         <div>
-          <p class="eyebrow" id="camDetEyebrow">Câmera</p>
-          <h2 id="camDetTitulo">—</h2>
+          <p class="eyebrow" id="camDetEyebrow">Camera</p>
+          <h2 id="camDetTitulo">-</h2>
         </div>
         <button id="closeCamDetalhes" class="icon-button"><i data-lucide="x"></i></button>
       </div>
@@ -2351,18 +2623,18 @@
             <img id="camDetFoto" src="" style="width:100%;max-height:180px;object-fit:contain" onerror="this.style.display='none'">
           </div>
           <div style="padding:14px;display:flex;flex-direction:column;gap:8px;font-size:12px">
-            <div><span style="color:var(--muted)">Status</span><div id="camDetStatus" style="font-weight:600;margin-top:2px">—</div></div>
-            <div><span style="color:var(--muted)">IP</span><div id="camDetIp" class="monospace" style="margin-top:2px">—</div></div>
-            <div><span style="color:var(--muted)">Local</span><div id="camDetLocal" style="margin-top:2px">—</div></div>
+            <div><span style="color:var(--muted)">Status</span><div id="camDetStatus" style="font-weight:600;margin-top:2px">-</div></div>
+            <div><span style="color:var(--muted)">IP</span><div id="camDetIp" class="monospace" style="margin-top:2px">-</div></div>
+            <div><span style="color:var(--muted)">Local</span><div id="camDetLocal" style="margin-top:2px">-</div></div>
           </div>
         </div>
         <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
-          <div><span style="color:var(--muted)">MAC</span><div id="camDetMac" class="monospace" style="margin-top:2px;font-size:11px">—</div></div>
-          <div><span style="color:var(--muted)">Fabricante</span><div id="camDetFab" style="margin-top:2px">—</div></div>
-          <div><span style="color:var(--muted)">Modelo</span><div id="camDetModelo" style="margin-top:2px">—</div></div>
-          <div><span style="color:var(--muted)">PON / ONU ID</span><div id="camDetPon" style="margin-top:2px">—</div></div>
-          <div><span style="color:var(--muted)">ONU Name</span><div id="camDetOnuName" style="margin-top:2px;font-size:11px">—</div></div>
-          <div><span style="color:var(--muted)">ONU Serial</span><div id="camDetOnuSer" class="monospace" style="margin-top:2px;font-size:11px">—</div></div>
+          <div><span style="color:var(--muted)">MAC</span><div id="camDetMac" class="monospace" style="margin-top:2px;font-size:11px">-</div></div>
+          <div><span style="color:var(--muted)">Fabricante</span><div id="camDetFab" style="margin-top:2px">-</div></div>
+          <div><span style="color:var(--muted)">Modelo</span><div id="camDetModelo" style="margin-top:2px">-</div></div>
+          <div><span style="color:var(--muted)">PON / ONU ID</span><div id="camDetPon" style="margin-top:2px">-</div></div>
+          <div><span style="color:var(--muted)">ONU Name</span><div id="camDetOnuName" style="margin-top:2px;font-size:11px">-</div></div>
+          <div><span style="color:var(--muted)">ONU Serial</span><div id="camDetOnuSer" class="monospace" style="margin-top:2px;font-size:11px">-</div></div>
         </div>
       </div>
       <div class="modal-actions">
@@ -2371,10 +2643,10 @@
     </div>
   </div>
 
-  <!-- ═══ TOAST ═══ -->
+  <!-- --- TOAST --- -->
   <div id="toast" class="toast"><i data-lucide="circle-check"></i><span id="toastMsg">Ok</span></div>
 
-  <!-- ═══ DASHBOARD DRAWER ═══ -->
+  <!-- --- DASHBOARD DRAWER --- -->
   <div id="dashDrawerOverlay" class="dash-drawer-overlay hidden"></div>
   <div id="dashDrawer" class="dash-drawer hidden">
     <div class="dash-drawer-header">
@@ -2390,24 +2662,27 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- ═══ MODAL: STREAM / LINKS DA CÂMERA ═══ -->
+  <!-- --- MODAL: STREAM / LINKS DA C-MERA --- -->
   <div class="modal-backdrop hidden" id="modalMntStream" onclick="if(event.target===this)closeMntStream()">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
-        <div><p class="eyebrow">Câmera</p><h2 id="mntStreamTitle">—</h2></div>
+        <div><p class="eyebrow">Camera</p><h2 id="mntStreamTitle">-</h2></div>
         <button class="icon-button" id="mntStreamClose"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px">
         <div style="background:#111;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;margin-bottom:16px;position:relative">
-          <img id="mntStreamImg" class="hidden" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0">
-          <div style="color:#445;font-size:12px;text-align:center"><i data-lucide="camera-off" style="width:32px;height:32px;opacity:.3;display:block;margin:0 auto 8px"></i>Aguardando snapshot…</div>
+          <video id="mntStreamVideo" class="hidden" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></video>
+          <div id="mntStreamPlaceholder" style="color:#556;font-size:12px;text-align:center;flex-direction:column;display:flex;align-items:center;gap:8px">
+            <i data-lucide="loader" style="width:28px;height:28px;opacity:.5;animation:spin 1.2s linear infinite"></i>
+            <span id="mntStreamStatus">Conectando...</span>
+          </div>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP – Stream principal (1080p)</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP - Stream principal (1080p)</p>
         <div style="display:flex;gap:6px;margin-bottom:10px">
           <input id="mntStreamRtspMain" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
           <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspMain')"><i data-lucide="copy"></i></button>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP – Sub-stream (baixa resolução)</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP - Sub-stream (480p)</p>
         <div style="display:flex;gap:6px;margin-bottom:16px">
           <input id="mntStreamRtspSub" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
           <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspSub')"><i data-lucide="copy"></i></button>
@@ -2417,17 +2692,38 @@
             <i data-lucide="external-link"></i> Abrir interface web
           </a>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-top:12px;text-align:center">Preview ao vivo (~1fps) · Para stream fluido use VLC com a URL RTSP</p>
-        <p id="mntStreamIp" style="font-size:11px;color:var(--muted);text-align:center;font-family:monospace"></p>
+        <p id="mntStreamIp" style="font-size:11px;color:var(--muted);text-align:center;font-family:monospace;margin-top:10px"></p>
       </div>
     </div>
   </div>
 
-  <!-- ═══ MODAL: ESPELHAR / VIRAR ═══ -->
+  <!-- --- MODAL: ACERTAR NTP --- -->
+  <div class="modal-backdrop hidden" id="modalMntNtp" onclick="if(event.target===this)closeMntNtpModal()">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Manutencao</p><h2>Acertar NTP</h2></div>
+        <button class="icon-button" id="closeMntNtp"><i data-lucide="x"></i></button>
+      </div>
+      <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
+        <p style="color:var(--muted);font-size:13px;margin:0">Defina o servidor de horario para as cameras selecionadas.</p>
+        <label style="display:grid;gap:6px;font-size:13px;color:var(--muted)">
+          Servidor NTP
+          <input id="mntNtpAddress" type="text" value="time.cloudflare.com" placeholder="time.cloudflare.com"
+            style="width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:14px;background:var(--surface);color:var(--text);box-sizing:border-box">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+          <button class="secondary-action" id="cancelMntNtp">Cancelar</button>
+          <button class="primary-action" id="confirmMntNtp"><i data-lucide="clock"></i> Aplicar NTP</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- --- MODAL: ESPELHAR / VIRAR --- -->
   <div class="modal-backdrop hidden" id="modalMntMirror" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Espelhar / Virar imagem</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Espelhar / Virar imagem</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntMirror').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
@@ -2437,7 +2733,7 @@
         </label>
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
           <input type="checkbox" id="mntFlipCheck" style="width:16px;height:16px;accent-color:var(--primary)">
-          <div><strong>Virar verticalmente (Flip)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem de cima para baixo (câmera de cabeça para baixo)</p></div>
+          <div><strong>Virar verticalmente (Flip)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Inverte a imagem de cima para baixo (camera de cabe-a para baixo)</p></div>
         </label>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
           <button class="secondary-action" onclick="document.getElementById('modalMntMirror').classList.add('hidden')">Cancelar</button>
@@ -2447,26 +2743,29 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: DIA / NOITE ═══ -->
+  <!-- --- MODAL: DIA / NOITE --- -->
   <div class="modal-backdrop hidden" id="modalMntDayNight" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:360px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Modo Dia / Noite</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Modo Dia / Noite</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntDayNight').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:10px">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:6px">Selecione o modo de operação para as câmeras selecionadas:</p>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="radio" name="mntDayNightMode" value="0" checked style="accent-color:var(--primary)">
-          <div><strong>🔄 Automático</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Câmera decide sozinha conforme luminosidade</p></div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:6px">Selecione o modo de operacao para as cameras selecionadas:</p>
+        <label class="mnt-mode-option">
+          <input type="radio" name="mntDayNightMode" value="0" checked>
+          <i data-lucide="sun-moon"></i>
+          <div><strong>Automatico</strong><p>Camera decide sozinha conforme luminosidade</p></div>
         </label>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="radio" name="mntDayNightMode" value="1" style="accent-color:var(--primary)">
-          <div><strong>☀️ Colorido (forçado)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Mantém imagem colorida mesmo à noite (IR desligado)</p></div>
+        <label class="mnt-mode-option">
+          <input type="radio" name="mntDayNightMode" value="1">
+          <i data-lucide="sun"></i>
+          <div><strong>Colorido forcado</strong><p>Mantem imagem colorida mesmo a noite</p></div>
         </label>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-          <input type="radio" name="mntDayNightMode" value="2" style="accent-color:var(--primary)">
-          <div><strong>🌙 Preto e branco (forçado)</strong><p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Mantém modo noturno P&B mesmo de dia</p></div>
+        <label class="mnt-mode-option">
+          <input type="radio" name="mntDayNightMode" value="2">
+          <i data-lucide="moon"></i>
+          <div><strong>Preto e branco forcado</strong><p>Mantem modo noturno P&B mesmo de dia</p></div>
         </label>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
           <button class="secondary-action" onclick="document.getElementById('modalMntDayNight').classList.add('hidden')">Cancelar</button>
@@ -2476,23 +2775,23 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: QUALIDADE DE VÍDEO ═══ -->
+  <!-- --- MODAL: QUALIDADE DE V-DEO --- -->
   <div class="modal-backdrop hidden" id="modalMntQuality" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:420px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Qualidade de vídeo</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Qualidade de v-deo</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntQuality').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Deixe em branco para não alterar. Aplica no stream principal.</p>
+        <p style="color:var(--muted);font-size:13px">Deixe em branco para nao alterar. Aplica no stream principal.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Bitrate (kbps)</label>
             <select id="mntQualityBitrate" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
-              <option value="">— não alterar —</option>
+              <option value="">- nao alterar -</option>
               <option value="512">512 kbps (baixo)</option>
               <option value="1024">1024 kbps</option>
-              <option value="2048" selected>2048 kbps (padrão)</option>
+              <option value="2048" selected>2048 kbps (padr-o)</option>
               <option value="4096">4096 kbps (alto)</option>
               <option value="6144">6144 kbps (muito alto)</option>
             </select>
@@ -2500,11 +2799,11 @@
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">FPS</label>
             <select id="mntQualityFps" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
-              <option value="">— não alterar —</option>
+              <option value="">- nao alterar -</option>
               <option value="5">5 fps</option>
               <option value="10">10 fps</option>
               <option value="15">15 fps</option>
-              <option value="20" selected>20 fps (padrão)</option>
+              <option value="20" selected>20 fps (padr-o)</option>
               <option value="25">25 fps</option>
               <option value="30">30 fps</option>
             </select>
@@ -2513,8 +2812,8 @@
         <div>
           <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Codec</label>
           <select id="mntQualityCodec" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
-            <option value="">— não alterar —</option>
-            <option value="H.265">H.265 (recomendado — menor tamanho)</option>
+            <option value="">- nao alterar -</option>
+            <option value="H.265">H.265 (recomendado - menor tamanho)</option>
             <option value="H.264">H.264 (compatibilidade)</option>
           </select>
         </div>
@@ -2526,15 +2825,15 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: RENOMEAR ═══ -->
+  <!-- --- MODAL: RENOMEAR --- -->
   <div class="modal-backdrop hidden" id="modalMntRename" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:500px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Renomear câmeras</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Renomear cameras</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntRename').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Edite o nome de cada câmera. O título é gravado no OSD da câmera e no inventário.</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">Edite o nome de cada camera. O titulo - gravado no OSD da camera e no invent-rio.</p>
         <div id="mntRenameRows" style="max-height:320px;overflow-y:auto"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
           <button class="secondary-action" onclick="document.getElementById('modalMntRename').classList.add('hidden')">Cancelar</button>
@@ -2544,29 +2843,29 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: CONFIGURAÇÃO DE REDE ═══ -->
+  <!-- --- MODAL: CONFIGURA--O DE REDE --- -->
   <div class="modal-backdrop hidden" id="modalMntNetwork" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:520px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Configuração de rede</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Configuracao de rede</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntNetwork').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Altere máscara e gateway para todas as câmeras. Edite os IPs individualmente se precisar trocá-los também.</p>
+        <p style="color:var(--muted);font-size:13px">Altere m-scara e gateway para todas as cameras. Edite os IPs individualmente se precisar troc--los tamb-m.</p>
 
-        <!-- Máscara + Gateway compartilhados -->
+        <!-- M-scara + Gateway compartilhados -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
-            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Máscara de rede</label>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">M-scara de rede</label>
             <select id="mntNetMask" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;background:var(--surface)">
-              <option value="">— não alterar —</option>
-              <option value="255.255.255.0" selected>/24 — 255.255.255.0 (256 hosts)</option>
-              <option value="255.255.254.0">/23 — 255.255.254.0 (512 hosts)</option>
-              <option value="255.255.252.0">/22 — 255.255.252.0 (1024 hosts)</option>
-              <option value="255.255.248.0">/21 — 255.255.248.0 (2048 hosts)</option>
-              <option value="255.255.0.0">/16 — 255.255.0.0</option>
-              <option value="255.255.255.128">/25 — 255.255.255.128 (128 hosts)</option>
-              <option value="255.255.255.192">/26 — 255.255.255.192 (64 hosts)</option>
+              <option value="">- nao alterar -</option>
+              <option value="255.255.255.0" selected>/24 - 255.255.255.0 (256 hosts)</option>
+              <option value="255.255.254.0">/23 - 255.255.254.0 (512 hosts)</option>
+              <option value="255.255.252.0">/22 - 255.255.252.0 (1024 hosts)</option>
+              <option value="255.255.248.0">/21 - 255.255.248.0 (2048 hosts)</option>
+              <option value="255.255.0.0">/16 - 255.255.0.0</option>
+              <option value="255.255.255.128">/25 - 255.255.255.128 (128 hosts)</option>
+              <option value="255.255.255.192">/26 - 255.255.255.192 (64 hosts)</option>
             </select>
           </div>
           <div>
@@ -2575,9 +2874,9 @@
           </div>
         </div>
 
-        <!-- IPs individuais editáveis -->
+        <!-- IPs individuais edit-veis -->
         <div>
-          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">IPs das câmeras selecionadas <span style="opacity:.6">(edite para alterar)</span></p>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">IPs das cameras selecionadas <span style="opacity:.6">(edite para alterar)</span></p>
           <div id="mntNetRows" style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto"></div>
         </div>
 
@@ -2589,15 +2888,15 @@
     </div>
   </div>
 
-  <!-- ═══ MODAL: DESLOCAR IPs EM LOTE ═══ -->
+  <!-- --- MODAL: DESLOCAR IPs EM LOTE --- -->
   <div class="modal-backdrop hidden" id="modalMntShiftIp" onclick="if(event.target===this)this.classList.add('hidden')">
     <div class="modal" style="max-width:520px">
       <div class="modal-header">
-        <div><p class="eyebrow">Manutenção</p><h2>Deslocar intervalo de IPs</h2></div>
+        <div><p class="eyebrow">Manutencao</p><h2>Deslocar intervalo de IPs</h2></div>
         <button class="icon-button" onclick="document.getElementById('modalMntShiftIp').classList.add('hidden')"><i data-lucide="x"></i></button>
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
-        <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. Útil para abrir espaço ou reorganizar câmeras em sequência.</p>
+        <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. -til para abrir espa-o ou reorganizar cameras em sequ-ncia.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Prefixo de rede</label>
@@ -2622,11 +2921,11 @@
             <input id="mntShiftDelta" type="number" value="1" placeholder="+1" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)" oninput="_mntShiftPreview()">
           </div>
         </div>
-        <!-- Preview da operação -->
+        <!-- Preview da operacao -->
         <div>
-          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview da operação</p>
+          <p style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">Preview da operacao</p>
           <div id="mntShiftPreviewBox" style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;font-family:monospace;max-height:200px;overflow-y:auto;color:var(--text)">
-            <em style="color:var(--muted)">Preencha os campos acima…</em>
+            <em style="color:var(--muted)">Preencha os campos acima-</em>
           </div>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
@@ -2639,6 +2938,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=54"></script>
 </body>
 </html>
