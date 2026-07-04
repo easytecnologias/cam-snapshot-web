@@ -748,15 +748,33 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
         f"http://{ip}/cgi-bin/mjpg/video.cgi?channel=0&subtype=0",
     ]
 
-    # Testa conexão antes de retornar StreamingResponse
+    # Testa conexão e verifica se a câmera envia JPEG real (não H.264 em container multipart)
     active_resp = None
+    first_buf = b""
     for cam_url in cam_urls:
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
-                r = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 30))
-                if r.status_code == 200 and "multipart" in r.headers.get("Content-Type", ""):
-                    active_resp = r
-                    break
+                r = _req.get(cam_url, auth=auth, stream=True, timeout=(6, 15))
+                if r.status_code != 200 or "multipart" not in r.headers.get("Content-Type", ""):
+                    r.close()
+                    continue
+                # Lê o primeiro frame para verificar se é JPEG real (FF D8) ou H.264 NALU (00 00 00 01)
+                buf = b""
+                for chunk in r.iter_content(chunk_size=4096):
+                    buf += chunk
+                    if len(buf) >= 8192:
+                        break
+                m = re.search(rb"Content-Length:\s*(\d+)\r\n\r\n", buf)
+                if m:
+                    body_start = m.end()
+                    body_prefix = buf[body_start:body_start + 4]
+                    if body_prefix[:2] != b'\xff\xd8':
+                        # Câmera envia H.264/outro dentro do multipart — não suportado via <img>
+                        r.close()
+                        continue
+                active_resp = r
+                first_buf = buf
+                break
             except Exception:
                 continue
         if active_resp:
@@ -765,8 +783,8 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
     if not active_resp:
         return Response(status_code=503, content=b"Camera MJPEG unavailable")
 
-    def generate(resp):
-        buf = b""
+    def generate(resp, initial_buf=b""):
+        buf = initial_buf
         try:
             for chunk in resp.iter_content(chunk_size=8192):
                 if not chunk:
@@ -814,7 +832,7 @@ def maintenance_mjpeg_stream(ip: str, user: str = "admin", password: str = ""):
                 pass
 
     return StreamingResponse(
-        generate(active_resp),
+        generate(active_resp, first_buf),
         media_type="multipart/x-mixed-replace; boundary=myboundary",
         headers={"Cache-Control": "no-store, no-cache"},
     )
@@ -827,7 +845,11 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
     import requests as _req
     from requests.auth import HTTPBasicAuth
 
-    for url in [f"http://{ip}/cgi-bin/snapshot.cgi?channel=0", f"http://{ip}/cgi-bin/snapshot.cgi"]:
+    for url in [
+        f"http://{ip}/cgi-bin/snapshot.cgi?channel=1",
+        f"http://{ip}/cgi-bin/snapshot.cgi?channel=0",
+        f"http://{ip}/cgi-bin/snapshot.cgi",
+    ]:
         for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
             try:
                 r = _req.get(url, auth=auth, timeout=5)
