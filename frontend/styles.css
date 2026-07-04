@@ -408,7 +408,31 @@ a { color: inherit; text-decoration: none; }
 .mnt-mode-option p { margin:2px 0 0; font-size:12px; color:var(--muted); line-height:1.35; }
 .mnt-mode-option:has(input:checked) > svg { color:var(--primary); }
 
-.mnt-cam-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:10px; margin-bottom:80px; }
+/* layout fixo: topo fixo, grid rola por baixo */
+#viewMntCam {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 68px);
+  padding: 0;
+  overflow: hidden;
+}
+#mntTopFixed {
+  flex-shrink: 0;
+  padding: 14px 20px 0;
+}
+#viewMntCam .mnt-filter-bar {
+  position: static;
+  margin-bottom: 0;
+  padding-bottom: 10px;
+}
+#viewMntCam .mnt-cam-grid {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 20px 80px;
+  margin: 0;
+}
+.mnt-cam-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:10px; }
 .mnt-cam-card { background:var(--surface); border:2px solid var(--border); border-radius:12px; overflow:hidden; cursor:pointer; transition:border-color .15s, box-shadow .15s; position:relative; }
 .mnt-cam-card:hover { border-color:var(--primary); box-shadow:0 4px 16px rgba(8,127,91,.1); }
 .mnt-cam-card.selected { border-color:var(--primary); }
