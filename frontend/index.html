@@ -2662,37 +2662,86 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- --- MODAL: STREAM / LINKS DA C-MERA --- -->
+  <!-- --- MODAL: STREAM / LINKS DA CÂMERA --- -->
   <div class="modal-backdrop hidden" id="modalMntStream" onclick="if(event.target===this)closeMntStream()">
-    <div class="modal" style="max-width:560px">
-      <div class="modal-header">
-        <div><p class="eyebrow">Camera</p><h2 id="mntStreamTitle">-</h2></div>
-        <button class="icon-button" id="mntStreamClose"><i data-lucide="x"></i></button>
-      </div>
-      <div style="padding:0 24px 20px">
-        <div style="background:#111;border-radius:10px;overflow:hidden;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;margin-bottom:16px;position:relative">
-          <video id="mntStreamVideo" class="hidden" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></video>
-          <div id="mntStreamPlaceholder" style="color:#556;font-size:12px;text-align:center;flex-direction:column;display:flex;align-items:center;gap:8px">
-            <i data-lucide="loader" style="width:28px;height:28px;opacity:.5;animation:spin 1.2s linear infinite"></i>
-            <span id="mntStreamStatus">Conectando...</span>
+    <div class="modal" style="max-width:680px;padding:0;overflow:hidden">
+
+      <!-- VIDEO HERO -->
+      <div id="mntVideoWrap" style="position:relative;background:#060a0e;aspect-ratio:16/9">
+        <video id="mntStreamVideo" class="hidden" autoplay muted playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;z-index:0"></video>
+
+        <!-- Loading overlay -->
+        <div id="mntStreamPlaceholder" style="position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#445;font-size:12px;gap:8px">
+          <i data-lucide="loader" style="width:28px;height:28px;opacity:.4;animation:spin 1.2s linear infinite"></i>
+          <span id="mntStreamStatus">Conectando...</span>
+        </div>
+
+        <!-- TOP HUD: título + relógio + fechar -->
+        <div style="position:absolute;top:0;left:0;right:0;z-index:2;padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;background:linear-gradient(to bottom,rgba(0,0,0,.78) 0%,rgba(0,0,0,0) 100%);pointer-events:none">
+          <div>
+            <div style="display:inline-flex;align-items:center;gap:5px;background:rgba(220,38,38,.88);color:#fff;font-size:10px;font-weight:700;letter-spacing:.8px;padding:3px 8px 3px 7px;border-radius:4px;margin-bottom:6px">
+              <span style="width:6px;height:6px;border-radius:50%;background:#fff;display:inline-block;animation:livepulse 1.5s ease-in-out infinite;flex-shrink:0"></span>
+              AO VIVO
+            </div>
+            <h2 id="mntStreamTitle" style="color:#fff;font-size:15px;font-weight:700;margin:0 0 3px;text-shadow:0 1px 6px rgba(0,0,0,.9)">-</h2>
+            <code id="mntStreamIp" style="color:rgba(255,255,255,.5);font-size:11px"></code>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:10px;pointer-events:all">
+            <div style="text-align:right">
+              <div id="mntStreamClock" style="color:#fff;font-size:22px;font-weight:300;font-family:monospace;letter-spacing:2px;text-shadow:0 1px 6px rgba(0,0,0,.8);line-height:1">00:00:00</div>
+              <div id="mntStreamDate" style="color:rgba(255,255,255,.45);font-size:10px;margin-top:3px;text-align:right"></div>
+            </div>
+            <button onclick="closeMntStream()" title="Fechar" style="background:rgba(255,255,255,.13);border:none;border-radius:8px;color:#fff;width:32px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;backdrop-filter:blur(4px)">
+              <i data-lucide="x" style="width:15px;height:15px"></i>
+            </button>
           </div>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP - Stream principal (1080p)</p>
-        <div style="display:flex;gap:6px;margin-bottom:10px">
-          <input id="mntStreamRtspMain" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
-          <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspMain')"><i data-lucide="copy"></i></button>
+
+        <!-- BOTTOM HUD: snapshot · mute · fullscreen -->
+        <div style="position:absolute;bottom:0;left:0;right:0;z-index:2;padding:10px 14px;display:flex;align-items:center;justify-content:flex-end;gap:6px;background:linear-gradient(to top,rgba(0,0,0,.65) 0%,rgba(0,0,0,0) 100%)">
+          <button onclick="_mntStreamSnapshot()" title="Salvar frame" style="background:rgba(255,255,255,.13);border:none;border-radius:8px;color:#fff;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+            <i data-lucide="camera" style="width:15px;height:15px"></i>
+          </button>
+          <button onclick="_mntStreamMute()" id="mntStreamMuteBtn" title="Silenciar / ativar áudio" style="background:rgba(255,255,255,.13);border:none;border-radius:8px;color:#fff;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+            <i data-lucide="volume-x" style="width:15px;height:15px"></i>
+          </button>
+          <button onclick="_mntStreamFullscreen()" title="Tela cheia" style="background:rgba(255,255,255,.13);border:none;border-radius:8px;color:#fff;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+            <i data-lucide="maximize-2" style="width:15px;height:15px"></i>
+          </button>
         </div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">RTSP - Sub-stream (480p)</p>
-        <div style="display:flex;gap:6px;margin-bottom:16px">
-          <input id="mntStreamRtspSub" type="text" readonly style="flex:1;font-family:monospace;font-size:11px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:var(--surface-soft)">
-          <button class="secondary-action" onclick="_mntStreamCopy('mntStreamRtspSub')"><i data-lucide="copy"></i></button>
+      </div>
+
+      <!-- BOTTOM PANEL -->
+      <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px">
+        <!-- RTSP links 2 colunas -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <p style="font-size:10px;color:var(--muted);margin:0 0 4px;text-transform:uppercase;letter-spacing:.5px">Principal (1080p)</p>
+            <div style="display:flex;gap:5px">
+              <input id="mntStreamRtspMain" type="text" readonly style="flex:1;font-family:monospace;font-size:10px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface-soft);color:var(--text);min-width:0">
+              <button class="secondary-action" style="padding:5px 8px;flex-shrink:0" onclick="_mntStreamCopy('mntStreamRtspMain')" title="Copiar"><i data-lucide="copy" style="width:13px;height:13px"></i></button>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:10px;color:var(--muted);margin:0 0 4px;text-transform:uppercase;letter-spacing:.5px">Sub-stream (480p)</p>
+            <div style="display:flex;gap:5px">
+              <input id="mntStreamRtspSub" type="text" readonly style="flex:1;font-family:monospace;font-size:10px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;background:var(--surface-soft);color:var(--text);min-width:0">
+              <button class="secondary-action" style="padding:5px 8px;flex-shrink:0" onclick="_mntStreamCopy('mntStreamRtspSub')" title="Copiar"><i data-lucide="copy" style="width:13px;height:13px"></i></button>
+            </div>
+          </div>
         </div>
+        <!-- Ações rápidas -->
         <div style="display:flex;gap:8px">
-          <a id="mntStreamOpenWeb" class="primary-action" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none">
-            <i data-lucide="external-link"></i> Abrir interface web
+          <a id="mntStreamOpenWeb" class="secondary-action" target="_blank" rel="noopener" style="flex:1;text-align:center;text-decoration:none;justify-content:center;font-size:12px">
+            <i data-lucide="external-link" style="width:13px;height:13px"></i> Interface web
           </a>
+          <button class="secondary-action" onclick="_mntStreamReboot()" style="flex:1;font-size:12px">
+            <i data-lucide="power" style="width:13px;height:13px"></i> Reiniciar câmera
+          </button>
+          <button class="secondary-action" id="mntStreamQualBtn" onclick="_mntStreamToggleQuality()" style="flex:1;font-size:12px">
+            <i data-lucide="layers" style="width:13px;height:13px"></i> <span id="mntStreamQualLabel">Sub-stream</span>
+          </button>
         </div>
-        <p id="mntStreamIp" style="font-size:11px;color:var(--muted);text-align:center;font-family:monospace;margin-top:10px"></p>
       </div>
     </div>
   </div>
@@ -2938,6 +2987,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=55"></script>
+  <script src="app.js?v=56"></script>
 </body>
 </html>

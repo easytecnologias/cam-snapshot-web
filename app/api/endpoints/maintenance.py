@@ -862,13 +862,14 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
 
 
 @router.post("/maintenance/stream_register/{ip}")
-def maintenance_stream_register(ip: str, user: str = "admin", password: str = ""):
+def maintenance_stream_register(ip: str, user: str = "admin", password: str = "", subtype: int = 1):
     """Registra câmera no go2rtc e retorna o nome do stream para WebRTC."""
     from fastapi.responses import JSONResponse
     import requests as _req
 
-    stream_name = f"cam_{ip.replace('.', '_')}"
-    rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype=1"
+    st = 0 if subtype == 0 else 1
+    stream_name = f"cam_{ip.replace('.', '_')}_{st}"
+    rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype={st}"
     # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
     source_url = f"ffmpeg:{rtsp_url}#video=h264#audio=opus"
 
