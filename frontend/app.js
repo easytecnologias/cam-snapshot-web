@@ -3241,7 +3241,7 @@ async function loadSnapNvr() {
     </div>`).join('');
 }
 
-//  Manutencao 
+//  Manutencao
 let _mntCamAll = [];
 const _mntCamFilter = { q: '', site: '', status: '' };
 
@@ -3251,6 +3251,38 @@ function _mntSearchText(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function _ipToInt(ip) {
+  return ip.split('.').reduce((acc, o) => (acc << 8) + (parseInt(o, 10) || 0), 0) >>> 0;
+}
+
+// Retorna true/false se ip bate com term como range/CIDR, ou null se term n\u00e3o \u00e9 padr\u00e3o de IP.
+function _mntIpMatchTerm(ip, term) {
+  // Range completo: 10.10.9.20-10.10.9.30
+  const fullRange = term.match(/^(\d{1,3}(?:\.\d{1,3}){3})-(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (fullRange) {
+    const n = _ipToInt(ip), lo = _ipToInt(fullRange[1]), hi = _ipToInt(fullRange[2]);
+    return n >= lo && n <= hi;
+  }
+  // Range curto (\u00faltimo octeto): 10.10.9.20-30
+  const shortRange = term.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(\d{1,3})$/);
+  if (shortRange) {
+    const parts = ip.split('.');
+    if (parts.slice(0, 3).join('.') === shortRange[1]) {
+      const last = parseInt(parts[3], 10);
+      return last >= parseInt(shortRange[2], 10) && last <= parseInt(shortRange[3], 10);
+    }
+    return false;
+  }
+  // CIDR: 10.10.9.0/24
+  const cidr = term.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+  if (cidr) {
+    const bits = parseInt(cidr[2], 10);
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    return (_ipToInt(ip) & mask) === (_ipToInt(cidr[1]) & mask);
+  }
+  return null; // n\u00e3o \u00e9 padr\u00e3o de range/CIDR
 }
 
 async function loadMntCam() {
@@ -3277,20 +3309,27 @@ function _mntCamRender() {
   const { q, site, status } = _mntCamFilter;
   const ql = _mntSearchText(q);
 
+  // Separa query em termos por vírgula (OR entre termos)
+  const terms = ql ? ql.split(',').map(t => t.trim()).filter(Boolean) : [];
+
   let filtered = _mntCamAll.filter(c => {
     if (site && (c.local || '') !== site) return false;
     if (status && (c.status || '').toLowerCase() !== status) return false;
-    if (ql) {
-      const haystack = [
-        c.ip, c.host, c.camera_ip, c.ip_camera,
-        c.titulo, c.title, c.nome, c.name,
-        c.local, c.site,
-        c.modelo, c.model, c.fabricante, c.brand,
-        c.mac, c.onu_name, c.onu_serial,
-      ].map(_mntSearchText).join(' ');
-      if (!haystack.includes(ql)) return false;
-    }
-    return true;
+    if (!terms.length) return true;
+    const camIp   = (c.ip || '').trim();
+    const haystack = [
+      c.ip, c.host, c.camera_ip, c.ip_camera,
+      c.titulo, c.title, c.nome, c.name,
+      c.local, c.site,
+      c.modelo, c.model, c.fabricante, c.brand,
+      c.mac, c.onu_name, c.onu_serial,
+    ].map(_mntSearchText).join(' ');
+    // Basta UM termo bater (OR)
+    return terms.some(term => {
+      const ipMatch = _mntIpMatchTerm(camIp, term);
+      if (ipMatch !== null) return ipMatch;      // era range/CIDR
+      return haystack.includes(term);            // texto livre
+    });
   });
 
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
