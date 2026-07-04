@@ -869,11 +869,15 @@ def maintenance_stream_register(ip: str, user: str = "admin", password: str = ""
 
     stream_name = f"cam_{ip.replace('.', '_')}"
     rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype=1"
+    # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
+    source_url = f"ffmpeg:{rtsp_url}#video=h264&audio=opus"
 
     try:
+        # Remove stream anterior para garantir que a nova fonte (ffmpeg) seja usada
+        _req.delete("http://172.28.0.1:1984/api/streams", params={"name": stream_name}, timeout=3)
         r = _req.put(
             "http://172.28.0.1:1984/api/streams",
-            params={"name": stream_name, "src": rtsp_url},
+            params={"name": stream_name, "src": source_url},
             timeout=5,
         )
         if r.status_code not in (200, 201, 204):

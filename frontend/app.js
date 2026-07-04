@@ -3397,9 +3397,9 @@ async function _startWebRTC(ip, user, pass) {
     return;
   }
 
-  if (_mntStreamIp !== ip) return;  // usuario fechou o modal enquanto aguardava
+  if (_mntStreamIp !== ip) return;
 
-  // 2. WebRTC via WHEP (go2rtc)
+  // 2. WebRTC via WebSocket (protocolo nativo go2rtc)
   try {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     _rtcPeer = pc;
@@ -3421,35 +3421,42 @@ async function _startWebRTC(ip, user, pass) {
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    // go2rtc WebSocket signaling
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${wsProto}://${location.host}/go2rtc/api/ws?src=${streamName}`);
 
-    // Aguarda coleta de ICE candidates (max 3s)
-    await new Promise(resolve => {
-      if (pc.iceGatheringState === 'complete') return resolve();
-      pc.addEventListener('icegatheringstatechange', () => {
-        if (pc.iceGatheringState === 'complete') resolve();
-      });
-      setTimeout(resolve, 3000);
-    });
+    ws.onopen = async () => {
+      if (statusEl) statusEl.textContent = 'Aguardando video...';
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'webrtc/candidate', value: candidate.candidate }));
+        }
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
+    };
 
-    if (_mntStreamIp !== ip) { pc.close(); return; }
-    if (statusEl) statusEl.textContent = 'Aguardando video...';
+    ws.onmessage = async ({ data }) => {
+      const msg = JSON.parse(data);
+      if (msg.type === 'webrtc/answer') {
+        await pc.setRemoteDescription({ type: 'answer', sdp: msg.value });
+      } else if (msg.type === 'webrtc/candidate' && msg.value) {
+        await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0', sdpMLineIndex: 0 });
+      } else if (msg.type === 'error') {
+        if (statusEl) statusEl.textContent = 'Erro go2rtc: ' + msg.value;
+      }
+    };
 
-    const whepResp = await fetch(`/go2rtc/api/whep?src=${streamName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/sdp' },
-      body: pc.localDescription.sdp,
-    });
+    ws.onerror = () => {
+      if (_mntStreamIp === ip && statusEl) statusEl.textContent = 'Erro de conexao WebSocket';
+    };
 
-    if (!whepResp.ok) {
-      if (statusEl) statusEl.textContent = `Sem stream WebRTC (${whepResp.status})`;
-      pc.close(); _rtcPeer = null;
-      return;
-    }
-
-    const sdp = await whepResp.text();
-    await pc.setRemoteDescription({ type: 'answer', sdp });
+    ws.onclose = ({ code, reason }) => {
+      if (_mntStreamIp === ip && statusEl && !video.srcObject) {
+        statusEl.textContent = code === 1000 ? 'Stream encerrado' : `WS fechou (${code})`;
+      }
+    };
 
   } catch (e) {
     if (statusEl) statusEl.textContent = 'Erro: ' + (e.message || e);
