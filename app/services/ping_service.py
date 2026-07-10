@@ -210,13 +210,13 @@ async def ping(
     if not force:
         cached = _ping_get_cached(key)
         if cached is not None:
-            cached["ok"] = True
+            cached["ok"] = bool(cached.get("online"))
             return cached
 
         _ping_wait_if_inflight(key)
         cached = _ping_get_cached(key)
         if cached is not None:
-            cached["ok"] = True
+            cached["ok"] = bool(cached.get("online"))
             return cached
 
     ev = _ping_set_inflight(key)
@@ -232,5 +232,5 @@ async def ping(
 
     _ping_store_result(key, result)
     result.setdefault("cached", False)
-    result["ok"] = True
+    result["ok"] = bool(result.get("online"))
     return result

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=34">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
       <p id="loginError" class="login-error" hidden></p>
       <form id="loginForm">
         <label>Usuario
-          <input id="loginUser" type="text" autocomplete="username" placeholder="admin" required>
+          <input id="loginUser" type="text" autocomplete="username" placeholder="elishafan" value="elishafan" required>
         </label>
         <label>Senha
           <input id="loginPassword" type="password" autocomplete="current-password" placeholder="********" required>
@@ -35,6 +35,50 @@
       </form>
     </div>
   </div>
+
+  <script>
+    // Login minimo e independente do app.js. Mantem acesso mesmo se algum modulo da SPA quebrar.
+    (function () {
+      var form = document.getElementById('loginForm');
+      if (!form) return;
+      form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        var btn = document.getElementById('loginBtn');
+        var err = document.getElementById('loginError');
+        var user = document.getElementById('loginUser').value;
+        var pass = document.getElementById('loginPassword').value;
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'Entrando';
+        }
+        if (err) err.hidden = true;
+        try {
+          var base = (window.API_BASE || window.location.origin || '').replace(/\/$/, '');
+          var res = await fetch(base + '/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user, password: pass })
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !(data.access_token || data.token)) {
+            throw new Error(data.detail || 'Credenciais invalidas');
+          }
+          localStorage.setItem('so_token', data.access_token || data.token);
+          window.location.href = window.location.pathname + window.location.search;
+        } catch (e) {
+          if (err) {
+            err.textContent = e && e.message ? e.message : 'Falha no login';
+            err.hidden = false;
+          }
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
+          }
+        }
+      }, true);
+    })();
+  </script>
 
   <!-- --- APP SHELL --- -->
   <div id="appShell" class="app-shell" hidden>
@@ -82,32 +126,23 @@
 
         <!-- Manutencao -->
         <div class="nav-section-label">Manutencao</div>
-        <div class="nav-group" id="ngManutencao">
-          <button class="nav-item nav-group-toggle">
-            <i data-lucide="wrench"></i><span>Manutencao</span>
-            <i data-lucide="chevron-right" class="nav-chevron"></i>
-          </button>
-          <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
-            <button class="nav-item nav-sub-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
-          </div>
-        </div>
+        <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <button class="nav-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
 
-        <!-- IA / Rede -->
+        <!-- Analise -->
         <div class="nav-section-label">Analise</div>
         <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
-        <div class="nav-group" id="ngRede">
-          <button class="nav-item nav-group-toggle">
-            <i data-lucide="globe"></i><span>Rede</span>
-            <i data-lucide="chevron-right" class="nav-chevron"></i>
-          </button>
-          <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="net-devices"><i data-lucide="router"></i><span>Dispositivos</span></button>
-            <button class="nav-item nav-sub-item" data-view="net-learn"><i data-lucide="brain"></i><span>Aprendizado</span></button>
-            <button class="nav-item nav-sub-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
-          </div>
-        </div>
+
+        <!-- Redes -->
+        <div class="nav-section-label">Redes</div>
+        <button class="nav-item" data-view="net-devices"><i data-lucide="router"></i><span>Dispositivos</span></button>
+        <button class="nav-item" data-view="net-learn"><i data-lucide="brain"></i><span>Aprendizado</span></button>
+        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
+
+        <!-- Implantacao -->
+        <div class="nav-section-label">Implantacao</div>
+        <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>Nova instalacao</span></button>
 
         <!-- Ferramentas -->
         <div class="nav-section-label">Ferramentas</div>
@@ -282,19 +317,19 @@
             <div class="table-wrap" style="max-height:calc(100vh - 300px);overflow-y:auto;overflow-x:hidden">
               <table class="data-table" id="invOltTableEl" style="table-layout:fixed;width:100%">
                 <colgroup>
-                  <col style="width:32px">
-                  <col style="width:9%">
+                  <col style="width:3%">
                   <col style="width:11%">
+                  <col style="width:12%">
+                  <col style="width:7%">
                   <col style="width:8%">
-                  <col style="width:9%">
-                  <col style="width:13%">
+                  <col style="width:12%">
                   <col style="width:7%">
                   <col style="width:6%">
                   <col style="width:7%">
-                  <col style="width:4%">
                   <col style="width:5%">
-                  <col style="width:11%">
-                  <col style="width:10%">
+                  <col style="width:6%">
+                  <col style="width:8%">
+                  <col style="width:8%">
                 </colgroup>
                 <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
                   <tr>
@@ -371,6 +406,7 @@
                 <button class="cam-btn cam-btn-secondary" id="cpBtnReboot"><i data-lucide="power"></i> Reboot</button>
                 <button class="cam-btn cam-btn-secondary" id="cpBtnWeb"><i data-lucide="globe"></i> Web</button>
               </div>
+              <button class="cam-btn cam-btn-map" id="cpBtnMapa"><i data-lucide="map-pin"></i> Ver no mapa</button>
               <button class="cam-btn cam-btn-ping" id="cpBtnPing"><i data-lucide="activity"></i> Testar ping</button>
               <div id="cpPingResult" class="cam-ping-result hidden"></div>
             </div>
@@ -491,17 +527,18 @@
           <div class="table-wrap" style="max-height:calc(100vh - 340px);overflow-y:auto;overflow-x:hidden">
             <table class="data-table" style="table-layout:fixed;width:100%">
               <colgroup>
-                <col style="width:32px">
+                <col style="width:3%">
                 <col style="width:10%"><!-- Host NVR -->
-                <col style="width:9%"><!-- Modelo NVR -->
-                <col style="width:5%"><!-- Canal -->
-                <col style="width:13%"><!-- Titulo -->
-                <col style="width:8%"><!-- Local -->
+                <col style="width:8%"><!-- Modelo NVR -->
+                <col style="width:4%"><!-- Canal -->
+                <col style="width:15%"><!-- Titulo -->
+                <col style="width:7%"><!-- Local -->
                 <col style="width:7%"><!-- Status -->
+                <col style="width:5%"><!-- ImgBB -->
                 <col style="width:9%"><!-- IP Camera -->
-                <col style="width:10%"><!-- Modelo Camera -->
+                <col style="width:8%"><!-- Modelo Camera -->
                 <col style="width:11%"><!-- MAC Camera -->
-                <col style="width:11%"><!-- Serial NVR -->
+                <col style="width:8%"><!-- Serial NVR -->
                 <col style="width:5%"><!-- V.Loss -->
               </colgroup>
               <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
@@ -513,6 +550,7 @@
                   <th>Titulo</th>
                   <th>Local</th>
                   <th>Status</th>
+                  <th>ImgBB</th>
                   <th>IP Camera</th>
                   <th>Modelo Camera</th>
                   <th>MAC Camera</th>
@@ -521,7 +559,7 @@
                 </tr>
               </thead>
               <tbody id="invNvrTable">
-                <tr class="empty-row"><td colspan="12">Nenhum dado. Execute uma varredura.</td></tr>
+                <tr class="empty-row"><td colspan="13">Nenhum dado. Execute uma varredura.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1200,35 +1238,80 @@
           <div>
             <p class="eyebrow">Analise</p>
             <h1>IA - NVR</h1>
-            <p>Indexacao e busca inteligente nas grava--es dos NVRs.</p>
+            <p>Descreva o que aconteceu e encontre o momento nas grava--es -- inclusive em varias cameras seguidas.</p>
           </div>
-          <button class="primary-action" id="btnIaIndex"><i data-lucide="cpu"></i> Indexar</button>
         </div>
-        <div class="metrics">
-          <article>
-            <div class="metric-icon blue"><i data-lucide="film"></i></div>
-            <div><span>Grava--es indexadas</span><strong id="mIaIndexed">-</strong></div>
-          </article>
-          <article>
-            <div class="metric-icon cyan"><i data-lucide="search"></i></div>
-            <div><span>Buscas realizadas</span><strong id="mIaSearches">-</strong></div>
-          </article>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div><h2>Busca sem-ntica</h2><p>Descreva o que quer encontrar nas grava--es</p></div>
-          </div>
-          <div style="padding:20px">
-            <div style="display:flex;gap:10px">
-              <label class="search-box" style="flex:1">
-                <i data-lucide="search"></i>
-                <input id="iaNvrQuery" placeholder="Ex: pessoa de camisa vermelha-">
-              </label>
-              <button class="primary-action" id="btnIaSearch"><i data-lucide="search"></i> Buscar</button>
+
+        <div class="playback-layout">
+          <div class="panel playback-panel">
+            <div class="panel-header">
+              <div><h2>Buscar</h2><p>Camera, dia/hor-rio e o que procurar</p></div>
             </div>
+            <form id="iaNvrForm" class="playback-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="iaNvrSite">Site</label>
+                  <select id="iaNvrSite"><option value="">Todos os sites</option></select>
+                </div>
+                <div class="form-group">
+                  <label for="iaNvrCamera">Camera</label>
+                  <select id="iaNvrCamera" required><option value="">Selecione a camera</option></select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="iaNvrUser">Usuario</label>
+                  <input id="iaNvrUser" autocomplete="username" value="admin" required>
+                </div>
+                <div class="form-group">
+                  <label for="iaNvrPassword">Senha</label>
+                  <input id="iaNvrPassword" type="password" autocomplete="current-password" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="iaNvrDate">Data</label>
+                  <input id="iaNvrDate" type="date" required>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="iaNvrStart">Inicio</label>
+                  <input id="iaNvrStart" type="time" step="1" required>
+                </div>
+                <div class="form-group">
+                  <label for="iaNvrEnd">Fim</label>
+                  <input id="iaNvrEnd" type="time" step="1" required>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="iaNvrQuery">O que procurar</label>
+                <input id="iaNvrQuery" placeholder="Ex: um carro branco entrando, uma pessoa saiu correndo-" required>
+              </div>
+              <details style="margin:2px 0 12px">
+                <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Avancado</summary>
+                <div class="form-row" style="margin-top:10px">
+                  <div class="form-group">
+                    <label for="iaNvrMaxHops">Saltos entre cameras (max)</label>
+                    <input id="iaNvrMaxHops" type="number" min="0" max="6" step="1" value="3">
+                  </div>
+                  <div class="form-group">
+                    <label for="iaNvrWindowMin">Janela por salto (min)</label>
+                    <input id="iaNvrWindowMin" type="number" min="1" max="30" step="1" value="5">
+                  </div>
+                </div>
+              </details>
+              <div class="playback-actions">
+                <button class="primary-action" type="submit" id="btnIaSearch"><i data-lucide="search"></i> Buscar</button>
+              </div>
+            </form>
           </div>
-          <div id="iaNvrResults" style="padding:0 20px 20px;color:var(--muted);font-size:13px">
-            Fa-a uma busca para ver os resultados.
+
+          <div class="panel playback-panel">
+            <div class="panel-header">
+              <div><h2>Resultado</h2><p id="iaNvrStatus">Faca uma busca para ver os resultados.</p></div>
+            </div>
+            <div id="iaNvrResults" class="playback-result"></div>
           </div>
         </div>
       </section>
@@ -1391,12 +1474,12 @@
           <button class="primary-action" id="btnMapTools" style="font-size:12px;padding:5px 14px"><i data-lucide="settings-2"></i> Ferramentas KMZ</button>
         </div>
 
-        <div style="display:flex;flex:1;min-height:0">
+        <div class="map-shell">
 
           <!-- Painel lateral - s- camadas -->
-          <div style="width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column">
-            <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Camadas</div>
-            <div id="mapLayersList" style="padding:8px;display:flex;flex-direction:column;gap:4px">
+          <div class="map-sidebar">
+            <div class="map-sidebar-title">Camadas</div>
+            <div id="mapLayersList" class="map-layers-list">
               <div style="font-size:12px;color:var(--muted);padding:6px;text-align:center">Carregando-</div>
             </div>
           </div>
@@ -1617,7 +1700,7 @@
           <div>
             <p class="eyebrow">SaaS</p>
             <h1>Conectores</h1>
-            <p>Agentes Windows instalados nos clientes para coletar dados locais.</p>
+            <p>MikroTik RouterOS dos clientes para coletar dados locais e executar tarefas remotas.</p>
           </div>
           <button class="primary-action" id="btnConnectorRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
@@ -1625,9 +1708,14 @@
         <div class="connectors-layout">
           <div class="panel connector-card">
             <div class="panel-header">
-              <div><h2>Novo conector</h2><p>Gere um token e baixe o agente PowerShell.</p></div>
+              <div><h2>Novo conector</h2><p>Gere um token e baixe o script RouterOS para o cliente.</p></div>
             </div>
             <div class="connector-form">
+              <label>Tipo
+                <select id="connType">
+                  <option value="routeros">MikroTik / RouterOS</option>
+                </select>
+              </label>
               <label>Nome
                 <input id="connName" placeholder="Cliente - Matriz">
               </label>
@@ -1637,25 +1725,28 @@
               <label>Site
                 <input id="connSite" placeholder="Reserva">
               </label>
+              <label>URL pública do SightOps
+                <input id="connPublicUrl" placeholder="http://201.182.184.80:18080" value="http://201.182.184.80:18080">
+              </label>
               <button class="primary-action" id="btnCreateConnector" style="width:100%;justify-content:center">
                 <i data-lucide="plus"></i> Criar conector
               </button>
             </div>
             <div class="connector-token-box hidden" id="connCreatedBox">
               <strong>Conector criado</strong>
-              <span id="connCreatedText"></span>
+                <span id="connCreatedText"></span>
               <button class="secondary-action" id="btnDownloadCreatedAgent">
-                <i data-lucide="download"></i> Baixar agente
+                <i data-lucide="download"></i> Baixar script
               </button>
             </div>
           </div>
 
           <div class="panel connector-card connector-main-card">
             <div class="panel-header">
-              <div><h2>Agentes</h2><p id="connectorsSummary">Carregando.</p></div>
+              <div><h2>Conectores</h2><p id="connectorsSummary">Carregando.</p></div>
             </div>
             <div class="table-wrap connectors-table-wrap">
-              <table class="data-table">
+              <table class="data-table connector-table">
                 <thead>
                   <tr>
                     <th>Conector</th>
@@ -1665,7 +1756,7 @@
                     <th>Host</th>
                     <th>IP remoto</th>
                     <th>Ultimo sinal</th>
-                    <th></th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody id="connectorsTable">
@@ -1678,12 +1769,13 @@
 
         <div class="panel connector-jobs-panel">
           <div class="panel-header">
-            <div><h2>Teste remoto</h2><p>Envie um job de ping para o agente selecionado.</p></div>
+            <div><h2>Tarefas remotas</h2><p>Envie jobs para o MikroTik selecionado. Ele executa no proximo ciclo.</p></div>
           </div>
           <div class="connector-job-form">
             <select id="connJobConnector"></select>
             <input id="connJobTargets" placeholder="8.8.8.8, 10.10.12.7 ou 192.168.0.1-192.168.0.10">
             <button class="primary-action" id="btnSendPingJob"><i data-lucide="send"></i> Enviar ping</button>
+            <button class="secondary-action" id="btnSendLanInventoryJob"><i data-lucide="list-tree"></i> Coletar LAN</button>
           </div>
           <div class="connector-job-log" id="connectorJobsLog">Nenhum job enviado ainda.</div>
         </div>
@@ -1726,11 +1818,241 @@
         <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
       <section class="workspace hidden" id="viewNetOperate">
-        <div class="page-heading"><div><p class="eyebrow">Rede</p><h1>Operacoes</h1></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Redes</p>
+            <h1>Ferramentas de rede</h1>
+            <p>Testes pontuais para analise: ping, portas, HTTP, DNS, rota e coleta pelo MikroTik.</p>
+          </div>
+        </div>
+        <div class="network-tools-grid">
+          <div class="panel network-tool-panel">
+            <div class="panel-header">
+              <div><h2>Executar teste</h2><p>Use servidor local/VPN ou um conector MikroTik.</p></div>
+            </div>
+            <form id="netToolForm" class="network-tool-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="netToolOrigin">Origem</label>
+                  <select id="netToolOrigin">
+                    <option value="local">Servidor local / VPN</option>
+                    <option value="connector">MikroTik conector</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="netToolConnector">Conector</label>
+                  <select id="netToolConnector" disabled></select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="netToolTest">Teste</label>
+                  <select id="netToolTest">
+                    <option value="ping">Ping inteligente</option>
+                    <option value="tcp">Teste TCP</option>
+                    <option value="port_scan">Scan de portas</option>
+                    <option value="http">HTTP/HTTPS</option>
+                    <option value="dns">DNS lookup</option>
+                    <option value="traceroute">Traceroute</option>
+                    <option value="lan_inventory">Coletar LAN MikroTik</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="netToolPorts">Portas</label>
+                  <input id="netToolPorts" placeholder="80,443,554,37777,8000,8291" value="80,443,554">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="netToolTargets">Alvos</label>
+                <textarea id="netToolTargets" rows="4" placeholder="10.10.9.20, 192.168.20.1-192.168.20.20 ou 192.168.20.0/24"></textarea>
+              </div>
+              <div class="form-row network-tool-small-row">
+                <div class="form-group">
+                  <label for="netToolTimeout">Timeout</label>
+                  <input id="netToolTimeout" type="number" min="1" max="20" value="3">
+                </div>
+                <div class="form-group">
+                  <label for="netToolConcurrency">Concorrencia</label>
+                  <input id="netToolConcurrency" type="number" min="1" max="128" value="64">
+                </div>
+              </div>
+              <button class="primary-action" id="btnRunNetTool" type="submit"><i data-lucide="play"></i> Executar</button>
+            </form>
+          </div>
+
+          <div class="panel network-tool-result-panel">
+            <div class="panel-header">
+              <div><h2>Resultado</h2><p id="netToolStatus">Aguardando teste.</p></div>
+              <button class="secondary-action" id="btnClearNetToolLog" type="button"><i data-lucide="eraser"></i> Limpar</button>
+            </div>
+            <div id="netToolLog" class="network-tool-terminal">Nenhum teste executado ainda.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: IMPLANTACAO --- -->
+      <section class="workspace hidden" id="viewDeployNew">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>Nova instalacao</h1>
+            <p>Fluxo guiado para ativar ONU/ONT, localizar camera na rede e registrar no inventario.</p>
+          </div>
+          <button class="secondary-action" id="btnDeployClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar</button>
+        </div>
+
+        <div class="deployment-grid">
+          <div class="panel deployment-form-panel">
+            <div class="panel-header">
+              <div><h2>Assistente tecnico</h2><p>Preencha por etapas. Titulo da camera e IP sao obrigatorios para finalizar.</p></div>
+            </div>
+            <form id="deployForm" class="deployment-form">
+              <div class="deploy-step">
+                <h3>1. Cliente e conector</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployConnector">Conector MikroTik</label>
+                    <select id="deployConnector"></select>
+                  </div>
+                  <div class="form-group">
+                    <label for="deploySite">Site / local</label>
+                    <input id="deploySite" placeholder="Reserva, Jardins I, Cliente X">
+                  </div>
+                </div>
+              </div>
+
+              <div class="deploy-step">
+                <h3>2. ONU / ONT</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployOnuSerial">Serial da ONU/ONT</label>
+                    <input id="deployOnuSerial" placeholder="ONU serial">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployOnuMac">MAC da ONU/ONT</label>
+                    <input id="deployOnuMac" placeholder="00:11:22:33:44:55">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployVlan">VLAN</label>
+                    <input id="deployVlan" placeholder="Ex: 120">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployPon">PON / Porta</label>
+                    <input id="deployPon" placeholder="Ex: 1/4">
+                  </div>
+                </div>
+              </div>
+
+              <div class="deploy-step">
+                <h3>3. Camera</h3>
+                <div class="form-row deploy-inline-button">
+                  <div class="form-group">
+                    <label for="deployCameraMac">MAC da camera</label>
+                    <input id="deployCameraMac" placeholder="MAC visto no MikroTik">
+                  </div>
+                  <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
+                </div>
+                <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
+                <div class="form-row deploy-inline-button">
+                  <div class="form-group">
+                    <label for="deployCameraIp">IP que a camera vai assumir</label>
+                    <input id="deployCameraIp" placeholder="192.168.20.21">
+                  </div>
+                  <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployCameraTitle">Titulo obrigatorio</label>
+                    <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployLocation">Localizacao fisica</label>
+                    <input id="deployLocation" placeholder="Poste, bloco, rua, churrasqueira">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployCameraManufacturer">Fabricante</label>
+                    <input id="deployCameraManufacturer" placeholder="Intelbras, Hikvision">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployCameraModel">Modelo</label>
+                    <input id="deployCameraModel" placeholder="VIP-3220-B">
+                  </div>
+                </div>
+              </div>
+
+              <div class="deploy-step">
+                <h3>4. Gravador</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployRecorderType">Tipo</label>
+                    <select id="deployRecorderType">
+                      <option value="">Nao vincular agora</option>
+                      <option value="nvr">NVR IP</option>
+                      <option value="dvr">DVR analogico / iMHDX</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="deployRecorderHost">Host do gravador</label>
+                    <input id="deployRecorderHost" placeholder="10.10.9.150">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployRecorderChannel">Canal</label>
+                    <input id="deployRecorderChannel" placeholder="1">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployRecorderTitle">Titulo no gravador</label>
+                    <input id="deployRecorderTitle" placeholder="Mesmo titulo da camera">
+                  </div>
+                </div>
+              </div>
+
+              <div class="deployment-actions">
+                <button class="secondary-action" id="btnDeploySave" type="button"><i data-lucide="save"></i> Salvar rascunho</button>
+                <button class="primary-action" id="btnDeployCommitCamera" type="submit"><i data-lucide="check-circle-2"></i> Registrar camera</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="panel deployment-side-panel">
+            <div class="panel-header">
+              <div><h2>Resumo</h2><p id="deploySummaryStatus">Aguardando preenchimento.</p></div>
+            </div>
+            <div id="deploySummary" class="deployment-summary">Nenhuma instalacao em andamento.</div>
+            <div class="panel-header deployment-history-header">
+              <div><h2>Historico recente</h2><p>Ultimas implantacoes salvas.</p></div>
+            </div>
+            <div id="deployHistory" class="deployment-history">Carregando...</div>
+          </div>
+        </div>
       </section>
 
     </main>
+  </div>
+
+  <!-- --- MODAL: DETALHES DA CAMADA DO MAPA --- -->
+  <div id="modalMapLayerDetails" class="modal-backdrop hidden" onclick="if(event.target===this)closeMapLayerDetails()">
+    <div class="modal" style="max-width:min(92vw,720px);width:92vw">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Mapa</p>
+          <h2 id="mapLayerDetailsTitle">Detalhes da camada</h2>
+        </div>
+        <button class="icon-button" id="closeMapLayerDetails"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="mapLayerDetailsSummary" class="map-detail-summary"></div>
+        <div id="mapLayerDetailsList" class="map-detail-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelMapLayerDetails">Fechar</button>
+      </div>
+    </div>
   </div>
 
   <!-- --- MODAL: EDITAR C-MERAS --- -->
@@ -1814,10 +2136,10 @@
         <button id="closeEditCam" class="icon-button"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body" style="padding:0">
-        <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
-          <table class="data-table" id="editCamTable" style="table-layout:fixed;width:100%;min-width:1000px">
+        <div style="overflow-x:hidden;max-height:60vh;overflow-y:auto">
+          <table class="data-table" id="editCamTable" style="table-layout:fixed;width:100%">
             <colgroup>
-              <col style="width:90px">  <!-- IP -->
+              <col style="width:9%">   <!-- IP -->
               <col style="width:16%">   <!-- Titulo -->
               <col style="width:9%">    <!-- Fabricante -->
               <col style="width:10%">   <!-- Modelo -->
@@ -1826,7 +2148,7 @@
               <col style="width:5%">    <!-- PON -->
               <col style="width:6%">    <!-- ONU ID -->
               <col style="width:12%">   <!-- ONU Name -->
-              <col style="width:10%">   <!-- ONU Serial -->
+              <col style="width:11%">   <!-- ONU Serial -->
             </colgroup>
             <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
               <tr>
@@ -1879,20 +2201,20 @@
         <button id="closeEditRec" class="icon-button"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body" style="padding:0">
-        <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
-          <table class="data-table" id="editRecTable" style="table-layout:fixed;width:100%;min-width:1120px">
+        <div style="overflow-x:hidden;max-height:60vh;overflow-y:auto">
+          <table class="data-table" id="editRecTable" style="table-layout:fixed;width:100%">
             <colgroup>
-              <col style="width:120px">
-              <col style="width:54px">
-              <col style="width:16%">
-              <col style="width:9%">
-              <col style="width:11%">
-              <col style="width:13%">
-              <col style="width:13%">
-              <col style="width:5%">
-              <col style="width:6%">
-              <col style="width:12%">
-              <col style="width:12%">
+              <col style="width:11%"><!-- Host -->
+              <col style="width:4%">  <!-- CH -->
+              <col style="width:15%"><!-- Titulo -->
+              <col style="width:7%">  <!-- Local -->
+              <col style="width:9%">  <!-- Modelo -->
+              <col style="width:11%"><!-- IP camera -->
+              <col style="width:12%"><!-- MAC -->
+              <col style="width:5%">  <!-- PON -->
+              <col style="width:6%">  <!-- ONU ID -->
+              <col style="width:9%">  <!-- ONU Name -->
+              <col style="width:11%"><!-- ONU Serial -->
             </colgroup>
             <thead style="position:sticky;top:0;background:var(--surface);z-index:1">
               <tr>
@@ -2973,6 +3295,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=58"></script>
+  <script src="app.js?v=94"></script>
 </body>
 </html>

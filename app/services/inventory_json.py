@@ -42,6 +42,30 @@ def _norm_ip(v: Any) -> str:
     return (v or "").strip()
 
 
+def inventory_row_key(row: dict[str, Any], fallback: str = "") -> str:
+    """Chave logica do inventario.
+
+    IP privado se repete entre clientes. Quando a linha vem de conector remoto,
+    o connector_id passa a fazer parte da identidade.
+    """
+    r = row or {}
+    ip = _norm_ip(r.get("ip") or r.get("IP") or r.get("host") or "")
+    mac = _norm_mac(r.get("mac") or r.get("MAC") or r.get("mac_address") or "")
+    connector_id = str(r.get("remote_connector_id") or r.get("connector_id") or "").strip()
+    site = str(r.get("site") or r.get("site_name") or r.get("local") or "").strip().lower()
+    if connector_id and ip:
+        return f"REMOTE:{connector_id}:IP:{ip}"
+    if connector_id and mac:
+        return f"REMOTE:{connector_id}:MAC:{mac}"
+    if site and ip and str(r.get("remote") or "").strip().lower() in {"1", "true", "yes", "sim"}:
+        return f"REMOTE_SITE:{site}:IP:{ip}"
+    if ip:
+        return f"IP:{ip}"
+    if mac:
+        return f"MAC:{mac}"
+    return fallback or f"ROW:{id(row)}"
+
+
 def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     """Normaliza chaves do inventário para um padrão único.
 
@@ -87,13 +111,7 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _dedup_key(row: dict[str, Any]) -> str:
-    ip = _norm_ip(row.get("ip") or "")
-    mac = _norm_mac(row.get("mac") or "")
-    if ip:
-        return f"IP:{ip}"
-    if mac:
-        return f"MAC:{mac}"
-    return f"ROW:{id(row)}"
+    return inventory_row_key(row)
 
 
 def _normalize_inventory_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -112,7 +130,12 @@ def _normalize_inventory_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]
 
 
 def _normalize_inventory_mode(mode: str = "") -> str:
-    return "switch" if str(mode or "").strip().lower() == "switch" else "olt"
+    raw = str(mode or "").strip().lower()
+    if raw in {"switch", "sw", "via_switch", "via-switch"}:
+        return "switch"
+    if raw in {"basic", "basico", "básico", "base"}:
+        return "basic"
+    return "olt"
 
 
 def _inventory_state_key(mode: str = "") -> str:
@@ -123,9 +146,16 @@ def _inventory_path(mode: str = "") -> Path:
     norm_mode = _normalize_inventory_mode(mode)
     tenant_slug = get_current_tenant_slug()
     if tenant_slug:
-        filename = "cam-inventory-switch.json" if norm_mode == "switch" else "cam-inventory.json"
+        filename = {
+            "switch": "cam-inventory-switch.json",
+            "basic": "cam-inventory-basic.json",
+        }.get(norm_mode, "cam-inventory.json")
         return tenant_scoped_path(filename, tenant_slug)
-    return DATA_DIR / "cam-inventory-switch.json" if norm_mode == "switch" else INVENTORY_JSON_PATH
+    if norm_mode == "switch":
+        return DATA_DIR / "cam-inventory-switch.json"
+    if norm_mode == "basic":
+        return DATA_DIR / "cam-inventory-basic.json"
+    return INVENTORY_JSON_PATH
 
 
 def _extract_rows_from_obj(obj: Any) -> list[dict[str, Any]]:
@@ -162,17 +192,18 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
         state_rows = _extract_rows_from_obj(state_obj)
         return _filter_rows_by_site(state_rows, site)
 
-    try:
-        db_rows = legacy_rows_from_db("ip", site=str(site or "").strip())
-        if db_rows:
-            rows = _normalize_inventory_rows(_normalize_rows(db_rows))
-            try:
-                save_inventory_json(rows, mode=norm_mode)
-            except Exception:
-                pass
-            return _filter_rows_by_site(rows, site)
-    except Exception:
-        pass
+    if norm_mode == "olt":
+        try:
+            db_rows = legacy_rows_from_db("ip", site=str(site or "").strip())
+            if db_rows:
+                rows = _normalize_inventory_rows(_normalize_rows(db_rows))
+                try:
+                    save_inventory_json(rows, mode=norm_mode)
+                except Exception:
+                    pass
+                return _filter_rows_by_site(rows, site)
+        except Exception:
+            pass
     """Carrega cam-inventory.json no formato legado, com normalização e dedup."""
     try:
         SAIDA_DIR.mkdir(parents=True, exist_ok=True)

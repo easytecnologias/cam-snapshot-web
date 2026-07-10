@@ -16,7 +16,7 @@ from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, SAIDA_DIR, TOOLS_DIR, 
 from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
-from app.services.inventory_json import load_inventory_json, save_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import (
     attach_snapshot_fields,
     resolve_snapshot_file,
@@ -227,22 +227,26 @@ def _enrich_inventory_with_switch(rows: List[Dict[str, Any]], switch_json_path: 
 
 
 def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # merge simples (compat legado): prioriza IP, depois MAC
+    # merge seguro para SaaS: conector+IP quando remoto; legado continua por IP/MAC.
     def norm_mac(m: Any) -> str:
         return _norm_mac(m)
 
     def norm_ip(i: Any) -> str:
         return str(i or "").strip()
 
-    index: dict[tuple[str, str], dict[str, Any]] = {}
-    for r in old_rows or []:
-        ip = norm_ip(r.get("ip") or r.get("IP"))
-        mac = norm_mac(r.get("mac") or r.get("MAC"))
-        index[(ip, mac)] = r
-
     merged: list[dict[str, Any]] = [dict(r) for r in (old_rows or [])]
 
     def find_match(nr: dict[str, Any]) -> int | None:
+        nkey = inventory_row_key(nr)
+        for i, r in enumerate(merged):
+            if inventory_row_key(r) == nkey:
+                return i
+
+        # Linhas remotas nunca devem casar somente por IP/MAC, pois redes privadas
+        # se repetem entre clientes.
+        if str(nr.get("remote_connector_id") or nr.get("connector_id") or "").strip():
+            return None
+
         nip = norm_ip(nr.get("ip") or nr.get("IP"))
         nmac = norm_mac(nr.get("mac") or nr.get("MAC"))
 
@@ -271,6 +275,8 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
         else:
             # novos valores sobrescrevem e mantem extras antigos
             merged[j].update({k: v for k, v in nr.items() if v is not None})
+            if str(nr.get("status") or "").strip().lower() == "online":
+                merged[j].pop("error", None)
 
     return merged
 
@@ -569,8 +575,16 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     if mode == "scan" and (not alvo) and (not getattr(req, "reuse_inventory", False)):
         raise HTTPException(400, "Campo 'alvo' e obrigatorio.")
 
-    inventory_mode = str(getattr(req, "inventory_mode", "olt") or "olt").strip().lower()
-    inv_json = INVENTORY_JSON_PATH if inventory_mode != "switch" else (DATA_DIR / "cam-inventory-switch.json")
+    inventory_mode_raw = str(getattr(req, "inventory_mode", "olt") or "olt").strip().lower()
+    if inventory_mode_raw in {"switch", "sw", "via_switch", "via-switch"}:
+        inventory_mode = "switch"
+        inv_json = DATA_DIR / "cam-inventory-switch.json"
+    elif inventory_mode_raw in {"basic", "basico", "básico", "base"}:
+        inventory_mode = "basic"
+        inv_json = DATA_DIR / "cam-inventory-basic.json"
+    else:
+        inventory_mode = "olt"
+        inv_json = INVENTORY_JSON_PATH
 
     inv_cmd: list[str] | None = None
     current_scan_ips: set[str] | None = None

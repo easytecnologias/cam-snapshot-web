@@ -210,21 +210,23 @@ def _recent_activity() -> List[Dict[str, Any]]:
 
 def build_dashboard_summary() -> Dict[str, Any]:
     settings = get_settings()
+    ip_basic_rows = load_inventory_json(mode="basic") or []
     ip_olt_rows = load_inventory_json(mode="olt") or []
     ip_switch_rows = load_inventory_json(mode="switch") or []
     dvr_rows = _recorder_rows("dvr")
     nvr_rows = _recorder_rows("nvr")
     windows_rows = load_windows_inventory()
 
-    all_rows = list(ip_olt_rows) + list(ip_switch_rows) + list(dvr_rows) + list(nvr_rows) + list(windows_rows)
+    ip_rows = list(ip_basic_rows) + list(ip_olt_rows) + list(ip_switch_rows)
+    all_rows = list(ip_rows) + list(dvr_rows) + list(nvr_rows) + list(windows_rows)
     site_names = _sites(all_rows)
 
-    ip_status = _status_counts(ip_olt_rows)
+    ip_status = _status_counts(ip_rows)
     dvr_status = _status_counts(dvr_rows)
     nvr_status = _status_counts(nvr_rows)
     windows_status = _status_counts(windows_rows)
 
-    ip_gaps = _missing_counts(ip_olt_rows)
+    ip_gaps = _missing_counts(ip_rows)
     recorder_gaps = _missing_counts(list(dvr_rows) + list(nvr_rows))
 
     alerts = []
@@ -236,8 +238,8 @@ def build_dashboard_summary() -> Dict[str, Any]:
     offline_total += windows_status["offline"]
     if offline_total:
         alerts.append({"level": "danger", "label": "Itens offline ou com erro", "count": offline_total})
-    duplicate_ips = _duplicate_count(ip_olt_rows, ("ip", "host"))
-    duplicate_macs = _duplicate_count(ip_olt_rows, ("mac", "MAC"))
+    duplicate_ips = _duplicate_count(ip_rows, ("ip", "host"))
+    duplicate_macs = _duplicate_count(ip_rows, ("mac", "MAC"))
     if duplicate_ips or duplicate_macs:
         alerts.append({"level": "warning", "label": "Possiveis duplicidades IP/MAC", "count": duplicate_ips + duplicate_macs})
     windows_without_ssd = sum(
@@ -263,6 +265,8 @@ def build_dashboard_summary() -> Dict[str, Any]:
             "ip": {
                 **ip_status,
                 **ip_gaps,
+                "basic_inventory_total": len(ip_basic_rows),
+                "olt_inventory_total": len(ip_olt_rows),
                 "switch_inventory_total": len(ip_switch_rows),
                 "duplicate_ips": duplicate_ips,
                 "duplicate_macs": duplicate_macs,

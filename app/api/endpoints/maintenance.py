@@ -6,6 +6,7 @@ import subprocess
 import sys
 import re
 import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -303,7 +304,16 @@ def _run_script(script_path: Path, env: Dict[str, str], args: List[str] | None =
     return ok, proc.stdout or "", proc.stderr or "", err
 
 
-def _load_rows_for_source(source: str, site: str = "") -> list[dict[str, Any]]:
+def _normalize_ip_inventory_mode(mode: str = "") -> str:
+    raw = _as_str(mode).lower()
+    if raw in {"switch", "sw", "via_switch", "via-switch"}:
+        return "switch"
+    if raw in {"basic", "basico", "básico", "base"}:
+        return "basic"
+    return "olt"
+
+
+def _load_rows_for_source(source: str, site: str = "", mode: str = "olt") -> list[dict[str, Any]]:
     src = _as_str(source).lower()
     site_name = _as_str(site)
     if src == "windows":
@@ -344,7 +354,7 @@ def _load_rows_for_source(source: str, site: str = "") -> list[dict[str, Any]]:
             return rows
         except Exception:
             return []
-    return load_inventory_json(site=site_name) or []
+    return load_inventory_json(site=site_name, mode=_normalize_ip_inventory_mode(mode)) or []
 
 
 def _build_zabbix_rows(source: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1071,6 +1081,7 @@ def scripts_netwatch(payload: Dict[str, Any]) -> Dict[str, Any]:
     interval = _as_str(payload.get("interval")) or "1m"
     timeout = _as_str(payload.get("timeout")) or "2s"
     site = _as_str(payload.get("site"))
+    inv_mode = _normalize_ip_inventory_mode(payload.get("inv_mode") or payload.get("mode") or "olt")
 
     if not token or not chat:
         return {"success": False, "error": "token e chat sao obrigatorios"}
@@ -1135,6 +1146,7 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
     tg_chat = _as_str(payload.get("tg_chat"))
     source = _as_str(payload.get("source") or "ip").lower()
     site = _as_str(payload.get("site"))
+    inv_mode = _normalize_ip_inventory_mode(payload.get("inv_mode") or payload.get("mode") or "olt")
 
     if not url or not user or not password:
         return {"error": "url, user e pass sao obrigatorios"}
@@ -1142,7 +1154,7 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Para source=dvr/nvr informe dvr_user e dvr_pass"}
 
     script = BASE_DIR / "tools" / "mk_zabbix_from_inventory.py"
-    inv_rows = _build_zabbix_rows(source, _load_rows_for_source(source, site=site))
+    inv_rows = _build_zabbix_rows(source, _load_rows_for_source(source, site=site, mode=inv_mode))
     tmp_inv = SAIDA_DIR / "zabbix-source-inventory.json"
     try:
         tmp_inv.write_text(json.dumps(inv_rows, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1168,12 +1180,12 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not ok:
         return {"error": err, "stdout": stdout, "stderr": stderr}
 
-    # Persistimos a última configuração DVR para sincronismo automático de status
-    # no fluxo de varredura DVR (scan/snapshot update).
-    if source in ("dvr", "nvr"):
+    # Persistimos a última configuração para sincronismo automático de status.
+    if source in ("ip", "dvr", "nvr"):
         try:
             s = _load_settings()
-            s["zabbix_dvr_sync"] = {
+            key = "zabbix_ip_sync" if source == "ip" else "zabbix_dvr_sync"
+            s[key] = {
                 "enabled": True,
                 "url": url,
                 "user": user,
@@ -1183,12 +1195,183 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "template_dvr": template_dvr,
                 "dvr_user": dvr_user,
                 "dvr_pass": dvr_pass,
+                "site": site,
+                "inv_mode": inv_mode,
             }
             _save_settings(s)
         except Exception:
             pass
 
-    return {"ok": True, "source": source, "site": site, "rows_used": len(inv_rows), "stdout": stdout, "stderr": stderr}
+    return {"ok": True, "source": source, "site": site, "mode": inv_mode, "rows_used": len(inv_rows), "stdout": stdout, "stderr": stderr}
+
+
+def _zabbix_api_call(url: str, method: str, params: Any, auth: str | None = None, req_id: int = 1) -> Any:
+    payload: Dict[str, Any] = {"jsonrpc": "2.0", "method": method, "params": params, "id": req_id}
+    if auth:
+        payload["auth"] = auth
+    r = requests.post(url, json=payload, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    if data.get("error"):
+        raise RuntimeError(f"{method}: {data['error']}")
+    return data.get("result")
+
+
+def _zabbix_login(url: str, user: str, password: str) -> str:
+    return _as_str(_zabbix_api_call(url, "user.login", {"username": user, "password": password}, req_id=1))
+
+
+@router.post("/scripts/zabbix/status-sync")
+def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
+    source = _as_str(payload.get("source") or "ip").lower()
+    if source != "ip":
+        return {"ok": False, "error": "Por enquanto o status-sync Zabbix automatico e para Cameras IP."}
+
+    settings = _load_settings()
+    cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
+    url = _normalize_zabbix_url(payload.get("url") or cfg.get("url"))
+    user = _as_str(payload.get("user") or cfg.get("user"))
+    password = _as_str(payload.get("pass") or cfg.get("password") or cfg.get("pass"))
+    if "site" in payload:
+        site = _as_str(payload.get("site"))
+    else:
+        site = _as_str(cfg.get("site"))
+    mode = _normalize_ip_inventory_mode(payload.get("mode") or payload.get("inv_mode") or cfg.get("inv_mode") or "olt")
+
+    if not url or not user or not password:
+        return {
+            "ok": False,
+            "error": "Zabbix nao configurado para Cameras IP. Sincronize o menu Zabbix com fonte Cameras IP primeiro.",
+        }
+
+    rows = load_inventory_json(mode=mode) or []
+    wanted_site = site.strip().lower()
+
+    def _row_matches_site(row: Dict[str, Any]) -> bool:
+        if not wanted_site:
+            return True
+        vals = [
+            _as_str(row.get("site")).lower(),
+            _as_str(row.get("site_name")).lower(),
+            _as_str(row.get("local") or row.get("LOCAL")).lower(),
+        ]
+        return any(v == wanted_site for v in vals if v)
+
+    ip_to_index: Dict[str, int] = {}
+    for idx, row in enumerate(rows):
+        if not _row_matches_site(row):
+            continue
+        ip = _as_str(row.get("ip") or row.get("IP"))
+        if ip:
+            ip_to_index[ip] = idx
+    if not ip_to_index:
+        return {"ok": True, "source": "zabbix", "total": 0, "online": 0, "offline": 0, "unknown": 0, "updated": 0}
+
+    try:
+        auth = _zabbix_login(url, user, password)
+        hosts = _zabbix_api_call(
+            url,
+            "host.get",
+            {
+                "output": ["hostid", "host", "name", "available"],
+                "selectInterfaces": ["interfaceid", "ip", "available", "error"],
+                "monitored_hosts": True,
+            },
+            auth,
+            req_id=2,
+        ) or []
+        host_by_ip: Dict[str, Dict[str, Any]] = {}
+        hostids: List[str] = []
+        for host in hosts:
+            if not isinstance(host, dict):
+                continue
+            hid = _as_str(host.get("hostid"))
+            if hid:
+                hostids.append(hid)
+            for iface in host.get("interfaces") or []:
+                ip = _as_str((iface or {}).get("ip"))
+                if ip in ip_to_index:
+                    host_by_ip[ip] = {"host": host, "interface": iface or {}}
+
+        host_status: Dict[str, str] = {}
+        if hostids:
+            items = _zabbix_api_call(
+                url,
+                "item.get",
+                {
+                    "hostids": hostids,
+                    "output": ["hostid", "key_", "lastvalue", "lastclock", "name"],
+                    "search": {"key_": "icmpping"},
+                    "sortfield": "key_",
+                },
+                auth,
+                req_id=3,
+            ) or []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                key = _as_str(item.get("key_"))
+                if not key.startswith("icmpping"):
+                    continue
+                hid = _as_str(item.get("hostid"))
+                if hid in host_status and key != "icmpping":
+                    continue
+                last = _as_str(item.get("lastvalue"))
+                if last == "1":
+                    host_status[hid] = "online"
+                elif last == "0":
+                    host_status[hid] = "offline"
+
+        now = datetime.now(timezone.utc).isoformat()
+        updated = online = offline = unknown = 0
+        for ip, idx in ip_to_index.items():
+            info = host_by_ip.get(ip)
+            if not info:
+                unknown += 1
+                continue
+            host = info.get("host") or {}
+            iface = info.get("interface") or {}
+            hid = _as_str(host.get("hostid"))
+            status = host_status.get(hid)
+            if not status:
+                available = _as_str(iface.get("available") or host.get("available"))
+                if available == "1":
+                    status = "online"
+                elif available == "2":
+                    status = "offline"
+            if not status:
+                unknown += 1
+                continue
+
+            row = rows[idx]
+            row["status"] = status
+            row["status_source"] = "zabbix"
+            row["status_checked_at"] = now
+            row["zabbix_hostid"] = hid
+            row["zabbix_host"] = _as_str(host.get("name") or host.get("host"))
+            updated += 1
+            if status == "online":
+                online += 1
+            else:
+                offline += 1
+
+        if updated:
+            save_inventory_json(rows, mode=mode)
+
+        return {
+            "ok": True,
+            "source": "zabbix",
+            "mode": mode,
+            "site": site,
+            "total": len(ip_to_index),
+            "matched": len(host_by_ip),
+            "updated": updated,
+            "online": online,
+            "offline": offline,
+            "unknown": unknown,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Falha ao consultar Zabbix: {e}"}
 
 
 @router.post("/scripts/grafana")

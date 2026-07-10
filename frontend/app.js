@@ -2,6 +2,9 @@
    SightOps  Frontend SPA
     */
 
+// O login nao pode depender do CDN de icones. Se o Lucide falhar, a UI segue viva.
+window.lucide = window.lucide || { createIcons() {} };
+
 //  Estado global 
 let _token = localStorage.getItem('so_token') || null;
 let _currentView = 'dashboard';
@@ -60,6 +63,17 @@ function showToast(msg, isError = false) {
   clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
 }
+
+window.addEventListener('error', (event) => {
+  console.error('[SightOps UI]', event.error || event.message);
+  if (_token) showToast(event.message || 'Erro na interface.', true);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason;
+  console.error('[SightOps UI promise]', reason);
+  if (_token) showToast(reason?.message || 'Acao falhou na interface.', true);
+});
 
 //  Auth 
 async function login(user, pass) {
@@ -130,15 +144,16 @@ const VIEW_META = {
   'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
-  'net-devices':   { title: 'Rede  Dispositivos', sub: 'Dispositivos monitorados' },
-  'net-learn':     { title: 'Rede  Aprendizado', sub: '' },
-  'net-operate':   { title: 'Rede  Operacoes',  sub: '' },
+  'net-devices':   { title: 'Redes - Dispositivos', sub: 'Dispositivos monitorados' },
+  'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
+  'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
+  'deploy-new':    { title: 'Implantacao - Nova instalacao', sub: 'Assistente de campo' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
   kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
   'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
   'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
-  connectors:      { title: 'Conectores',       sub: 'Agentes Windows dos clientes' },
+  connectors:      { title: 'Conectores',       sub: 'MikroTik RouterOS dos clientes' },
   tools:           { title: 'Ferramentas',       sub: '' },
   backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },
   settings:        { title: 'Configuracoes',     sub: '' },
@@ -147,7 +162,7 @@ const VIEW_META = {
 const VIEW_ID_MAP = {
   dashboard:        'viewDashboard',
   'inv-olt':        'viewInvOlt',
-  'inv-switch':     'viewInvSwitch',
+  'inv-switch':     'viewInvOlt',
   'inv-dvr':        'viewInvDvr',
   'inv-nvr':        'viewInvNvr',
   'inv-windows':    'viewInvWindows',
@@ -161,6 +176,7 @@ const VIEW_ID_MAP = {
   'net-devices':    'viewNetDevices',
   'net-learn':      'viewNetLearn',
   'net-operate':    'viewNetOperate',
+  'deploy-new':     'viewDeployNew',
   olt:              'viewOlt',
   switch:           'viewSwitch',
   kmz:              'viewKmz',
@@ -206,6 +222,7 @@ function loadView(view) {
   switch (view) {
     case 'dashboard':   loadDashboard();    break;
     case 'inv-olt':     loadInvOlt();       break;
+    case 'inv-switch':  setInvOltView('switch'); loadInvOlt(); break;
     case 'inv-dvr':     loadInvDvr();       break;
     case 'inv-nvr':     loadInvNvr();       break;
     case 'inv-windows': loadInvWindows();   break;
@@ -221,8 +238,38 @@ function loadView(view) {
     case 'kmz':         loadKmz();          break;
     case 'backup':      loadBackup();       break;
     case 'net-devices': loadNetDevices();   break;
+    case 'net-learn':   loadStaticView();   break;
+    case 'net-operate': loadNetOperate();   break;
+    case 'deploy-new':  loadDeployNew();    break;
     case 'connectors':  loadConnectors();   break;
+    case 'script-grafana': loadScriptGrafana(); break;
+    case 'script-zabbix':  loadScriptZabbix();  break;
+    case 'tools':
+    case 'settings':
+      loadStaticView();
+      break;
+    default:
+      loadStaticView();
+      break;
   }
+}
+
+function loadStaticView() {
+  lucide.createIcons();
+}
+
+function loadScriptGrafana() {
+  const log = document.getElementById('grafanaLog');
+  if (log && !log.textContent.trim()) log.textContent = 'Aguardando configuracao.';
+  lucide.createIcons();
+}
+
+function loadScriptZabbix() {
+  const source = document.getElementById('zbxSource');
+  if (source) source.dispatchEvent(new Event('change'));
+  const log = document.getElementById('zabbixLog');
+  if (log && !log.textContent.trim()) log.textContent = 'Aguardando configuracao.';
+  lucide.createIcons();
 }
 
 //  Sidebar mobile 
@@ -259,13 +306,16 @@ function closeDashDrawer() {
   setTimeout(() => { drawer.classList.add('hidden'); overlay.classList.add('hidden'); }, 270);
 }
 
-function _drawerGoToInventory(view, searchValue) {
+function _drawerGoToInventory(view, searchValue, camMode) {
   closeDashDrawer();
   if (view === 'inv-olt' && searchValue) {
     _pendingOpenCamIp = searchValue;
   }
   setTimeout(() => {
     navigateTo(view);
+    if (view === 'inv-olt' && camMode) {
+      setTimeout(() => setInvOltView(camMode), 120);
+    }
     if (searchValue && view !== 'inv-olt') {
       setTimeout(() => {
         const inputMap = { 'inv-dvr': 'searchInvDvr', 'inv-nvr': 'searchInvNvr' };
@@ -311,9 +361,17 @@ async function openDashDrawerIp(filterKey, activeSite) {
   activeSite = activeSite || null;
   _openDashDrawer('Inventario', 'Cameras IP');
   if (!_dashDrawerData?.ip) {
-    const res = await apiJson('/api/cameras?mode=olt');
+    const [basicRes, oltRes, switchRes] = await Promise.all([
+      apiJson('/api/cameras?mode=basico').catch(() => ({ cameras: [] })),
+      apiJson('/api/cameras?mode=olt').catch(() => ({ cameras: [] })),
+      apiJson('/api/cameras?mode=switch').catch(() => ({ cameras: [] })),
+    ]);
     if (!_dashDrawerData) _dashDrawerData = {};
-    _dashDrawerData.ip = res?.cameras || [];
+    _dashDrawerData.ip = [
+      ...(basicRes?.cameras || []).map(r => ({ ...r, _dashMode: 'basico' })),
+      ...(oltRes?.cameras || []).map(r => ({ ...r, _dashMode: 'olt' })),
+      ...(switchRes?.cameras || []).map(r => ({ ...r, _dashMode: 'switch' })),
+    ];
   }
   const rows = _dashDrawerData.ip;
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
@@ -340,7 +398,8 @@ async function openDashDrawerIp(filterKey, activeSite) {
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => {
     const ip = esc(r.ip || '');
-    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('inv-olt','${ip}')" title="Abrir no inventario">
+    const view = r._dashMode === 'switch' ? 'inv-switch' : 'inv-olt';
+    return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('${view}','${ip}','${esc(r._dashMode || 'olt')}')" title="Abrir no inventario">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(r.titulo || r.ip || '')}</div>
@@ -350,6 +409,22 @@ async function openDashDrawerIp(filterKey, activeSite) {
       <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
     </div>`;
   }).join(''));
+}
+
+async function refreshDashboardLiveCameraStatus() {
+  showToast('Sincronizando status real pelo Zabbix...');
+  const res = await api('/api/scripts/zabbix/status-sync', {
+    method: 'POST',
+    body: JSON.stringify({ source: 'ip', mode: 'olt', site: '' }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || body?.error || 'Zabbix nao configurado para status das cameras.', true);
+    return;
+  }
+  _dashDrawerData = null;
+  showToast(`Zabbix atualizado: ${body.online || 0}/${body.total || 0} online, ${body.offline || 0} offline.`);
+  await loadDashboard();
 }
 
 async function openDashDrawerRecorder(source, filterKey, activeSite) {
@@ -631,89 +706,138 @@ function _camSessionClear() {
   });
 }
 
+function _camKey(camOrIp) {
+  if (typeof camOrIp === 'string') return `IP:${camOrIp.trim()}`;
+  const cam = camOrIp || {};
+  const existingKey = String(cam.inventory_key || cam.key || '').trim();
+  if (existingKey) return existingKey;
+  const ip = String(cam.ip || cam.IP || '').trim();
+  const connector = String(cam.remote_connector_id || cam.connector_id || '').trim();
+  const site = String(cam.site || cam.site_name || cam.local || '').trim().toLowerCase();
+  if (connector && ip) return `REMOTE:${connector}:IP:${ip}`;
+  if ((cam.remote === true || cam.remote === 'true' || cam.remote === 1) && site && ip) return `REMOTE_SITE:${site}:IP:${ip}`;
+  return `IP:${ip}`;
+}
+
 function _camRemoveIpsLocally(ips) {
   const doomed = new Set((ips || []).map(ip => String(ip || '').trim()).filter(Boolean));
   if (!doomed.size) return;
   ['basico','olt','switch'].forEach(mode => {
-    _invCam[mode] = (_invCam[mode] || []).filter(cam => !doomed.has(String(cam.ip || '').trim()));
+    _invCam[mode] = (_invCam[mode] || []).filter(cam => !doomed.has(String(cam.ip || '').trim()) && !doomed.has(_camKey(cam)));
     _camSessionSave(mode, _invCam[mode]);
   });
   try {
     const imgbb = _imgbbGet();
-    doomed.forEach(ip => delete imgbb[ip]);
+    doomed.forEach(ip => {
+      delete imgbb[ip];
+      delete imgbb[`IP:${ip}`];
+    });
     sessionStorage.setItem('so_imgbb', JSON.stringify(imgbb));
   } catch {}
 }
 
 function updateCamTabs() {
   document.querySelectorAll('.inv-view-tab[data-view]').forEach(t => {
-    const hasData = _invCam[t.dataset.view]?.length > 0;
-    t.style.display = hasData ? '' : 'none';
+    const view = t.dataset.view;
+    const hasData = _invCam[view]?.length > 0;
+    t.style.display = (view === 'basico' || view === 'olt' || hasData) ? '' : 'none';
   });
-  if (!_invCam[_invOltView]?.length) {
-    const first = ['olt','switch','basico'].find(m => _invCam[m]?.length > 0);
-    if (first) setInvOltView(first);
+  if (!['basico', 'olt', 'switch'].includes(_invOltView)) {
+    _invOltView = 'basico';
   }
+  document.querySelectorAll('.inv-view-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === _invOltView)
+  );
+}
+
+function cameraImgbbUrl(c) {
+  if (!c) return '';
+  return c.imgbb_url
+    || c.imgbb_thumb_url
+    || c.thumbnail_url
+    || c.thumb_url
+    || c.display_url
+    || c.url
+    || (isImgbbUrl(c.snapshot_url) ? c.snapshot_url : '')
+    || '';
 }
 
 // Celulas base compartilhadas entre as 3 visoes
 function _camCell(c) {
-  const imgbbUrl = c.imgbb_url || (isImgbbUrl(c.snapshot_url) ? c.snapshot_url : '');
+  const imgbbUrl = cameraImgbbUrl(c);
+  const key = _camKey(c);
   return {
-    chk:       `<input type="checkbox" class="chk-olt" value="${esc(c.ip)}">`,
-    ip:        `<span class="monospace text-primary">${esc(c.ip)}</span>`,
-    mac:       `<span class="monospace" style="font-size:11px">${esc(c.mac||'')}</span>`,
-    fab:       `<span class="text-muted">${esc(c.fabricante||'')}</span>`,
-    modelo:    esc(c.modelo || c.model || ''),
-    titulo:    `<strong>${esc(c.titulo||'')}</strong>`,
+    chk:       `<input type="checkbox" class="chk-olt" value="${esc(c.ip)}" data-key="${esc(key)}">`,
+    ip:        `<span class="monospace text-primary" title="${esc(c.ip)}">${esc(c.ip)}</span>`,
+    mac:       `<span class="monospace" title="${esc(c.mac||'')}" style="font-size:11px">${esc(c.mac||'')}</span>`,
+    fab:       `<span class="text-muted" title="${esc(c.fabricante||'')}">${esc(c.fabricante||'')}</span>`,
+    modelo:    `<span title="${esc(c.modelo || c.model || '')}">${esc(c.modelo || c.model || '')}</span>`,
+    titulo:    `<strong title="${esc(c.titulo||'')}">${esc(c.titulo||'')}</strong>`,
     status:    invStatusBadge(c.status),
     imgbb:     imgbbUrl ? `<a href="${esc(imgbbUrl)}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-weight:700;font-size:12px;text-decoration:none"> up</a>` : `<span style="color:var(--danger);font-weight:700;font-size:12px"> down</span>`,
-    local:     `<span class="text-muted">${esc(c.local||'')}</span>`,
+    local:     `<span class="text-muted" title="${esc(c.local||'')}">${esc(c.local||'')}</span>`,
     pon:       `<span style="text-align:center;display:block;font-weight:500">${esc(c.pon||'')}</span>`,
     onu_id:    `<span style="text-align:center;display:block;font-weight:500">${esc(c.onu_id||'')}</span>`,
-    onu_name:  `<span class="text-muted" style="font-size:11px">${esc(c.onu_name||'')}</span>`,
-    onu_ser:   `<span class="monospace text-muted" style="font-size:11px">${esc(c.onu_serial||'')}</span>`,
-    sw_ip:     `<span class="monospace text-muted">${esc(c.switch_ip||'')}</span>`,
-    sw_port:   `<span class="text-muted">${esc(c.switch_port||'')}</span>`,
-    sw_vlan:   `<span class="text-muted">${esc(c.switch_vlan||'')}</span>`,
+    onu_name:  `<span class="text-muted" title="${esc(c.onu_name||'')}" style="font-size:11px">${esc(c.onu_name||'')}</span>`,
+    onu_ser:   `<span class="monospace text-muted" title="${esc(c.onu_serial||'')}" style="font-size:11px">${esc(c.onu_serial||'')}</span>`,
+    sw_ip:     `<span class="monospace text-muted" title="${esc(c.switch_ip||'')}">${esc(c.switch_ip||'')}</span>`,
+    sw_port:   `<span class="text-muted" title="${esc(c.switch_port||'')}">${esc(c.switch_port||'')}</span>`,
+    sw_vlan:   `<span class="text-muted" title="${esc(c.switch_vlan||'')}">${esc(c.switch_vlan||'')}</span>`,
   };
 }
 
+// Larguras em % (nao em px): garantem matematicamente que a tabela nunca
+// ultrapassa 100% do container, ou seja, nunca gera scroll horizontal,
+// independente de resolucao/zoom/escala do Windows. Identificadores
+// (IP/MAC/PON/ONU ID/Serial/Porta) recebem a maior fatia para minimizar
+// truncamento; colunas descritivas (Fabricante/Modelo/Titulo/Local/ONU Name)
+// truncam com reticencias + tooltip (title=) quando o espaco aperta.
 const INV_COLS = {
-  // Basico: IP, MAC, Fabricante, Modelo, Titulo, Status, ImgBB, Local   100%
+  // Basico: IP, MAC, Fabricante, Modelo, Titulo, Status, ImgBB, Local
   basico: {
-    cols:  ['32px','10%','13%','9%','10%','20%','8%','6%','24%'],
+    cols:  ['4%','13%','15%','10%','12%','18%','9%','7%','12%'],
     heads: ['',    'IP', 'MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local]; },
   },
-  // OLT: base enxuta + dados OLT   100%
+  // OLT: base enxuta + dados OLT
   olt: {
-    cols:  ['32px','8%','12%','8%','8%','11%','7%','6%','7%','5%','5%','12%','11%'],
+    cols:  ['3%','11%','12%','7%','8%','15%','7%','5%','7%','4%','5%','8%','8%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','PON','ONU ID','ONU Name','ONU Serial'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.pon, v.onu_id, v.onu_name, v.onu_ser]; },
   },
-  // Switch: base enxuta + dados Switch   100%
+  // Switch: base enxuta + dados Switch
   switch: {
-    cols:  ['32px','8%','12%','8%','8%','12%','7%','6%','8%','13%','8%','10%'],
+    cols:  ['4%','12%','14%','8%','9%','17%','7%','5%','6%','10%','5%','3%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch IP','Porta','VLAN'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_ip, v.sw_port, v.sw_vlan]; },
   },
 };
 
-function setInvOltView(view) {
+async function setInvOltView(view) {
   _invOltView = view;
   try { sessionStorage.setItem('so_cam_view', view); } catch {}
   document.querySelectorAll('.inv-view-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.view === view)
   );
+  if (!(_invCam[view] || []).length) {
+    try {
+      await _loadCamForMode(view);
+      updateCamTabs();
+      populateCamSiteFilter();
+    } catch (e) {
+      console.warn('Falha ao carregar visao', view, e);
+    }
+  }
   applyInvOltFilters();
 }
 
-// Persiste mapeamento ipimgbb_url no sessionStorage
-function _imgbbSave(ip, url) {
+// Persiste mapeamento camera->imgbb_url no sessionStorage.
+function _imgbbSave(camOrIp, url) {
   try {
     const m = JSON.parse(sessionStorage.getItem('so_imgbb') || '{}');
-    m[ip] = url;
+    const key = _camKey(camOrIp);
+    if (key) m[key] = url;
+    if (typeof camOrIp === 'string') m[`IP:${camOrIp.trim()}`] = url;
     sessionStorage.setItem('so_imgbb', JSON.stringify(m));
   } catch {}
 }
@@ -729,13 +853,119 @@ let _map            = null;
 let _mapFeatures    = [];
 let _mapLayers      = [];
 let _mapLayerGroups = {}; // id  { group, active, features }
+let _mapCameraIndex = { byName: {}, byIp: {} };
 
 // Definicao das camadas disponiveis
 const MAP_LAYER_DEFS = [
   { id: 'cameras',  get label() { return sessionStorage.getItem('so_kmz_generated_name') || 'Cameras do Inventario'; },
     color: '#16a34a', endpoint: '/api/kmz/generated/geojson', source: 'generated' },
-  { id: 'imported', label: 'KMZ Importado', color: '#1971c2', endpoint: '/api/kmz/import/geojson', source: 'imported' },
 ];
+
+function mapExtractIp(text) {
+  const m = String(text || '').match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  return m ? m[0] : '';
+}
+
+function mapFeatureName(feature) {
+  return String(feature?.properties?.name || '').trim();
+}
+
+function mapFeatureLocal(feature, cam) {
+  if (cam?.local) return cam.local;
+  const desc = String(feature?.properties?.description || '');
+  const m = desc.match(/LOCAL.*?>(.*?)</i);
+  return m ? m[1].trim() : '';
+}
+
+function mapFindCamera(feature, index = _mapCameraIndex) {
+  const name = mapFeatureName(feature);
+  const desc = String(feature?.properties?.description || '');
+  const ip = mapExtractIp(desc) || mapExtractIp(name);
+  return index.byName[name.toLowerCase()] || index.byIp[ip] || null;
+}
+
+function mapFeatureType(feature, cam) {
+  const name = mapFeatureName(feature);
+  const desc = String(feature?.properties?.description || '');
+  if (cam || !feature?._source || feature?._source === 'generated') return 'camera';
+  if (/\bcto\b|^cto/i.test(name)) return 'cto';
+  if (/\bcdo\b|^cdo|emenda|splice/i.test(name)) return 'cdo';
+  if (/cam|camera|vip-|vipc|vip\s|\bcam\s/i.test(name)) return 'camera';
+  if (/\bSTATUS\b|\bLOCAL\b|\bMODELO\b|\bFABRICANTE\b|vip-|vipc|hikvision|intelbras/i.test(desc)) return 'camera';
+  return 'other';
+}
+
+function mapFeatureStatus(feature, cam) {
+  const desc = String(feature?.properties?.description || '').toUpperCase();
+  const status = String(cam?.status || '').toLowerCase();
+  if (status === 'online') return 'online';
+  if (status === 'offline') return 'offline';
+  if (desc.includes('ONLINE')) return 'online';
+  if (desc.includes('OFFLINE')) return 'offline';
+  return 'outros';
+}
+
+function mapFeatureKey(feature, cam = null) {
+  const ip = cam?.ip || mapExtractIp(feature?.properties?.description) || mapExtractIp(mapFeatureName(feature));
+  const name = mapFeatureName(feature);
+  const coords = feature?.geometry?.coordinates || [];
+  return [ip || name, coords[1], coords[0]].map(v => String(v ?? '').trim()).join('|');
+}
+
+function mapLayerStats(features, index = _mapCameraIndex) {
+  return (features || []).reduce((acc, f) => {
+    const cam = mapFindCamera(f, index);
+    const type = mapFeatureType(f, cam);
+    acc.total += 1;
+    if (type === 'camera') {
+      acc.cameras += 1;
+      const status = mapFeatureStatus(f, cam);
+      if (status === 'online') acc.online += 1;
+      else if (status === 'offline') acc.offline += 1;
+      else acc.outros += 1;
+    } else {
+      acc.outros += 1;
+    }
+    return acc;
+  }, { total: 0, cameras: 0, online: 0, offline: 0, outros: 0 });
+}
+
+function mapLayerColor(features, fallback = '#d97706') {
+  const stats = mapLayerStats(features, _mapCameraIndex);
+  if (stats.cameras > 0) return '#16a34a';
+  const names = (features || []).map(f => mapFeatureName(f)).join(' ');
+  if (/\bcto\b|^cto/i.test(names)) return '#1971c2';
+  if (/\bcdo\b|^cdo|emenda|splice/i.test(names)) return '#7950f2';
+  return fallback;
+}
+
+function mapLayerSignature(features) {
+  return (features || [])
+    .filter(f => f?.geometry?.type === 'Point')
+    .map(f => {
+      const coords = f.geometry?.coordinates || [];
+      const name = mapFeatureName(f).toLowerCase();
+      const lat = Number(coords[1] || 0).toFixed(6);
+      const lng = Number(coords[0] || 0).toFixed(6);
+      return `${name}|${lat}|${lng}`;
+    })
+    .sort()
+    .slice(0, 80)
+    .join('||');
+}
+
+async function mapLoadCameraIndex() {
+  const camData = await apiJson('/api/cameras');
+  const cams = camData?.cameras || [];
+  const byName = {};
+  const byIp = {};
+  cams.forEach(c => {
+    if (c.titulo) byName[String(c.titulo).toLowerCase()] = c;
+    if (c.ip) byIp[String(c.ip)] = c;
+  });
+  _mapCameraIndex = { byName, byIp };
+  return _mapCameraIndex;
+}
 
 async function loadKmz() {
   const container = document.getElementById('leafletMap');
@@ -757,14 +987,6 @@ async function loadKmz() {
   // Nada mais a fazer aqui  as camadas sao gerenciadas pelo painel
   setText('mapCounter', 'Selecione camadas no painel');
 
-  // Indice de cameras por nome
-  const camByName = {};
-  const camByIp   = {};
-  (camData?.cameras || []).forEach(c => {
-    if (c.titulo) camByName[c.titulo.toLowerCase()] = c;
-    if (c.ip)     camByIp[c.ip] = c;
-  });
-
   // Popula filtro de sites (extraido das propriedades)
   const sites = [...new Set(_mapFeatures.map(f => {
     const m = (f.properties?.description || '').match(/LOCAL.*?>(.*?)</i);
@@ -777,49 +999,62 @@ async function loadKmz() {
       sites.map(s => `<option${s===cur?' selected':''}>${esc(s)}</option>`).join('');
   }
 
-  // Aguarda o container ter tamanho real antes de plotar
-  setTimeout(() => {
-    _map.invalidateSize();
-    renderMapMarkers(camByName, camByIp);
-  }, 200);
+  setTimeout(() => _map.invalidateSize(), 200);
 }
 
 async function loadMapLayers() {
   const listEl = document.getElementById('mapLayersList');
   if (!listEl) return;
 
-  listEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px;text-align:center">Verificando</div>';
+  listEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px;text-align:center">Carregando camadas</div>';
 
-  // Carrega cada camada em paralelo  importado ja traz o original_name
-  const results = await Promise.all(MAP_LAYER_DEFS.map(async def => {
-    const data = await apiJson(def.endpoint);
-    const features = data?.features || [];
-    const label = def.id === 'imported' && data?.original_name
-      ? data.original_name.replace(/\.(kmz|kml)$/i, '')
-      : def.label;
-    return { ...def, features, count: features.length, label };
+  const camIndex = await mapLoadCameraIndex();
+  const previousActive = new Set(Object.entries(_mapLayerGroups || {}).filter(([, s]) => s?.active).map(([id]) => id));
+
+  const generatedData = await apiJson('/api/kmz/generated/layers').catch(() => ({ layers: [] }));
+  const generatedLayers = (generatedData?.layers || []).map((layer, idx) => ({
+    id: `generated:${layer.id}`,
+    layerId: layer.id,
+    label: layer.label || layer.original_name || `Mapa gerado ${idx + 1}`,
+    color: '#16a34a',
+    source: 'generated',
+    sourceLayerId: layer.source_layer_id || '',
+    features: (layer.features || []).map(f => ({ ...f, _source: 'generated', _layerId: layer.id })),
+    count: Number(layer.features_count ?? layer.features?.length ?? 0),
+    downloadUrl: layer.download_url || `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}/download`,
+    deleteUrl: `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}`,
   }));
 
-  // Adiciona cameras do inventario como camada especial
-  const camData = await apiJson('/api/cameras');
-  const cams = camData?.cameras || [];
-  const camFeatures = cams
-    .filter(c => c.lat && c.lon)
-    .map(c => ({ type: 'Feature', _source: 'cameras',
-      geometry: { type: 'Point', coordinates: [parseFloat(c.lon), parseFloat(c.lat)] },
-      properties: { name: c.titulo || c.ip, description: `${c.ip} | ${c.status}` }
-    }));
+  const importedData = await apiJson('/api/kmz/import/layers');
+  const generatedSourceLayerIds = new Set(generatedLayers.map(layer => layer.sourceLayerId).filter(Boolean));
+  const generatedSignatures = new Set(generatedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
+  const importedLayers = (importedData?.layers || []).map((layer, idx) => ({
+    id: `imported:${layer.id}`,
+    layerId: layer.id,
+    label: layer.label || layer.original_name || `Mapa ${idx + 1}`,
+    color: mapLayerColor((layer.features || []).map(f => ({ ...f, _source: 'imported', _layerId: layer.id }))),
+    source: 'imported',
+    features: (layer.features || []).map(f => ({ ...f, _source: 'imported', _layerId: layer.id })),
+    count: Number(layer.features_count ?? layer.features?.length ?? 0),
+    downloadUrl: layer.download_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}/download`,
+    deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
+  })).filter(layer => !generatedSourceLayerIds.has(layer.layerId) && !generatedSignatures.has(mapLayerSignature(layer.features)));
 
-  // Monta painel de camadas
-  const allLayers = [
-    ...results,
-    { id: 'cam-inventory', label: 'Cameras (Inventario)', color: '#16a34a', features: _mapFeatures.filter(f => f._source === 'generated'), count: _mapFeatures.filter(f => f._source === 'generated').length, source: 'generated' }
-  ].filter(l => l.count > 0 || l.id === 'imported');
+  const results = [
+    ...generatedLayers.filter(r => r.count > 0),
+    ...importedLayers.filter(r => r.count > 0),
+  ];
+  _mapFeatures = results.flatMap(layer => (layer.features || []).map(f => ({ ...f, _source: f._source || layer.source, _layerId: layer.layerId || layer.id })));
 
   // Inicializa grupos de camadas
+  Object.values(_mapLayerGroups || {}).forEach(state => {
+    if (state?.active && state?.group) {
+      try { _map.removeLayer(state.group); } catch {}
+    }
+  });
   _mapLayerGroups = {};
   results.forEach(r => {
-    _mapLayerGroups[r.id] = { features: r.features, group: L.layerGroup(), active: false, color: r.color };
+    _mapLayerGroups[r.id] = { features: r.features, group: L.layerGroup(), active: false, color: r.color, def: r };
   });
 
   listEl.innerHTML = '';
@@ -829,27 +1064,31 @@ async function loadMapLayers() {
     return;
   }
 
-  // Se o gerado existe, nao mostra o importado (ja foi processado)
-  const generatedExists = results.find(r => r.id === 'cameras')?.count > 0;
-  const visibleResults  = generatedExists
-    ? results.filter(r => r.id !== 'imported')
-    : results.filter(r => r.count > 0);
+  const controls = document.createElement('div');
+  controls.className = 'map-layer-bulk';
+  controls.innerHTML = `
+    <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="all"><i data-lucide="check-square"></i> Todas</button>
+    <button type="button" class="map-layer-bulk-btn" data-map-layer-bulk="none"><i data-lucide="square"></i> Nenhuma</button>`;
+  listEl.appendChild(controls);
 
-  visibleResults.forEach(def => {
-    const btn = document.createElement('button');
+  results.forEach(def => {
+    const stats = mapLayerStats(def.features, camIndex);
+    const btn = document.createElement('label');
     btn.className = 'map-layer-btn';
     btn.dataset.layerId = def.id;
+    btn.title = def.label;
     btn.innerHTML = `
+      <input type="checkbox" class="map-layer-check" data-layer-check="${esc(def.id)}">
       <span class="layer-dot" style="background:${def.color}"></span>
-      <span style="flex:1;line-height:1.3">${def.label}</span>
+      <span class="map-layer-name">${esc(def.label)}</span>
       <span class="map-layer-badge">${def.count} pts</span>`;
-    btn.onclick = () => toggleMapLayer(def.id, def);
+    btn.querySelector('input')?.addEventListener('change', () => toggleMapLayer(def.id, def));
 
     // Botao excluir
     const delBtn = document.createElement('button');
     delBtn.title = 'Excluir camada';
-    delBtn.style.cssText = 'width:26px;height:26px;flex-shrink:0;border:1px solid #ffc9c9;border-radius:6px;background:var(--danger-soft);color:var(--danger);cursor:pointer;display:grid;place-items:center;margin-left:4px';
-    delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+    delBtn.className = 'map-layer-action danger';
+    delBtn.innerHTML = '<i data-lucide="trash-2"></i>';
     delBtn.onclick = async (e) => {
       e.stopPropagation();
       const ok = await showConfirm({ title: 'Excluir camada', msg: `Remover "${def.label}" do mapa e do servidor?`, label: 'Excluir' });
@@ -858,42 +1097,75 @@ async function loadMapLayers() {
       const state = _mapLayerGroups[def.id];
       if (state?.active) { _map.removeLayer(state.group); state.active = false; }
       delete _mapLayerGroups[def.id];
-      // Tenta limpar no servidor
-      if (def.id === 'imported') {
-        await api('/api/kmz/import/locations/apply', { method: 'POST', body: '{}', skipLogout: true }).catch(() => {});
+      if (def.deleteUrl) {
+        await api(def.deleteUrl, { method: 'DELETE' }).catch(() => {});
       }
-      btn.closest('.map-layer-row')?.remove();
+      btn.closest('.map-layer-card')?.remove();
       setText('mapCounter', 'Camada removida');
       showToast(`"${def.label}" removida do mapa.`);
     };
 
     const row = document.createElement('div');
-    row.className = 'map-layer-row';
-    row.style.cssText = 'display:flex;align-items:center;gap:0';
+    row.className = 'map-layer-card';
+    row.dataset.layerCardId = def.id;
     row.appendChild(btn);
 
-    // Botao download  adicionado ao row apos criacao
-    const dlEndpoints = { cameras: '/api/kmz/generated/download', imported: '/api/kmz/import/download' };
-    const dlFilenames = { cameras: 'cameras-gerado.kmz', imported: 'importado.kmz' };
-    if (dlEndpoints[def.id]) {
+    const statsEl = document.createElement('div');
+    statsEl.className = 'map-layer-stats';
+    statsEl.innerHTML = `
+      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#16a34a"></span><strong>${stats.online}</strong> online</span>
+      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#dc2626"></span><strong>${stats.offline}</strong> offline</span>
+      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.cameras}</strong> cameras</span>
+      <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#d97706"></span><strong>${stats.outros}</strong> outros</span>`;
+    row.appendChild(statsEl);
+
+    const actions = document.createElement('div');
+    actions.className = 'map-layer-actions';
+
+    const detailBtn = document.createElement('button');
+    detailBtn.className = 'map-layer-action';
+    detailBtn.innerHTML = '<i data-lucide="list"></i> Detalhes';
+    detailBtn.onclick = (e) => { e.stopPropagation(); openMapLayerDetails(def); };
+    actions.appendChild(detailBtn);
+
+    const dlUrl = def.downloadUrl || '';
+    if (dlUrl) {
       const dlBtn = document.createElement('button');
       dlBtn.title = 'Download KMZ';
-      dlBtn.style.cssText = 'width:26px;height:26px;flex-shrink:0;border:1px solid var(--border);border-radius:6px;background:var(--surface-soft);color:var(--muted);cursor:pointer;display:grid;place-items:center';
-      dlBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-      dlBtn.onclick = (e) => { e.stopPropagation(); downloadWithAuth(dlEndpoints[def.id], dlFilenames[def.id]); };
-      row.appendChild(dlBtn);
+      dlBtn.className = 'map-layer-action';
+      dlBtn.innerHTML = '<i data-lucide="download"></i>';
+      dlBtn.onclick = (e) => { e.stopPropagation(); downloadWithAuth(dlUrl, `${def.label || 'mapa'}.kmz`); };
+      actions.appendChild(dlBtn);
     }
 
-    row.appendChild(delBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
     listEl.appendChild(row);
   });
 
-  // Ativa automaticamente a primeira camada visivel com dados
-  const first = visibleResults.find(r => r.count > 0);
-  if (first) toggleMapLayer(first.id, first);
+  controls.querySelector('[data-map-layer-bulk="all"]')?.addEventListener('click', async () => {
+    for (const def of results) {
+      const state = _mapLayerGroups[def.id];
+      if (state && !state.active) await toggleMapLayer(def.id, def, true);
+    }
+  });
+  controls.querySelector('[data-map-layer-bulk="none"]')?.addEventListener('click', () => {
+    results.forEach(def => {
+      const state = _mapLayerGroups[def.id];
+      if (state?.active) toggleMapLayer(def.id, def, true);
+    });
+  });
+
+  lucide.createIcons();
+
+  const idsToRestore = previousActive.size ? [...previousActive].filter(id => _mapLayerGroups[id]) : [results[0]?.id].filter(Boolean);
+  for (const id of idsToRestore) {
+    const def = results.find(r => r.id === id);
+    if (def) await toggleMapLayer(id, def, true);
+  }
 }
 
-async function toggleMapLayer(id, def) {
+async function toggleMapLayer(id, def, skipFit = false) {
   if (!_map) return;
   const state = _mapLayerGroups[id];
   if (!state) return;
@@ -902,30 +1174,38 @@ async function toggleMapLayer(id, def) {
     _map.removeLayer(state.group);
     state.group.clearLayers();
     state.active = false;
+    state.drawnCount = 0;
   } else {
-    // Indice de cameras para o popup rico
-    const camData2 = await apiJson('/api/cameras');
-    const camByName2 = {}, camByIp2 = {};
-    (camData2?.cameras || []).forEach(c => {
-      if (c.titulo) camByName2[c.titulo.toLowerCase()] = c;
-      if (c.ip)     camByIp2[c.ip] = c;
-    });
-
     // Renderiza os pontos neste grupo
     state.group = L.layerGroup();
+    state.markers = {};
     const bounds = [];
+    let drawnCount = 0;
     state.features.forEach(f => {
       if (f.geometry?.type !== 'Point') return;
       const [lng, lat] = f.geometry.coordinates;
       if (lat == null || lng == null || isNaN(+lat) || isNaN(+lng)) return;
 
-      // Detecta tipo pelo nome para icone correto
+      // Casa com a camera real pra pegar status ao vivo (Zabbix), nao o texto
+      // estatico gravado no KMZ na hora que foi gerado. Faz isso ANTES de decidir
+      // o tipo do ponto: se o nome bate com uma camera real do inventario, e
+      // camera -- nao importa se o ponto veio de layer "gerado" ou importado.
       const name = f.properties?.name || '';
-      const pointType = /\bcto\b|^cto/i.test(name) ? 'cto'
-                      : /\bcdo\b|^cdo|emenda|splice/i.test(name) ? 'cdo'
-                      : f._source === 'generated' ? 'camera' : 'other';
+      const cam = mapFindCamera(f, _mapCameraIndex);
+      const statusFilter = document.getElementById('mapFilterStatus')?.value || '';
+      const siteFilter = document.getElementById('mapFilterSite')?.value || '';
+      const featureStatus = mapFeatureStatus(f, cam);
+      const featureLocal = mapFeatureLocal(f, cam);
+      if (statusFilter && featureStatus !== statusFilter) return;
+      if (siteFilter && featureLocal !== siteFilter) return;
+      const pointType = mapFeatureType(f, cam);
+      const isOnlinePop = cam?.status
+        ? String(cam.status).toLowerCase() === 'online'
+        : String(f.properties?.description || '').toUpperCase().includes('ONLINE');
+      const statusColor = isOnlinePop ? '#16a34a' : '#dc2626';
+
       const typeConfig = {
-        camera: { bg: '#16a34a', label: '' },
+        camera: { bg: statusColor, label: '' },
         cto:    { bg: '#1971c2', label: 'CTO' },
         cdo:    { bg: '#7950f2', label: 'CDO' },
         other:  { bg: def?.color || '#d97706', label: '' },
@@ -936,10 +1216,9 @@ async function toggleMapLayer(id, def) {
         className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
       });
       const marker = L.marker([+lat, +lng], { icon });
+      const featureKey = mapFeatureKey(f, cam);
+      if (!state.markers) state.markers = {};
       // Popup rico e moderno
-      const cam = camByName2[name.toLowerCase()] || Object.values(camByIp2).find(c => c.titulo?.toLowerCase() === name.toLowerCase()) || null;
-      const isOnlinePop = (f.properties?.description || '').includes('ONLINE');
-      const statusColor = isOnlinePop ? '#16a34a' : '#dc2626';
       const [lng2, lat2] = f.geometry.coordinates;
 
       const row = (icon, label, value, mono = false) =>
@@ -978,14 +1257,16 @@ async function toggleMapLayer(id, def) {
             <a href="http://${esc(cam.ip)}" target="_blank" style="flex:1;text-align:center;padding:6px;background:#e7f5ff;color:#1971c2;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;border:1px solid #a5d8ff">Abrir camera</a>
           </div>` : ''}
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
+      state.markers[featureKey] = marker;
       state.group.addLayer(marker);
       bounds.push([+lat, +lng]);
+      drawnCount += 1;
     });
-
     _map.addLayer(state.group);
     state.active = true;
+    state.drawnCount = drawnCount;
 
-    if (bounds.length > 0) {
+    if (bounds.length > 0 && !skipFit) {
       try { _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); } catch {}
     }
   }
@@ -993,10 +1274,171 @@ async function toggleMapLayer(id, def) {
   // Atualiza botao visual
   const btn = document.querySelector(`[data-layer-id="${id}"]`);
   if (btn) btn.classList.toggle('active', state.active);
+  const chk = document.querySelector(`[data-layer-check="${CSS.escape(id)}"]`);
+  if (chk) chk.checked = !!state.active;
+  const card = document.querySelector(`[data-layer-card-id="${id}"]`);
+  if (card) card.classList.toggle('active', state.active);
 
   // Atualiza contador
-  const totalShown = Object.values(_mapLayerGroups).filter(s => s.active).reduce((a, s) => a + s.features.length, 0);
+  const totalShown = Object.values(_mapLayerGroups).filter(s => s.active).reduce((a, s) => a + (s.drawnCount ?? s.group?.getLayers?.().length ?? 0), 0);
   setText('mapCounter', `${totalShown} ponto${totalShown !== 1 ? 's' : ''} visiveis`);
+}
+
+function openMapLayerDetails(def) {
+  const modal = document.getElementById('modalMapLayerDetails');
+  const title = document.getElementById('mapLayerDetailsTitle');
+  const summary = document.getElementById('mapLayerDetailsSummary');
+  const list = document.getElementById('mapLayerDetailsList');
+  if (!modal || !summary || !list) return;
+
+  const stats = mapLayerStats(def.features, _mapCameraIndex);
+  if (title) title.textContent = def.label || 'Detalhes da camada';
+  summary.innerHTML = `
+    <button class="map-detail-filter active" data-map-detail-filter="all"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.cameras} cameras</button>
+    <button class="map-detail-filter" data-map-detail-filter="online"><span class="map-layer-stat-dot" style="background:#16a34a"></span>${stats.online} online</button>
+    <button class="map-detail-filter" data-map-detail-filter="offline"><span class="map-layer-stat-dot" style="background:#dc2626"></span>${stats.offline} offline</button>
+    <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#d97706"></span>${stats.outros} outros</span>
+    <label class="map-detail-search">
+      <i data-lucide="search"></i>
+      <input id="mapLayerDetailsSearch" type="search" placeholder="Buscar por nome, IP, local ou modelo">
+    </label>`;
+
+  const rows = (def.features || [])
+    .map(f => {
+      const cam = mapFindCamera(f, _mapCameraIndex);
+      const type = mapFeatureType(f, cam);
+      if (type !== 'camera') return null;
+      const status = mapFeatureStatus(f, cam);
+      const name = cam?.titulo || mapFeatureName(f) || cam?.ip || 'Camera';
+      const ip = cam?.ip || mapExtractIp(f?.properties?.description) || '-';
+      const local = mapFeatureLocal(f, cam) || '-';
+      const color = status === 'online' ? '#16a34a' : status === 'offline' ? '#dc2626' : '#d97706';
+      return {
+        status,
+      color,
+      name,
+      ip,
+      local,
+      key: mapFeatureKey(f, cam),
+      layerId: def.id,
+      model: cam?.modelo || cam?.model || cam?.fabricante || '',
+      search: [name, ip, local, cam?.modelo, cam?.model, cam?.fabricante, status].filter(Boolean).join(' ').toLowerCase(),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const statusOrder = { offline: 0, online: 1, outros: 2 };
+      return (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3)
+        || a.name.localeCompare(b.name, 'pt', { numeric: true });
+    });
+
+  list.innerHTML = rows.length
+    ? rows.map(r => `
+      <button class="map-detail-row" data-map-layer-id="${esc(r.layerId)}" data-map-feature-key="${esc(r.key)}" data-map-status="${esc(r.status)}" data-map-search="${esc(r.search)}" title="${esc(`${r.name} | ${r.ip} | ${r.local} | ${r.model}`)}">
+        <span class="map-layer-stat-dot" style="background:${r.color}"></span>
+        <div><strong>${esc(r.name)}</strong><span class="muted">${esc(r.model || r.status)}</span></div>
+        <span class="monospace">${esc(r.ip)}</span>
+        <span class="muted">${esc(r.local)}</span>
+      </button>`).join('')
+    : '<div style="padding:18px;text-align:center;color:var(--muted);font-size:13px">Nenhuma camera encontrada nessa camada.</div>';
+
+  const applyDetailFilters = () => {
+    const activeFilter = summary.querySelector('[data-map-detail-filter].active')?.dataset.mapDetailFilter || 'all';
+    const q = (document.getElementById('mapLayerDetailsSearch')?.value || '').trim().toLowerCase();
+    let visible = 0;
+    list.querySelectorAll('.map-detail-row').forEach(row => {
+      const statusOk = activeFilter === 'all' || row.dataset.mapStatus === activeFilter;
+      const searchOk = !q || String(row.dataset.mapSearch || '').includes(q);
+      row.hidden = !(statusOk && searchOk);
+      if (!row.hidden) visible += 1;
+    });
+    let empty = list.querySelector('.map-detail-empty-filter');
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'map-detail-empty-filter';
+      empty.textContent = 'Nenhum resultado para essa busca.';
+      list.appendChild(empty);
+    }
+    empty.hidden = visible > 0 || !list.querySelector('.map-detail-row');
+  };
+
+  summary.querySelectorAll('[data-map-detail-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      summary.querySelectorAll('[data-map-detail-filter]').forEach(b => b.classList.toggle('active', b === btn));
+      applyDetailFilters();
+    });
+  });
+  document.getElementById('mapLayerDetailsSearch')?.addEventListener('input', applyDetailFilters);
+
+  list.querySelectorAll('[data-map-feature-key]').forEach(row => {
+    row.addEventListener('click', () => focusMapFeature(row.dataset.mapLayerId, row.dataset.mapFeatureKey));
+  });
+
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeMapLayerDetails() {
+  document.getElementById('modalMapLayerDetails')?.classList.add('hidden');
+}
+
+async function focusMapFeature(layerId, featureKey) {
+  if (!_map || !layerId || !featureKey) return;
+  const state = _mapLayerGroups[layerId];
+  if (!state) return;
+  if (!state.active) {
+    const def = state.def || MAP_LAYER_DEFS.find(d => d.id === layerId) || { id: layerId };
+    await toggleMapLayer(layerId, def);
+  }
+  const marker = state.markers?.[featureKey];
+  if (!marker) {
+    showToast('Ponto nao encontrado no mapa.', true);
+    return;
+  }
+  closeMapLayerDetails();
+  const latlng = marker.getLatLng();
+  _map.flyTo(latlng, Math.max(_map.getZoom(), 18), { duration: 0.5 });
+  setTimeout(() => marker.openPopup(), 550);
+}
+
+async function focusCameraOnMap(cam) {
+  if (!cam) return;
+  const targetIp = String(cam.ip || '').trim();
+  const targetTitle = String(cam.titulo || cam.title || '').trim().toLowerCase();
+  closeCamPanel();
+  navigateTo('kmz');
+  await new Promise(resolve => setTimeout(resolve, 350));
+  if (!_map || !Object.keys(_mapLayerGroups || {}).length) {
+    await loadKmz();
+  } else {
+    await loadMapLayers();
+  }
+
+  let found = null;
+  for (const [layerId, state] of Object.entries(_mapLayerGroups || {})) {
+    const feature = (state.features || []).find(f => {
+      const matchedCam = mapFindCamera(f, _mapCameraIndex);
+      const featureIp = matchedCam?.ip || mapExtractIp(f?.properties?.description) || mapExtractIp(mapFeatureName(f));
+      const featureTitle = String(matchedCam?.titulo || mapFeatureName(f) || '').trim().toLowerCase();
+      return (targetIp && featureIp === targetIp) || (targetTitle && featureTitle === targetTitle);
+    });
+    if (feature) {
+      const matchedCam = mapFindCamera(feature, _mapCameraIndex) || cam;
+      found = { layerId, key: mapFeatureKey(feature, matchedCam), def: state.def };
+      break;
+    }
+  }
+
+  if (!found) {
+    showToast('Camera sem coordenada no mapa.', true);
+    return;
+  }
+
+  const state = _mapLayerGroups[found.layerId];
+  if (state && !state.active) {
+    await toggleMapLayer(found.layerId, found.def || state.def, true);
+  }
+  await focusMapFeature(found.layerId, found.key);
 }
 
 function renderMapMarkers(camByName, camByIp) {
@@ -1022,8 +1464,14 @@ function renderMapMarkers(camByName, camByIp) {
     const props = f.properties || {};
     const name  = props.name || '';
     const desc  = props.description || '';
-    const isOnline  = desc.includes('ONLINE');
-    const isOffline = desc.includes('OFFLINE') || (!isOnline && desc.includes('STATUS'));
+
+    // Busca dados da camera para popup e para status ao vivo (Zabbix), em vez
+    // de confiar no texto estatico gravado no KMZ na hora que foi gerado.
+    const cam = camByName[name.toLowerCase()] || Object.values(camByIp).find(c =>
+      c.titulo?.toLowerCase() === name.toLowerCase()
+    );
+    const isOnline  = cam?.status ? String(cam.status).toLowerCase() === 'online' : desc.includes('ONLINE');
+    const isOffline = cam?.status ? String(cam.status).toLowerCase() === 'offline' : (desc.includes('OFFLINE') || (!isOnline && desc.includes('STATUS')));
     const statusStr = isOnline ? 'online' : isOffline ? 'offline' : 'outros';
 
     if (statusFilter && statusStr !== statusFilter) return;
@@ -1033,15 +1481,11 @@ function renderMapMarkers(camByName, camByIp) {
       if (local !== siteFilter) return;
     }
 
-    // Busca dados da camera para popup
-    const cam = camByName[name.toLowerCase()] || Object.values(camByIp).find(c =>
-      c.titulo?.toLowerCase() === name.toLowerCase()
-    );
-
-    // Detecta tipo pelo nome
+    // Detecta tipo pelo nome -- se bate com uma camera real do inventario, e
+    // camera, nao importa se o ponto veio de layer "gerado" ou importado.
     const nameLow = name.toLowerCase();
     let pointType = 'other';
-    if (!f._source || f._source === 'generated') {
+    if (cam || !f._source || f._source === 'generated') {
       pointType = 'camera';
     } else if (/\bcto\b|^cto/i.test(name)) {
       pointType = 'cto';
@@ -1070,6 +1514,7 @@ function renderMapMarkers(camByName, camByIp) {
     const marker = L.marker([lat, lng], { icon });
 
     // Popup
+    const isImported = f._source === 'imported';
     const snapHtml = cam?.snapshot_url
       ? `<img src="${API_BASE}${cam.snapshot_url}" style="width:100%;display:block;max-height:150px;object-fit:cover">`
       : isImported
@@ -1133,9 +1578,9 @@ async function loadInvOlt() {
 }
 
 async function _loadCamForMode(mode) {
-  const inventoryMode = mode === 'switch' ? 'switch' : 'olt';
+  const inventoryMode = mode === 'switch' ? 'switch' : mode === 'basico' ? 'basico' : 'olt';
   const [camData, swData, oltData] = await Promise.all([
-    apiJson(`/api/cameras?mode=${encodeURIComponent(inventoryMode)}`),
+    apiJson(`/api/cameras?mode=${encodeURIComponent(inventoryMode)}&_=${Date.now()}`),
     mode === 'switch' ? apiJson('/api/switch/rows') : Promise.resolve(null),
     mode === 'olt'    ? apiJson('/api/olt/rows')    : Promise.resolve(null),
   ]);
@@ -1172,7 +1617,10 @@ async function _loadCamForMode(mode) {
   // Mescla imgbb_url da sessao
   const saved = _imgbbGet();
   if (Object.keys(saved).length) {
-    cameras = cameras.map(c => saved[c.ip] ? { ...c, imgbb_url: saved[c.ip] } : c);
+    cameras = cameras.map(c => {
+      const savedUrl = saved[_camKey(c)] || saved[`IP:${String(c.ip || '').trim()}`] || saved[c.ip];
+      return savedUrl ? { ...c, imgbb_url: savedUrl, imgbb_status: 'up' } : c;
+    });
   }
 
   // Ordena por IP
@@ -1185,7 +1633,7 @@ async function _loadCamForMode(mode) {
 
 function populateCamSiteFilter() {
   const all   = Object.values(_invCam).flat();
-  const sites = [...new Set(all.map(c => c.local).filter(Boolean))].sort();
+  const sites = [...new Set(all.map(c => c.local || c.site || c.site_name).filter(Boolean))].sort();
   const sel = document.getElementById('filterSiteOlt');
   if (!sel) return;
   const current = sel.value;
@@ -1253,7 +1701,7 @@ function camHasDefaultTitle(c) {
 }
 
 function camHasImgbbDown(c) {
-  return !(c.imgbb_url || isImgbbUrl(c.snapshot_url));
+  return !cameraImgbbUrl(c);
 }
 
 function camHasNoOltData(c) {
@@ -1269,25 +1717,10 @@ function scheduleFilteredCamStatusRefresh(rows, query) {
     _camStatusRefreshKey = '';
     return;
   }
-  const ips = [...new Set((rows || []).map(c => c.ip).filter(Boolean))].slice(0, 5);
-  if (!ips.length) return;
-  const key = `${_invOltView}|${ips.join(',')}`;
-  if (_camStatusRefreshKey === key) return;
-  _camStatusRefreshKey = key;
+  // Status oficial vem do inventario/Zabbix. Ping automatico na busca e apenas
+  // diagnostico e nao deve sobrescrever a tabela.
+  _camStatusRefreshKey = q;
   clearTimeout(_camStatusRefreshTimer);
-  _camStatusRefreshTimer = setTimeout(async () => {
-    try {
-      const res = await api('/api/cameras/ping_many', {
-        method: 'POST',
-        body: JSON.stringify({ ips, force: 1, timeout: 3 }),
-      });
-      const data = await res?.json().catch(() => ({}));
-      if (!res?.ok || data?.ok === false) return;
-      applyCamStatusesLocally(data?.updated_status || {});
-      applyInvOltFilters();
-      applyNvrFilters();
-    } catch {}
-  }, 350);
 }
 
 function applyInvOltFilters() {
@@ -1301,7 +1734,7 @@ function applyInvOltFilters() {
     else if (status === 'imgbb_down' && !camHasImgbbDown(c)) return false;
     else if (status === 'no_olt' && !camHasNoOltData(c)) return false;
     else if (status && !['missing_data','default_title','imgbb_down','no_olt'].includes(status) && (c.status || '').toLowerCase() !== status) return false;
-    if (site   && c.local !== site) return false;
+    if (site && ![c.local, c.site, c.site_name].some(v => String(v || '') === site)) return false;
     if (q) {
       // tenta match de IP com range/CIDR/lista
       const ipMatch = matchesIpFilter(c.ip || '', q);
@@ -1326,6 +1759,9 @@ function renderInvOlt(cameras) {
   const ncols = def.cols.length;
   const tbody = document.getElementById('invOltTable');
   const table = document.getElementById('invOltTableEl');
+  // Colunas em %: a tabela sempre cabe em 100% do container, sem forcar
+  // min-width (isso e o que garante zero scroll horizontal).
+  if (table) table.style.minWidth = '';
 
   // Atualiza colgroup
   const colgroup = table.querySelector('colgroup');
@@ -1486,18 +1922,15 @@ function runPing() {
     const elapsedMs = performance.now() - startedAt;
     const rawMs = res?.ping_ms ?? res?.ms ?? res?.latency;
     const ms = Number.isFinite(Number(rawMs)) ? Number(rawMs) : elapsedMs;
-    const ok  = res?.ok ?? res?.reachable ?? (ms != null && ms >= 0);
+    const ok  = Boolean(res?.online ?? res?.reachable);
 
     if (ok) {
       _pingOk++;
-      pingLine(`[${_pingCount}] ${ip}: ${formatPingMs(ms)}`, 'ok');
+      pingLine(`[${_pingCount}] ${ip}: ${formatPingMs(ms)} (${res?.method || 'ping'})`, 'ok');
     } else {
       _pingFail++;
-      pingLine(`[${_pingCount}] ${ip}: timeout (${formatPingMs(elapsedMs)})`, 'fail');
+      pingLine(`[${_pingCount}] ${ip}: offline (${res?.error || formatPingMs(elapsedMs)})`, 'fail');
     }
-    applyCamStatusesLocally({ [ip]: ok ? 'online' : 'offline' });
-    applyInvOltFilters();
-    applyNvrFilters();
     updatePingStats();
   }, 1000);
 }
@@ -1696,16 +2129,17 @@ async function camAction(action) {
   }
   if (action === 'limpar') {
     if (!await showConfirm({ title: `Remover camera`, msg: `Remover ${cam.ip}  ${cam.titulo || ''} do inventario?`, label: 'Remover' })) return;
+    const key = _camKey(cam);
     const res = await api('/api/inventory/delete', {
       method: 'POST',
-      body: JSON.stringify({ ips: [cam.ip], mode: 'all' }),
+      body: JSON.stringify({ ips: [cam.ip], keys: [key], mode: _invOltView || 'olt' }),
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
       showToast(data?.detail || data?.error || 'NAo foi possAvel remover a cAmera.', true);
       return;
     }
-    _camRemoveIpsLocally([cam.ip]);
+    _camRemoveIpsLocally([key]);
     showToast('Camera removida.');
     closeCamPanel();
     updateCamTabs();
@@ -1905,131 +2339,134 @@ function recHasNoCamera(r) {
     : _isBlankValue(r.mac);
 }
 
+// Larguras em % (nunca px fixo): garantem que a tabela nunca ultrapasse
+// 100% do container, ou seja, zero scroll horizontal em qualquer zoom/tela.
+// Ver skill sightops-table-fix para o metodo completo.
 const NVR_COLS = {
   basico: {
-    cols: ['32px','9%','8%','4%','14%','8%','7%','6%','9%','10%','12%','9%','5%'],
+    cols: ['3%','10%','8%','4%','15%','7%','7%','5%','9%','8%','11%','8%','5%'],
     heads: ['','Host NVR','Modelo NVR','CH','Titulo','Local','Status','ImgBB','IP Camera','Modelo Cam.','MAC Camera','Serial','V.Loss'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
-      `<span class="text-muted">${esc(r.nvr_model||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.nvr_model||'')}">${esc(r.nvr_model||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
-      `<span class="monospace text-muted">${esc(r.camera_ip||'')}</span>`,
-      `<span class="text-muted">${esc(r.camera_model||r.modelo||'')}</span>`,
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.camera_mac||r.mac||'')}</span>`,
-      `<span class="text-muted">${esc(r.equip_serial||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.camera_mac||r.mac||'')}" style="font-size:11px">${esc(r.camera_mac||r.mac||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.equip_serial||'')}">${esc(r.equip_serial||'')}</span>`,
       r.video_loss
         ? `<span style="color:var(--danger);font-weight:600;font-size:11px">SIM</span>`
         : `<span class="text-muted" style="font-size:11px">nao</span>`,
     ],
   },
   olt: {
-    cols: ['32px','9%','4%','13%','8%','7%','6%','9%','10%','4%','5%','14%','13%'],
+    cols: ['3%','11%','4%','15%','7%','7%','5%','9%','8%','4%','5%','10%','12%'],
     heads: ['','Host NVR','CH','Titulo','Local','Status','ImgBB','IP Camera','Modelo Cam.','PON','ONU ID','ONU Name','ONU Serial'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
-      `<span class="monospace text-muted">${esc(r.camera_ip||'')}</span>`,
-      `<span class="text-muted">${esc(r.camera_model||r.modelo||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.pon||''))}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.onu_id||''))}</span>`,
-      `<span class="text-muted" style="font-size:11px">${esc(r.onu_name||'')}</span>`,
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.onu_serial||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.onu_name||'')}" style="font-size:11px">${esc(r.onu_name||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.onu_serial||'')}" style="font-size:11px">${esc(r.onu_serial||'')}</span>`,
     ],
   },
   switch: {
-    cols: ['32px','10%','4%','14%','8%','7%','6%','10%','10%','12%','9%','10%'],
+    cols: ['4%','12%','4%','18%','8%','8%','6%','10%','9%','12%','6%','3%'],
     heads: ['','Host NVR','CH','Titulo','Local','Status','ImgBB','IP Camera','Modelo Cam.','Switch IP','Porta','VLAN'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
-      `<span class="monospace text-muted">${esc(r.camera_ip||'')}</span>`,
-      `<span class="text-muted">${esc(r.camera_model||r.modelo||'')}</span>`,
-      `<span class="monospace text-muted">${esc(r.switch_ip||'')}</span>`,
-      `<span class="text-muted">${esc(r.switch_port||'')}</span>`,
-      `<span class="text-muted">${esc(r.switch_vlan||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.camera_ip||'')}">${esc(r.camera_ip||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.camera_model||r.modelo||'')}">${esc(r.camera_model||r.modelo||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.switch_ip||'')}">${esc(r.switch_ip||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.switch_port||'')}">${esc(r.switch_port||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.switch_vlan||'')}">${esc(r.switch_vlan||'')}</span>`,
     ],
   },
 };
 
 const DVR_COLS = {
   basico: {
-    cols: ['32px','11%','5%','16%','9%','7%','6%','13%','10%','11%','6%','6%'],
+    cols: ['4%','12%','4%','18%','8%','8%','6%','13%','9%','9%','5%','4%'],
     heads: ['','Host DVR','CH','Titulo','Local','Status','ImgBB','MAC DVR','Modelo','Serial','V.Loss','Foto'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.mac||'')}</span>`,
-      `<span class="text-muted">${esc(r.modelo||'')}</span>`,
-      `<span class="text-muted">${esc(r.equip_serial||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.mac||'')}" style="font-size:11px">${esc(r.mac||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.modelo||'')}">${esc(r.modelo||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.equip_serial||'')}">${esc(r.equip_serial||'')}</span>`,
       r.video_loss ? `<span style="color:var(--danger);font-weight:600;font-size:11px">SIM</span>` : `<span class="text-muted" style="font-size:11px">nao</span>`,
       r.snapshot_url ? `<a href="${esc(r.snapshot_url)}" target="_blank" style="color:var(--primary);font-size:12px"> ver</a>` : `<span class="text-muted"></span>`,
     ],
   },
   olt: {
-    cols: ['32px','10%','4%','13%','8%','7%','6%','5%','5%','14%','13%','15%'],
+    cols: ['4%','12%','4%','17%','7%','7%','5%','4%','5%','10%','12%','13%'],
     heads: ['','Host DVR','CH','Titulo','Local','Status','ImgBB','PON','ONU ID','ONU Name','ONU Serial','MAC DVR'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
       `<span style="text-align:center;display:block">${esc(String(r.pon||''))}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.onu_id||''))}</span>`,
-      `<span class="text-muted" style="font-size:11px">${esc(r.onu_name||'')}</span>`,
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.onu_serial||'')}</span>`,
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.mac||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.onu_name||'')}" style="font-size:11px">${esc(r.onu_name||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.onu_serial||'')}" style="font-size:11px">${esc(r.onu_serial||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.mac||'')}" style="font-size:11px">${esc(r.mac||'')}</span>`,
     ],
   },
   switch: {
-    cols: ['32px','11%','4%','15%','8%','7%','6%','12%','10%','11%','16%'],
+    cols: ['4%','13%','4%','19%','9%','8%','6%','12%','6%','4%','15%'],
     heads: ['','Host DVR','CH','Titulo','Local','Status','ImgBB','Switch IP','Porta','VLAN','MAC DVR'],
     row: r => [
       `<input type="checkbox" class="chk-nvr" value="${esc(r.host+'_'+r.channel)}" data-host="${esc(r.host||'')}" data-channel="${esc(String(r.channel||''))}">`,
-      `<span class="monospace">${esc(r.host||'')}</span>`,
+      `<span class="monospace" title="${esc(r.host||'')}">${esc(r.host||'')}</span>`,
       `<span style="text-align:center;display:block">${esc(String(r.channel??''))}</span>`,
-      `<strong>${esc(r.title||'')}</strong>`,
-      esc(r.local||''),
+      `<strong title="${esc(r.title||'')}">${esc(r.title||'')}</strong>`,
+      `<span title="${esc(r.local||'')}">${esc(r.local||'')}</span>`,
       (r.status||'').toLowerCase()==='online'
         ? `<span style="color:var(--primary);font-weight:600;font-size:12px">online</span>`
         : `<span style="color:var(--danger);font-weight:600;font-size:12px">offline</span>`,
       recImgbbCell(r),
-      `<span class="monospace text-muted">${esc(r.switch_ip||'')}</span>`,
-      `<span class="text-muted">${esc(r.switch_port||'')}</span>`,
-      `<span class="text-muted">${esc(r.switch_vlan||'')}</span>`,
-      `<span class="monospace text-muted" style="font-size:11px">${esc(r.mac||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.switch_ip||'')}">${esc(r.switch_ip||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.switch_port||'')}">${esc(r.switch_port||'')}</span>`,
+      `<span class="text-muted" title="${esc(r.switch_vlan||'')}">${esc(r.switch_vlan||'')}</span>`,
+      `<span class="monospace text-muted" title="${esc(r.mac||'')}" style="font-size:11px">${esc(r.mac||'')}</span>`,
     ],
   },
 };
@@ -2162,6 +2599,8 @@ function renderNvrTable(rows) {
   const def   = _currentColDef();
   const tbody = document.getElementById('invNvrTable');
   const table = tbody?.closest('table');
+  // Colunas em %: nunca forcar min-width em px (isso e o que garante zero scroll horizontal).
+  if (table) table.style.minWidth = '';
   setText('invNvrFooter', `${rows.length} canal${rows.length!==1?'s':''}`);
 
   // Atualiza colgroup e thead
@@ -4169,12 +4608,171 @@ async function playbackCreateFrames() {
   }
 }
 
-//  IA NVR 
+//  IA NVR
+let _iaNvrBound = false;
+let _iaNvrTargets = [];
+
 async function loadIaNvr() {
-  const stats = await apiJson('/api/ia/nvr/stats');
-  if (stats) {
-    setText('mIaIndexed', stats.total_indexed ?? '');
-    setText('mIaSearches', stats.total_searches ?? '');
+  if (!_iaNvrBound) bindIaNvr();
+  iaNvrDefaults();
+  const data = await apiJson('/api/ia/nvr/targets');
+  _iaNvrTargets = data?.targets || [];
+  populateIaNvrSiteFilter();
+  populateIaNvrCameraSelect();
+}
+
+function iaNvrDefaults() {
+  const date = document.getElementById('iaNvrDate');
+  const start = document.getElementById('iaNvrStart');
+  const end = document.getElementById('iaNvrEnd');
+  if (date && !date.value) date.value = new Date().toISOString().slice(0, 10);
+  if (start && !start.value) start.value = '08:30:00';
+  if (end && !end.value) end.value = '09:00:00';
+}
+
+function bindIaNvr() {
+  _iaNvrBound = true;
+  document.getElementById('iaNvrSite')?.addEventListener('change', populateIaNvrCameraSelect);
+  document.getElementById('iaNvrForm')?.addEventListener('submit', iaNvrRunSearch);
+}
+
+function populateIaNvrSiteFilter() {
+  const sel = document.getElementById('iaNvrSite');
+  if (!sel) return;
+  const sites = [...new Set(_iaNvrTargets.map(t => t.site).filter(Boolean))].sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Todos os sites</option>' +
+    sites.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
+}
+
+function populateIaNvrCameraSelect() {
+  const site = document.getElementById('iaNvrSite')?.value || '';
+  const sel = document.getElementById('iaNvrCamera');
+  if (!sel) return;
+  const filtered = site ? _iaNvrTargets.filter(t => t.site === site) : _iaNvrTargets;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Selecione a camera</option>' +
+    filtered.map(t => {
+      const value = `${t.host}|${t.http_port}|${t.channel}`;
+      const label = `${t.title || ('Canal ' + t.channel)} - ${t.site || t.local || t.host}`;
+      return `<option value="${esc(value)}"${value === cur ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('');
+}
+
+function iaNvrDateTime(timeId) {
+  const date = document.getElementById('iaNvrDate').value;
+  const time = document.getElementById(timeId).value;
+  if (!date || !time) return '';
+  return `${date} ${time.length === 5 ? `${time}:00` : time}`;
+}
+
+function iaNvrResultCard(hit, index) {
+  const clip = hit.clip_url ? `<a class="secondary-action" href="${playbackFileUrl(hit.clip_url)}" target="_blank" rel="noopener"><i data-lucide="film"></i> Baixar trecho</a>` : '';
+  const pct = Math.round((hit.confidence || 0) * 100);
+  return `
+    <div class="ia-nvr-hit" style="padding:14px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-weight:700;font-size:12px;color:var(--muted)">#${index + 1}</span>
+        <strong>${esc(hit.title || hit.host)}</strong>
+        <span style="font-size:11px;color:var(--muted)">${esc(hit.site || '')}</span>
+        <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--primary)">${esc(hit.timestamp)}</span>
+      </div>
+      <p style="margin:6px 0 0;font-size:12px;color:var(--text)">${esc(hit.description || '')}</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <span style="font-size:11px;color:var(--muted)">Confianca: ${pct}%</span>
+        ${clip}
+      </div>
+    </div>`;
+}
+
+function iaNvrMissRow(miss) {
+  return `<div style="padding:6px 0;font-size:12px;color:var(--muted)">
+    <i data-lucide="x-circle" style="width:12px;height:12px;vertical-align:-2px"></i>
+    ${esc(miss.title || miss.host)}: ${esc(miss.reason)}
+  </div>`;
+}
+
+function renderIaNvrResult(result) {
+  const el = document.getElementById('iaNvrResults');
+  if (!el) return;
+  const hits = result?.hits || [];
+  const misses = result?.misses || [];
+  if (!hits.length) {
+    el.innerHTML = `<p style="color:var(--muted);font-size:13px;padding:16px 0">Nada encontrado nessa janela.</p>` +
+      (misses.length ? `<div>${misses.map(iaNvrMissRow).join('')}</div>` : '');
+    lucide.createIcons();
+    return;
+  }
+  const truncatedNote = result.truncated
+    ? `<p style="color:var(--amber);font-size:12px;margin-top:10px">Busca interrompida pelo limite de tempo -- resultado parcial.</p>` : '';
+  el.innerHTML = hits.map(iaNvrResultCard).join('') +
+    (misses.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Cameras verificadas sem resultado (${misses.length})</summary>${misses.map(iaNvrMissRow).join('')}</details>` : '') +
+    truncatedNote;
+  lucide.createIcons();
+}
+
+async function iaNvrPollJob(jobId) {
+  const statusEl = document.getElementById('iaNvrStatus');
+  for (;;) {
+    const data = await apiJson(`/api/ia/nvr/search/jobs/${jobId}`);
+    if (!data) { if (statusEl) statusEl.textContent = 'Falha ao consultar a busca.'; return; }
+    if (data.status === 'done') {
+      if (statusEl) statusEl.textContent = `Busca concluida (${data.elapsed_sec}s).`;
+      renderIaNvrResult(data.result);
+      return;
+    }
+    if (data.status === 'error') {
+      if (statusEl) statusEl.textContent = data.error || 'Falha na busca.';
+      showToast(data.error || 'Falha na busca.', true);
+      return;
+    }
+    if (statusEl) statusEl.textContent = `Buscando... (${data.elapsed_sec}s)`;
+    await new Promise(r => setTimeout(r, 3000));
+  }
+}
+
+async function iaNvrRunSearch(e) {
+  e.preventDefault();
+  const camValue = document.getElementById('iaNvrCamera')?.value || '';
+  const [host, httpPort, channel] = camValue.split('|');
+  if (!host || !channel) { showToast('Selecione uma camera.', true); return; }
+  const query = document.getElementById('iaNvrQuery').value.trim();
+  if (!query) return;
+
+  const btn = document.getElementById('btnIaSearch');
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader-2"></i> Buscando';
+  lucide.createIcons();
+  document.getElementById('iaNvrResults').innerHTML = '';
+  const statusEl = document.getElementById('iaNvrStatus');
+  if (statusEl) statusEl.textContent = 'Enviando busca...';
+
+  try {
+    const payload = {
+      host,
+      http_port: Number(httpPort) || 80,
+      channel: Number(channel),
+      user: document.getElementById('iaNvrUser').value.trim(),
+      password: document.getElementById('iaNvrPassword').value,
+      site: document.getElementById('iaNvrSite')?.value || '',
+      start_time: iaNvrDateTime('iaNvrStart'),
+      end_time: iaNvrDateTime('iaNvrEnd'),
+      query,
+      max_hops: Number(document.getElementById('iaNvrMaxHops').value) || 0,
+      window_min: Number(document.getElementById('iaNvrWindowMin').value) || 5,
+    };
+    const res = await api('/api/ia/nvr/search/jobs', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || !data?.job_id) throw new Error(data?.detail || 'Falha ao iniciar busca.');
+    await iaNvrPollJob(data.job_id);
+  } catch (err) {
+    if (statusEl) statusEl.textContent = err.message;
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = old;
+    lucide.createIcons();
   }
 }
 
@@ -4424,9 +5022,342 @@ async function loadNetDevices() {
     </tr>`).join('');
 }
 
+function netToolSetLog(html, status = '') {
+  const log = document.getElementById('netToolLog');
+  const statusEl = document.getElementById('netToolStatus');
+  if (log) log.innerHTML = html || 'Nenhum resultado.';
+  if (statusEl && status) statusEl.textContent = status;
+}
+
+function netToolText(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
+function netToolFormatLocal(data) {
+  const result = data?.result || {};
+  const items = result.items || [];
+  if (Array.isArray(items) && items.length) {
+    return items.map(item => {
+      const ok = item.online === true || item.open === true || item.ok === true || (Number(item.status_code || 0) > 0 && Number(item.status_code || 0) < 500);
+      const klass = ok ? 'network-tool-line-ok' : 'network-tool-line-fail';
+      const parts = [
+        ok ? 'OK' : 'FAIL',
+        item.target || item.url || '',
+        item.method ? `via ${item.method}` : '',
+        item.port ? `porta ${item.port}` : '',
+        item.status_code ? `HTTP ${item.status_code}` : '',
+        item.rtt_ms ? `${item.rtt_ms}ms` : item.elapsed_ms ? `${item.elapsed_ms}ms` : '',
+        item.server ? `server=${item.server}` : '',
+        item.addresses ? `addr=${item.addresses.join(', ')}` : '',
+        !ok && item.error ? `erro=${item.error}` : '',
+      ].filter(Boolean).join(' ');
+      return `<div class="${klass}">${esc(parts)}</div>`;
+    }).join('');
+  }
+  if (result.stdout || result.stderr || result.error) {
+    return `<div class="network-tool-line-muted">${esc([result.stdout, result.stderr, result.error].filter(Boolean).join('\n'))}</div>`;
+  }
+  return `<div>${esc(JSON.stringify(data, null, 2))}</div>`;
+}
+
+function netToolFormatJob(job) {
+  const result = job?.result || {};
+  const routerosPing = result.routeros_ping || result.result?.routeros_ping || '';
+  const inventory = result.inventory || result.result?.inventory || null;
+  if (routerosPing) {
+    return routerosPing.split(/[;,]/).filter(Boolean).map(item => {
+      const separator = item.includes('=') ? '=' : ':';
+      const [target, ok] = item.split(separator);
+      const normalized = String(ok || '').toLowerCase();
+      const success = normalized === 'true' || normalized === '1';
+      return `<div class="${success ? 'network-tool-line-ok' : 'network-tool-line-fail'}">${success ? 'OK' : 'FAIL'} ${esc(target || item)}</div>`;
+    }).join('');
+  }
+  if (inventory) {
+    return [
+      `<div class="network-tool-line-ok">DHCP leases: ${esc(inventory.dhcp_leases ?? 0)}</div>`,
+      `<div class="network-tool-line-ok">ARP entries: ${esc(inventory.arp_entries ?? 0)}</div>`,
+      `<div class="network-tool-line-ok">Neighbors: ${esc(inventory.neighbors ?? 0)}</div>`,
+    ].join('');
+  }
+  if (job?.error) return `<div class="network-tool-line-fail">${esc(job.error)}</div>`;
+  return `<div class="network-tool-line-muted">Aguardando MikroTik.</div>`;
+}
+
+async function pollNetToolRemoteJob(connectorId, jobId) {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 2500 : 5000));
+    const data = await apiJson(`/api/connectors/${encodeURIComponent(connectorId)}/jobs`);
+    const job = (data?.jobs || []).find(item => String(item.id || '') === String(jobId || ''));
+    if (!job) continue;
+    if (job.status === 'done' || job.status === 'failed') {
+      netToolSetLog(netToolFormatJob(job), job.status === 'done' ? 'Job concluido.' : 'Job falhou.');
+      return;
+    }
+    netToolSetLog(`<span class="network-tool-line-muted">Job ${esc(job.status || 'queued')} no MikroTik. Aguardando resultado...</span>`, 'Aguardando MikroTik...');
+  }
+  netToolSetLog('<span class="network-tool-line-muted">Job enviado, mas ainda sem resultado. Atualize ou execute novamente para consultar.</span>', 'Aguardando resultado.');
+}
+
+function netToolSelectedConnector() {
+  return document.getElementById('netToolConnector')?.value || '';
+}
+
+async function loadNetOperate() {
+  const data = await apiJson('/api/connectors');
+  _connectors = data?.connectors || _connectors || [];
+  const sel = document.getElementById('netToolConnector');
+  if (sel) {
+    sel.innerHTML = _connectors.map(row => `<option value="${esc(row.id)}">${esc(row.name || row.id)} - ${esc(row.site || '')}</option>`).join('');
+  }
+  updateNetToolFormState();
+  lucide.createIcons();
+}
+
+function updateNetToolFormState() {
+  const origin = document.getElementById('netToolOrigin')?.value || 'local';
+  const test = document.getElementById('netToolTest')?.value || 'ping';
+  const conn = document.getElementById('netToolConnector');
+  const ports = document.getElementById('netToolPorts');
+  const targets = document.getElementById('netToolTargets');
+  if (conn) conn.disabled = origin !== 'connector';
+  if (ports) ports.disabled = !['tcp', 'port_scan', 'http'].includes(test);
+  if (targets) {
+    targets.disabled = test === 'lan_inventory';
+    if (test === 'lan_inventory') targets.placeholder = 'A coleta LAN usa DHCP, ARP e Neighbors do MikroTik selecionado.';
+    else targets.placeholder = '10.10.9.20, 192.168.20.1-192.168.20.20 ou 192.168.20.0/24';
+  }
+}
+
+async function runNetTool(e) {
+  e?.preventDefault();
+  const origin = document.getElementById('netToolOrigin')?.value || 'local';
+  const test = document.getElementById('netToolTest')?.value || 'ping';
+  const targetsRaw = document.getElementById('netToolTargets')?.value.trim() || '';
+  const ports = document.getElementById('netToolPorts')?.value.trim() || '';
+  const timeout = Number(document.getElementById('netToolTimeout')?.value || 3);
+  const concurrency = Number(document.getElementById('netToolConcurrency')?.value || 64);
+  const btn = document.getElementById('btnRunNetTool');
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Executando'; lucide.createIcons(); }
+  netToolSetLog('<span class="network-tool-line-muted">Executando teste...</span>', 'Executando...');
+  try {
+    if (origin === 'connector') {
+      const connectorId = netToolSelectedConnector();
+      if (!connectorId) throw new Error('Selecione um conector MikroTik.');
+      if (test !== 'ping' && test !== 'lan_inventory') {
+        throw new Error('No MikroTik, esta primeira versao executa Ping e Coletar LAN. Para TCP/HTTP/DNS/Traceroute use Servidor local/VPN.');
+      }
+      const type = test === 'lan_inventory' ? 'lan_inventory' : 'ping_many';
+      const targets = targetsRaw.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
+      if (type === 'ping_many' && !targets.length) throw new Error('Informe ao menos um alvo para ping.');
+      const res = await api('/api/connectors/jobs', {
+        method: 'POST',
+        body: JSON.stringify({ connector_id: connectorId, type, payload: type === 'ping_many' ? { targets } : {} }),
+      });
+      const body = await res?.json().catch(() => ({}));
+      if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Erro ao criar job remoto.');
+      netToolSetLog(`Job ${esc(type)} enviado para o MikroTik.\n\nAguardando o conector executar no proximo ciclo.\nID: ${esc(body?.job?.id || '-')}`, 'Job remoto enviado.');
+      await loadConnectorJobs(connectorId);
+      pollNetToolRemoteJob(connectorId, body?.job?.id || '');
+      return;
+    }
+
+    if (!targetsRaw) throw new Error('Informe ao menos um alvo.');
+    const res = await api('/api/network/tools/run', {
+      method: 'POST',
+      body: JSON.stringify({ test, targets: targetsRaw, ports, timeout, concurrency }),
+    });
+    const body = await res?.json().catch(() => ({}));
+    if (!res?.ok || body?.ok === false) throw new Error(body?.detail || 'Falha ao executar teste.');
+    netToolSetLog(netToolFormatLocal(body), `${body.count || 0} alvo(s) testado(s).`);
+  } catch (err) {
+    netToolSetLog(`<span class="network-tool-line-fail">${esc(err?.message || err)}</span>`, 'Falha no teste.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="play"></i> Executar'; lucide.createIcons(); }
+  }
+}
+
+//  Implantacao
+let _deployCurrentId = '';
+let _deployConnectors = [];
+
+function deployPayload() {
+  return {
+    id: _deployCurrentId || '',
+    connector_id: document.getElementById('deployConnector')?.value || '',
+    site: document.getElementById('deploySite')?.value.trim() || '',
+    onu_serial: document.getElementById('deployOnuSerial')?.value.trim() || '',
+    onu_mac: document.getElementById('deployOnuMac')?.value.trim() || '',
+    vlan: document.getElementById('deployVlan')?.value.trim() || '',
+    pon: document.getElementById('deployPon')?.value.trim() || '',
+    camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
+    camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
+    camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
+    camera_model: document.getElementById('deployCameraModel')?.value.trim() || '',
+    camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
+    location: document.getElementById('deployLocation')?.value.trim() || '',
+    recorder_type: document.getElementById('deployRecorderType')?.value || '',
+    recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',
+    recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
+    recorder_title: document.getElementById('deployRecorderTitle')?.value.trim() || '',
+  };
+}
+
+function deploySelectedConnector() {
+  const id = document.getElementById('deployConnector')?.value || '';
+  return _deployConnectors.find(c => String(c.id || c.connector_id || '') === id) || null;
+}
+
+function deploySetResult(html, isError = false) {
+  const box = document.getElementById('deployLookupResult');
+  if (!box) return;
+  box.innerHTML = html || 'Aguardando consulta no conector.';
+  box.classList.toggle('error', !!isError);
+}
+
+function deployRenderSummary() {
+  const p = deployPayload();
+  const conn = deploySelectedConnector();
+  const rows = [
+    ['Conector', conn ? `${conn.name || conn.id} / ${conn.site || '-'}` : '-'],
+    ['ONU/ONT', p.onu_serial || p.onu_mac || '-'],
+    ['VLAN / PON', [p.vlan, p.pon].filter(Boolean).join(' / ') || '-'],
+    ['Camera', [p.camera_title, p.camera_ip].filter(Boolean).join(' - ') || '-'],
+    ['MAC camera', p.camera_mac || '-'],
+    ['Gravador', [p.recorder_type?.toUpperCase(), p.recorder_host, p.recorder_channel && `CH ${p.recorder_channel}`].filter(Boolean).join(' / ') || '-'],
+    ['Localizacao', p.location || p.site || '-'],
+  ];
+  const filled = [p.connector_id, p.site, p.camera_ip, p.camera_title].filter(Boolean).length;
+  const summary = document.getElementById('deploySummary');
+  const status = document.getElementById('deploySummaryStatus');
+  if (status) status.textContent = filled >= 4 ? 'Pronto para registrar camera.' : 'Preencha conector, site, IP e titulo.';
+  if (summary) {
+    summary.innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+  }
+}
+
+async function loadDeployHistory() {
+  const box = document.getElementById('deployHistory');
+  if (!box) return;
+  const data = await apiJson('/api/deployments');
+  const rows = Array.isArray(data?.deployments) ? data.deployments : [];
+  if (!rows.length) {
+    box.innerHTML = '<div class="deployment-history-empty">Nenhuma implantacao salva ainda.</div>';
+    return;
+  }
+  box.innerHTML = rows.slice(0, 12).map(r => `
+    <div class="deployment-history-item">
+      <b>${esc(r.camera_title || r.title || 'Sem titulo')}</b>
+      <span>${esc(r.camera_ip || '-')} ${r.site ? `- ${esc(r.site)}` : ''}</span>
+      <small>${esc(r.status || 'rascunho')} ${r.updated_at ? `- ${esc(r.updated_at)}` : ''}</small>
+    </div>
+  `).join('');
+}
+
+async function loadDeployNew() {
+  const sel = document.getElementById('deployConnector');
+  if (!sel) return;
+  const data = await apiJson('/api/deployments/connectors');
+  _deployConnectors = Array.isArray(data?.connectors) ? data.connectors : [];
+  sel.innerHTML = _deployConnectors.length
+    ? _deployConnectors.map(c => `<option value="${esc(c.id || c.connector_id || '')}">${esc(c.name || c.client || 'Conector')} - ${esc(c.site || '-')}</option>`).join('')
+    : '<option value="">Nenhum conector disponivel</option>';
+  const conn = deploySelectedConnector();
+  const siteEl = document.getElementById('deploySite');
+  if (conn && siteEl && !siteEl.value) siteEl.value = conn.site || conn.client || '';
+  deploySetResult('Aguardando consulta no conector.');
+  deployRenderSummary();
+  await loadDeployHistory();
+  lucide.createIcons();
+}
+
+async function deployLookupMac() {
+  const p = deployPayload();
+  if (!p.connector_id) { showToast('Selecione um conector MikroTik.', true); return; }
+  if (!p.camera_mac) { showToast('Digite o MAC ou IP da camera.', true); return; }
+  deploySetResult('Consultando DHCP, ARP e neighbors do MikroTik...');
+  const data = await apiJson(`/api/deployments/lookup?connector_id=${encodeURIComponent(p.connector_id)}&query=${encodeURIComponent(p.camera_mac)}`);
+  const matches = Array.isArray(data?.matches) ? data.matches : [];
+  if (!matches.length) {
+    deploySetResult('Nenhum dispositivo encontrado no conector para esse MAC/IP.', true);
+    return;
+  }
+  const first = matches[0];
+  if (first.ip && !document.getElementById('deployCameraIp')?.value) document.getElementById('deployCameraIp').value = first.ip;
+  if (first.mac && !document.getElementById('deployCameraMac')?.value) document.getElementById('deployCameraMac').value = first.mac;
+  deploySetResult(matches.slice(0, 5).map(m => `
+    <div class="deploy-match">
+      <b>${esc(m.ip || '-')}</b>
+      <span>${esc(m.mac || '-')}</span>
+      <small>${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}</small>
+    </div>
+  `).join(''));
+  deployRenderSummary();
+}
+
+async function deployCheckIp() {
+  const p = deployPayload();
+  if (!p.camera_ip) { showToast('Digite o IP da camera.', true); return; }
+  const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(p.camera_ip)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
+  if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
+  if (data.in_use) {
+    const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
+    deploySetResult(`IP ${esc(p.camera_ip)} ja aparece em uso.<br>${places}`, true);
+  } else {
+    deploySetResult(`IP ${esc(p.camera_ip)} livre no inventario e no ultimo sinal do conector.`);
+  }
+}
+
+async function deploySaveDraft() {
+  const payload = deployPayload();
+  const res = await api('/api/deployments', { method: 'POST', body: JSON.stringify(payload) });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    showToast(data?.detail || 'Falha ao salvar rascunho.', true);
+    return;
+  }
+  _deployCurrentId = data.deployment?.id || _deployCurrentId;
+  showToast('Rascunho de implantacao salvo.');
+  await loadDeployHistory();
+  deployRenderSummary();
+}
+
+async function deployCommitCamera(e) {
+  e?.preventDefault();
+  const payload = deployPayload();
+  if (!payload.camera_title || !payload.camera_ip) {
+    showToast('IP e titulo da camera sao obrigatorios.', true);
+    return;
+  }
+  const res = await api('/api/deployments/commit-camera', { method: 'POST', body: JSON.stringify(payload) });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    showToast(data?.detail || 'Falha ao registrar camera.', true);
+    return;
+  }
+  _deployCurrentId = data.deployment?.id || _deployCurrentId;
+  showToast(`Camera registrada: ${payload.camera_title}`);
+  deploySetResult(`Camera registrada no inventario. Chave: ${esc(data.inventory_key || '-')}`);
+  await loadDeployHistory();
+  deployRenderSummary();
+}
+
+function deployClear() {
+  _deployCurrentId = '';
+  document.getElementById('deployForm')?.reset();
+  const conn = deploySelectedConnector();
+  const siteEl = document.getElementById('deploySite');
+  if (conn && siteEl) siteEl.value = conn.site || conn.client || '';
+  deploySetResult('Aguardando consulta no conector.');
+  deployRenderSummary();
+}
+
 //  Conectores SaaS 
 let _connectors = [];
 let _lastCreatedConnectorId = '';
+let _lastCreatedConnectorType = '';
 
 function formatDateTimeShort(value) {
   if (!value) return '-';
@@ -4439,9 +5370,29 @@ function formatDateTimeShort(value) {
 
 function connectorHostLabel(host) {
   if (!host || typeof host !== 'object') return '-';
-  const name = host.hostname || '';
+  const name = host.hostname || host.identity || '';
+  const model = host.model || '';
   const ips = Array.isArray(host.ips) ? host.ips.filter(Boolean).slice(0, 2).join(', ') : '';
-  return [name, ips].filter(Boolean).join(' / ') || '-';
+  return [name, model, ips].filter(Boolean).join(' / ') || '-';
+}
+
+function connectorInventoryLabel(row) {
+  const inv = row?.inventory || {};
+  const items = [];
+  if (inv.dhcp_leases) items.push(`DHCP ${inv.dhcp_leases}`);
+  if (inv.arp_entries) items.push(`ARP ${inv.arp_entries}`);
+  if (inv.neighbors) items.push(`Neighbors ${inv.neighbors}`);
+  return items.join(' / ');
+}
+
+function connectorTypeLabel(type) {
+  const t = String(type || 'routeros').toLowerCase();
+  if (t === 'routeros') return 'MikroTik';
+  return 'Windows';
+}
+
+function connectorById(connectorId) {
+  return _connectors.find(row => String(row.id || '') === String(connectorId || '')) || null;
 }
 
 async function loadConnectors() {
@@ -4460,16 +5411,19 @@ async function loadConnectors() {
   } else {
     tbody.innerHTML = rows.map(row => `
       <tr>
-        <td><strong>${esc(row.name || row.id)}</strong><br><span class="monospace text-muted">${esc(row.id || '')}</span></td>
-        <td>${esc(row.client || '-')}</td>
-        <td>${esc(row.site || '-')}</td>
-        <td>${statusBadge(row.status)}</td>
-        <td>${esc(connectorHostLabel(row.host))}</td>
-        <td class="monospace">${esc(row.remote_ip || '-')}</td>
-        <td>${esc(formatDateTimeShort(row.last_seen))}</td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="icon-action primary" data-conn-download="${esc(row.id)}" data-tip="Baixar agente"><i data-lucide="download"></i></button>
-          <button class="icon-action danger" data-conn-delete="${esc(row.id)}" data-tip="Apagar"><i data-lucide="trash-2"></i></button>
+        <td class="connector-name-cell" title="${esc(row.name || row.id)}"><strong>${esc(row.name || row.id)}</strong><br><span class="monospace text-muted" title="${esc(row.id || '')}">${esc(row.id || '')}</span></td>
+        <td class="connector-text-cell" title="${esc(row.client || '-')}">${esc(row.client || '-')}</td>
+        <td class="connector-text-cell" title="${esc(row.site || '-')}">${esc(row.site || '-')}</td>
+        <td class="connector-status-cell">${statusBadge(row.status)}</td>
+        <td class="connector-host-cell" title="${esc(`${connectorHostLabel(row.host)} ${connectorInventoryLabel(row) || ''}`.trim())}">${esc(connectorHostLabel(row.host))}${connectorInventoryLabel(row) ? `<br><span class="text-muted">${esc(connectorInventoryLabel(row))}</span>` : ''}</td>
+        <td class="connector-ip-cell monospace" title="${esc(row.remote_ip || '-')}">${esc(row.remote_ip || '-')}</td>
+        <td class="connector-date-cell" title="${esc(formatDateTimeShort(row.last_seen))}">${esc(formatDateTimeShort(row.last_seen))}</td>
+        <td class="connector-actions-cell">
+          <div class="connector-actions-wrap">
+            <button class="connector-row-action" data-conn-download="${esc(row.id)}" title="Baixar script"><i data-lucide="download"></i></button>
+            <button class="connector-row-action" data-conn-vpn="${esc(row.id)}" title="VPN"><i data-lucide="shield"></i></button>
+            <button class="connector-row-action danger" data-conn-delete="${esc(row.id)}" title="Apagar"><i data-lucide="trash-2"></i></button>
+          </div>
         </td>
       </tr>`).join('');
   }
@@ -4482,15 +5436,50 @@ async function loadConnectors() {
 
 function downloadConnectorAgent(connectorId) {
   if (!connectorId) return;
-  const tokenParam = _token ? `?auth_token=${encodeURIComponent(_token)}` : '';
-  window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/agent-script${tokenParam}`, '_blank');
+  const row = connectorById(connectorId);
+  const fallbackType = String(connectorId) === String(_lastCreatedConnectorId) ? _lastCreatedConnectorType : '';
+  const isRouter = String(row?.type || fallbackType).toLowerCase() === 'routeros';
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
+  const params = new URLSearchParams();
+  if (_token) params.set('auth_token', _token);
+  if (publicUrl) params.set('base_url', publicUrl.replace(/\/+$/, ''));
+  const endpoint = isRouter ? 'routeros-script' : 'agent-script';
+  const query = params.toString() ? `?${params.toString()}` : '';
+  window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/${endpoint}${query}`, '_blank');
+}
+
+async function downloadConnectorVpn(connectorId) {
+  if (!connectorId) return;
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
+  const endpointDefault = `${publicUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '').replace(/\/.*$/, '')}:51820`;
+  const endpoint = prompt('Endpoint WireGuard publico:', endpointDefault || '201.182.184.80:51820');
+  if (endpoint === null) return;
+  const clientLans = prompt('Redes LAN do cliente (CIDR, separadas por virgula):', '192.168.20.0/24');
+  if (clientLans === null) return;
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/wireguard`, {
+    method: 'POST',
+    body: JSON.stringify({ endpoint, client_lans: clientLans }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao preparar VPN.', true);
+    return;
+  }
+  const params = new URLSearchParams();
+  if (_token) params.set('auth_token', _token);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  showToast('VPN preparada. Baixando script RouterOS.');
+  window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/wireguard-routeros-script${query}`, '_blank');
+  await loadConnectors();
 }
 
 async function createConnectorFromForm() {
   const payload = {
+    type: document.getElementById('connType')?.value || 'routeros',
     name: document.getElementById('connName')?.value.trim() || '',
     client: document.getElementById('connClient')?.value.trim() || '',
     site: document.getElementById('connSite')?.value.trim() || '',
+    public_base_url: document.getElementById('connPublicUrl')?.value.trim() || '',
   };
   const btn = document.getElementById('btnCreateConnector');
   if (btn) { btn.disabled = true; btn.textContent = 'Criando'; }
@@ -4507,9 +5496,11 @@ async function createConnectorFromForm() {
   }
   const conn = body.connector || {};
   _lastCreatedConnectorId = conn.id || '';
+  _lastCreatedConnectorType = conn.type || payload.type || '';
   document.getElementById('connCreatedBox')?.classList.remove('hidden');
   const txt = document.getElementById('connCreatedText');
-  if (txt) txt.textContent = `${conn.name || conn.id} criado. Baixe o agente e execute no Windows do cliente.`;
+  const typeText = 'Baixe o script e cole no terminal do MikroTik do cliente.';
+  if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
   ['connName', 'connClient', 'connSite'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   showToast('Conector criado.');
   await loadConnectors();
@@ -4543,7 +5534,23 @@ async function sendConnectorPingJob() {
     showToast(body?.detail || 'Erro ao criar job.', true);
     return;
   }
-  showToast('Job enviado. O agente executa no proximo ciclo.');
+  showToast('Job enviado. O conector executa no proximo ciclo.');
+  await loadConnectorJobs(connectorId);
+}
+
+async function sendConnectorLanInventoryJob() {
+  const connectorId = document.getElementById('connJobConnector')?.value || '';
+  if (!connectorId) { showToast('Crie ou selecione um conector.', true); return; }
+  const res = await api('/api/connectors/jobs', {
+    method: 'POST',
+    body: JSON.stringify({ connector_id: connectorId, type: 'lan_inventory', payload: {} }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao criar job.', true);
+    return;
+  }
+  showToast('Coleta LAN enviada. O MikroTik executa no proximo ciclo.');
   await loadConnectorJobs(connectorId);
 }
 
@@ -4558,13 +5565,34 @@ async function loadConnectorJobs(connectorId) {
   }
   log.innerHTML = jobs.slice(0, 12).map(job => {
     const items = job?.result?.items || job?.result?.result?.items || [];
-    const resultText = Array.isArray(items) && items.length
-      ? items.map(item => `${item.online ? 'OK' : 'FAIL'} ${item.target} ${item.rtt_ms ? item.rtt_ms + 'ms' : ''}`).join('<br>')
-      : esc(job.error || '');
+    const routerosPing = job?.result?.routeros_ping || job?.result?.result?.routeros_ping || '';
+    const inventory = job?.result?.inventory || job?.result?.result?.inventory || null;
+    const inventoryText = inventory
+      ? [
+          `DHCP: ${inventory.dhcp_leases ?? 0}`,
+          `ARP: ${inventory.arp_entries ?? 0}`,
+          `Vizinhos: ${inventory.neighbors ?? 0}`,
+        ].join('<br>')
+      : '';
+    let resultText = '';
+    if (routerosPing) {
+      resultText = routerosPing.split(/[;,]/).filter(Boolean).map(item => {
+          const separator = item.includes('=') ? '=' : ':';
+          const [target, ok] = item.split(separator);
+          const normalized = String(ok || '').toLowerCase();
+          return `${normalized === 'true' || normalized === '1' ? 'OK' : 'FAIL'} ${esc(target || item)}`;
+        }).join('<br>');
+    } else if (Array.isArray(items) && items.length) {
+      resultText = items.map(item => `${item.online ? 'OK' : 'FAIL'} ${item.target} ${item.rtt_ms ? item.rtt_ms + 'ms' : ''}`).join('<br>');
+    } else if (inventoryText) {
+      resultText = inventoryText;
+    } else {
+      resultText = esc(job.error || '');
+    }
     return `<div class="connector-job-item">
       <div><strong>${esc(job.type)}</strong> <span class="badge ${job.status === 'done' ? 'badge-green' : job.status === 'failed' ? 'badge-red' : 'badge-amber'}">${esc(job.status)}</span></div>
       <div class="text-muted">${esc(formatDateTimeShort(job.created_at))}</div>
-      <div class="monospace">${resultText || 'Aguardando agente.'}</div>
+      <div class="monospace">${resultText || 'Aguardando MikroTik.'}</div>
     </div>`;
   }).join('');
 }
@@ -4596,7 +5624,7 @@ function openEditCamModal(cams, opts = {}) {
   const s = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box';
 
   document.getElementById('editCamTableBody').innerHTML = cams.map(c => `
-    <tr>
+    <tr data-key="${esc(_camKey(c))}" data-connector-id="${esc(c.remote_connector_id || c.connector_id || '')}" data-site="${esc(c.site || c.site_name || c.local || '')}" data-remote="${c.remote ? '1' : ''}">
       <td class="monospace" style="font-size:11px;color:var(--muted);white-space:nowrap">${esc(c.ip)}</td>
       <td><input data-ip="${esc(c.ip)}" data-field="titulo"     style="${s}" value="${esc(c.titulo    || '')}" placeholder="Titulo"></td>
       <td><input data-ip="${esc(c.ip)}" data-field="fabricante" style="${s}" value="${esc(c.fabricante|| '')}" placeholder="Fabricante"></td>
@@ -4621,7 +5649,7 @@ function applyCamPayloadsLocally(payloads) {
   ['basico', 'olt', 'switch'].forEach(mode => {
     if (!_invCam[mode]?.length) return;
     _invCam[mode] = _invCam[mode].map(cam => {
-      const patch = payloads.find(p => p.ip === cam.ip);
+      const patch = payloads.find(p => _camKey(p) === _camKey(cam) || (!p.remote_connector_id && !p.connector_id && p.ip === cam.ip));
       return patch ? { ...cam, ...patch } : cam;
     });
     _camSessionSave(mode, _invCam[mode]);
@@ -4655,7 +5683,14 @@ async function saveEditCam() {
     const inputs = tr.querySelectorAll('input[data-ip]');
     if (!inputs.length) return;
     const ip = inputs[0].dataset.ip;
-    const payload = { ip };
+    const payload = {
+      ip,
+      remote_connector_id: tr.dataset.connectorId || '',
+      connector_id: tr.dataset.connectorId || '',
+      site: tr.dataset.site || '',
+      site_name: tr.dataset.site || '',
+      remote: tr.dataset.remote === '1',
+    };
     inputs.forEach(inp => { payload[inp.dataset.field] = inp.value.trim(); });
     payloads.push(payload);
   });
@@ -4760,7 +5795,8 @@ function _scanPayloadBase() {
   const alvo    = document.getElementById('scanAlvo').value.trim();
   const usuario = document.getElementById('scanUsuario').value.trim() || 'admin';
   const senha   = document.getElementById('scanSenha').value;
-  const local   = document.getElementById('scanLocal').value.trim();
+  const selectedSite = document.getElementById('filterSiteOlt')?.value || '';
+  const local   = document.getElementById('scanLocal').value.trim() || selectedSite;
   if (!alvo) { showToast('Informe o alvo (IP, range ou CIDR)', true); return null; }
   return {
     alvo, usuario, senha,
@@ -4917,6 +5953,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
   document.getElementById('dashDrawerOverlay')?.addEventListener('click', closeDashDrawer);
+  document.getElementById('closeMapLayerDetails')?.addEventListener('click', closeMapLayerDetails);
+  document.getElementById('cancelMapLayerDetails')?.addEventListener('click', closeMapLayerDetails);
 
   // Login
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -4967,7 +6005,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('startScan').addEventListener('click', startScan);
 
   // Refresh topbar
-  document.getElementById('btnRefreshTopbar').addEventListener('click', () => {
+  document.getElementById('btnRefreshTopbar').addEventListener('click', async () => {
+    if (_currentView === 'dashboard') {
+      await refreshDashboardLiveCameraStatus();
+      return;
+    }
     if (_currentView === 'inv-olt') _camSessionClear();
     if (_currentView === 'inv-nvr') _nvrSessionClear();
     loadView(_currentView);
@@ -4978,13 +6020,42 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnCreateConnector')?.addEventListener('click', createConnectorFromForm);
   document.getElementById('btnDownloadCreatedAgent')?.addEventListener('click', () => downloadConnectorAgent(_lastCreatedConnectorId));
   document.getElementById('btnSendPingJob')?.addEventListener('click', sendConnectorPingJob);
+  document.getElementById('btnSendLanInventoryJob')?.addEventListener('click', sendConnectorLanInventoryJob);
   document.getElementById('connJobConnector')?.addEventListener('change', (e) => loadConnectorJobs(e.target.value));
   document.getElementById('connectorsTable')?.addEventListener('click', (e) => {
     const download = e.target.closest('[data-conn-download]');
+    const vpn = e.target.closest('[data-conn-vpn]');
     const remove = e.target.closest('[data-conn-delete]');
     if (download) downloadConnectorAgent(download.dataset.connDownload);
+    if (vpn) downloadConnectorVpn(vpn.dataset.connVpn);
     if (remove) deleteConnector(remove.dataset.connDelete);
   });
+
+  // Ferramentas de rede
+  document.getElementById('netToolForm')?.addEventListener('submit', runNetTool);
+  document.getElementById('netToolOrigin')?.addEventListener('change', updateNetToolFormState);
+  document.getElementById('netToolTest')?.addEventListener('change', updateNetToolFormState);
+  document.getElementById('btnClearNetToolLog')?.addEventListener('click', () => netToolSetLog('Nenhum teste executado ainda.', 'Aguardando teste.'));
+
+  // Implantacao
+  document.getElementById('btnDeployClear')?.addEventListener('click', deployClear);
+  document.getElementById('deployForm')?.addEventListener('submit', deployCommitCamera);
+  document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
+  document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
+  document.getElementById('btnDeployCheckIp')?.addEventListener('click', deployCheckIp);
+  document.getElementById('deployConnector')?.addEventListener('change', () => {
+    const conn = deploySelectedConnector();
+    const siteEl = document.getElementById('deploySite');
+    if (conn && siteEl && !siteEl.value) siteEl.value = conn.site || conn.client || '';
+    deployRenderSummary();
+  });
+  document.getElementById('deployCameraTitle')?.addEventListener('input', () => {
+    const recTitle = document.getElementById('deployRecorderTitle');
+    if (recTitle && !recTitle.value) recTitle.value = document.getElementById('deployCameraTitle')?.value || '';
+    deployRenderSummary();
+  });
+  document.getElementById('deployForm')?.addEventListener('input', deployRenderSummary);
+  document.getElementById('deployForm')?.addEventListener('change', deployRenderSummary);
 
   // ImgBB settings
   document.getElementById('btnImgbbSettings')?.addEventListener('click', openImgbbModal);
@@ -5066,6 +6137,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cpBtnDataHora')?.addEventListener('click', () => camAction('data-hora'));
   document.getElementById('cpBtnReboot')?.addEventListener('click', () => camAction('reboot'));
   document.getElementById('cpBtnWeb')?.addEventListener('click', () => camAction('web'));
+  document.getElementById('cpBtnMapa')?.addEventListener('click', () => focusCameraOnMap(_invOltActive));
   document.getElementById('cpBtnPing')?.addEventListener('click', startPing);
   document.getElementById('closeCamAuthAction')?.addEventListener('click', closeCamAuthAction);
   document.getElementById('cancelCamAuthAction')?.addEventListener('click', closeCamAuthAction);
@@ -5093,10 +6165,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnOltBackup')?.addEventListener('click', () => window.open(`${API_BASE}/api/backup/export`, '_blank'));
   document.getElementById('btnOltPdf')?.addEventListener('click', () => window.open(`${API_BASE}/api/inventory/report.pdf`, '_blank'));
   document.getElementById('btnOltImgbb')?.addEventListener('click', () => {
-    const ips = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.value);
+    const checked = [...document.querySelectorAll('.chk-olt:checked')];
+    const ips = checked.map(c => c.value);
+    const keys = checked.map(c => c.dataset.key || '').filter(Boolean);
     const allCams = ips.length === 0
       ? _invOltAll_get()
-      : _invOltAll_get().filter(c => ips.includes(c.ip));
+      : _invOltAll_get().filter(c => keys.includes(_camKey(c)) || ips.includes(c.ip));
 
     const list = document.getElementById('imgbbUploadList');
     const desc = document.getElementById('imgbbUploadDesc');
@@ -5119,6 +6193,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Armazena IPs para o confirm
     document.getElementById('confirmImgbbUpload').dataset.ips = JSON.stringify(ips);
+    document.getElementById('confirmImgbbUpload').dataset.keys = JSON.stringify(keys);
   });
 
   document.getElementById('closeImgbbUpload')?.addEventListener('click', () =>
@@ -5128,6 +6203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('confirmImgbbUpload')?.addEventListener('click', async () => {
     const ips = JSON.parse(document.getElementById('confirmImgbbUpload').dataset.ips || '[]');
+    const keys = JSON.parse(document.getElementById('confirmImgbbUpload').dataset.keys || '[]');
     const progress = document.getElementById('imgbbUploadProgress');
     const bar = document.getElementById('imgbbUploadBar');
     const msg = document.getElementById('imgbbUploadMsg');
@@ -5140,7 +6216,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
 
     try {
-      const payload = { mode: _invOltView || 'olt', ...(ips.length ? { ips } : {}) };
+      const payload = { mode: _invOltView || 'olt', ...(ips.length ? { ips } : {}), ...(keys.length ? { keys } : {}) };
       const res = await api('/api/inventory/imgbb/upload', { method: 'POST', body: JSON.stringify(payload) });
       const data = await res.json();
       if (!res?.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'Erro ao enviar.');
@@ -5148,17 +6224,25 @@ document.addEventListener('DOMContentLoaded', () => {
       bar.style.width = '100%';
       const updatedRows = data?.inventory || [];
       const sentIps = new Set(ips.length ? ips : _invOltAll_get().map(c => c.ip));
+      const sentKeys = new Set(keys.length ? keys : _invOltAll_get().map(c => _camKey(c)));
 
       if (updatedRows.length) {
-        const byIp = {};
-        updatedRows.forEach(r => { if (r.ip) byIp[r.ip] = r; });
+        const byKey = {};
+        updatedRows.forEach(r => { byKey[_camKey(r)] = r; });
         Object.keys(_invCam).forEach(mode => {
           _invCam[mode] = (_invCam[mode] || []).map(c => {
-            const u = byIp[c.ip];
-            if (!u || !sentIps.has(c.ip)) return c;
-            const imgbbUrl = u.imgbb_url || '';
-            if (imgbbUrl) _imgbbSave(c.ip, imgbbUrl);
-            return { ...c, imgbb_url: imgbbUrl };
+            const cKey = _camKey(c);
+            const u = byKey[cKey];
+            if (!u || (!sentKeys.has(cKey) && !sentIps.has(c.ip))) return c;
+            const imgbbUrl = cameraImgbbUrl(u);
+            if (imgbbUrl) _imgbbSave(c, imgbbUrl);
+            return {
+              ...c,
+              ...u,
+              imgbb_url: imgbbUrl || c.imgbb_url || '',
+              imgbb_thumb_url: u.imgbb_thumb_url || u.thumbnail_url || c.imgbb_thumb_url || imgbbUrl || '',
+              imgbb_status: imgbbUrl ? 'up' : (u.imgbb_status || c.imgbb_status || ''),
+            };
           });
           _camSessionSave(mode, _invCam[mode]);
         });
@@ -5199,42 +6283,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
-      showToast(data?.detail || data?.error || 'Erro ao atualizar status.', true);
+      showToast(data?.detail || data?.error || 'Erro ao executar ping.', true);
       return;
     }
-    applyCamStatusesLocally(data?.updated_status || {});
-    updateCamTabs();
-    populateCamSiteFilter();
-    applyInvOltFilters();
-    updateNvrTabs();
-    populateNvrFilters();
-    applyNvrFilters();
-    showToast(`Status atualizado: ${data.online || 0} online, ${data.offline || 0} offline.`);
+    showToast(`Ping concluido: ${data.online || 0} responderam, ${data.offline || 0} sem resposta. Status da tabela nao foi alterado.`);
   });
 
   // Editar selecionados (um ou varios)
   document.getElementById('btnOltEditar')?.addEventListener('click', () => {
-    const ips = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.value);
-    if (!ips.length) { showToast('Selecione ao menos uma camera para editar', true); return; }
-    const cams = ips.map(ip => _invOltAll_get().find(c => c.ip === ip)).filter(Boolean);
+    const keys = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.dataset.key || `IP:${c.value}`);
+    if (!keys.length) { showToast('Selecione ao menos uma camera para editar', true); return; }
+    const cams = keys.map(key => _invOltAll_get().find(c => _camKey(c) === key)).filter(Boolean);
     openEditCamModal(cams);
   });
 
   // Apagar selecionados
   document.getElementById('btnOltDeleteSelected')?.addEventListener('click', async () => {
-    const ips = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.value);
+    const checked = [...document.querySelectorAll('.chk-olt:checked')];
+    const ips = checked.map(c => c.value);
+    const keys = checked.map(c => c.dataset.key || `IP:${c.value}`);
     if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
     if (!await showConfirm({ title: 'Remover cameras', msg: `Remover ${ips.length} camera(s) do inventario?`, label: 'Remover' })) return;
     const res = await api('/api/inventory/delete', {
       method: 'POST',
-      body: JSON.stringify({ ips, mode: 'all' }),
+      body: JSON.stringify({ ips, keys, mode: _invOltView || 'olt' }),
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
       showToast(data?.detail || data?.error || 'NAo foi possAvel remover as cAmeras.', true);
       return;
     }
-    _camRemoveIpsLocally(ips);
+    _camRemoveIpsLocally(keys);
     showToast(`${ips.length} camera(s) removida(s).`);
     closeCamPanel();
     updateCamTabs();
@@ -5823,30 +6902,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.open(`${API_BASE}/api/backup/export`, '_blank');
   });
 
-  // Indexar IA
-  document.getElementById('btnIaIndex')?.addEventListener('click', async () => {
-    showToast('Indexacao iniciada');
-    await api('/api/ia/nvr/index', { method: 'POST', body: '{}' });
-  });
-
-  // Busca IA
-  document.getElementById('btnIaSearch')?.addEventListener('click', async () => {
-    const q = document.getElementById('iaNvrQuery').value.trim();
-    if (!q) return;
-    const data = await apiJson(`/api/ia/nvr/search?q=${encodeURIComponent(q)}`);
-    const el = document.getElementById('iaNvrResults');
-    if (!data?.results?.length) {
-      el.textContent = 'Nenhum resultado encontrado.';
-      return;
-    }
-    el.innerHTML = data.results.map(r => `
-      <div style="padding:10px 0;border-bottom:1px solid var(--border)">
-        <strong>${esc(r.camera || r.file || '')}</strong>
-        <span style="margin-left:8px;font-size:11px;color:var(--muted)">${esc(r.timestamp || '')}</span>
-        <p style="margin:4px 0 0;font-size:12px;color:var(--muted)">${esc(r.description || '')}</p>
-      </div>`).join('');
-  });
-
   // Botao Ferramentas KMZ
   document.getElementById('btnMapTools')?.addEventListener('click', () => {
     document.getElementById('modalMapTools').classList.remove('hidden');
@@ -5888,32 +6943,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const status = document.getElementById('mapGenerateStatus');
     status.textContent = 'Carregando camada gerada'; status.style.color = 'var(--muted)';
     await loadMapLayers();
-    // Ativa camada gerada se disponivel
-    const generatedState = _mapLayerGroups['cameras'];
-    if (generatedState && !generatedState.active) toggleMapLayer('cameras', MAP_LAYER_DEFS[0]);
-    status.textContent = 'Camada gerada exibida no mapa.'; status.style.color = 'var(--primary)';
+    const lastGenerated = sessionStorage.getItem('so_kmz_last_generated_layer') || '';
+    const generatedId = lastGenerated ? `generated:${lastGenerated}` : Object.keys(_mapLayerGroups).find(id => id.startsWith('generated:'));
+    const generatedState = generatedId ? _mapLayerGroups[generatedId] : null;
+    if (generatedState && !generatedState.active) await toggleMapLayer(generatedId, generatedState.def);
+    status.textContent = generatedState ? 'Camada gerada exibida no mapa.' : 'Nenhuma camada gerada encontrada.';
+    status.style.color = generatedState ? 'var(--primary)' : 'var(--danger)';
   });
 
-  document.getElementById('btnMapDownloadGenerated')?.addEventListener('click', () =>
-    downloadWithAuth('/api/kmz/generated/download', 'cameras-gerado.kmz'));
+  document.getElementById('btnMapDownloadGenerated')?.addEventListener('click', () => {
+    const lastGenerated = sessionStorage.getItem('so_kmz_last_generated_layer') || '';
+    const url = lastGenerated ? `/api/kmz/generated/layers/${encodeURIComponent(lastGenerated)}/download` : '/api/kmz/generated/download';
+    downloadWithAuth(url, 'cameras-gerado.kmz');
+  });
 
   // Mapa
-  document.getElementById('mapFilterStatus')?.addEventListener('change', () => {
-    const camByName = {}; const camByIp = {};
-    (_invCam['basico']||[]).forEach(c => {
-      if (c.titulo) camByName[c.titulo.toLowerCase()] = c;
-      if (c.ip)     camByIp[c.ip] = c;
-    });
-    renderMapMarkers(camByName, camByIp);
-  });
-  document.getElementById('mapFilterSite')?.addEventListener('change', () => {
-    const camByName = {}; const camByIp = {};
-    (_invCam['basico']||[]).forEach(c => {
-      if (c.titulo) camByName[c.titulo.toLowerCase()] = c;
-      if (c.ip)     camByIp[c.ip] = c;
-    });
-    renderMapMarkers(camByName, camByIp);
-  });
+  document.getElementById('mapFilterStatus')?.addEventListener('change', loadMapLayers);
+  document.getElementById('mapFilterSite')?.addEventListener('change', loadMapLayers);
   document.getElementById('btnMapReload')?.addEventListener('click', loadKmz);
 
   // Importar KMZ
@@ -5956,6 +7002,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Salva o nome do arquivo para mostrar na camada
     const kmlName = file.name.replace(/\.(kmz|kml)$/i, '');
     sessionStorage.setItem('so_kmz_imported_name', kmlName);
+    if (importData?.id) sessionStorage.setItem('so_kmz_current_import_layer', importData.id);
     showToast(`KMZ importado  ${featCount} pontos encontrados`);
 
     // Passo 2: perguntar se quer aplicar ao inventario
@@ -5989,20 +7036,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnMapGenerate')?.addEventListener('click', async () => {
     const genStatus = document.getElementById('mapGenerateStatus');
     const genName = document.getElementById('mapGenerateName')?.value.trim() || 'Cameras do Inventario';
+    const sourceLayerId = sessionStorage.getItem('so_kmz_current_import_layer') || '';
     if (genStatus) { genStatus.textContent = 'Gerando'; genStatus.style.color = 'var(--muted)'; }
     sessionStorage.setItem('so_kmz_generated_name', genName);
-    const res = await api('/api/kmz/generate', { method: 'POST', body: '{}' });
+    const res = await api('/api/kmz/generate', {
+      method: 'POST',
+      body: JSON.stringify({ label: genName, layer_id: sourceLayerId }),
+    });
     if (res?.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data?.id) sessionStorage.setItem('so_kmz_last_generated_layer', data.id);
       if (genStatus) { genStatus.textContent = ' Gerado com sucesso!'; genStatus.style.color = 'var(--primary)'; }
       showToast('KMZ gerado!');
-      // Remove a camada importada  foi incorporada ao gerado
-      if (_mapLayerGroups['imported']?.active) _map.removeLayer(_mapLayerGroups['imported'].group);
-      delete _mapLayerGroups['imported'];
-      sessionStorage.removeItem('so_kmz_imported_name');
-      // Recarrega mostrando so o gerado e ativa automaticamente
       await loadMapLayers();
-      if (_mapLayerGroups['cameras'] && !_mapLayerGroups['cameras'].active)
-        toggleMapLayer('cameras', MAP_LAYER_DEFS[0]);
+      const generatedId = data?.id ? `generated:${data.id}` : Object.keys(_mapLayerGroups).find(id => id.startsWith('generated:'));
+      const generatedState = generatedId ? _mapLayerGroups[generatedId] : null;
+      if (generatedState && !generatedState.active) await toggleMapLayer(generatedId, generatedState.def);
     } else {
       if (genStatus) { genStatus.textContent = ' Erro ao gerar.'; genStatus.style.color = 'var(--danger)'; }
       showToast('Erro ao gerar KMZ', true);
@@ -6184,8 +7233,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.innerHTML = '<i data-lucide="refresh-cw"></i> Sincronizar com Zabbix';
     lucide.createIcons();
 
-    if (data?.error) {
-      log.textContent = ' Erro: ' + data.error + '\n\n' + (data.stderr || '');
+    if (!res?.ok || data?.error || data?.ok === false) {
+      log.textContent = ' Erro: ' + (data?.error || data?.detail || `HTTP ${res?.status || 'falha'}`) + '\n\n' + (data?.stderr || '');
       badge.textContent = 'Erro';
       badge.style.background = 'var(--danger-soft)';
       badge.style.color = 'var(--danger)';

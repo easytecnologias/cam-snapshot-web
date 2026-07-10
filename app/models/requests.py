@@ -42,6 +42,9 @@ class ScanRequest(BaseModel):
 class InventoryDeleteRequest(BaseModel):
     ips: List[str]
     mode: str = "olt"
+    keys: List[str] = []
+    connector_id: str | None = None
+    site: str | None = None
 
 
 class RescanSingleIPRequest(BaseModel):

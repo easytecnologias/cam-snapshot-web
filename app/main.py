@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -9,10 +14,11 @@ from app.core.observability import RequestContextMiddleware, configure_logging
 from app.core.paths import WEB_DIR, STATIC_DIR, SAIDA_DIR, DATA_DIR, WEB_APP_DIR, ensure_dirs
 from app.core.security import ApiAuthMiddleware
 from app.core.settings import get_settings
-from app.core.tenant_context import tenant_snapshot_dir
+from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
 from app.services.auth_store import init_auth_db
 from app.services.db_store import init_db
 from app.services.maintenance_ping_service import maintenance_ping_hub
+from app.api.endpoints.maintenance import scripts_zabbix_status_sync
 from app.api.endpoints import (
     auth_router,
     cameras_router,
@@ -32,11 +38,15 @@ from app.api.endpoints import (
     windows_router,
     backup_router,
     playback_router,
+    connectors_router,
+    network_tools_router,
+    deployments_router,
 )
 
 ensure_dirs()
 settings = get_settings()
 configure_logging(settings)
+logger = logging.getLogger("app.zabbix_status_sync")
 
 app = FastAPI(
     title=settings.app_name,
@@ -77,10 +87,84 @@ app.include_router(dashboard_router)
 app.include_router(windows_router)
 app.include_router(backup_router)
 app.include_router(playback_router)
+app.include_router(connectors_router)
+app.include_router(network_tools_router)
+app.include_router(deployments_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
 app.state.settings = settings
+app.state.zabbix_status_task = None
+app.state.zabbix_status_last = {}
+
+
+def _zabbix_status_interval_s() -> int:
+    raw = os.getenv("SIGHTOPS_ZABBIX_STATUS_SYNC_INTERVAL", "60")
+    try:
+        value = int(raw)
+    except Exception:
+        value = 60
+    return max(30, min(value, 3600))
+
+
+def _zabbix_status_tenant_slug() -> str:
+    return os.getenv("SIGHTOPS_ZABBIX_STATUS_TENANT", "default").strip().lower()
+
+
+def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
+    token = set_current_tenant_slug(tenant_slug)
+    try:
+        return scripts_zabbix_status_sync({"source": "ip", "mode": mode, "site": ""})
+    finally:
+        reset_current_tenant_slug(token)
+
+
+async def _zabbix_status_sync_loop() -> None:
+    interval = _zabbix_status_interval_s()
+    tenant_slug = _zabbix_status_tenant_slug()
+    await asyncio.sleep(10)
+    while True:
+        try:
+            totals: list[str] = []
+            last: dict[str, object] = {"ok": True, "interval_s": interval, "tenant": tenant_slug, "modes": {}}
+            for mode in ("basic", "olt", "switch"):
+                result = await asyncio.to_thread(
+                    _run_zabbix_status_sync_for_mode,
+                    mode,
+                    tenant_slug,
+                )
+                last["modes"][mode] = result
+                if result.get("ok"):
+                    totals.append(
+                        f"{mode}: {result.get('online', 0)}/{result.get('total', 0)} online, "
+                        f"{result.get('offline', 0)} offline"
+                    )
+                elif result.get("error"):
+                    last["ok"] = False
+                    logger.debug("zabbix status sync skipped: %s", result.get("error"))
+                    break
+            app.state.zabbix_status_last = last
+            if totals:
+                logger.info("zabbix status sync updated: %s", "; ".join(totals))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            app.state.zabbix_status_last = {"ok": False, "interval_s": interval, "error": "loop failed"}
+            logger.exception("zabbix status sync loop failed")
+        await asyncio.sleep(interval)
+
+
+@app.get("/api/scripts/zabbix/status-sync/auto")
+def zabbix_status_sync_auto_state() -> JSONResponse:
+    task = getattr(app.state, "zabbix_status_task", None)
+    return JSONResponse(
+        content={
+            "ok": True,
+            "running": bool(task and not task.done()),
+            "interval_s": _zabbix_status_interval_s(),
+            "last": getattr(app.state, "zabbix_status_last", {}) or {},
+        }
+    )
 
 
 @app.on_event("startup")
@@ -88,10 +172,19 @@ async def startup_events() -> None:
     init_db()
     init_auth_db()
     await maintenance_ping_hub.start()
+    app.state.zabbix_status_task = asyncio.create_task(
+        _zabbix_status_sync_loop(),
+        name="zabbix-status-sync-loop",
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_events() -> None:
+    task = getattr(app.state, "zabbix_status_task", None)
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     await maintenance_ping_hub.stop()
 
 

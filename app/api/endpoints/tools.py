@@ -10,6 +10,7 @@ import ipaddress
 import asyncio
 import re
 import requests
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -60,7 +61,7 @@ from app.core.tenant_context import (
 from app.services.scan_service import _upload_imgbb_for_inventory
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
 from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
-from app.services.inventory_json import load_inventory_json, save_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 
 router = APIRouter(prefix="/api", tags=["tools"])
 
@@ -103,6 +104,112 @@ def _safe_extract_zip(zf: zipfile.ZipFile, target_dir: Path) -> None:
         if root != dest and root not in dest.parents:
             raise HTTPException(400, "Backup invalido: caminho fora do diretorio temporario.")
     zf.extractall(target_dir)
+
+
+def _safe_name(value: str, fallback: str = "mapa") -> str:
+    stem = Path(str(value or fallback)).stem.strip() or fallback
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "-", stem).strip(".-")
+    return stem[:80] or fallback
+
+
+def _kmz_layers_dir() -> Path:
+    base = tenant_kmz_input_dir().parent if get_current_tenant_slug() else KMZ_INPUT_DIR.parent
+    p = base / "kmz_layers"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _kmz_generated_layers_dir() -> Path:
+    base = tenant_kmz_output_dir().parent if get_current_tenant_slug() else KMZ_OUTPUT_DIR.parent
+    p = base / "kmz_generated_layers"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _kmz_layer_paths(layer_id: str) -> tuple[Path, Path, Path]:
+    safe_id = _safe_name(layer_id, "layer")
+    base = _kmz_layers_dir()
+    return base / f"{safe_id}.kmz", base / f"{safe_id}.geojson", base / f"{safe_id}.meta.json"
+
+
+def _kmz_generated_layer_paths(layer_id: str) -> tuple[Path, Path, Path]:
+    safe_id = _safe_name(layer_id, "layer")
+    base = _kmz_generated_layers_dir()
+    return base / f"{safe_id}.kmz", base / f"{safe_id}.geojson", base / f"{safe_id}.meta.json"
+
+
+def _read_kmz_layer_meta(meta_path: Path) -> dict[str, Any]:
+    try:
+        if meta_path.exists():
+            data = json.loads(meta_path.read_text(encoding="utf-8") or "{}")
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any]]:
+    layers: list[dict[str, Any]] = []
+    for meta_path in sorted(_kmz_layers_dir().glob("*.meta.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        meta = _read_kmz_layer_meta(meta_path)
+        layer_id = str(meta.get("id") or meta_path.stem.replace(".meta", "")).strip()
+        kmz_path, geojson_path, _ = _kmz_layer_paths(layer_id)
+        if not kmz_path.exists() or not geojson_path.exists():
+            continue
+        geojson: dict[str, Any] = {}
+        features: list[Any] = []
+        if include_features:
+            geojson = read_geojson_file(geojson_path)
+            features = geojson.get("features") or []
+        elif geojson_path.exists():
+            try:
+                features = json.loads(geojson_path.read_text(encoding="utf-8") or "{}").get("features") or []
+            except Exception:
+                features = []
+        layers.append({
+            "id": layer_id,
+            "label": str(meta.get("label") or meta.get("original_name") or kmz_path.name).replace(".kmz", "").replace(".kml", ""),
+            "original_name": meta.get("original_name") or kmz_path.name,
+            "filename": kmz_path.name,
+            "features_count": len(features),
+            "created_at": meta.get("created_at") or "",
+            "download_url": f"/api/kmz/import/layers/{layer_id}/download",
+            **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
+        })
+    return layers
+
+
+def _list_kmz_generated_layers(include_features: bool = True) -> list[dict[str, Any]]:
+    layers: list[dict[str, Any]] = []
+    for meta_path in sorted(_kmz_generated_layers_dir().glob("*.meta.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        meta = _read_kmz_layer_meta(meta_path)
+        layer_id = str(meta.get("id") or meta_path.stem.replace(".meta", "")).strip()
+        kmz_path, geojson_path, _ = _kmz_generated_layer_paths(layer_id)
+        if not kmz_path.exists() or not geojson_path.exists():
+            continue
+        geojson: dict[str, Any] = {}
+        features: list[Any] = []
+        if include_features:
+            geojson = read_geojson_file(geojson_path)
+            features = geojson.get("features") or []
+        elif geojson_path.exists():
+            try:
+                features = json.loads(geojson_path.read_text(encoding="utf-8") or "{}").get("features") or []
+            except Exception:
+                features = []
+        layers.append({
+            "id": layer_id,
+            "label": str(meta.get("label") or meta.get("original_name") or kmz_path.name).replace(".kmz", "").replace(".kml", ""),
+            "original_name": meta.get("original_name") or kmz_path.name,
+            "filename": kmz_path.name,
+            "features_count": len(features),
+            "created_at": meta.get("created_at") or "",
+            "source_layer_id": meta.get("source_layer_id") or "",
+            "source": meta.get("source") or "generated",
+            "download_url": f"/api/kmz/generated/layers/{layer_id}/download",
+            **({"features": features, "type": geojson.get("type") or "FeatureCollection"} if include_features else {}),
+        })
+    return layers
 
 
 def _cleanup_kmz_workspace(keep_imported: bool = False) -> None:
@@ -932,7 +1039,17 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
         return {"ok": True, "uploaded": 0, "processed": 0, "error": "Inventario vazio.", "inventory": []}
 
     ips_raw = data.get("ips")
+    keys_raw = data.get("keys")
     selected_ips: list[str] = []
+    selected_keys: list[str] = []
+    if isinstance(keys_raw, list):
+        seen_keys: set[str] = set()
+        for it in keys_raw:
+            key = str(it or "").strip()
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            selected_keys.append(key)
     if isinstance(ips_raw, list):
         seen: set[str] = set()
         for it in ips_raw:
@@ -943,7 +1060,12 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
             selected_ips.append(ip)
 
     target_rows: list[dict[str, Any]]
-    if selected_ips:
+    if selected_keys:
+        want_keys = set(selected_keys)
+        target_rows = [r for r in rows if isinstance(r, dict) and inventory_row_key(r) in want_keys]
+        if not target_rows:
+            return {"ok": False, "uploaded": 0, "processed": 0, "error": "Nenhuma camera selecionada encontrada no inventario.", "inventory": rows}
+    elif selected_ips:
         want = set(selected_ips)
         target_rows = [r for r in rows if isinstance(r, dict) and str(r.get("ip") or r.get("IP") or "").strip() in want]
         if not target_rows:
@@ -951,7 +1073,30 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
     else:
         target_rows = [r for r in rows if isinstance(r, dict)]
 
-    _, uploaded, err = _upload_imgbb_for_inventory(target_rows)
+    uploaded_rows, uploaded, err = _upload_imgbb_for_inventory(target_rows)
+    uploaded_by_key: dict[str, dict[str, Any]] = {}
+    for r in uploaded_rows or []:
+        if not isinstance(r, dict):
+            continue
+        key = inventory_row_key(r)
+        if key and (str(r.get("imgbb_url") or "").strip() or str(r.get("imgbb_thumb_url") or "").strip()):
+            uploaded_by_key[key] = r
+
+    if uploaded_by_key:
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            u = uploaded_by_key.get(inventory_row_key(r))
+            if not u:
+                continue
+            imgbb_url = str(u.get("imgbb_url") or u.get("url") or u.get("display_url") or "").strip()
+            thumb_url = str(u.get("imgbb_thumb_url") or u.get("thumbnail_url") or u.get("thumb_url") or imgbb_url).strip()
+            if imgbb_url:
+                r["imgbb_url"] = imgbb_url
+            if thumb_url:
+                r["imgbb_thumb_url"] = thumb_url
+            r["imgbb_status"] = "up"
+            r["imgbb_updated_at"] = datetime.now().isoformat(timespec="seconds")
     _save_inventory_rows(rows, mode=mode)
     return {
         "ok": True,
@@ -1099,20 +1244,22 @@ async def api_kmz_import(file: UploadFile = File(...)) -> Dict[str, Any]:
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "Arquivo vazio.")
-    _cleanup_kmz_workspace(keep_imported=False)
 
     kmz_input_dir = tenant_kmz_input_dir() if get_current_tenant_slug() else KMZ_INPUT_DIR
     kmz_imported_path = tenant_kmz_imported_path() if get_current_tenant_slug() else KMZ_IMPORTED_PATH
     kmz_geojson_path = tenant_kmz_imported_geojson_path() if get_current_tenant_slug() else KMZ_IMPORTED_GEOJSON_PATH
 
     original_name = (file.filename or "import.kmz").strip() or "import.kmz"
-    tmp_import = kmz_imported_path.with_suffix(".tmp.kmz")
+    layer_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{_safe_name(original_name)}-{secrets.token_hex(3)}"
+    layer_kmz_path, layer_geojson_path, layer_meta_path = _kmz_layer_paths(layer_id)
+    tmp_import = layer_kmz_path.with_suffix(".tmp.kmz")
     _safe_unlink(tmp_import)
+    layer_kmz_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_import.write_bytes(raw)
 
     try:
         geojson = kmz_to_geojson(tmp_import)
-        kmz_geojson_path.write_text(
+        layer_geojson_path.write_text(
             json.dumps(geojson, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -1121,26 +1268,63 @@ async def api_kmz_import(file: UploadFile = File(...)) -> Dict[str, Any]:
         raise HTTPException(400, f"Falha ao processar KMZ: {exc}")
 
     # So persiste o import definitivo apos validar que o KMZ e processavel.
-    (kmz_input_dir / original_name).write_bytes(raw)
-    try:
-        if kmz_imported_path.exists():
-            kmz_imported_path.unlink(missing_ok=True)
-    except Exception:
-        pass
-    tmp_import.replace(kmz_imported_path)
+    (kmz_input_dir / f"{layer_id}-{_safe_name(original_name)}.kmz").write_bytes(raw)
+    tmp_import.replace(layer_kmz_path)
+
+    layer_meta = {
+        "id": layer_id,
+        "original_name": original_name,
+        "label": Path(original_name).stem,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "features_count": len(geojson.get("features") or []),
+    }
+    layer_meta_path.write_text(json.dumps(layer_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Compatibilidade: endpoints antigos seguem apontando para o ultimo importado.
+    kmz_imported_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(layer_kmz_path, kmz_imported_path)
+    kmz_geojson_path.write_text(json.dumps(geojson, ensure_ascii=False, indent=2), encoding="utf-8")
 
     meta_path = kmz_imported_path.with_suffix(".meta.json")
     meta_path.write_text(
-        json.dumps({"original_name": original_name}, ensure_ascii=False, indent=2),
+        json.dumps({"original_name": original_name, "layer_id": layer_id}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
     return {
         "ok": True,
-        "path": str(kmz_imported_path),
+        "id": layer_id,
+        "path": str(layer_kmz_path),
         "filename": original_name,
+        "features_count": len(geojson.get("features") or []),
         "message": "KMZ importado.",
     }
+
+
+@router.get("/kmz/import/layers")
+async def api_kmz_import_layers(include_features: bool = True) -> Dict[str, Any]:
+    layers = _list_kmz_import_layers(include_features=include_features)
+    return {"ok": True, "count": len(layers), "layers": layers}
+
+
+@router.get("/kmz/import/layers/{layer_id}/download")
+async def api_kmz_import_layer_download(layer_id: str) -> FileResponse:
+    kmz_path, _, meta_path = _kmz_layer_paths(layer_id)
+    if not kmz_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    filename = str(meta.get("original_name") or kmz_path.name)
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
+
+
+@router.delete("/kmz/import/layers/{layer_id}")
+async def api_kmz_import_layer_delete(layer_id: str) -> Dict[str, Any]:
+    kmz_path, geojson_path, meta_path = _kmz_layer_paths(layer_id)
+    existed = kmz_path.exists() or geojson_path.exists() or meta_path.exists()
+    _safe_unlink(kmz_path)
+    _safe_unlink(geojson_path)
+    _safe_unlink(meta_path)
+    return {"ok": True, "removed": bool(existed), "id": layer_id}
 
 
 @router.get("/kmz/import/geojson")
@@ -1245,9 +1429,16 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
 @router.post("/kmz/generate")
 async def api_kmz_generate(payload: Dict[str, Any]) -> Dict[str, Any]:
     source = str(payload.get("source") or "ip").strip().lower()
+    label = str(payload.get("label") or payload.get("name") or "Cameras do Inventario").strip() or "Cameras do Inventario"
+    source_layer_id = str(payload.get("layer_id") or payload.get("source_layer_id") or "").strip()
     kmz_imported_path = tenant_kmz_imported_path() if get_current_tenant_slug() else KMZ_IMPORTED_PATH
     kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
-    if not kmz_imported_path.exists():
+    source_kmz_path = kmz_imported_path
+    if source_layer_id:
+        layer_kmz_path, _, _ = _kmz_layer_paths(source_layer_id)
+        if layer_kmz_path.exists():
+            source_kmz_path = layer_kmz_path
+    if not source_kmz_path.exists():
         raise HTTPException(400, "Importe um KMZ antes de gerar.")
     rows_raw = _load_rows_by_source(source)
     rows = _kmz_rows_for_source(source, rows_raw)
@@ -1255,22 +1446,66 @@ async def api_kmz_generate(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(400, "Inventario vazio.")
 
     try:
-        out_kmz = generate_enriched_kmz(kmz_imported_path, rows, kmz_output_dir)
-        (kmz_output_dir / "generated.geojson").write_text(
-            json.dumps(kmz_to_geojson(out_kmz), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        out_kmz = generate_enriched_kmz(source_kmz_path, rows, kmz_output_dir)
+        geojson = kmz_to_geojson(out_kmz)
+        (kmz_output_dir / "generated.geojson").write_text(json.dumps(geojson, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        layer_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{_safe_name(label)}-{secrets.token_hex(3)}"
+        layer_kmz_path, layer_geojson_path, layer_meta_path = _kmz_generated_layer_paths(layer_id)
+        layer_kmz_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(out_kmz, layer_kmz_path)
+        layer_geojson_path.write_text(json.dumps(geojson, ensure_ascii=False, indent=2), encoding="utf-8")
+        layer_meta = {
+            "id": layer_id,
+            "label": label,
+            "original_name": f"{_safe_name(label)}.kmz",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "features_count": len(geojson.get("features") or []),
+            "source_layer_id": source_layer_id,
+            "source": source,
+        }
+        layer_meta_path.write_text(json.dumps(layer_meta, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as exc:
         raise HTTPException(500, f"Falha ao gerar KMZ: {exc}")
 
     return {
         "ok": True,
+        "id": layer_id,
+        "label": label,
         "source": source,
+        "source_layer_id": source_layer_id,
+        "features_count": len(geojson.get("features") or []),
         "rows_used": len(rows),
-        "path": str(out_kmz),
-        "latest": out_kmz.name,
-        "latest_url": "/api/kmz/generated/download",
+        "path": str(layer_kmz_path),
+        "latest": layer_kmz_path.name,
+        "latest_url": f"/api/kmz/generated/layers/{layer_id}/download",
     }
+
+
+@router.get("/kmz/generated/layers")
+async def api_kmz_generated_layers(include_features: bool = True) -> Dict[str, Any]:
+    layers = _list_kmz_generated_layers(include_features=include_features)
+    return {"ok": True, "count": len(layers), "layers": layers}
+
+
+@router.get("/kmz/generated/layers/{layer_id}/download")
+async def api_kmz_generated_layer_download(layer_id: str) -> FileResponse:
+    kmz_path, _, meta_path = _kmz_generated_layer_paths(layer_id)
+    if not kmz_path.exists():
+        raise HTTPException(404, "Camada KMZ gerada nao encontrada.")
+    meta = _read_kmz_layer_meta(meta_path)
+    filename = str(meta.get("original_name") or kmz_path.name)
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
+
+
+@router.delete("/kmz/generated/layers/{layer_id}")
+async def api_kmz_generated_layer_delete(layer_id: str) -> Dict[str, Any]:
+    kmz_path, geojson_path, meta_path = _kmz_generated_layer_paths(layer_id)
+    existed = kmz_path.exists() or geojson_path.exists() or meta_path.exists()
+    _safe_unlink(kmz_path)
+    _safe_unlink(geojson_path)
+    _safe_unlink(meta_path)
+    return {"ok": True, "removed": bool(existed), "id": layer_id}
 
 
 @router.get("/kmz/generated/geojson")

@@ -4,19 +4,17 @@ from typing import Any, Dict, List
 
 from app.core.paths import ensure_dirs
 from app.models.requests import InventoryDeleteRequest
-from app.services.inventory_json import load_inventory_json, save_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 
 
 def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
     ensure_dirs()
     ips_set = {ip.strip() for ip in (req.ips or []) if ip and ip.strip()}
-    if not ips_set:
-        return {"ok": False, "error": "Nenhum IP recebido para apagar."}
-
-    mode = str(getattr(req, "mode", "olt") or "olt").strip().lower()
-    rows = load_inventory_json(mode=mode) or []
-    if not rows:
-        return {"ok": True, "removed": 0, "ips_removed": [], "inventory": []}
+    keys_set = {str(key or "").strip() for key in (getattr(req, "keys", []) or []) if str(key or "").strip()}
+    connector_id = str(getattr(req, "connector_id", "") or "").strip()
+    site = str(getattr(req, "site", "") or "").strip()
+    if not ips_set and not keys_set:
+        return {"ok": False, "error": "Nenhum IP ou chave recebido para apagar."}
 
     def get_row_ip(row: Dict[str, Any]) -> str:
         if "ip" in row:
@@ -25,15 +23,47 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
             return str(row["IP"]).strip()
         return ""
 
-    rows_kept: List[Dict[str, Any]] = []
     removed_ips: set[str] = set()
+    removed_keys: set[str] = set()
+    inventories: Dict[str, List[Dict[str, Any]]] = {}
+    raw_mode = str(getattr(req, "mode", "olt") or "olt").strip().lower()
+    if raw_mode in {"all", "todos", "camera", "cameras"}:
+        modes = ["basic", "olt", "switch"]
+    elif raw_mode in {"basic", "basico", "básico", "base"}:
+        modes = ["basic"]
+    elif raw_mode in {"switch", "sw", "via_switch", "via-switch"}:
+        modes = ["switch"]
+    else:
+        modes = ["olt"]
 
-    for row in rows:
-        rip = get_row_ip(row)
-        if rip and rip in ips_set:
-            removed_ips.add(rip)
-        else:
-            rows_kept.append(row)
+    for current_mode in modes:
+        rows = load_inventory_json(mode=current_mode) or []
+        rows_kept: List[Dict[str, Any]] = []
+        for row in rows:
+            rip = get_row_ip(row)
+            row_key = inventory_row_key(row)
+            row_connector = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+            row_site = str(row.get("site") or row.get("site_name") or row.get("local") or "").strip()
+            scoped_match = True
+            if connector_id:
+                scoped_match = row_connector == connector_id
+            elif site:
+                scoped_match = row_site.lower() == site.lower()
+            should_remove = bool(row_key in keys_set or (rip and rip in ips_set and scoped_match))
+            if should_remove:
+                removed_ips.add(rip)
+                removed_keys.add(row_key)
+            else:
+                rows_kept.append(row)
+        save_inventory_json(rows_kept, mode=current_mode)
+        inventories[current_mode] = rows_kept
 
-    save_inventory_json(rows_kept, mode=mode)
-    return {"ok": True, "removed": len(removed_ips), "ips_removed": sorted(list(removed_ips)), "inventory": rows_kept}
+    inventory = inventories.get("olt") or inventories.get(modes[0], [])
+    return {
+        "ok": True,
+        "removed": len(removed_ips),
+        "ips_removed": sorted(list(removed_ips)),
+        "keys_removed": sorted(list(removed_keys)),
+        "inventory": inventory,
+        "inventories": inventories,
+    }
