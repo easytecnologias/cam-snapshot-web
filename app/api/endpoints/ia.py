@@ -8,31 +8,64 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.nvr_ai_service import clear_index, index_recording, list_nvr_targets, query_recording_segments, search_events, stats
+from app.services.gemini_video_search import GeminiNotConfiguredError, GeminiRateLimitedError
+from app.services.nvr_ai_service import list_nvr_targets, query_recording_segments
+from app.services.nvr_search_service import ChainedSearchResult, search_recordings
+from app.services.recorder_media_service import parse_dt
 
 router = APIRouter(prefix="/api/ia", tags=["ia"])
-_INDEX_EXECUTOR = ThreadPoolExecutor(max_workers=1)
-_INDEX_JOBS: Dict[str, Dict[str, Any]] = {}
+_SEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_SEARCH_JOBS: Dict[str, Dict[str, Any]] = {}
 
 
-class NvrAiIndexRequest(BaseModel):
+class NvrRecordingsRequest(BaseModel):
     host: str
     channel: int = Field(default=1, ge=1, le=256)
+    http_port: int = Field(default=80, ge=1, le=65535)
     user: str = "admin"
     password: str
     start_time: str
     end_time: str
-    http_port: int = Field(default=80, ge=1, le=65535)
-    rtsp_port: int = Field(default=554, ge=1, le=65535)
     vendor: str = "auto"
-    rtsp_template: str = ""
-    stream_mode: str = "sub"
-    interval_sec: int = Field(default=10, ge=1, le=300)
-    max_frames: int = Field(default=80, ge=1, le=500)
-    timeout_sec: int = Field(default=0, ge=0, le=3600)
-    visual_filter: str = ""
-    title: str = ""
-    local: str = ""
+
+
+class NvrSearchRequest(BaseModel):
+    host: str
+    http_port: int = Field(default=80, ge=1, le=65535)
+    channel: int = Field(ge=1, le=256)
+    user: str = "admin"
+    password: str
+    site: str = ""
+    start_time: str
+    end_time: str
+    query: str = Field(min_length=1, max_length=400)
+    max_hops: int = Field(default=3, ge=0, le=6)
+    window_min: int = Field(default=5, ge=1, le=30)
+
+
+def _result_to_dict(result: ChainedSearchResult) -> Dict[str, Any]:
+    return {
+        "hits": [
+            {
+                "host": h.host,
+                "http_port": h.http_port,
+                "channel": h.channel,
+                "title": h.title,
+                "site": h.site,
+                "number": h.number,
+                "timestamp": h.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "description": h.description,
+                "confidence": h.confidence,
+                "clip_url": h.clip_url,
+            }
+            for h in result.hits
+        ],
+        "misses": [
+            {"host": m.host, "channel": m.channel, "title": m.title, "reason": m.reason}
+            for m in result.misses
+        ],
+        "truncated": result.truncated,
+    }
 
 
 @router.get("/nvr/targets")
@@ -40,31 +73,51 @@ def api_ia_nvr_targets() -> Dict[str, Any]:
     return list_nvr_targets()
 
 
-@router.get("/nvr/stats")
-def api_ia_nvr_stats() -> Dict[str, Any]:
-    return stats()
-
-
-@router.post("/nvr/index")
-def api_ia_nvr_index(req: NvrAiIndexRequest) -> Dict[str, Any]:
+@router.post("/nvr/recordings")
+def api_ia_nvr_recordings(req: NvrRecordingsRequest) -> Dict[str, Any]:
     try:
-        return index_recording(req.model_dump())
+        return query_recording_segments(req.model_dump())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
-def _run_index_job(job_id: str, payload: Dict[str, Any]) -> None:
-    job = _INDEX_JOBS.get(job_id)
+def _run_search_job(job_id: str, req: NvrSearchRequest) -> None:
+    job = _SEARCH_JOBS.get(job_id)
     if not job:
         return
     job["status"] = "running"
     job["started_at"] = time.time()
     try:
-        result = index_recording(payload)
+        start_dt = parse_dt(req.start_time)
+        end_dt = parse_dt(req.end_time)
+        if end_dt <= start_dt:
+            raise ValueError("data final deve ser maior que a inicial")
+
+        result = search_recordings(
+            host=req.host,
+            http_port=req.http_port,
+            channel=req.channel,
+            user=req.user,
+            password=req.password,
+            site=req.site,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            query=req.query,
+            max_hops=req.max_hops,
+            window_min=req.window_min,
+        )
         job["status"] = "done"
-        job["result"] = result
+        job["result"] = _result_to_dict(result)
+        job["finished_at"] = time.time()
+    except GeminiNotConfiguredError as e:
+        job["status"] = "error"
+        job["error"] = f"IA nao configurada: {e}"
+        job["finished_at"] = time.time()
+    except GeminiRateLimitedError as e:
+        job["status"] = "error"
+        job["error"] = str(e)
         job["finished_at"] = time.time()
     except Exception as e:
         job["status"] = "error"
@@ -72,33 +125,33 @@ def _run_index_job(job_id: str, payload: Dict[str, Any]) -> None:
         job["finished_at"] = time.time()
 
 
-@router.post("/nvr/index/jobs")
-def api_ia_nvr_index_job(req: NvrAiIndexRequest) -> Dict[str, Any]:
+@router.post("/nvr/search/jobs")
+def api_ia_nvr_search_job(req: NvrSearchRequest) -> Dict[str, Any]:
     job_id = uuid.uuid4().hex
-    payload = req.model_dump()
-    _INDEX_JOBS[job_id] = {
+    _SEARCH_JOBS[job_id] = {
         "ok": True,
         "job_id": job_id,
         "status": "queued",
         "created_at": time.time(),
         "payload": {
-            "host": payload.get("host"),
-            "channel": payload.get("channel"),
-            "start_time": payload.get("start_time"),
-            "end_time": payload.get("end_time"),
-            "interval_sec": payload.get("interval_sec"),
-            "max_frames": payload.get("max_frames"),
+            "host": req.host,
+            "channel": req.channel,
+            "start_time": req.start_time,
+            "end_time": req.end_time,
+            "query": req.query,
+            "max_hops": req.max_hops,
+            "window_min": req.window_min,
         },
     }
-    _INDEX_EXECUTOR.submit(_run_index_job, job_id, payload)
+    _SEARCH_EXECUTOR.submit(_run_search_job, job_id, req)
     return {"ok": True, "job_id": job_id, "status": "queued"}
 
 
-@router.get("/nvr/index/jobs/{job_id}")
-def api_ia_nvr_index_job_status(job_id: str) -> Dict[str, Any]:
-    job = _INDEX_JOBS.get(job_id)
+@router.get("/nvr/search/jobs/{job_id}")
+def api_ia_nvr_search_job_status(job_id: str) -> Dict[str, Any]:
+    job = _SEARCH_JOBS.get(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="job nao encontrado")
+        raise HTTPException(status_code=404, detail="busca nao encontrada")
     elapsed = int(time.time() - float(job.get("created_at") or time.time()))
     return {
         "ok": True,
@@ -109,23 +162,3 @@ def api_ia_nvr_index_job_status(job_id: str) -> Dict[str, Any]:
         "result": job.get("result"),
         "error": job.get("error") or "",
     }
-
-
-@router.post("/nvr/recordings")
-def api_ia_nvr_recordings(req: NvrAiIndexRequest) -> Dict[str, Any]:
-    try:
-        return query_recording_segments(req.model_dump())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-
-
-@router.get("/nvr/search")
-def api_ia_nvr_search(q: str = "", host: str = "", channel: int = 0, limit: int = 80) -> Dict[str, Any]:
-    return search_events(query=q, host=host, channel=channel, limit=limit)
-
-
-@router.delete("/nvr/index")
-def api_ia_nvr_clear_index() -> Dict[str, Any]:
-    return clear_index()

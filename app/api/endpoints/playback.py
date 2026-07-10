@@ -1,25 +1,28 @@
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
-import requests
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from requests.auth import HTTPDigestAuth
 
-from app.core.paths import DATA_DIR
+from app.services.recorder_media_service import (
+    EXPORT_DIR,
+    RecorderAuthError,
+    RecordingNotFoundError,
+    clean_host,
+    download_dav,
+    parse_dt,
+    run_ffmpeg,
+    safe_stem,
+)
 
 router = APIRouter(prefix="/api/playback", tags=["playback"])
 
-EXPORT_DIR = DATA_DIR / "playback_exports"
 SAFE_FILE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
@@ -47,31 +50,48 @@ class PlaybackFramesRequest(PlaybackClipRequest):
     interval_seconds: int = Field(default=60, ge=1, le=3600)
 
 
-def _parse_dt(value: str) -> datetime:
-    text = value.strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            pass
+def _parse_dt_or_422(value: str) -> datetime:
     try:
-        return datetime.fromisoformat(text)
+        return parse_dt(value)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Data/hora inválida.") from exc
 
 
-def _clean_host(host: str) -> str:
-    cleaned = host.strip()
-    cleaned = re.sub(r"^https?://", "", cleaned, flags=re.I)
-    cleaned = cleaned.split("/", 1)[0].strip()
-    if not cleaned or any(ch.isspace() for ch in cleaned) or "\\" in cleaned:
-        raise HTTPException(status_code=422, detail="DVR inválido.")
-    return cleaned
+def _clean_host_or_422(host: str) -> str:
+    try:
+        return clean_host(host)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="DVR inválido.") from exc
 
 
-def _safe_stem(host: str, channel: int, start: datetime, end: datetime) -> str:
-    host_part = re.sub(r"[^A-Za-z0-9_.-]+", "_", host)
-    return f"{host_part}_ch{channel}_{start:%Y%m%d_%H%M%S}_{end:%H%M%S}_{int(time.time())}"
+def _download_dav_or_http(payload: PlaybackClipRequest, start: datetime, end: datetime, out_path: Path) -> None:
+    try:
+        download_dav(
+            host=payload.host,
+            user=payload.user,
+            password=payload.password,
+            channel=payload.channel,
+            start=start,
+            end=end,
+            out_path=out_path,
+            timeout_sec=payload.timeout_sec,
+        )
+    except RecorderAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except RecordingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+def _run_ffmpeg_or_http(args: list[str], timeout_sec: int) -> None:
+    try:
+        run_ffmpeg(args, timeout_sec)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        status = 503 if "não está disponível" in str(exc) else 502
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
 
 
 def _file_url(path: Path) -> str:
@@ -93,68 +113,16 @@ def _validate_frame_count(start: datetime, end: datetime, interval_seconds: int)
     return count
 
 
-def _download_dav(payload: PlaybackClipRequest, start: datetime, end: datetime, out_path: Path) -> None:
-    host = _clean_host(payload.host)
-    start_s = quote(start.strftime("%Y-%m-%d %H:%M:%S"))
-    end_s = quote(end.strftime("%Y-%m-%d %H:%M:%S"))
-    url = (
-        f"http://{host}/cgi-bin/loadfile.cgi?action=startLoad"
-        f"&channel={payload.channel}&startTime={start_s}&endTime={end_s}"
-    )
-    try:
-        with requests.get(
-            url,
-            auth=HTTPDigestAuth(payload.user, payload.password),
-            stream=True,
-            timeout=(8, payload.timeout_sec),
-        ) as res:
-            if res.status_code in (401, 403):
-                raise HTTPException(status_code=401, detail="Credencial recusada pelo DVR.")
-            if res.status_code == 404:
-                raise HTTPException(status_code=404, detail="Gravação não encontrada no DVR.")
-            if res.status_code >= 400:
-                raise HTTPException(status_code=502, detail=f"DVR respondeu HTTP {res.status_code}.")
-
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            total = 0
-            with out_path.open("wb") as fh:
-                for chunk in res.iter_content(chunk_size=1024 * 1024):
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    fh.write(chunk)
-            if total < 1024:
-                raise HTTPException(status_code=404, detail="DVR retornou arquivo vazio.")
-    except HTTPException:
-        raise
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao consultar DVR: {exc}") from exc
-
-
-def _run_ffmpeg(args: list[str], timeout_sec: int) -> None:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise HTTPException(status_code=503, detail="ffmpeg não está disponível no servidor.")
-    cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", *args]
-    try:
-        subprocess.run(cmd, check=True, timeout=timeout_sec, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="Conversão excedeu o tempo limite.") from exc
-    except subprocess.CalledProcessError as exc:
-        msg = exc.stderr.decode("utf-8", errors="ignore").strip()
-        raise HTTPException(status_code=502, detail=msg or "Falha ao converter gravação.") from exc
-
-
 @router.post("/clip")
 def create_clip(payload: PlaybackClipRequest) -> dict:
-    start = _parse_dt(payload.start)
-    end = _parse_dt(payload.end)
+    start = _parse_dt_or_422(payload.start)
+    end = _parse_dt_or_422(payload.end)
     _validate_range(start, end)
 
-    host = _clean_host(payload.host)
-    stem = _safe_stem(host, payload.channel, start, end)
+    host = _clean_host_or_422(payload.host)
+    stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
-    _download_dav(payload, start, end, dav_path)
+    _download_dav_or_http(payload, start, end, dav_path)
 
     if payload.format == "dav":
         return {
@@ -167,7 +135,7 @@ def create_clip(payload: PlaybackClipRequest) -> dict:
 
     mp4_path = EXPORT_DIR / f"{stem}.mp4"
     try:
-        _run_ffmpeg(
+        _run_ffmpeg_or_http(
             ["-i", str(dav_path), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", "-an", str(mp4_path)],
             payload.timeout_sec,
         )
@@ -193,7 +161,7 @@ def create_clip(payload: PlaybackClipRequest) -> dict:
 
 @router.post("/snapshot")
 def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
-    ts = _parse_dt(payload.timestamp)
+    ts = _parse_dt_or_422(payload.timestamp)
     start = ts - timedelta(seconds=2)
     end = ts + timedelta(seconds=3)
     clip_payload = PlaybackClipRequest(
@@ -207,12 +175,12 @@ def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
         timeout_sec=payload.timeout_sec,
     )
 
-    host = _clean_host(payload.host)
-    stem = _safe_stem(host, payload.channel, start, end)
+    host = _clean_host_or_422(payload.host)
+    stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
     jpg_path = EXPORT_DIR / f"{stem}.jpg"
-    _download_dav(clip_payload, start, end, dav_path)
-    _run_ffmpeg(["-ss", "00:00:02", "-i", str(dav_path), "-frames:v", "1", "-q:v", "3", str(jpg_path)], payload.timeout_sec)
+    _download_dav_or_http(clip_payload, start, end, dav_path)
+    _run_ffmpeg_or_http(["-ss", "00:00:02", "-i", str(dav_path), "-frames:v", "1", "-q:v", "3", str(jpg_path)], payload.timeout_sec)
 
     return {
         "ok": True,
@@ -226,18 +194,18 @@ def create_snapshot(payload: PlaybackSnapshotRequest) -> dict:
 
 @router.post("/frames")
 def create_frames(payload: PlaybackFramesRequest) -> dict:
-    start = _parse_dt(payload.start)
-    end = _parse_dt(payload.end)
+    start = _parse_dt_or_422(payload.start)
+    end = _parse_dt_or_422(payload.end)
     _validate_range(start, end)
     expected = _validate_frame_count(start, end, payload.interval_seconds)
 
-    host = _clean_host(payload.host)
-    stem = _safe_stem(host, payload.channel, start, end)
+    host = _clean_host_or_422(payload.host)
+    stem = safe_stem(host, payload.channel, start, end)
     dav_path = EXPORT_DIR / f"{stem}.dav"
-    _download_dav(payload, start, end, dav_path)
+    _download_dav_or_http(payload, start, end, dav_path)
 
     pattern = EXPORT_DIR / f"{stem}_frame_%04d.jpg"
-    _run_ffmpeg(
+    _run_ffmpeg_or_http(
         [
             "-i", str(dav_path),
             "-vf", f"fps=1/{payload.interval_seconds},scale=1280:-2",
