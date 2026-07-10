@@ -65,6 +65,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/olt/", "operator"),
             (("POST",), "/api/switch/", "operator"),
             (("POST",), "/api/windows/", "operator"),
+            (("GET",), "/api/connectors", "operator"),
+            (("POST",), "/api/connectors", "operator"),
+            (("DELETE",), "/api/connectors", "operator"),
             (("POST",), "/api/tools/scan-ip", "operator"),
             (("POST",), "/api/discovery/run", "operator"),
             (("POST",), "/api/portscan/apply", "operator"),
@@ -82,6 +85,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
 
     def _is_public_path(self, path: str) -> bool:
         if path in self._public_paths:
+            return True
+        if path.startswith("/api/connectors/agent/"):
             return True
         return False
 

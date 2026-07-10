@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from app.core.paths import DATA_DIR
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
 
+# Caminhos legados (pre-isolamento por tenant) -- mantidos so para o fallback
+# de compatibilidade em validate_windows_agent_token, ver comentario la.
 WINDOWS_INVENTORY_PATH = DATA_DIR / "windows-inventory.json"
 WINDOWS_AGENT_TOKEN_PATH = DATA_DIR / "windows-agent-token.txt"
 
@@ -24,22 +27,56 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_windows_agent_token() -> str:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def _windows_token_path(tenant_slug: str = "") -> Path:
+    return tenant_scoped_path("windows-agent-token.txt", tenant_slug)
+
+
+def get_windows_agent_token(tenant_slug: str = "") -> str:
+    path = _windows_token_path(tenant_slug or get_current_tenant_slug())
     try:
-        token = WINDOWS_AGENT_TOKEN_PATH.read_text(encoding="utf-8").strip()
+        token = path.read_text(encoding="utf-8").strip()
         if len(token) >= 24:
             return token
     except Exception:
         pass
     token = secrets.token_urlsafe(32)
-    WINDOWS_AGENT_TOKEN_PATH.write_text(token + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token + "\n", encoding="utf-8")
     return token
 
 
-def validate_windows_agent_token(token: str) -> bool:
-    expected = get_windows_agent_token()
-    return bool(token) and secrets.compare_digest(str(token).strip(), expected)
+def validate_windows_agent_token(token: str) -> str:
+    """Retorna o tenant_slug dono do token, ou "" se invalido/nao encontrado.
+
+    Antes, um unico token global valia para agentes de todos os clientes --
+    agora cada tenant tem o seu (ver get_windows_agent_token). Escaneia as
+    pastas de tenant conhecidas em busca de quem é dono do token recebido.
+    Mantem tambem o token legado global (de antes deste isolamento) mapeado
+    pro tenant "default", para nao quebrar um agente ja instalado em campo
+    antes desta correcao.
+    """
+    tok = _text(token)
+    if not tok:
+        return ""
+    tenants_root = DATA_DIR / "tenants"
+    if tenants_root.is_dir():
+        for tenant_dir in tenants_root.iterdir():
+            if not tenant_dir.is_dir():
+                continue
+            candidate_path = tenant_dir / "windows-agent-token.txt"
+            try:
+                expected = candidate_path.read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            if expected and secrets.compare_digest(tok, expected):
+                return tenant_dir.name
+    try:
+        legacy = WINDOWS_AGENT_TOKEN_PATH.read_text(encoding="utf-8").strip()
+    except Exception:
+        legacy = ""
+    if legacy and secrets.compare_digest(tok, legacy):
+        return "default"
+    return ""
 
 
 def _parse_targets(raw: str, limit: int = 2048) -> List[str]:
@@ -607,11 +644,16 @@ def _normalize_inventory(ip: str, payload: Dict[str, Any], status: str = "online
     return row
 
 
-def load_windows_inventory() -> List[Dict[str, Any]]:
+def _windows_inventory_path(tenant_slug: str = "") -> Path:
+    return tenant_scoped_path("windows-inventory.json", tenant_slug)
+
+
+def load_windows_inventory(tenant_slug: str = "") -> List[Dict[str, Any]]:
+    path = _windows_inventory_path(tenant_slug)
     try:
-        if not WINDOWS_INVENTORY_PATH.exists():
+        if not path.exists():
             return []
-        data = json.loads(WINDOWS_INVENTORY_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
     if isinstance(data, list):
@@ -621,19 +663,20 @@ def load_windows_inventory() -> List[Dict[str, Any]]:
     return []
 
 
-def save_windows_inventory(rows: List[Dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = WINDOWS_INVENTORY_PATH.with_suffix(".json.tmp")
+def save_windows_inventory(rows: List[Dict[str, Any]], tenant_slug: str = "") -> None:
+    path = _windows_inventory_path(tenant_slug)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(WINDOWS_INVENTORY_PATH)
+    tmp.replace(path)
 
 
-def clear_windows_inventory() -> Dict[str, Any]:
-    save_windows_inventory([])
+def clear_windows_inventory(tenant_slug: str = "") -> Dict[str, Any]:
+    save_windows_inventory([], tenant_slug=tenant_slug)
     return {"ok": True, "cleared": True}
 
 
-def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "") -> Dict[str, Any]:
+def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "", tenant_slug: str = "") -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("Payload do agente invalido.")
     data = dict(payload)
@@ -666,9 +709,9 @@ def accept_windows_agent_report(payload: Dict[str, Any], remote_ip: str = "") ->
     if not ip:
         raise ValueError("Agente nao informou IPv4 valido.")
     row = _normalize_inventory(ip, data, status="agent_reported")
-    current = load_windows_inventory()
+    current = load_windows_inventory(tenant_slug=tenant_slug)
     merged = _merge_rows(current, [row])
-    save_windows_inventory(merged)
+    save_windows_inventory(merged, tenant_slug=tenant_slug)
     return {"ok": True, "saved": True, "row": row}
 
 
@@ -1301,6 +1344,6 @@ def scan_windows_inventory(payload: Dict[str, Any]) -> Dict[str, Any]:
         "online": online,
         "failed": max(0, len(rows) - online),
         "saved": save,
-        "inventory_path": str(WINDOWS_INVENTORY_PATH),
+        "inventory_path": str(_windows_inventory_path()),
         "rows": rows,
     }

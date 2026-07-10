@@ -140,12 +140,15 @@ def api_windows_agent_script(request: Request) -> Response:
 @router.post("/agent/report")
 async def api_windows_agent_report(request: Request) -> Dict[str, Any]:
     token = str(request.headers.get("x-sightops-agent-token") or "").strip()
-    if not validate_windows_agent_token(token):
+    tenant_slug = validate_windows_agent_token(token)
+    if not tenant_slug:
         raise HTTPException(status_code=401, detail="token do agente invalido")
     try:
         payload = await request.json()
         remote_ip = request.client.host if request.client else ""
-        return accept_windows_agent_report(payload if isinstance(payload, dict) else {}, remote_ip=remote_ip)
+        return accept_windows_agent_report(
+            payload if isinstance(payload, dict) else {}, remote_ip=remote_ip, tenant_slug=tenant_slug
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:

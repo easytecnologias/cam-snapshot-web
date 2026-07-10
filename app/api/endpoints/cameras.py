@@ -15,7 +15,7 @@ from app.services.ping_service import ping as ping_with_cache
 from pydantic import BaseModel
 
 from app.core.paths import INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
-from app.services.inventory_json import load_inventory_json, save_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
 from app.services.camsnapshot.device_info import get_snapshot
@@ -30,6 +30,11 @@ router = APIRouter(tags=["cameras"], prefix="/api")
 
 class CameraUpdate(BaseModel):
     ip: str
+    remote_connector_id: str | None = None
+    connector_id: str | None = None
+    remote: bool | None = None
+    site: str | None = None
+    site_name: str | None = None
     mac: str | None = None
     fabricante: str | None = None
     model: str | None = None
@@ -52,17 +57,30 @@ class PingBatchItem(BaseModel):
 
 
 class PingBatchRequest(BaseModel):
-    items: List[PingBatchItem]
+    items: List[PingBatchItem] = []
+    ips: List[str] | None = None
     timeout: int = 2
     method: str = "auto"
     force: int = 0
     concurrency: int = 48
+    persist: bool = False
 
 
 @router.get("/cameras")
-def api_cameras(enrich: str = Query(default=""), mode: str = Query(default="olt")) -> Dict[str, Any]:
+def api_cameras(
+    enrich: str = Query(default=""),
+    mode: str = Query(default="olt"),
+    site: str = Query(default=""),
+    connector_id: str = Query(default=""),
+) -> Dict[str, Any]:
     """Compat com legado: retorna {cameras:[...]} mesclando campos."""
-    rows = load_inventory_json(mode=mode) or []
+    rows = load_inventory_json(site=site, mode=mode) or []
+    wanted_connector = str(connector_id or "").strip()
+    if wanted_connector:
+        rows = [
+            row for row in rows
+            if str((row or {}).get("remote_connector_id") or (row or {}).get("connector_id") or "").strip() == wanted_connector
+        ]
     mode = (enrich or "").strip().lower()
     if mode == "olt":
         rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
@@ -72,17 +90,12 @@ def api_cameras(enrich: str = Query(default=""), mode: str = Query(default="olt"
     by_key: dict[str, dict[str, Any]] = {}
 
     def make_key(row: dict) -> str:
-        ip = (row.get("ip") or "").strip()
-        mac = (row.get("mac") or "").strip()
-        if ip:
-            return f"IP:{ip}"
-        if mac:
-            return f"MAC:{mac}"
-        return f"ROW:{len(by_key)}"
+        return inventory_row_key(row, fallback=f"ROW:{len(by_key)}")
 
     for r in rows:
         key = make_key(r)
         cam: dict[str, Any] = {
+            "inventory_key": key,
             "ip": r.get("ip") or "",
             "mac": r.get("mac") or "",
             "fabricante": r.get("fabricante") or r.get("manufacturer") or "",
@@ -91,6 +104,10 @@ def api_cameras(enrich: str = Query(default=""), mode: str = Query(default="olt"
             "status": r.get("status") or "",
             "local": r.get("local") or r.get("LOCAL") or "",
             "snapshot_url": r.get("snapshot_url") or r.get("thumb_url") or "",
+            "imgbb_url": r.get("imgbb_url") or "",
+            "imgbb_thumb_url": r.get("imgbb_thumb_url") or "",
+            "imgbb_status": r.get("imgbb_status") or "",
+            "imgbb_updated_at": r.get("imgbb_updated_at") or "",
             "pon": r.get("pon") or "",
             "onu_id": r.get("onu_id") or "",
             "onu_name": r.get("onu_name") or "",
@@ -99,6 +116,11 @@ def api_cameras(enrich: str = Query(default=""), mode: str = Query(default="olt"
             "switch_name": r.get("switch_name") or "",
             "switch_port": r.get("switch_port") or "",
             "switch_vlan": r.get("switch_vlan") or r.get("vlan") or "",
+            "remote": bool(r.get("remote")),
+            "remote_connector_id": r.get("remote_connector_id") or r.get("connector_id") or "",
+            "remote_connector_name": r.get("remote_connector_name") or "",
+            "site": r.get("site") or "",
+            "site_name": r.get("site_name") or "",
         }
 
         health_label = r.get("ai_health_label") or ""
@@ -170,7 +192,12 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
     for cam in req.cameras:
         ip = (cam.ip or "").strip()
         if ip:
-            updates[ip] = cam
+            updates[inventory_row_key({
+                "ip": ip,
+                "remote_connector_id": cam.remote_connector_id or cam.connector_id or "",
+                "site": cam.site or cam.site_name or cam.local or "",
+                "remote": bool(cam.remote or cam.remote_connector_id or cam.connector_id),
+            })] = cam
 
     def apply_update(row: dict[str, Any], cam: CameraUpdate) -> dict[str, Any]:
         ip = (row.get("ip") or "").strip()
@@ -220,20 +247,21 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
         return row
 
     updated_count = 0
-    found_ips: set[str] = set()
+    found_keys: set[str] = set()
     for idx, row in enumerate(rows):
-        ip = (row.get("ip") or "").strip()
-        if ip in updates:
-            found_ips.add(ip)
+        row_key = inventory_row_key(row)
+        if row_key in updates:
+            found_keys.add(row_key)
             before = dict(row)
-            row = apply_update(row, updates[ip])
+            row = apply_update(row, updates[row_key])
             if row != before:
                 updated_count += 1
             rows[idx] = row
 
-    for ip, cam in updates.items():
-        if ip in found_ips:
+    for row_key, cam in updates.items():
+        if row_key in found_keys:
             continue
+        ip = (cam.ip or "").strip()
         new_row = {
             "ip": ip,
             "mac": cam.mac or "",
@@ -247,11 +275,56 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
             "onu_name": cam.onu_name or "",
             "onu_serial": cam.onu_serial or "",
         }
+        connector_id = cam.remote_connector_id or cam.connector_id or ""
+        if cam.remote or connector_id:
+            new_row["remote"] = True
+        if connector_id:
+            new_row["remote_connector_id"] = connector_id
+        if cam.site:
+            new_row["site"] = cam.site
+        if cam.site_name:
+            new_row["site_name"] = cam.site_name
         rows.append(new_row)
         updated_count += 1
 
     save_inventory_json(rows, mode=mode)
     return {"ok": True, "path": str(INVENTORY_JSON_PATH), "updated": updated_count, "received": len(updates)}
+
+
+def _status_from_ping(row: Dict[str, Any]) -> str:
+    return "online" if bool(row.get("online")) else "offline"
+
+
+def _persist_camera_statuses(status_by_ip: Dict[str, str]) -> Dict[str, Any]:
+    if not status_by_ip:
+        return {"camera_rows": 0, "recorder_rows": 0}
+
+    camera_rows = 0
+    for mode in ("basic", "olt", "switch"):
+        rows = load_inventory_json(mode=mode) or []
+        changed = False
+        for row in rows:
+            if str(row.get("status_source") or "").strip().lower() == "zabbix":
+                continue
+            ip = str(row.get("ip") or row.get("IP") or "").strip()
+            status = status_by_ip.get(ip)
+            if status and str(row.get("status") or "").strip().lower() != status:
+                row["status"] = status
+                changed = True
+                camera_rows += 1
+        if changed:
+            save_inventory_json(rows, mode=mode)
+
+    # Nao persistir status de gravador (nvr/dvr) aqui: legacy_rows_from_db()/
+    # replace_recorder_inventory_rows() leem e regravam a tabela `recorders`
+    # inteira (todos os tenants que usam esse `source`), sem filtro de tenant --
+    # replace_recorder_inventory_rows faz DELETE FROM recorders WHERE source=?
+    # antes de reinserir. Chamar isso a partir desta rota (role "operator",
+    # acessivel a qualquer cliente comum) permitiria um tenant apagar/sobrescrever
+    # o cadastro de gravador de outro. O status de camera acima (bloco tenant-scoped
+    # via save_inventory_json) ja cobre o caso de uso real desta rota; status de
+    # recorder que vem do Zabbix segue seu proprio fluxo tenant-aware separado.
+    return {"camera_rows": camera_rows, "recorder_rows": 0}
 
 
 @router.get("/cameras/ping", summary="Ping (ICMP/TCP) com cache", tags=["cameras"])
@@ -260,6 +333,7 @@ async def api_cameras_ping(
     timeout: int = 3,
     method: str = "auto",
     force: int = 0,
+    persist: int = 0,
 ):
     """
     Ping (ICMP/TCP) com cache para evitar excesso de requisiÃ§Ãµes.
@@ -277,12 +351,25 @@ async def api_cameras_ping(
     if method_n not in ("auto", "icmp", "tcp"):
         raise HTTPException(status_code=400, detail="method invÃ¡lido: use auto|icmp|tcp")
 
-    return await ping_with_cache(ip=target, timeout=timeout, method=method_n, force=force)
+    result = await ping_with_cache(ip=target, timeout=timeout, method=method_n, force=force)
+    status = _status_from_ping(result)
+    result["status"] = status
+    result["reachable"] = bool(result.get("online"))
+    result["persisted"] = (
+        _persist_camera_statuses({target: status})
+        if bool(persist)
+        else {"skipped": True, "reason": "diagnostic_ping"}
+    )
+    return result
 
 
 @router.post("/cameras/ping_many", summary="Ping em lote (ICMP/TCP) com concorrencia limitada", tags=["cameras"])
 async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
-    items_in = req.items or []
+    items_in = list(req.items or [])
+    for ip in req.ips or []:
+        ip_s = str(ip or "").strip()
+        if ip_s:
+            items_in.append(PingBatchItem(ip=ip_s, preferred_ports=[]))
     items: list[PingBatchItem] = []
     seen: set[str] = set()
     for item in items_in:
@@ -326,12 +413,24 @@ async def api_cameras_ping_many(req: PingBatchRequest) -> Dict[str, Any]:
 
     results = await asyncio.gather(*[_run_one(item) for item in items])
     online_n = sum(1 for row in results if bool(row.get("online")))
+    status_by_ip = {
+        str(row.get("ip") or "").strip(): _status_from_ping(row)
+        for row in results
+        if str(row.get("ip") or "").strip()
+    }
+    persisted = (
+        _persist_camera_statuses(status_by_ip)
+        if bool(req.persist)
+        else {"skipped": True, "reason": "diagnostic_ping"}
+    )
     return {
         "ok": True,
         "count": len(results),
         "online": online_n,
         "offline": max(0, len(results) - online_n),
         "results": results,
+        "updated_status": status_by_ip,
+        "persisted": persisted,
     }
 
 
