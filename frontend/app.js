@@ -5534,14 +5534,17 @@ async function onuDelete() {
 
   _onuDeleteTarget = { olt, pon: ponNum, onu: onuNum };
   const panoramaEl = document.getElementById('onuDeletePanorama');
+  const confirmBtn = document.getElementById('confirmOnuDelete');
+  if (confirmBtn) confirmBtn.disabled = true;
   if (panoramaEl) panoramaEl.innerHTML = 'Consultando dados da ONU na OLT...';
   openOnuDeleteModal();
 
   const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum }) });
   const data = await res?.json().catch(() => ({}));
+  if (confirmBtn) confirmBtn.disabled = false;
   if (!panoramaEl) return;
   if (!res?.ok || data?.ok === false) {
-    panoramaEl.innerHTML = `<p style="color:var(--danger)">Nao consegui confirmar os dados dessa ONU (${esc(data?.detail || data?.error || 'falha na consulta')}). Voce ainda pode confirmar a exclusao, mas confira a PON/posicao com cuidado.</p>`;
+    panoramaEl.innerHTML = `<p>Sem informacoes para essa ONU (PON ${esc(ponNum)} / posicao ${esc(onuNum)}) -- ${esc(data?.detail || data?.error || 'nao respondeu')}.</p>`;
     return;
   }
   const macsHtml = (data.macs || []).length
@@ -5562,6 +5565,8 @@ async function onuConfirmDelete() {
   if (!_onuDeleteTarget) { closeOnuDeleteModal(); return; }
   const { olt, pon, onu } = _onuDeleteTarget;
   const panoramaEl = document.getElementById('onuDeletePanorama');
+  const confirmBtn = document.getElementById('confirmOnuDelete');
+  if (confirmBtn) confirmBtn.disabled = true;
   if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo, aguarde)...</p>');
 
   const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu }) });
