@@ -2131,16 +2131,22 @@
                     <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="download-cloud"></i> Puxar dados da camera</button>
                   </div>
                   <div id="deployPullCameraResult" class="deploy-result-box">Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.</div>
-                  <div class="form-row">
+                  <div class="form-row deploy-inline-button">
                     <div class="form-group">
                       <label for="deployCameraTitle">Titulo obrigatorio</label>
                       <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
                     </div>
+                    <button class="secondary-action" id="btnDeploySaveTitle" type="button"><i data-lucide="save"></i> Salvar</button>
+                  </div>
+                  <div id="deploySaveTitleResult" class="deploy-result-box">Grava o titulo direto na camera (equipamento vivo).</div>
+                  <div class="form-row deploy-inline-button">
                     <div class="form-group">
                       <label for="deployCameraIp">IP da camera</label>
-                      <input id="deployCameraIp" placeholder="Preenchido ao puxar dados da camera" disabled>
+                      <input id="deployCameraIp" placeholder="Preenchido ao puxar dados, ou digite outro">
                     </div>
+                    <button class="secondary-action" id="btnDeployCheckNewIp" type="button"><i data-lucide="shield-check"></i> Checar novo IP</button>
                   </div>
+                  <div id="deployCheckIpResult" class="deploy-result-box">Se trocar o IP e clicar em "Checar novo IP", confiro disponibilidade e pergunto se quer aplicar na camera.</div>
                   <div class="form-row">
                     <div class="form-group">
                       <label for="deployCameraManufacturer">Fabricante</label>

@@ -5205,6 +5205,7 @@ async function runNetTool(e) {
 let _deployCurrentId = '';
 let _deployConnectors = [];
 let _deployPullTargetIp = ''; // IP achado no Mikrotik, so pra conectar/puxar -- nao vai no campo visivel
+let _deployConfirmedCameraIp = ''; // ultimo IP confirmado por um pull bem sucedido (usado como alvo de conexao)
 
 function deployPayload() {
   return {
@@ -5777,8 +5778,87 @@ async function deployPullCameraInfo() {
   if (modEl && cam.modelo) modEl.value = cam.modelo;
   if (titleEl && cam.titulo) titleEl.value = cam.titulo;
   if (ipEl) ipEl.value = cam.ip || ip;
+  _deployConfirmedCameraIp = cam.ip || ip;
   if (box) box.innerHTML = 'Dados da camera trazidos com sucesso.';
   showToast(`Camera encontrada: ${cam.fabricante || ''} ${cam.modelo || ''}`.trim());
+  deployRenderSummary();
+}
+
+function deploySetSaveTitleResult(html, isError = false) {
+  const box = document.getElementById('deploySaveTitleResult');
+  if (!box) return;
+  box.innerHTML = html || 'Grava o titulo direto na camera (equipamento vivo).';
+  box.classList.toggle('error', !!isError);
+}
+
+async function deploySaveTitle() {
+  const title = document.getElementById('deployCameraTitle')?.value.trim() || '';
+  const ip = _deployConfirmedCameraIp || document.getElementById('deployCameraIp')?.value.trim() || '';
+  const user = document.getElementById('deployCameraUser')?.value.trim() || '';
+  const pass = document.getElementById('deployCameraPassword')?.value || '';
+  if (!title) { showToast('Preencha o titulo primeiro.', true); return; }
+  if (!ip) { showToast('Puxe os dados da camera primeiro (preciso do IP dela).', true); return; }
+  if (!user || !pass) { showToast('Informe usuario e senha da camera primeiro.', true); return; }
+  deploySetSaveTitleResult('Gravando titulo na camera (equipamento vivo, aguarde)...');
+  const res = await api('/api/deployments/save-camera-title', {
+    method: 'POST',
+    body: JSON.stringify({ ip, usuario: user, senha: pass, title }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    deploySetSaveTitleResult(esc(data?.detail || 'Falha ao gravar titulo na camera.'), true);
+    return;
+  }
+  deploySetSaveTitleResult(`Titulo "${esc(title)}" gravado na camera.`);
+  showToast('Titulo salvo na camera.');
+}
+
+function deploySetCheckIpResult(html, isError = false) {
+  const box = document.getElementById('deployCheckIpResult');
+  if (!box) return;
+  box.innerHTML = html || 'Se trocar o IP e clicar em "Checar novo IP", confiro disponibilidade e pergunto se quer aplicar na camera.';
+  box.classList.toggle('error', !!isError);
+}
+
+async function deployCheckNewIp() {
+  const p = deployPayload();
+  const newIp = document.getElementById('deployCameraIp')?.value.trim() || '';
+  if (!newIp) { showToast('Informe o IP a checar.', true); return; }
+  deploySetCheckIpResult('Checando disponibilidade do IP...');
+  const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(newIp)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
+  if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
+  if (data.in_use) {
+    const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
+    deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso.<br>${places}`, true);
+    return;
+  }
+  if (!_deployConfirmedCameraIp || newIp === _deployConfirmedCameraIp) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario.`);
+    return;
+  }
+  const user = document.getElementById('deployCameraUser')?.value.trim() || '';
+  const pass = document.getElementById('deployCameraPassword')?.value || '';
+  if (!user || !pass) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre. Preencha usuario/senha da camera pra eu poder aplicar direto nela.`);
+    return;
+  }
+  if (!confirm(`IP ${newIp} esta livre.\n\nTrocar o IP da camera (atualmente em ${_deployConfirmedCameraIp}) pra esse novo IP agora?\n\nIsso muda a rede real do equipamento -- se a mascara/gateway herdados estiverem errados, a camera pode ficar inalcancavel.`)) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario. Troca cancelada.`);
+    return;
+  }
+  deploySetCheckIpResult('Aplicando novo IP na camera (equipamento vivo, aguarde)...');
+  const res = await api('/api/deployments/apply-camera-ip', {
+    method: 'POST',
+    body: JSON.stringify({ ip: _deployConfirmedCameraIp, usuario: user, senha: pass, new_ip: newIp }),
+  });
+  const result = await res?.json().catch(() => ({}));
+  if (!res?.ok || result?.ok === false) {
+    deploySetCheckIpResult(esc(result?.detail || 'Falha ao aplicar o novo IP na camera.'), true);
+    return;
+  }
+  deploySetCheckIpResult(`IP aplicado na camera: ${esc(result.new_ip)} (mascara ${esc(result.subnet_mask || '-')}${result.gateway ? `, gateway ${esc(result.gateway)}` : ''}).`);
+  showToast(`Novo IP aplicado na camera: ${result.new_ip}`);
+  _deployConfirmedCameraIp = newIp;
   deployRenderSummary();
 }
 
@@ -5819,6 +5899,7 @@ async function deployCommitCamera(e) {
 function deployClear() {
   _deployCurrentId = '';
   _deployPullTargetIp = '';
+  _deployConfirmedCameraIp = '';
   document.getElementById('deployForm')?.reset();
   const conn = deploySelectedConnector();
   const siteEl = document.getElementById('deploySite');
@@ -5830,6 +5911,8 @@ function deployClear() {
     pullBox.innerHTML = 'Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.';
     pullBox.classList.remove('error');
   }
+  deploySetSaveTitleResult();
+  deploySetCheckIpResult();
   deployRenderSummary();
 }
 
@@ -6533,6 +6616,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
+  document.getElementById('btnDeploySaveTitle')?.addEventListener('click', deploySaveTitle);
+  document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     const conn = deploySelectedConnector();
     const siteEl = document.getElementById('deploySite');

@@ -784,6 +784,66 @@ def get_mac_http(ip, user, password, timeout=(1.2, 2.5), retries=1):
     return None
 
 
+_NET_FIELD_RE = re.compile(r"\.(IPAddress|SubnetMask|DefaultGateway)\s*=\s*(\S+)", re.IGNORECASE)
+
+
+def get_network_config(ip, user, password, timeout=(1.5, 3.0), retries=1):
+    """Le a config de rede atual da camera (CGI Dahua/Intelbras).
+
+    Retorna {"ip_address", "subnet_mask", "gateway"} ou None se nao
+    conseguir ler. Usado pra herdar mascara/gateway ao trocar so o IP.
+    """
+    urls = [
+        f"http://{ip}/cgi-bin/configManager.cgi?action=getConfig&name=Network.eth0",
+        f"http://{ip}/cgi-bin/configManager.cgi?action=getConfig&name=Network",
+    ]
+    txt = _get_text(urls, user, password, timeout, retries)
+    if not txt:
+        return None
+    out = {}
+    for m in _NET_FIELD_RE.finditer(txt):
+        field, value = m.group(1).lower(), m.group(2).strip()
+        key = {"ipaddress": "ip_address", "subnetmask": "subnet_mask", "defaultgateway": "gateway"}[field]
+        if key not in out:
+            out[key] = value
+    return out or None
+
+
+def set_network_ip(ip, user, password, new_ip, subnet_mask, gateway, timeout=(3.0, 6.0)):
+    """Aplica um novo IP (mesma mascara/gateway) direto na camera via CGI
+    Dahua/Intelbras (configManager.cgi?action=setConfig). Equipamento vivo:
+    se mascara/gateway estiverem errados a camera pode ficar inalcancavel."""
+    params = [f"Network.eth0.IPAddress={new_ip}", f"Network.eth0.SubnetMask={subnet_mask}"]
+    if gateway:
+        params.append(f"Network.eth0.DefaultGateway={gateway}")
+    url = f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&" + "&".join(params)
+    r = _try_get(url, user, password, timeout=timeout, use_digest=True, stream=False)
+    if r is None or r.status_code != 200:
+        r = _try_get(url, user, password, timeout=timeout, use_digest=False, stream=False)
+    if r is None:
+        return {"ok": False, "error": "sem resposta da camera"}
+    text = (r.text or "").strip()
+    ok = r.status_code == 200 and "error" not in text.lower()
+    return {"ok": ok, "status_code": r.status_code, "response": text[:300]}
+
+
+def set_channel_title(ip, user, password, title, timeout=(3.0, 6.0)):
+    """Grava o titulo/nome (OSD) direto na camera via CGI Dahua/Intelbras
+    (configManager.cgi?action=setConfig&ChannelTitle[0].Name=...)."""
+    from urllib.parse import quote
+
+    encoded = quote(title, safe="")
+    url = f"http://{ip}/cgi-bin/configManager.cgi?action=setConfig&ChannelTitle[0].Name={encoded}"
+    r = _try_get(url, user, password, timeout=timeout, use_digest=True, stream=False)
+    if r is None or r.status_code != 200:
+        r = _try_get(url, user, password, timeout=timeout, use_digest=False, stream=False)
+    if r is None:
+        return {"ok": False, "error": "sem resposta da camera"}
+    text = (r.text or "").strip()
+    ok = r.status_code == 200 and "error" not in text.lower()
+    return {"ok": ok, "status_code": r.status_code, "response": text[:300]}
+
+
 def get_snapshot(ip, user, password, output_dir="output/snapshot", timeout=(1.2, 3.0), retries=1):
     os.makedirs(output_dir, exist_ok=True)
     likely_unv = False
