@@ -5766,9 +5766,11 @@ async function deployPullCameraInfo() {
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
   const titleEl = document.getElementById('deployCameraTitle');
+  const ipEl = document.getElementById('deployCameraIp');
   if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
   if (modEl && cam.modelo) modEl.value = cam.modelo;
   if (titleEl && cam.titulo) titleEl.value = cam.titulo;
+  if (ipEl) ipEl.value = cam.ip || ip;
   if (box) {
     box.innerHTML = `
       <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
