@@ -6,6 +6,7 @@ import subprocess
 import sys
 import re
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -23,6 +24,7 @@ from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inv
 from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.db_store import load_app_settings, save_app_settings, legacy_rows_from_db
 from app.services.windows_inventory_service import load_windows_inventory
+from app.services.ping_service import _do_ping_sync
 
 router = APIRouter(prefix="/api", tags=["maintenance"])
 
@@ -1237,6 +1239,7 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         site = _as_str(cfg.get("site"))
     mode = _normalize_ip_inventory_mode(payload.get("mode") or payload.get("inv_mode") or cfg.get("inv_mode") or "olt")
+    validate_offline = bool(payload.get("validate_offline", True))
 
     if not url or not user or not password:
         return {
@@ -1323,7 +1326,10 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
                     host_status[hid] = "offline"
 
         now = datetime.now(timezone.utc).isoformat()
-        updated = online = offline = unknown = 0
+        updated = online = offline = unknown = validated_online = 0
+        resolved: List[Dict[str, Any]] = []
+        offline_probe_ips: List[str] = []
+
         for ip, idx in ip_to_index.items():
             info = host_by_ip.get(ip)
             if not info:
@@ -1343,9 +1349,46 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
                 unknown += 1
                 continue
 
+            if status == "offline" and validate_offline:
+                offline_probe_ips.append(ip)
+            resolved.append({"ip": ip, "idx": idx, "status": status, "host": host, "hid": hid})
+
+        probe_by_ip: Dict[str, Dict[str, Any]] = {}
+        if offline_probe_ips:
+            def _probe_offline_ip(target: str) -> tuple[str, Dict[str, Any]]:
+                try:
+                    return target, _do_ping_sync(target, 3, "auto", [80, 554, 8000, 8080, 37777, 8554])
+                except Exception:
+                    return target, {"online": False, "method": "auto", "error": "validacao falhou"}
+
+            with ThreadPoolExecutor(max_workers=min(24, len(offline_probe_ips))) as pool:
+                futures = [pool.submit(_probe_offline_ip, ip) for ip in offline_probe_ips]
+                for fut in as_completed(futures):
+                    ip, probe = fut.result()
+                    probe_by_ip[ip] = probe
+
+        for item in resolved:
+            ip = _as_str(item.get("ip"))
+            idx = int(item.get("idx") or 0)
+            status = _as_str(item.get("status"))
+            host = item.get("host") or {}
+            hid = _as_str(item.get("hid"))
             row = rows[idx]
+            status_source = "zabbix"
+            if status == "offline" and validate_offline:
+                probe = probe_by_ip.get(ip) or {"online": False, "method": "auto"}
+                if bool(probe.get("online")):
+                    status = "online"
+                    status_source = "zabbix+tcp"
+                    row["status_detail"] = "zabbix_icmp_offline_but_tcp_online"
+                    row["status_check_method"] = _as_str(probe.get("method"))
+                    validated_online += 1
+                else:
+                    row["status_detail"] = "zabbix_icmp_offline_tcp_unreachable"
+                    row["status_check_method"] = _as_str(probe.get("method"))
+
             row["status"] = status
-            row["status_source"] = "zabbix"
+            row["status_source"] = status_source
             row["status_checked_at"] = now
             row["zabbix_hostid"] = hid
             row["zabbix_host"] = _as_str(host.get("name") or host.get("host"))
@@ -1369,6 +1412,7 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
             "online": online,
             "offline": offline,
             "unknown": unknown,
+            "validated_online": validated_online,
         }
     except Exception as e:
         return {"ok": False, "error": f"Falha ao consultar Zabbix: {e}"}
