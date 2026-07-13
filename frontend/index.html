@@ -2136,14 +2136,12 @@
                       <label for="deployCameraTitle">Titulo obrigatorio</label>
                       <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
                     </div>
-                    <button class="secondary-action" id="btnDeploySaveTitle" type="button"><i data-lucide="save"></i> Salvar</button>
-                  </div>
-                  <div id="deploySaveTitleResult" class="deploy-result-box">Grava o titulo direto na camera (equipamento vivo).</div>
-                  <div class="form-row deploy-inline-button">
                     <div class="form-group">
                       <label for="deployCameraIp">IP da camera</label>
                       <input id="deployCameraIp" placeholder="Preenchido ao puxar dados, ou digite outro">
                     </div>
+                  </div>
+                  <div class="deploy-inline-button" style="margin:2px 0 4px">
                     <button class="secondary-action" id="btnDeployCheckNewIp" type="button"><i data-lucide="shield-check"></i> Checar novo IP</button>
                   </div>
                   <div id="deployCheckIpResult" class="deploy-result-box">Se trocar o IP e clicar em "Checar novo IP", confiro disponibilidade e pergunto se quer aplicar na camera.</div>
@@ -2155,6 +2153,16 @@
                     <div class="form-group">
                       <label for="deployCameraModel">Modelo</label>
                       <input id="deployCameraModel" placeholder="Preenchido ao puxar dados, ou digite">
+                    </div>
+                  </div>
+                  <div class="form-row" style="grid-template-columns:1fr">
+                    <div class="form-group">
+                      <label for="deployInventoryMode">Tipo de inventario</label>
+                      <select id="deployInventoryMode">
+                        <option value="olt">OLT (padrao -- camera atras de ONU/PON)</option>
+                        <option value="basic">Basico</option>
+                        <option value="switch">Switch</option>
+                      </select>
                     </div>
                   </div>
                 </div>

@@ -5219,6 +5219,7 @@ function deployPayload() {
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
     camera_user: document.getElementById('deployCameraUser')?.value.trim() || '',
     camera_password: document.getElementById('deployCameraPassword')?.value || '',
+    inventory_mode: document.getElementById('deployInventoryMode')?.value || 'olt',
     recorder_type: document.getElementById('deployRecorderType')?.value || '',
     recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',
     recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
@@ -5784,33 +5785,23 @@ async function deployPullCameraInfo() {
   deployRenderSummary();
 }
 
-function deploySetSaveTitleResult(html, isError = false) {
-  const box = document.getElementById('deploySaveTitleResult');
-  if (!box) return;
-  box.innerHTML = html || 'Grava o titulo direto na camera (equipamento vivo).';
-  box.classList.toggle('error', !!isError);
-}
-
-async function deploySaveTitle() {
-  const title = document.getElementById('deployCameraTitle')?.value.trim() || '';
+// Grava o titulo direto na camera (best-effort). Chamado como parte do
+// "Registrar camera" no rodape -- se a camera nao responder, so avisa via
+// toast e segue com o registro no inventario mesmo assim.
+async function deployPushTitleToCamera(title) {
   const ip = _deployConfirmedCameraIp || document.getElementById('deployCameraIp')?.value.trim() || '';
   const user = document.getElementById('deployCameraUser')?.value.trim() || '';
   const pass = document.getElementById('deployCameraPassword')?.value || '';
-  if (!title) { showToast('Preencha o titulo primeiro.', true); return; }
-  if (!ip) { showToast('Puxe os dados da camera primeiro (preciso do IP dela).', true); return; }
-  if (!user || !pass) { showToast('Informe usuario e senha da camera primeiro.', true); return; }
-  deploySetSaveTitleResult('Gravando titulo na camera (equipamento vivo, aguarde)...');
+  if (!ip || !user || !pass) return { ok: false, skipped: true };
   const res = await api('/api/deployments/save-camera-title', {
     method: 'POST',
     body: JSON.stringify({ ip, usuario: user, senha: pass, title }),
   });
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
-    deploySetSaveTitleResult(esc(data?.detail || 'Falha ao gravar titulo na camera.'), true);
-    return;
+    return { ok: false, detail: data?.detail || 'Falha ao gravar titulo na camera.' };
   }
-  deploySetSaveTitleResult(`Titulo "${esc(title)}" gravado na camera.`);
-  showToast('Titulo salvo na camera.');
+  return { ok: true };
 }
 
 function deploySetCheckIpResult(html, isError = false) {
@@ -5883,6 +5874,14 @@ async function deployCommitCamera(e) {
     showToast('IP e titulo da camera sao obrigatorios.', true);
     return;
   }
+
+  const titlePush = await deployPushTitleToCamera(payload.camera_title);
+  if (titlePush.ok) {
+    showToast('Titulo gravado na camera.');
+  } else if (!titlePush.skipped) {
+    showToast(`Titulo NAO gravado na camera: ${titlePush.detail}`, true);
+  }
+
   const res = await api('/api/deployments/commit-camera', { method: 'POST', body: JSON.stringify(payload) });
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
@@ -5891,7 +5890,7 @@ async function deployCommitCamera(e) {
   }
   _deployCurrentId = data.deployment?.id || _deployCurrentId;
   showToast(`Camera registrada: ${payload.camera_title}`);
-  deploySetResult(`Camera registrada no inventario. Chave: ${esc(data.inventory_key || '-')}`);
+  deploySetResult(`Camera registrada no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Chave: ${esc(data.inventory_key || '-')}`);
   await loadDeployHistory();
   deployRenderSummary();
 }
@@ -5911,7 +5910,6 @@ function deployClear() {
     pullBox.innerHTML = 'Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.';
     pullBox.classList.remove('error');
   }
-  deploySetSaveTitleResult();
   deploySetCheckIpResult();
   deployRenderSummary();
 }
@@ -6616,7 +6614,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
-  document.getElementById('btnDeploySaveTitle')?.addEventListener('click', deploySaveTitle);
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     const conn = deploySelectedConnector();

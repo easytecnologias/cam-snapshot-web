@@ -231,6 +231,15 @@ def api_deployments_save(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "deployment": row}
 
 
+def _normalize_inventory_mode(value: str) -> str:
+    v = (value or "").strip().lower()
+    if v in ("basico", "basic"):
+        return "basic"
+    if v == "switch":
+        return "switch"
+    return "olt"
+
+
 @router.post("/commit-camera")
 def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
@@ -241,6 +250,7 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
     if not title:
         raise HTTPException(status_code=400, detail="titulo da camera obrigatorio")
+    inv_mode = _normalize_inventory_mode(_text(payload.get("inventory_mode")))
 
     connector_id = _text(payload.get("connector_id"))
     site = _text(payload.get("site") or payload.get("local"))
@@ -268,7 +278,7 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "deployment_id": _text(payload.get("id")),
         "installed_at": _now(),
     }
-    rows = load_inventory_json(mode="olt") or []
+    rows = load_inventory_json(mode=inv_mode) or []
     key = inventory_row_key(row)
     updated = False
     for idx, existing in enumerate(rows):
@@ -288,10 +298,22 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
             break
     if not updated:
         rows.append(row)
-    save_inventory_json(rows, mode="olt")
+    save_inventory_json(rows, mode=inv_mode)
+
+    # "Puxar dados da camera" sempre grava em modo "olt"; se o tecnico
+    # escolheu um inventario diferente aqui, tira a linha orfa de "olt"
+    # pra nao duplicar o cadastro entre dois arquivos.
+    if inv_mode != "olt":
+        olt_rows = load_inventory_json(mode="olt") or []
+        filtered = [
+            r for r in olt_rows
+            if _text(r.get("ip")) != ip and not (mac and _norm_mac(r.get("mac")) == mac)
+        ]
+        if len(filtered) != len(olt_rows):
+            save_inventory_json(filtered, mode="olt")
 
     saved = api_deployments_save({**payload, "status": "camera_registered", "camera_inventory_key": key})
-    return {"ok": True, "created": not updated, "inventory_key": key, "camera": row, "deployment": saved.get("deployment")}
+    return {"ok": True, "created": not updated, "inventory_key": key, "camera": row, "deployment": saved.get("deployment"), "inventory_mode": inv_mode}
 
 
 @router.get("/connectors")
