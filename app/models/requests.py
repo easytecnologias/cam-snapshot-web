@@ -74,3 +74,53 @@ class SwitchCollectMacsRequest(BaseModel):
     reuse_json: bool = False
     port: int = 23
     timeout: float = 12.0
+
+
+class OltDiscoverOnusRequest(BaseModel):
+    olt_ip: str
+    user: str
+    password: str
+    pon: str = "all"
+    timeout: float = 12.0
+
+
+class OltAddOnuRequest(BaseModel):
+    olt_ip: str
+    user: str
+    password: str
+    pon: int
+    serno_id: int
+    onu_model: str = ""
+    profile: str = ""
+    description: str = ""
+    service: str = "downlink"
+    vlan: int
+    tag_mode: str = "tagged"
+    timeout: float = 15.0
+
+
+class OltFindOnuRequest(BaseModel):
+    olt_ip: str
+    user: str
+    password: str
+    serial: str
+    timeout: float = 10.0
+
+
+class OltDeleteOnuRequest(BaseModel):
+    olt_ip: str
+    user: str
+    password: str
+    pon: int
+    onu: int
+    timeout: float = 22.0
+
+
+class OltOnuSignalRequest(BaseModel):
+    olt_ip: str
+    user: str
+    password: str
+    pon: int = 0
+    onu: int = 0
+    serial: str = ""
+    timeout: float = 12.0

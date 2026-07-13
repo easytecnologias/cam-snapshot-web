@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=34">
+  <link rel="stylesheet" href="styles.css?v=35">
 </head>
 <body>
 
@@ -99,6 +99,11 @@
           <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
         </button>
 
+        <!-- Implantacao -->
+        <div class="nav-section-label">Implantacao</div>
+        <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
+        <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>Nova instalacao</span></button>
+
         <!-- Inventario -->
         <div class="nav-section-label">Inventario</div>
         <button class="nav-item" data-view="inv-olt"><i data-lucide="camera"></i><span>Cameras IP</span></button>
@@ -139,10 +144,6 @@
         <button class="nav-item" data-view="net-devices"><i data-lucide="router"></i><span>Dispositivos</span></button>
         <button class="nav-item" data-view="net-learn"><i data-lucide="brain"></i><span>Aprendizado</span></button>
         <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
-
-        <!-- Implantacao -->
-        <div class="nav-section-label">Implantacao</div>
-        <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>Nova instalacao</span></button>
 
         <!-- Ferramentas -->
         <div class="nav-section-label">Ferramentas</div>
@@ -1890,6 +1891,133 @@
         </div>
       </section>
 
+      <!-- --- VIEW: IMPLANTACAO - ONU --- -->
+      <section class="workspace hidden" id="viewDeployOnu">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>ONU</h1>
+            <p>Provisionamento de ONU/ONT em campo: descobrir, autorizar, consultar sinal/MACs e excluir na OLT.</p>
+          </div>
+        </div>
+
+        <div class="deployment-grid">
+          <div class="panel deployment-form-panel">
+            <div class="panel-header">
+              <div><h2>Conexao com a OLT</h2><p>IP e PON onde o tecnico esta trabalhando agora.</p></div>
+            </div>
+            <div class="deploy-step">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuOltIp">IP da OLT</label>
+                  <input id="onuOltIp" placeholder="10.80.80.5">
+                </div>
+                <div class="form-group">
+                  <label for="onuOltPon">PON (1-8)</label>
+                  <input id="onuOltPon" type="number" min="1" max="8" placeholder="1">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuOltUser">Usuario da OLT</label>
+                  <input id="onuOltUser" placeholder="admin" autocomplete="username">
+                </div>
+                <div class="form-group">
+                  <label for="onuOltPassword">Senha da OLT</label>
+                  <input id="onuOltPassword" type="password" placeholder="Senha" autocomplete="current-password">
+                </div>
+              </div>
+            </div>
+
+            <div class="deploy-step">
+              <h3>1. Descobrir ONUs nao autorizadas</h3>
+              <div class="deploy-inline-button" style="margin:2px 0 10px">
+                <button class="secondary-action" id="btnOnuDiscover" type="button"><i data-lucide="radar"></i> Descobrir na PON</button>
+              </div>
+              <div id="onuDiscoverResult" class="deploy-result-box">Informe IP/PON/usuario/senha da OLT e clique em Descobrir.</div>
+            </div>
+
+            <div class="deploy-step">
+              <h3>2. Autorizar (adicionar) ONU</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuAddSernoId">ID descoberto (serno_id)</label>
+                  <input id="onuAddSernoId" type="number" placeholder="Selecione uma ONU descoberta, ou digite">
+                </div>
+                <div class="form-group">
+                  <label for="onuAddModel">Modelo</label>
+                  <input id="onuAddModel" placeholder="Preenchido ao selecionar" readonly>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuAddService">Servico</label>
+                  <select id="onuAddService">
+                    <option value="downlink">Downlink (internet)</option>
+                    <option value="tls">TLS (transparente)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="onuAddVlan">VLAN</label>
+                  <input id="onuAddVlan" type="number" placeholder="Ex: 3000">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuAddTagMode">Modo VLAN</label>
+                  <select id="onuAddTagMode">
+                    <option value="tagged">Tagged</option>
+                    <option value="untagged">Untagged</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="onuAddDescription">Descricao (opcional)</label>
+                  <input id="onuAddDescription" placeholder="Ex: Cliente X - camera entrada">
+                </div>
+              </div>
+              <p style="font-size:11px;color:var(--amber);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
+                <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
+                Autorizar grava configuracao real na OLT (equipamento em producao).
+              </p>
+              <div class="deploy-inline-button">
+                <button class="primary-action" id="btnOnuAdd" type="button"><i data-lucide="wifi"></i> Autorizar ONU</button>
+              </div>
+              <div id="onuAddResult" class="deploy-result-box">Nenhuma ONU autorizada ainda nesta sessao.</div>
+            </div>
+
+            <div class="deploy-step">
+              <h3>3. Consultar sinal e MACs</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="onuTargetNum">Numero da ONU (posicao)</label>
+                  <input id="onuTargetNum" type="number" placeholder="Ex: 4">
+                </div>
+                <div class="form-group">
+                  <label for="onuQuerySerial">Ou serial (se nao souber a posicao)</label>
+                  <input id="onuQuerySerial" placeholder="VSOL00181583">
+                </div>
+              </div>
+              <div class="deploy-inline-button" style="margin:2px 0 10px">
+                <button class="secondary-action" id="btnOnuQuery" type="button"><i data-lucide="activity"></i> Consultar sinal / MACs</button>
+              </div>
+              <div id="onuQueryResult" class="deploy-result-box">Informe a posicao (PON + numero) ou o serial e clique em Consultar.</div>
+            </div>
+
+            <div class="deploy-step">
+              <h3>4. Excluir ONU</h3>
+              <p style="font-size:11px;color:var(--danger);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
+                <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
+                Acao destrutiva: remove o cadastro e desliga o servico da ONU na posicao informada acima (item 3).
+              </p>
+              <div class="deploy-inline-button">
+                <button class="secondary-action" id="btnOnuDelete" type="button" style="border-color:var(--danger);color:var(--danger)"><i data-lucide="trash-2"></i> Excluir ONU</button>
+              </div>
+              <div id="onuDeleteResult" class="deploy-result-box">Nenhuma exclusao realizada nesta sessao.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- --- VIEW: IMPLANTACAO --- -->
       <section class="workspace hidden" id="viewDeployNew">
         <div class="page-heading">
@@ -1925,8 +2053,33 @@
                 <h3>2. ONU / ONT</h3>
                 <div class="form-row">
                   <div class="form-group">
+                    <label for="deployOltIp">IP da OLT</label>
+                    <input id="deployOltIp" placeholder="10.80.80.5">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployOltPonNum">PON (1-8)</label>
+                    <input id="deployOltPonNum" type="number" min="1" max="8" placeholder="1">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployOltUser">Usuario da OLT</label>
+                    <input id="deployOltUser" placeholder="admin" autocomplete="username">
+                  </div>
+                  <div class="form-group">
+                    <label for="deployOltPassword">Senha da OLT</label>
+                    <input id="deployOltPassword" type="password" placeholder="Senha" autocomplete="current-password">
+                  </div>
+                </div>
+                <div class="deploy-inline-button" style="margin:2px 0 10px">
+                  <button class="secondary-action" id="btnDeployDiscoverOnus" type="button"><i data-lucide="radar"></i> Descobrir ONUs</button>
+                </div>
+                <div id="deployOnuDiscoverResult" class="deploy-result-box">Informe IP/PON da OLT e clique em Descobrir.</div>
+
+                <div class="form-row">
+                  <div class="form-group">
                     <label for="deployOnuSerial">Serial da ONU/ONT</label>
-                    <input id="deployOnuSerial" placeholder="ONU serial">
+                    <input id="deployOnuSerial" placeholder="Selecione uma ONU descoberta, ou digite">
                   </div>
                   <div class="form-group">
                     <label for="deployOnuMac">MAC da ONU/ONT</label>
@@ -1939,10 +2092,34 @@
                     <input id="deployVlan" placeholder="Ex: 120">
                   </div>
                   <div class="form-group">
-                    <label for="deployPon">PON / Porta</label>
+                    <label for="deployPon">PON / Porta (registro)</label>
                     <input id="deployPon" placeholder="Ex: 1/4">
                   </div>
                 </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="deployOnuService">Servico</label>
+                    <select id="deployOnuService">
+                      <option value="downlink">Downlink (internet)</option>
+                      <option value="tls">TLS (transparente)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="deployOnuTagMode">Modo VLAN</label>
+                    <select id="deployOnuTagMode">
+                      <option value="tagged">Tagged</option>
+                      <option value="untagged">Untagged</option>
+                    </select>
+                  </div>
+                </div>
+                <p style="font-size:11px;color:var(--amber);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
+                  <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
+                  Autorizar grava configuracao real na OLT (equipamento em producao).
+                </p>
+                <div class="deploy-inline-button">
+                  <button class="primary-action" id="btnDeployAuthorizeOnu" type="button"><i data-lucide="wifi"></i> Autorizar ONU na OLT</button>
+                </div>
+                <div id="deployOnuAuthorizeResult" class="deploy-result-box">Nenhuma ONU autorizada ainda nesta sessao.</div>
               </div>
 
               <div class="deploy-step">
@@ -3295,6 +3472,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=94"></script>
+  <script src="app.js?v=95"></script>
 </body>
 </html>

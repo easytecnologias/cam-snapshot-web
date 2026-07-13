@@ -9,13 +9,15 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
-from app.core.paths import DATA_DIR
+from app.core.tenant_context import tenant_scoped_path
 from app.services.connector_service import get_connector, list_connectors
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
-DEPLOYMENTS_PATH = DATA_DIR / "deployments.json"
+
+def _deployments_path() -> Path:
+    return tenant_scoped_path("deployments.json")
 
 
 def _now() -> str:
@@ -36,9 +38,10 @@ def _norm_mac(value: Any) -> str:
 
 
 def _read_rows() -> List[Dict[str, Any]]:
+    path = _deployments_path()
     try:
-        if DEPLOYMENTS_PATH.exists():
-            data = json.loads(DEPLOYMENTS_PATH.read_text(encoding="utf-8"))
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
     except Exception:
         pass
@@ -46,14 +49,15 @@ def _read_rows() -> List[Dict[str, Any]]:
 
 
 def _write_rows(rows: List[Dict[str, Any]]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = DEPLOYMENTS_PATH.with_suffix(".json.tmp")
+    path = _deployments_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(DEPLOYMENTS_PATH)
+    tmp.replace(path)
 
 
 def _connector_inventory(connector_id: str) -> Dict[str, Any]:
-    row = get_connector(connector_id, include_token=False)
+    row = get_connector(connector_id, include_token=False, enforce_tenant=True)
     if not row:
         raise HTTPException(status_code=404, detail="conector nao encontrado")
     inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}

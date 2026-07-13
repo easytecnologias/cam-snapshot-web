@@ -10,9 +10,25 @@ from fastapi import HTTPException
 
 from app.core.paths import SAIDA_DIR
 from app.core.perf import perf_step
-from app.models.requests import OltCollectMacsRequest
+from app.models.requests import (
+    OltAddOnuRequest,
+    OltCollectMacsRequest,
+    OltDeleteOnuRequest,
+    OltDiscoverOnusRequest,
+    OltFindOnuRequest,
+    OltOnuSignalRequest,
+)
 from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i
 from app.cli.tools.olt_4840e_collect_macs import collect_macs_4840e
+from app.cli.tools.olt_8820i_add_onu import (
+    OnuAddError,
+    add_onu as _add_onu_8820i,
+    delete_onu as _delete_onu_8820i,
+    discover_unauthorized_onus,
+    find_onu_by_serial,
+    onu_signal as _onu_signal_8820i,
+    profile_for_model,
+)
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
 
 logger = logging.getLogger("cam-snapshot")
@@ -237,3 +253,111 @@ def list_macs(site: str = "") -> Dict[str, Any]:
         "count": len(rows),
         "site": site.strip(),
     }
+
+
+def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
+    """Descobre ONUs nao autorizadas + posicoes livres na OLT Intelbras 8820i.
+
+    So a 8820i tem esse fluxo mapeado por enquanto (a 4840e nao tem comando
+    de autorizacao confirmado ainda).
+    """
+    with perf_step("OLT_discover_onus"):
+        try:
+            return discover_unauthorized_onus(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                timeout=req.timeout,
+            )
+        except Exception as e:
+            logger.error(f"Erro ao descobrir ONUs na OLT: {e}")
+            raise HTTPException(500, f"Erro ao descobrir ONUs na OLT: {e}") from e
+
+
+def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
+    """Autoriza uma ONU descoberta (serno_id) na OLT Intelbras 8820i, com
+    servico/VLAN opcional. Equipamento vivo -- ver aviso na UI de Implantacao."""
+    profile = (req.profile or "").strip() or profile_for_model(req.onu_model)
+    with perf_step("OLT_add_onu"):
+        try:
+            return _add_onu_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                serno_id=req.serno_id,
+                profile=profile,
+                description=req.description,
+                service=req.service,
+                vlan=req.vlan,
+                tag_mode=req.tag_mode,
+                timeout=req.timeout,
+            )
+        except OnuAddError as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "failed_at": e.failed_command,
+                "commands_run": e.commands_run,
+            }
+        except Exception as e:
+            logger.error(f"Erro ao autorizar ONU na OLT: {e}")
+            raise HTTPException(500, f"Erro ao autorizar ONU na OLT: {e}") from e
+
+
+def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
+    """Localiza uma ONU ja autorizada pelo serial, na OLT Intelbras 8820i."""
+    with perf_step("OLT_find_onu"):
+        try:
+            found = find_onu_by_serial(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                serial=req.serial,
+                timeout=req.timeout,
+            )
+        except Exception as e:
+            logger.error(f"Erro ao localizar ONU na OLT: {e}")
+            raise HTTPException(500, f"Erro ao localizar ONU na OLT: {e}") from e
+    if not found:
+        return {"ok": False, "error": "ONU nao encontrada para esse serial."}
+    return {"ok": True, **found}
+
+
+def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
+    """Exclui uma ONU ja autorizada (posicao pon/onu) na OLT Intelbras 8820i.
+
+    Equipamento vivo -- remove o cadastro e desliga o servico da ONU."""
+    with perf_step("OLT_delete_onu"):
+        try:
+            return _delete_onu_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                onu=req.onu,
+                timeout=req.timeout,
+            )
+        except Exception as e:
+            logger.error(f"Erro ao excluir ONU na OLT: {e}")
+            raise HTTPException(500, f"Erro ao excluir ONU na OLT: {e}") from e
+
+
+def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
+    """Consulta sinal (RX/distancia/status) e MACs aprendidos atras de uma
+    ONU ja autorizada na OLT Intelbras 8820i. Aceita serial OU pon+onu."""
+    with perf_step("OLT_onu_signal"):
+        try:
+            return _onu_signal_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon or None,
+                onu=req.onu or None,
+                serial=req.serial,
+                timeout=req.timeout,
+            )
+        except Exception as e:
+            logger.error(f"Erro ao consultar sinal da ONU: {e}")
+            raise HTTPException(500, f"Erro ao consultar sinal da ONU: {e}") from e
