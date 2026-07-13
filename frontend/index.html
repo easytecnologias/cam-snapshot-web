@@ -2089,86 +2089,92 @@
               <div><h2>Assistente tecnico</h2><p>Preencha por etapas. Titulo da camera e IP sao obrigatorios para finalizar.</p></div>
             </div>
             <form id="deployForm" class="deployment-form">
-              <div class="deploy-step">
-                <h3>1. Cliente e conector</h3>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployConnector">Conector MikroTik</label>
-                    <select id="deployConnector"></select>
-                  </div>
-                  <div class="form-group">
-                    <label for="deploySite">Site / local</label>
-                    <input id="deploySite" placeholder="Reserva, Jardins I, Cliente X">
+              <details class="onu-step" name="cftvAccordion" id="cftvStep1" open>
+                <summary><span class="onu-step-title">1. Cliente e conector</span></summary>
+                <div class="onu-step-body">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployConnector">Conector MikroTik</label>
+                      <select id="deployConnector"></select>
+                    </div>
+                    <div class="form-group">
+                      <label for="deploySite">Site / local</label>
+                      <input id="deploySite" placeholder="Reserva, Jardins I, Cliente X">
+                    </div>
                   </div>
                 </div>
-              </div>
+              </details>
 
-              <div class="deploy-step">
-                <h3>2. Camera</h3>
-                <div class="form-row deploy-inline-button">
-                  <div class="form-group">
-                    <label for="deployCameraMac">MAC da camera</label>
-                    <input id="deployCameraMac" placeholder="MAC visto no MikroTik">
+              <details class="onu-step" name="cftvAccordion" id="cftvStep2">
+                <summary><span class="onu-step-title">2. Camera</span></summary>
+                <div class="onu-step-body">
+                  <div class="form-row deploy-inline-button">
+                    <div class="form-group">
+                      <label for="deployCameraMac">MAC da camera</label>
+                      <input id="deployCameraMac" placeholder="MAC visto no MikroTik">
+                    </div>
+                    <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
                   </div>
-                  <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
+                  <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
+                  <div class="form-row deploy-inline-button">
+                    <div class="form-group">
+                      <label for="deployCameraIp">IP que a camera vai assumir</label>
+                      <input id="deployCameraIp" placeholder="192.168.20.21">
+                    </div>
+                    <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployCameraTitle">Titulo obrigatorio</label>
+                      <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployLocation">Localizacao fisica</label>
+                      <input id="deployLocation" placeholder="Poste, bloco, rua, churrasqueira">
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployCameraManufacturer">Fabricante</label>
+                      <input id="deployCameraManufacturer" placeholder="Intelbras, Hikvision">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployCameraModel">Modelo</label>
+                      <input id="deployCameraModel" placeholder="VIP-3220-B">
+                    </div>
+                  </div>
                 </div>
-                <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
-                <div class="form-row deploy-inline-button">
-                  <div class="form-group">
-                    <label for="deployCameraIp">IP que a camera vai assumir</label>
-                    <input id="deployCameraIp" placeholder="192.168.20.21">
-                  </div>
-                  <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployCameraTitle">Titulo obrigatorio</label>
-                    <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployLocation">Localizacao fisica</label>
-                    <input id="deployLocation" placeholder="Poste, bloco, rua, churrasqueira">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployCameraManufacturer">Fabricante</label>
-                    <input id="deployCameraManufacturer" placeholder="Intelbras, Hikvision">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployCameraModel">Modelo</label>
-                    <input id="deployCameraModel" placeholder="VIP-3220-B">
-                  </div>
-                </div>
-              </div>
+              </details>
 
-              <div class="deploy-step">
-                <h3>3. Gravador</h3>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployRecorderType">Tipo</label>
-                    <select id="deployRecorderType">
-                      <option value="">Nao vincular agora</option>
-                      <option value="nvr">NVR IP</option>
-                      <option value="dvr">DVR analogico / iMHDX</option>
-                    </select>
+              <details class="onu-step" name="cftvAccordion" id="cftvStep3">
+                <summary><span class="onu-step-title">3. Gravador</span></summary>
+                <div class="onu-step-body">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployRecorderType">Tipo</label>
+                      <select id="deployRecorderType">
+                        <option value="">Nao vincular agora</option>
+                        <option value="nvr">NVR IP</option>
+                        <option value="dvr">DVR analogico / iMHDX</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="deployRecorderHost">Host do gravador</label>
+                      <input id="deployRecorderHost" placeholder="10.10.9.150">
+                    </div>
                   </div>
-                  <div class="form-group">
-                    <label for="deployRecorderHost">Host do gravador</label>
-                    <input id="deployRecorderHost" placeholder="10.10.9.150">
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployRecorderChannel">Canal</label>
+                      <input id="deployRecorderChannel" placeholder="1">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployRecorderTitle">Titulo no gravador</label>
+                      <input id="deployRecorderTitle" placeholder="Mesmo titulo da camera">
+                    </div>
                   </div>
                 </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployRecorderChannel">Canal</label>
-                    <input id="deployRecorderChannel" placeholder="1">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployRecorderTitle">Titulo no gravador</label>
-                    <input id="deployRecorderTitle" placeholder="Mesmo titulo da camera">
-                  </div>
-                </div>
-              </div>
+              </details>
 
               <div class="deployment-actions">
                 <button class="secondary-action" id="btnDeploySave" type="button"><i data-lucide="save"></i> Salvar rascunho</button>

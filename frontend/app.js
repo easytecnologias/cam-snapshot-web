@@ -5286,6 +5286,7 @@ async function loadDeployNew() {
   deploySetResult('Aguardando consulta no conector.');
   deployRenderSummary();
   await loadDeployHistory();
+  bindAccordionExclusive('#viewDeployNew');
   lucide.createIcons();
 }
 
@@ -5327,18 +5328,25 @@ async function populateOltIpDatalist(inputId, listId, ponInputId) {
   }
 }
 
-function loadDeployOnu() {
-  populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
-  document.querySelectorAll('#viewDeployOnu details.onu-step').forEach(d => {
-    if (d.dataset.onuAccordionBound) return;
-    d.dataset.onuAccordionBound = '1';
+// Acordeao generico ("sanfonado"): dentro de containerSelector, so um
+// <details class="onu-step"> fica aberto por vez (fallback via JS para
+// navegadores sem suporte nativo a details[name]).
+function bindAccordionExclusive(containerSelector) {
+  document.querySelectorAll(`${containerSelector} details.onu-step`).forEach(d => {
+    if (d.dataset.accordionBound) return;
+    d.dataset.accordionBound = '1';
     d.addEventListener('toggle', () => {
       if (!d.open) return;
-      document.querySelectorAll('#viewDeployOnu details.onu-step').forEach(other => {
+      document.querySelectorAll(`${containerSelector} details.onu-step`).forEach(other => {
         if (other !== d) other.open = false;
       });
     });
   });
+}
+
+function loadDeployOnu() {
+  populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
+  bindAccordionExclusive('#viewDeployOnu');
   bindOnuStepLockGuards();
   onuUpdateStepsLock();
   ['onuOltIp', 'onuOltPassword'].forEach(id => {
