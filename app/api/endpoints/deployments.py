@@ -204,17 +204,20 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "deployment_id": _text(payload.get("id")),
         "installed_at": _now(),
     }
-    rows = load_inventory_json(mode="basic") or []
+    rows = load_inventory_json(mode="olt") or []
     key = inventory_row_key(row)
     updated = False
     for idx, existing in enumerate(rows):
-        if inventory_row_key(existing) == key:
+        # Casa por IP tambem (nao so pela chave com connector_id): a etapa de
+        # "puxar dados da camera" (rescan-single-ip) ja pode ter criado a linha
+        # sem remote_connector_id, e sem isso aqui viraria registro duplicado.
+        if inventory_row_key(existing) == key or _text(existing.get("ip")) == ip:
             rows[idx] = {**existing, **row}
             updated = True
             break
     if not updated:
         rows.append(row)
-    save_inventory_json(rows, mode="basic")
+    save_inventory_json(rows, mode="olt")
 
     saved = api_deployments_save({**payload, "status": "camera_registered", "camera_inventory_key": key})
     return {"ok": True, "created": not updated, "inventory_key": key, "camera": row, "deployment": saved.get("deployment")}

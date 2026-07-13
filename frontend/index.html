@@ -2122,11 +2122,25 @@
                   <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
                   <div class="form-row deploy-inline-button">
                     <div class="form-group">
-                      <label for="deployCameraIp">IP que a camera vai assumir</label>
+                      <label for="deployCameraIp">IP da camera</label>
                       <input id="deployCameraIp" placeholder="192.168.20.21">
                     </div>
                     <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
                   </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="deployCameraUser">Usuario da camera</label>
+                      <input id="deployCameraUser" placeholder="admin" autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployCameraPassword">Senha da camera</label>
+                      <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="new-password">
+                    </div>
+                  </div>
+                  <div class="deploy-inline-button" style="margin:2px 0 4px">
+                    <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="download-cloud"></i> Puxar dados da camera</button>
+                  </div>
+                  <div id="deployPullCameraResult" class="deploy-result-box">Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.</div>
                   <div class="form-row">
                     <div class="form-group">
                       <label for="deployCameraTitle">Titulo obrigatorio</label>
@@ -2140,21 +2154,11 @@
                   <div class="form-row">
                     <div class="form-group">
                       <label for="deployCameraManufacturer">Fabricante</label>
-                      <input id="deployCameraManufacturer" placeholder="Intelbras, Hikvision">
+                      <input id="deployCameraManufacturer" placeholder="Preenchido ao puxar dados, ou digite">
                     </div>
                     <div class="form-group">
                       <label for="deployCameraModel">Modelo</label>
-                      <input id="deployCameraModel" placeholder="VIP-3220-B">
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label for="deployCameraUser">Usuario da camera</label>
-                      <input id="deployCameraUser" placeholder="admin" autocomplete="username">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployCameraPassword">Senha da camera</label>
-                      <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="new-password">
+                      <input id="deployCameraModel" placeholder="Preenchido ao puxar dados, ou digite">
                     </div>
                   </div>
                 </div>

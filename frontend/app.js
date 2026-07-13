@@ -5730,12 +5730,67 @@ async function deployLookupMac() {
   if (first.ip && !document.getElementById('deployCameraIp')?.value) document.getElementById('deployCameraIp').value = first.ip;
   if (first.mac && !document.getElementById('deployCameraMac')?.value) document.getElementById('deployCameraMac').value = first.mac;
   deploySetResult(matches.slice(0, 5).map(m => `
-    <div class="deploy-match">
+    <div class="deploy-match deploy-cam-pick" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" style="cursor:pointer">
       <b>${esc(m.ip || '-')}</b>
       <span>${esc(m.mac || '-')}</span>
-      <small>${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}</small>
+      <small>${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''} - clique para selecionar</small>
     </div>
   `).join(''));
+  document.querySelectorAll('#deployLookupResult .deploy-cam-pick').forEach(el => {
+    el.addEventListener('click', () => {
+      if (el.dataset.ip) document.getElementById('deployCameraIp').value = el.dataset.ip;
+      if (el.dataset.mac) document.getElementById('deployCameraMac').value = el.dataset.mac;
+      showToast(`Selecionado: ${el.dataset.ip || el.dataset.mac}`);
+      deployRenderSummary();
+      const userEl = document.getElementById('deployCameraUser');
+      const passEl = document.getElementById('deployCameraPassword');
+      if (userEl?.value && passEl?.value) {
+        deployPullCameraInfo();
+      } else {
+        const box = document.getElementById('deployPullCameraResult');
+        if (box) box.innerHTML = 'IP selecionado. Preencha usuario/senha da camera e clique em "Puxar dados da camera".';
+      }
+    });
+  });
+  deployRenderSummary();
+}
+
+async function deployPullCameraInfo() {
+  const ip = document.getElementById('deployCameraIp')?.value.trim() || '';
+  const user = document.getElementById('deployCameraUser')?.value.trim() || '';
+  const pass = document.getElementById('deployCameraPassword')?.value || '';
+  const box = document.getElementById('deployPullCameraResult');
+  if (!ip) { showToast('Informe o IP da camera primeiro.', true); return; }
+  if (!user || !pass) { showToast('Informe usuario e senha da camera primeiro.', true); return; }
+  if (box) box.innerHTML = 'Conectando na camera e trazendo os dados (pode levar alguns segundos)...';
+  const res = await api('/api/rescan-single-ip', {
+    method: 'POST',
+    body: JSON.stringify({ ip, usuario: user, senha: pass, inventory_mode: 'olt', capture_snapshot: true }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false || data?.success === false) {
+    if (box) box.innerHTML = esc(data?.message || data?.stderr || 'Falha ao conectar na camera. Confira IP/usuario/senha.');
+    box?.classList.add('error');
+    return;
+  }
+  box?.classList.remove('error');
+  const rows = Array.isArray(data.inventory) ? data.inventory : [];
+  const cam = rows.find(r => (r.ip || '').trim() === ip) || null;
+  if (!cam) {
+    if (box) box.innerHTML = 'Conectou, mas nao consegui identificar os dados da camera na resposta.';
+    return;
+  }
+  const fabEl = document.getElementById('deployCameraManufacturer');
+  const modEl = document.getElementById('deployCameraModel');
+  if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
+  if (modEl && cam.modelo) modEl.value = cam.modelo;
+  if (box) {
+    box.innerHTML = `
+      <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
+      <div style="margin-top:4px">IP: ${esc(cam.ip || ip)} ${cam.mac ? `- MAC: ${esc(cam.mac)}` : ''}</div>
+      ${cam.snapshot_path ? '<div style="margin-top:4px">Snapshot capturado.</div>' : ''}
+    `;
+  }
   deployRenderSummary();
 }
 
@@ -5794,6 +5849,11 @@ function deployClear() {
   if (conn && siteEl) siteEl.value = conn.site || conn.client || '';
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();
+  const pullBox = document.getElementById('deployPullCameraResult');
+  if (pullBox) {
+    pullBox.innerHTML = 'Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.';
+    pullBox.classList.remove('error');
+  }
   deployRenderSummary();
 }
 
@@ -6497,6 +6557,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployCheckIp')?.addEventListener('click', deployCheckIp);
+  document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     const conn = deploySelectedConnector();
     const siteEl = document.getElementById('deploySite');
