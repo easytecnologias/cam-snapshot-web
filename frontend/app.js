@@ -5782,11 +5782,14 @@ async function deployPullCameraInfo() {
   }
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
+  const titleEl = document.getElementById('deployCameraTitle');
   if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
   if (modEl && cam.modelo) modEl.value = cam.modelo;
+  if (titleEl && cam.titulo) titleEl.value = cam.titulo;
   if (box) {
     box.innerHTML = `
       <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
+      ${cam.titulo ? `<div style="margin-top:2px">Nome atual na camera: <b>${esc(cam.titulo)}</b></div>` : ''}
       <div style="margin-top:4px">IP: ${esc(cam.ip || ip)} ${cam.mac ? `- MAC: ${esc(cam.mac)}` : ''}</div>
       ${cam.snapshot_path ? '<div style="margin-top:4px">Snapshot capturado.</div>' : ''}
     `;
