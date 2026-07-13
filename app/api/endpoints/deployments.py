@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from app.core.tenant_context import tenant_scoped_path
 from app.services.connector_service import get_connector, list_connectors
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.camsnapshot.device_info import get_network_config, set_network_ip
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
@@ -151,6 +152,43 @@ def api_deployments_ip_check(ip: str, connector_id: str = "", site: str = "") ->
     if not _text(ip):
         raise HTTPException(status_code=400, detail="ip obrigatorio")
     return {"ok": True, **_ip_in_use(ip, connector_id=connector_id, site=site)}
+
+
+@router.post("/apply-camera-ip")
+def api_deployments_apply_camera_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Aplica um novo IP direto na camera (CGI Dahua/Intelbras), herdando
+    mascara/gateway da config atual dela. Equipamento vivo -- ver aviso na UI."""
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="payload invalido")
+    ip = _text(payload.get("ip"))
+    new_ip = _text(payload.get("new_ip"))
+    user = _text(payload.get("usuario")) or "admin"
+    password = _text(payload.get("senha"))
+    if not ip:
+        raise HTTPException(status_code=400, detail="ip atual da camera obrigatorio")
+    if not new_ip:
+        raise HTTPException(status_code=400, detail="novo ip obrigatorio")
+    if not password:
+        raise HTTPException(status_code=400, detail="senha da camera obrigatoria")
+
+    net = get_network_config(ip, user, password)
+    if not net or not net.get("subnet_mask"):
+        raise HTTPException(status_code=502, detail="Nao consegui ler a configuracao de rede atual da camera.")
+
+    result = set_network_ip(ip, user, password, new_ip, net["subnet_mask"], net.get("gateway") or "")
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Falha ao aplicar novo IP na camera: {result.get('response') or result.get('error') or 'sem detalhe'}",
+        )
+    return {
+        "ok": True,
+        "ip": ip,
+        "new_ip": new_ip,
+        "subnet_mask": net["subnet_mask"],
+        "gateway": net.get("gateway") or "",
+        "response": result.get("response"),
+    }
 
 
 @router.post("")

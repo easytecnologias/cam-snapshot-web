@@ -5784,9 +5784,11 @@ async function deployPullCameraInfo() {
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
   const titleEl = document.getElementById('deployCameraTitle');
+  const newIpEl = document.getElementById('deployCameraNewIp');
   if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
   if (modEl && cam.modelo) modEl.value = cam.modelo;
   if (titleEl && cam.titulo) titleEl.value = cam.titulo;
+  if (newIpEl && !newIpEl.value) newIpEl.value = cam.ip || ip;
   if (box) {
     box.innerHTML = `
       <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
@@ -5809,14 +5811,41 @@ async function deployCheckIp() {
   const p = deployPayload();
   const newIp = p.camera_new_ip;
   if (!newIp) { showToast('Digite o novo IP que a camera vai assumir.', true); return; }
+  deploySetCheckIpResult('Checando disponibilidade do IP...');
   const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(newIp)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
   if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
   if (data.in_use) {
     const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
-    deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso.<br>${places}`, true);
-  } else {
-    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario e no ultimo sinal do conector.`);
+    deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso, nao vou aplicar na camera.<br>${places}`, true);
+    return;
   }
+  if (newIp === p.camera_ip) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre, e ja e o IP atual da camera -- nada a aplicar.`);
+    return;
+  }
+  if (!p.camera_ip || !p.camera_user || !p.camera_password) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario. Preencha IP atual + usuario/senha da camera pra eu aplicar direto nela.`);
+    return;
+  }
+  if (!confirm(`IP ${newIp} esta livre.\n\nAplicar esse IP DIRETO na camera (${p.camera_ip}) agora?\n\nIsso muda a rede real do equipamento -- se a mascara/gateway herdados estiverem errados, a camera pode ficar inalcancavel.`)) {
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario. Aplicacao na camera cancelada.`);
+    return;
+  }
+  deploySetCheckIpResult('Aplicando novo IP na camera (equipamento vivo, aguarde)...');
+  const res = await api('/api/deployments/apply-camera-ip', {
+    method: 'POST',
+    body: JSON.stringify({ ip: p.camera_ip, usuario: p.camera_user, senha: p.camera_password, new_ip: newIp }),
+  });
+  const result = await res?.json().catch(() => ({}));
+  if (!res?.ok || result?.ok === false) {
+    deploySetCheckIpResult(esc(result?.detail || 'Falha ao aplicar o novo IP na camera.'), true);
+    return;
+  }
+  deploySetCheckIpResult(`IP aplicado na camera: ${esc(result.new_ip)} (mascara ${esc(result.subnet_mask || '-')}${result.gateway ? `, gateway ${esc(result.gateway)}` : ''}).<br>A camera deve responder no novo IP em instantes.`);
+  showToast(`Novo IP aplicado na camera: ${result.new_ip}`);
+  const ipEl = document.getElementById('deployCameraIp');
+  if (ipEl) ipEl.value = newIp;
+  deployRenderSummary();
 }
 
 async function deploySaveDraft() {
