@@ -5212,7 +5212,6 @@ function deployPayload() {
     site: document.getElementById('deploySite')?.value.trim() || '',
     camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
     camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
-    camera_new_ip: document.getElementById('deployCameraNewIp')?.value.trim() || '',
     camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
     camera_model: document.getElementById('deployCameraModel')?.value.trim() || '',
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
@@ -5279,12 +5278,12 @@ function deployRenderSummary() {
   const conn = deploySelectedConnector();
   const rows = [
     ['Conector', conn ? `${conn.name || conn.id} / ${conn.site || '-'}` : '-'],
-    ['Camera', [p.camera_title, p.camera_new_ip || p.camera_ip].filter(Boolean).join(' - ') || '-'],
+    ['Camera', [p.camera_title, p.camera_ip].filter(Boolean).join(' - ') || '-'],
     ['MAC camera', p.camera_mac || '-'],
     ['Gravador', [p.recorder_type?.toUpperCase(), p.recorder_host, p.recorder_channel && `CH ${p.recorder_channel}`].filter(Boolean).join(' / ') || '-'],
     ['Site', p.site || '-'],
   ];
-  const filled = [p.connector_id, p.site, (p.camera_new_ip || p.camera_ip), p.camera_title].filter(Boolean).length;
+  const filled = [p.connector_id, p.site, p.camera_ip, p.camera_title].filter(Boolean).length;
   const summary = document.getElementById('deploySummary');
   const status = document.getElementById('deploySummaryStatus');
   if (status) status.textContent = filled >= 4 ? 'Pronto para registrar camera.' : 'Preencha conector, site, IP e titulo.';
@@ -5783,11 +5782,9 @@ async function deployPullCameraInfo() {
   const fabEl = document.getElementById('deployCameraManufacturer');
   const modEl = document.getElementById('deployCameraModel');
   const titleEl = document.getElementById('deployCameraTitle');
-  const newIpEl = document.getElementById('deployCameraNewIp');
   if (fabEl && cam.fabricante) fabEl.value = cam.fabricante;
   if (modEl && cam.modelo) modEl.value = cam.modelo;
   if (titleEl && cam.titulo) titleEl.value = cam.titulo;
-  if (newIpEl && !newIpEl.value) newIpEl.value = cam.ip || ip;
   if (box) {
     box.innerHTML = `
       <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
@@ -5796,54 +5793,6 @@ async function deployPullCameraInfo() {
       ${cam.snapshot_path ? '<div style="margin-top:4px">Snapshot capturado.</div>' : ''}
     `;
   }
-  deployRenderSummary();
-}
-
-function deploySetCheckIpResult(html, isError = false) {
-  const box = document.getElementById('deployCheckIpResult');
-  if (!box) return;
-  box.innerHTML = html || 'Depois de puxar os dados, informe o novo IP e cheque se esta livre.';
-  box.classList.toggle('error', !!isError);
-}
-
-async function deployCheckIp() {
-  const p = deployPayload();
-  const newIp = p.camera_new_ip;
-  if (!newIp) { showToast('Digite o novo IP que a camera vai assumir.', true); return; }
-  deploySetCheckIpResult('Checando disponibilidade do IP...');
-  const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(newIp)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
-  if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
-  if (data.in_use) {
-    const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
-    deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso, nao vou aplicar na camera.<br>${places}`, true);
-    return;
-  }
-  if (newIp === p.camera_ip) {
-    deploySetCheckIpResult(`IP ${esc(newIp)} livre, e ja e o IP atual da camera -- nada a aplicar.`);
-    return;
-  }
-  if (!p.camera_ip || !p.camera_user || !p.camera_password) {
-    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario. Preencha IP atual + usuario/senha da camera pra eu aplicar direto nela.`);
-    return;
-  }
-  if (!confirm(`IP ${newIp} esta livre.\n\nAplicar esse IP DIRETO na camera (${p.camera_ip}) agora?\n\nIsso muda a rede real do equipamento -- se a mascara/gateway herdados estiverem errados, a camera pode ficar inalcancavel.`)) {
-    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario. Aplicacao na camera cancelada.`);
-    return;
-  }
-  deploySetCheckIpResult('Aplicando novo IP na camera (equipamento vivo, aguarde)...');
-  const res = await api('/api/deployments/apply-camera-ip', {
-    method: 'POST',
-    body: JSON.stringify({ ip: p.camera_ip, usuario: p.camera_user, senha: p.camera_password, new_ip: newIp }),
-  });
-  const result = await res?.json().catch(() => ({}));
-  if (!res?.ok || result?.ok === false) {
-    deploySetCheckIpResult(esc(result?.detail || 'Falha ao aplicar o novo IP na camera.'), true);
-    return;
-  }
-  deploySetCheckIpResult(`IP aplicado na camera: ${esc(result.new_ip)} (mascara ${esc(result.subnet_mask || '-')}${result.gateway ? `, gateway ${esc(result.gateway)}` : ''}).<br>A camera deve responder no novo IP em instantes.`);
-  showToast(`Novo IP aplicado na camera: ${result.new_ip}`);
-  const ipEl = document.getElementById('deployCameraIp');
-  if (ipEl) ipEl.value = newIp;
   deployRenderSummary();
 }
 
@@ -5894,7 +5843,6 @@ function deployClear() {
     pullBox.innerHTML = 'Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.';
     pullBox.classList.remove('error');
   }
-  deploySetCheckIpResult();
   deployRenderSummary();
 }
 
@@ -6597,7 +6545,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deployForm')?.addEventListener('submit', deployCommitCamera);
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
-  document.getElementById('btnDeployCheckIp')?.addEventListener('click', deployCheckIp);
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     const conn = deploySelectedConnector();

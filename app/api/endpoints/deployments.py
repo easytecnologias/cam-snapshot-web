@@ -12,7 +12,6 @@ from fastapi import APIRouter, HTTPException
 from app.core.tenant_context import tenant_scoped_path
 from app.services.connector_service import get_connector, list_connectors
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.camsnapshot.device_info import get_network_config, set_network_ip
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
 
@@ -154,43 +153,6 @@ def api_deployments_ip_check(ip: str, connector_id: str = "", site: str = "") ->
     return {"ok": True, **_ip_in_use(ip, connector_id=connector_id, site=site)}
 
 
-@router.post("/apply-camera-ip")
-def api_deployments_apply_camera_ip(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Aplica um novo IP direto na camera (CGI Dahua/Intelbras), herdando
-    mascara/gateway da config atual dela. Equipamento vivo -- ver aviso na UI."""
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="payload invalido")
-    ip = _text(payload.get("ip"))
-    new_ip = _text(payload.get("new_ip"))
-    user = _text(payload.get("usuario")) or "admin"
-    password = _text(payload.get("senha"))
-    if not ip:
-        raise HTTPException(status_code=400, detail="ip atual da camera obrigatorio")
-    if not new_ip:
-        raise HTTPException(status_code=400, detail="novo ip obrigatorio")
-    if not password:
-        raise HTTPException(status_code=400, detail="senha da camera obrigatoria")
-
-    net = get_network_config(ip, user, password)
-    if not net or not net.get("subnet_mask"):
-        raise HTTPException(status_code=502, detail="Nao consegui ler a configuracao de rede atual da camera.")
-
-    result = set_network_ip(ip, user, password, new_ip, net["subnet_mask"], net.get("gateway") or "")
-    if not result.get("ok"):
-        raise HTTPException(
-            status_code=502,
-            detail=f"Falha ao aplicar novo IP na camera: {result.get('response') or result.get('error') or 'sem detalhe'}",
-        )
-    return {
-        "ok": True,
-        "ip": ip,
-        "new_ip": new_ip,
-        "subnet_mask": net["subnet_mask"],
-        "gateway": net.get("gateway") or "",
-        "response": result.get("response"),
-    }
-
-
 @router.post("")
 def api_deployments_save(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
@@ -210,9 +172,7 @@ def api_deployments_save(payload: Dict[str, Any]) -> Dict[str, Any]:
 def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
-    # camera_new_ip = IP que a camera vai assumir (o que fica registrado);
-    # camera_ip = IP atual, usado so pra conectar/puxar dados na etapa anterior.
-    ip = _text(payload.get("camera_new_ip")) or _text(payload.get("camera_ip"))
+    ip = _text(payload.get("camera_ip"))
     title = _text(payload.get("camera_title"))
     if not ip:
         raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
@@ -245,21 +205,18 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "deployment_id": _text(payload.get("id")),
         "installed_at": _now(),
     }
-    old_ip = _text(payload.get("camera_ip"))
     rows = load_inventory_json(mode="olt") or []
     key = inventory_row_key(row)
     updated = False
     for idx, existing in enumerate(rows):
-        # Casa por IP (novo OU o IP atual usado na etapa de "puxar dados"),
-        # por MAC, ou pela chave com connector_id -- o IP muda entre a etapa
-        # de puxar dados (rescan-single-ip, sem remote_connector_id) e esta,
-        # entao so a chave/IP novo nao bastam pra achar a mesma linha.
+        # Casa por IP, por MAC, ou pela chave com connector_id: a etapa de
+        # "puxar dados da camera" (rescan-single-ip) ja pode ter criado a
+        # linha sem remote_connector_id, e sem isso aqui viraria duplicata.
         existing_ip = _text(existing.get("ip"))
         existing_mac = _norm_mac(existing.get("mac"))
         same = (
             inventory_row_key(existing) == key
             or existing_ip == ip
-            or (old_ip and existing_ip == old_ip)
             or (mac and existing_mac == mac)
         )
         if same:
