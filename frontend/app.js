@@ -5519,19 +5519,55 @@ async function onuQuery() {
   `);
 }
 
+let _onuDeleteTarget = null; // {olt, pon, onu}
+
+function openOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.remove('hidden'); }
+function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.add('hidden'); }
+
 async function onuDelete() {
   const olt = onuOltPayload();
   if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
-  const ponNum = onuOltPonNumber(olt);
-  if (!ponNum) { showToast('Escolha uma PON especifica (nao "Todas") pra excluir.', true); return; }
-  const onuNum = Number(document.getElementById('onuTargetNum')?.value.trim() || '0');
+  const ponNum = Number(document.getElementById('onuDeletePon')?.value.trim() || '0');
+  if (!ponNum) { showToast('Escolha a PON da ONU a excluir.', true); return; }
+  const onuNum = Number(document.getElementById('onuDeleteOnuNum')?.value.trim() || '0');
   if (!onuNum) { showToast('Informe o numero da ONU (posicao) a excluir.', true); return; }
 
-  if (!confirm(`Confirma excluir a ONU na PON ${ponNum} / posicao ${onuNum}?\n\nIsso remove o cadastro e desliga o servico dela AGORA na OLT.`)) return;
+  _onuDeleteTarget = { olt, pon: ponNum, onu: onuNum };
+  const panoramaEl = document.getElementById('onuDeletePanorama');
+  if (panoramaEl) panoramaEl.innerHTML = 'Consultando dados da ONU na OLT...';
+  openOnuDeleteModal();
 
-  onuSetResult('onuDeleteResult', 'Excluindo ONU na OLT (equipamento vivo, aguarde)...');
-  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum }) });
+  const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum }) });
   const data = await res?.json().catch(() => ({}));
+  if (!panoramaEl) return;
+  if (!res?.ok || data?.ok === false) {
+    panoramaEl.innerHTML = `<p style="color:var(--danger)">Nao consegui confirmar os dados dessa ONU (${esc(data?.detail || data?.error || 'falha na consulta')}). Voce ainda pode confirmar a exclusao, mas confira a PON/posicao com cuidado.</p>`;
+    return;
+  }
+  const macsHtml = (data.macs || []).length
+    ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(m => `<li><code>${esc(m.mac)}</code> - ${esc(m.interface)}</li>`).join('')}</ul>`
+    : '<p style="margin:6px 0 0">Nenhum MAC aprendido atras dessa ONU.</p>';
+  panoramaEl.innerHTML = `
+    <p>Voce esta prestes a excluir:</p>
+    <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
+      <div><b>PON ${esc(data.pon)} / ONU ${esc(data.onu)}</b> - ${esc(data.serial)} (${esc(data.model)})</div>
+      <div style="margin-top:4px">Status: ${esc(data.oper_status || '-')} / OMCI ${esc(data.omci_status || '-')}</div>
+      <div style="margin-top:6px"><b>${(data.macs || []).length} MAC(s) que vao perder conexao:</b>${macsHtml}</div>
+    </div>
+    <p style="color:var(--danger);font-size:13px;margin:0">Isso remove o cadastro e desliga o servico dela AGORA na OLT.</p>
+  `;
+}
+
+async function onuConfirmDelete() {
+  if (!_onuDeleteTarget) { closeOnuDeleteModal(); return; }
+  const { olt, pon, onu } = _onuDeleteTarget;
+  const panoramaEl = document.getElementById('onuDeletePanorama');
+  if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo, aguarde)...</p>');
+
+  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu }) });
+  const data = await res?.json().catch(() => ({}));
+  closeOnuDeleteModal();
+  _onuDeleteTarget = null;
   if (!res?.ok || data?.ok === false) {
     onuSetResult('onuDeleteResult', esc(data?.detail || 'Falha ao excluir ONU (confira se a posicao esta correta).'), true);
     return;
@@ -6415,6 +6451,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnOnuAdd')?.addEventListener('click', onuAdd);
   document.getElementById('btnOnuQuery')?.addEventListener('click', onuQuery);
   document.getElementById('btnOnuDelete')?.addEventListener('click', onuDelete);
+  document.getElementById('confirmOnuDelete')?.addEventListener('click', onuConfirmDelete);
+  document.getElementById('cancelOnuDelete')?.addEventListener('click', closeOnuDeleteModal);
+  document.getElementById('closeOnuDeleteModalBtn')?.addEventListener('click', closeOnuDeleteModal);
 
   // Implantacao
   document.getElementById('btnDeployClear')?.addEventListener('click', deployClear);

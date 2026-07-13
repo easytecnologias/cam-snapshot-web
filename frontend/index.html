@@ -2034,9 +2034,28 @@
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
               <summary><span class="onu-step-title">4. Excluir ONU</span></summary>
               <div class="onu-step-body">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="onuDeletePon">PON</label>
+                    <select id="onuDeletePon">
+                      <option value="1">PON 1</option>
+                      <option value="2">PON 2</option>
+                      <option value="3">PON 3</option>
+                      <option value="4">PON 4</option>
+                      <option value="5">PON 5</option>
+                      <option value="6">PON 6</option>
+                      <option value="7">PON 7</option>
+                      <option value="8">PON 8</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="onuDeleteOnuNum">Numero da ONU (posicao)</label>
+                    <input id="onuDeleteOnuNum" type="number" placeholder="Ex: 4">
+                  </div>
+                </div>
                 <p style="font-size:11px;color:var(--danger);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
                   <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
-                  Acao destrutiva: remove o cadastro e desliga o servico da ONU na posicao informada no passo 3.
+                  Acao destrutiva: remove o cadastro e desliga o servico dessa ONU.
                 </p>
                 <div class="deploy-inline-button">
                   <button class="secondary-action" id="btnOnuDelete" type="button" style="border-color:var(--danger);color:var(--danger)"><i data-lucide="trash-2"></i> Excluir ONU</button>
@@ -2304,6 +2323,22 @@
       <div class="modal-actions">
         <button class="secondary-action" id="cancelWinScan">Fechar</button>
         <button class="primary-action" id="startWinScan"><i data-lucide="scan-search"></i> Executar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalOnuDelete" class="modal-backdrop hidden" onclick="if(event.target===this)closeOnuDeleteModal()">
+    <div class="modal" style="max-width:min(92vw,520px);width:92vw">
+      <div class="modal-header">
+        <div><p class="eyebrow">ONU</p><h2>Confirmar exclusao</h2></div>
+        <button class="icon-button" id="closeOnuDeleteModalBtn"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="onuDeletePanorama">Consultando dados da ONU na OLT...</div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelOnuDelete">Cancelar</button>
+        <button class="primary-action" id="confirmOnuDelete" style="background:var(--danger)"><i data-lucide="trash-2"></i> Confirmar exclusao</button>
       </div>
     </div>
   </div>
