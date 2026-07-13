@@ -5212,6 +5212,7 @@ function deployPayload() {
     site: document.getElementById('deploySite')?.value.trim() || '',
     camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
     camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
+    camera_new_ip: document.getElementById('deployCameraNewIp')?.value.trim() || '',
     camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
     camera_model: document.getElementById('deployCameraModel')?.value.trim() || '',
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
@@ -5279,12 +5280,12 @@ function deployRenderSummary() {
   const conn = deploySelectedConnector();
   const rows = [
     ['Conector', conn ? `${conn.name || conn.id} / ${conn.site || '-'}` : '-'],
-    ['Camera', [p.camera_title, p.camera_ip].filter(Boolean).join(' - ') || '-'],
+    ['Camera', [p.camera_title, p.camera_new_ip || p.camera_ip].filter(Boolean).join(' - ') || '-'],
     ['MAC camera', p.camera_mac || '-'],
     ['Gravador', [p.recorder_type?.toUpperCase(), p.recorder_host, p.recorder_channel && `CH ${p.recorder_channel}`].filter(Boolean).join(' / ') || '-'],
     ['Localizacao', p.location || p.site || '-'],
   ];
-  const filled = [p.connector_id, p.site, p.camera_ip, p.camera_title].filter(Boolean).length;
+  const filled = [p.connector_id, p.site, (p.camera_new_ip || p.camera_ip), p.camera_title].filter(Boolean).length;
   const summary = document.getElementById('deploySummary');
   const status = document.getElementById('deploySummaryStatus');
   if (status) status.textContent = filled >= 4 ? 'Pronto para registrar camera.' : 'Preencha conector, site, IP e titulo.';
@@ -5797,16 +5798,24 @@ async function deployPullCameraInfo() {
   deployRenderSummary();
 }
 
+function deploySetCheckIpResult(html, isError = false) {
+  const box = document.getElementById('deployCheckIpResult');
+  if (!box) return;
+  box.innerHTML = html || 'Depois de puxar os dados, informe o novo IP e cheque se esta livre.';
+  box.classList.toggle('error', !!isError);
+}
+
 async function deployCheckIp() {
   const p = deployPayload();
-  if (!p.camera_ip) { showToast('Digite o IP da camera.', true); return; }
-  const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(p.camera_ip)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
+  const newIp = p.camera_new_ip;
+  if (!newIp) { showToast('Digite o novo IP que a camera vai assumir.', true); return; }
+  const data = await apiJson(`/api/deployments/ip-check?ip=${encodeURIComponent(newIp)}&connector_id=${encodeURIComponent(p.connector_id)}&site=${encodeURIComponent(p.site)}`);
   if (!data) { showToast('Nao foi possivel checar o IP.', true); return; }
   if (data.in_use) {
     const places = (data.matches || []).map(m => `${m.source || 'inventario'}: ${m.title || m.mac || m.host || '-'}`).join('<br>');
-    deploySetResult(`IP ${esc(p.camera_ip)} ja aparece em uso.<br>${places}`, true);
+    deploySetCheckIpResult(`IP ${esc(newIp)} ja aparece em uso.<br>${places}`, true);
   } else {
-    deploySetResult(`IP ${esc(p.camera_ip)} livre no inventario e no ultimo sinal do conector.`);
+    deploySetCheckIpResult(`IP ${esc(newIp)} livre no inventario e no ultimo sinal do conector.`);
   }
 }
 
@@ -5857,6 +5866,7 @@ function deployClear() {
     pullBox.innerHTML = 'Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.';
     pullBox.classList.remove('error');
   }
+  deploySetCheckIpResult();
   deployRenderSummary();
 }
 

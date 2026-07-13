@@ -2120,12 +2120,11 @@
                     <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
                   </div>
                   <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
-                  <div class="form-row deploy-inline-button">
+                  <div class="form-row">
                     <div class="form-group">
-                      <label for="deployCameraIp">IP da camera</label>
+                      <label for="deployCameraIp">IP atual da camera (pra conectar)</label>
                       <input id="deployCameraIp" placeholder="192.168.20.21">
                     </div>
-                    <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
                   </div>
                   <div class="form-row">
                     <div class="form-group">
@@ -2141,6 +2140,14 @@
                     <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="download-cloud"></i> Puxar dados da camera</button>
                   </div>
                   <div id="deployPullCameraResult" class="deploy-result-box">Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.</div>
+                  <div class="form-row deploy-inline-button">
+                    <div class="form-group">
+                      <label for="deployCameraNewIp">Novo IP (que a camera vai assumir)</label>
+                      <input id="deployCameraNewIp" placeholder="192.168.20.21">
+                    </div>
+                    <button class="secondary-action" id="btnDeployCheckIp" type="button"><i data-lucide="shield-check"></i> Checar IP</button>
+                  </div>
+                  <div id="deployCheckIpResult" class="deploy-result-box">Depois de puxar os dados, informe o novo IP e cheque se esta livre.</div>
                   <div class="form-row">
                     <div class="form-group">
                       <label for="deployCameraTitle">Titulo obrigatorio</label>

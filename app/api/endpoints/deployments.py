@@ -172,7 +172,9 @@ def api_deployments_save(payload: Dict[str, Any]) -> Dict[str, Any]:
 def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="payload invalido")
-    ip = _text(payload.get("camera_ip"))
+    # camera_new_ip = IP que a camera vai assumir (o que fica registrado);
+    # camera_ip = IP atual, usado so pra conectar/puxar dados na etapa anterior.
+    ip = _text(payload.get("camera_new_ip")) or _text(payload.get("camera_ip"))
     title = _text(payload.get("camera_title"))
     if not ip:
         raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
@@ -181,9 +183,10 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     connector_id = _text(payload.get("connector_id"))
     site = _text(payload.get("site") or payload.get("local"))
+    mac = _norm_mac(payload.get("camera_mac"))
     row = {
         "ip": ip,
-        "mac": _norm_mac(payload.get("camera_mac")),
+        "mac": mac,
         "fabricante": _text(payload.get("camera_manufacturer")),
         "modelo": _text(payload.get("camera_model")),
         "usuario": _text(payload.get("camera_user")),
@@ -204,14 +207,24 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "deployment_id": _text(payload.get("id")),
         "installed_at": _now(),
     }
+    old_ip = _text(payload.get("camera_ip"))
     rows = load_inventory_json(mode="olt") or []
     key = inventory_row_key(row)
     updated = False
     for idx, existing in enumerate(rows):
-        # Casa por IP tambem (nao so pela chave com connector_id): a etapa de
-        # "puxar dados da camera" (rescan-single-ip) ja pode ter criado a linha
-        # sem remote_connector_id, e sem isso aqui viraria registro duplicado.
-        if inventory_row_key(existing) == key or _text(existing.get("ip")) == ip:
+        # Casa por IP (novo OU o IP atual usado na etapa de "puxar dados"),
+        # por MAC, ou pela chave com connector_id -- o IP muda entre a etapa
+        # de puxar dados (rescan-single-ip, sem remote_connector_id) e esta,
+        # entao so a chave/IP novo nao bastam pra achar a mesma linha.
+        existing_ip = _text(existing.get("ip"))
+        existing_mac = _norm_mac(existing.get("mac"))
+        same = (
+            inventory_row_key(existing) == key
+            or existing_ip == ip
+            or (old_ip and existing_ip == old_ip)
+            or (mac and existing_mac == mac)
+        )
+        if same:
             rows[idx] = {**existing, **row}
             updated = True
             break
