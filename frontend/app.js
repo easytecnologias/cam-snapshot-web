@@ -5215,6 +5215,8 @@ function deployPayload() {
     camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
     camera_model: document.getElementById('deployCameraModel')?.value.trim() || '',
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
+    camera_user: document.getElementById('deployCameraUser')?.value.trim() || '',
+    camera_password: document.getElementById('deployCameraPassword')?.value || '',
     location: document.getElementById('deployLocation')?.value.trim() || '',
     recorder_type: document.getElementById('deployRecorderType')?.value || '',
     recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',

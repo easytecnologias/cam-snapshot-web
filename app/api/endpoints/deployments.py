@@ -186,6 +186,8 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         "mac": _norm_mac(payload.get("camera_mac")),
         "fabricante": _text(payload.get("camera_manufacturer")),
         "modelo": _text(payload.get("camera_model")),
+        "usuario": _text(payload.get("camera_user")),
+        "senha": _text(payload.get("camera_password")),
         "titulo": title,
         "status": "online",
         "local": site,
