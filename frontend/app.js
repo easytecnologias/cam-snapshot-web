@@ -5210,10 +5210,6 @@ function deployPayload() {
     id: _deployCurrentId || '',
     connector_id: document.getElementById('deployConnector')?.value || '',
     site: document.getElementById('deploySite')?.value.trim() || '',
-    onu_serial: document.getElementById('deployOnuSerial')?.value.trim() || '',
-    onu_mac: document.getElementById('deployOnuMac')?.value.trim() || '',
-    vlan: document.getElementById('deployVlan')?.value.trim() || '',
-    pon: document.getElementById('deployPon')?.value.trim() || '',
     camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
     camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
     camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
@@ -5244,8 +5240,6 @@ function deployRenderSummary() {
   const conn = deploySelectedConnector();
   const rows = [
     ['Conector', conn ? `${conn.name || conn.id} / ${conn.site || '-'}` : '-'],
-    ['ONU/ONT', p.onu_serial || p.onu_mac || '-'],
-    ['VLAN / PON', [p.vlan, p.pon].filter(Boolean).join(' / ') || '-'],
     ['Camera', [p.camera_title, p.camera_ip].filter(Boolean).join(' - ') || '-'],
     ['MAC camera', p.camera_mac || '-'],
     ['Gravador', [p.recorder_type?.toUpperCase(), p.recorder_host, p.recorder_channel && `CH ${p.recorder_channel}`].filter(Boolean).join(' / ') || '-'],
@@ -5292,7 +5286,6 @@ async function loadDeployNew() {
   deploySetResult('Aguardando consulta no conector.');
   deployRenderSummary();
   await loadDeployHistory();
-  populateOltIpDatalist('deployOltIp', 'deployOltIpList', 'deployOltPonNum');
   lucide.createIcons();
 }
 
@@ -5673,108 +5666,6 @@ async function onuConfirmDelete() {
   showToast('ONU excluida com sucesso.');
 }
 
-//  Implantacao - ONU/ONT (assistente "Nova instalacao", etapa 2)
-let _deploySelectedOnu = null; // {pon, serno_id, serial, model, vendor}
-
-function deployOltPayload() {
-  return {
-    olt_ip: document.getElementById('deployOltIp')?.value.trim() || '',
-    user: document.getElementById('deployOltUser')?.value.trim() || 'admin',
-    password: document.getElementById('deployOltPassword')?.value || '',
-    pon: document.getElementById('deployOltPonNum')?.value.trim() || '',
-  };
-}
-
-function deploySetOnuDiscoverResult(html, isError = false) {
-  const box = document.getElementById('deployOnuDiscoverResult');
-  if (!box) return;
-  box.innerHTML = html || 'Informe IP/PON da OLT e clique em Descobrir.';
-  box.classList.toggle('error', !!isError);
-}
-
-function deploySetOnuAuthorizeResult(html, isError = false) {
-  const box = document.getElementById('deployOnuAuthorizeResult');
-  if (!box) return;
-  box.innerHTML = html || 'Nenhuma ONU autorizada ainda nesta sessao.';
-  box.classList.toggle('error', !!isError);
-}
-
-async function deployDiscoverOnus() {
-  const olt = deployOltPayload();
-  if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
-  if (!olt.pon) { showToast('Informe a PON (1-8).', true); return; }
-  if (!olt.password) { showToast('Informe a senha da OLT.', true); return; }
-  deploySetOnuDiscoverResult('Consultando OLT (pode levar alguns segundos)...');
-  const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
-  const data = await res?.json().catch(() => ({}));
-  if (!res?.ok || data?.ok === false) {
-    deploySetOnuDiscoverResult(esc(data?.detail || 'Falha ao consultar a OLT.'), true);
-    return;
-  }
-  const ponData = (data.pons || {})[String(olt.pon)] || { free_slots: [], discovered: [] };
-  if (!ponData.discovered.length) {
-    deploySetOnuDiscoverResult(`Nenhuma ONU nao autorizada na PON ${esc(olt.pon)}. Posicoes livres: ${ponData.free_slots.join(', ') || '-'}.`);
-    return;
-  }
-  deploySetOnuDiscoverResult(ponData.discovered.map(d => `
-    <div class="deploy-match deploy-onu-pick" data-pon="${esc(d.pon)}" data-serno="${esc(d.serno_id)}" data-serial="${esc(d.serial)}" data-model="${esc(d.model)}" data-vendor="${esc(d.vendor)}" style="cursor:pointer">
-      <b>${esc(d.serial)}</b>
-      <span>${esc(d.vendor)} ${esc(d.model)}</span>
-      <small>descoberta ${esc(d.time_discovered || '')} - clique para selecionar</small>
-    </div>
-  `).join(''));
-  document.querySelectorAll('.deploy-onu-pick').forEach(el => {
-    el.addEventListener('click', () => {
-      _deploySelectedOnu = {
-        pon: Number(el.dataset.pon),
-        serno_id: Number(el.dataset.serno),
-        serial: el.dataset.serial,
-        model: el.dataset.model,
-        vendor: el.dataset.vendor,
-      };
-      const serialEl = document.getElementById('deployOnuSerial');
-      if (serialEl) serialEl.value = el.dataset.serial;
-      showToast(`ONU ${el.dataset.serial} selecionada.`);
-    });
-  });
-}
-
-async function deployAuthorizeOnu() {
-  const olt = deployOltPayload();
-  if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
-  if (!_deploySelectedOnu) { showToast('Descubra e selecione uma ONU primeiro.', true); return; }
-  const vlan = Number(document.getElementById('deployVlan')?.value.trim() || '0');
-  const service = document.getElementById('deployOnuService')?.value || 'downlink';
-  const tagMode = document.getElementById('deployOnuTagMode')?.value || 'tagged';
-
-  const payload = {
-    olt_ip: olt.olt_ip,
-    user: olt.user,
-    password: olt.password,
-    pon: _deploySelectedOnu.pon,
-    serno_id: _deploySelectedOnu.serno_id,
-    onu_model: _deploySelectedOnu.model,
-    description: document.getElementById('deployCameraTitle')?.value.trim() || '',
-    service,
-    vlan: vlan || undefined,
-    tag_mode: tagMode,
-  };
-  deploySetOnuAuthorizeResult('Autorizando ONU na OLT (equipamento vivo, aguarde)...');
-  const res = await api('/api/olt/add-onu', { method: 'POST', body: JSON.stringify(payload) });
-  const data = await res?.json().catch(() => ({}));
-  if (!res?.ok) {
-    deploySetOnuAuthorizeResult(esc(data?.detail || 'Falha ao autorizar ONU.'), true);
-    return;
-  }
-  if (data.ok === false) {
-    deploySetOnuAuthorizeResult(`Falhou em: <code>${esc(data.failed_at || '-')}</code><br>${esc(data.error || '')}<br>Comandos ja aplicados: ${data.commands_run?.length || 0}`, true);
-    showToast('Falha ao autorizar ONU -- confira o detalhe.', true);
-    return;
-  }
-  deploySetOnuAuthorizeResult(`ONU autorizada na PON ${esc(data.pon)}, posicao ${esc(data.slot)}.`);
-  showToast(`ONU autorizada: PON ${data.pon} / posicao ${data.slot}`);
-  deployRenderSummary();
-}
 
 async function deployLookupMac() {
   const p = deployPayload();
@@ -5849,14 +5740,11 @@ async function deployCommitCamera(e) {
 
 function deployClear() {
   _deployCurrentId = '';
-  _deploySelectedOnu = null;
   document.getElementById('deployForm')?.reset();
   const conn = deploySelectedConnector();
   const siteEl = document.getElementById('deploySite');
   if (conn && siteEl) siteEl.value = conn.site || conn.client || '';
   deploySetResult('Aguardando consulta no conector.');
-  deploySetOnuDiscoverResult('Informe IP/PON da OLT e clique em Descobrir.');
-  deploySetOnuAuthorizeResult('Nenhuma ONU autorizada ainda nesta sessao.');
   deployRenderSummary();
 }
 
@@ -6560,8 +6448,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeploySave')?.addEventListener('click', deploySaveDraft);
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployCheckIp')?.addEventListener('click', deployCheckIp);
-  document.getElementById('btnDeployDiscoverOnus')?.addEventListener('click', deployDiscoverOnus);
-  document.getElementById('btnDeployAuthorizeOnu')?.addEventListener('click', deployAuthorizeOnu);
   document.getElementById('deployConnector')?.addEventListener('change', () => {
     const conn = deploySelectedConnector();
     const siteEl = document.getElementById('deploySite');

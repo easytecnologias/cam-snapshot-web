@@ -2104,81 +2104,7 @@
               </div>
 
               <div class="deploy-step">
-                <h3>2. ONU / ONT</h3>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployOltIp">IP da OLT</label>
-                    <input id="deployOltIp" list="deployOltIpList" placeholder="Digite o IP ou escolha uma do inventario">
-                    <datalist id="deployOltIpList"></datalist>
-                  </div>
-                  <div class="form-group">
-                    <label for="deployOltPonNum">PON (1-8)</label>
-                    <input id="deployOltPonNum" type="number" min="1" max="8" placeholder="1">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployOltUser">Usuario da OLT</label>
-                    <input id="deployOltUser" placeholder="admin" autocomplete="username">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployOltPassword">Senha da OLT</label>
-                    <input id="deployOltPassword" type="password" placeholder="Senha" autocomplete="current-password">
-                  </div>
-                </div>
-                <div class="deploy-inline-button" style="margin:2px 0 10px">
-                  <button class="secondary-action" id="btnDeployDiscoverOnus" type="button"><i data-lucide="radar"></i> Descobrir ONUs</button>
-                </div>
-                <div id="deployOnuDiscoverResult" class="deploy-result-box">Informe IP/PON da OLT e clique em Descobrir.</div>
-
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployOnuSerial">Serial da ONU/ONT</label>
-                    <input id="deployOnuSerial" placeholder="Selecione uma ONU descoberta, ou digite">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployOnuMac">MAC da ONU/ONT</label>
-                    <input id="deployOnuMac" placeholder="00:11:22:33:44:55">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployVlan">VLAN</label>
-                    <input id="deployVlan" placeholder="Ex: 120">
-                  </div>
-                  <div class="form-group">
-                    <label for="deployPon">PON / Porta (registro)</label>
-                    <input id="deployPon" placeholder="Ex: 1/4">
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="deployOnuService">Servico</label>
-                    <select id="deployOnuService">
-                      <option value="downlink">Downlink (internet)</option>
-                      <option value="tls">TLS (transparente)</option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label for="deployOnuTagMode">Modo VLAN</label>
-                    <select id="deployOnuTagMode">
-                      <option value="tagged">Tagged</option>
-                      <option value="untagged">Untagged</option>
-                    </select>
-                  </div>
-                </div>
-                <p style="font-size:11px;color:var(--amber);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
-                  <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
-                  Autorizar grava configuracao real na OLT (equipamento em producao).
-                </p>
-                <div class="deploy-inline-button">
-                  <button class="primary-action" id="btnDeployAuthorizeOnu" type="button"><i data-lucide="wifi"></i> Autorizar ONU na OLT</button>
-                </div>
-                <div id="deployOnuAuthorizeResult" class="deploy-result-box">Nenhuma ONU autorizada ainda nesta sessao.</div>
-              </div>
-
-              <div class="deploy-step">
-                <h3>3. Camera</h3>
+                <h3>2. Camera</h3>
                 <div class="form-row deploy-inline-button">
                   <div class="form-group">
                     <label for="deployCameraMac">MAC da camera</label>
@@ -2217,7 +2143,7 @@
               </div>
 
               <div class="deploy-step">
-                <h3>4. Gravador</h3>
+                <h3>3. Gravador</h3>
                 <div class="form-row">
                   <div class="form-group">
                     <label for="deployRecorderType">Tipo</label>
