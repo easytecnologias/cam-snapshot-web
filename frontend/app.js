@@ -5292,13 +5292,50 @@ async function loadDeployNew() {
   deploySetResult('Aguardando consulta no conector.');
   deployRenderSummary();
   await loadDeployHistory();
+  populateOltIpDatalist('deployOltIp', 'deployOltIpList', 'deployOltPonNum');
   lucide.createIcons();
 }
 
 //  Implantacao - ONU (pagina dedicada: descobrir/autorizar/consultar/excluir)
 let _onuSelectedDiscovered = null; // {pon, serno_id, serial, model, vendor}
+let _oltInventoryRows = null; // cache: linhas de /api/olt/rows (IP/site/PON ja conhecidos)
+
+async function populateOltIpDatalist(inputId, listId, ponInputId) {
+  const listEl = document.getElementById(listId);
+  if (!listEl) return;
+  if (!_oltInventoryRows) {
+    const data = await apiJson('/api/olt/rows').catch(() => null);
+    _oltInventoryRows = data?.rows || (Array.isArray(data) ? data : []) || [];
+  }
+  const byIp = new Map();
+  _oltInventoryRows.forEach(r => {
+    const ip = (r.olt_ip || '').trim();
+    if (!ip) return;
+    if (!byIp.has(ip)) byIp.set(ip, { ip, name: r.olt_name || '', sites: new Set(), pons: new Set() });
+    const entry = byIp.get(ip);
+    if (r.site) entry.sites.add(r.site);
+    if (r.pon) entry.pons.add(String(r.pon));
+  });
+  listEl.innerHTML = [...byIp.values()].map(e => {
+    const label = [e.name, [...e.sites].join('/')].filter(Boolean).join(' - ');
+    return `<option value="${esc(e.ip)}">${esc(label)}</option>`;
+  }).join('');
+
+  const inputEl = document.getElementById(inputId);
+  const ponEl = ponInputId ? document.getElementById(ponInputId) : null;
+  if (inputEl && ponEl && !inputEl.dataset.oltAutofillBound) {
+    inputEl.dataset.oltAutofillBound = '1';
+    inputEl.addEventListener('change', () => {
+      const entry = byIp.get(inputEl.value.trim());
+      if (entry && entry.pons.size === 1 && !ponEl.value) {
+        ponEl.value = [...entry.pons][0];
+      }
+    });
+  }
+}
 
 function loadDeployOnu() {
+  populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
   lucide.createIcons();
 }
 

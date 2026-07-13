@@ -1910,7 +1910,8 @@
               <div class="form-row">
                 <div class="form-group">
                   <label for="onuOltIp">IP da OLT</label>
-                  <input id="onuOltIp" placeholder="10.80.80.5">
+                  <input id="onuOltIp" list="onuOltIpList" placeholder="Digite o IP ou escolha uma do inventario">
+                  <datalist id="onuOltIpList"></datalist>
                 </div>
                 <div class="form-group">
                   <label for="onuOltPon">PON (1-8)</label>
@@ -2054,7 +2055,8 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label for="deployOltIp">IP da OLT</label>
-                    <input id="deployOltIp" placeholder="10.80.80.5">
+                    <input id="deployOltIp" list="deployOltIpList" placeholder="Digite o IP ou escolha uma do inventario">
+                    <datalist id="deployOltIpList"></datalist>
                   </div>
                   <div class="form-group">
                     <label for="deployOltPonNum">PON (1-8)</label>
