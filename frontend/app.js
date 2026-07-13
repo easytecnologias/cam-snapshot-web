@@ -5218,7 +5218,6 @@ function deployPayload() {
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
     camera_user: document.getElementById('deployCameraUser')?.value.trim() || '',
     camera_password: document.getElementById('deployCameraPassword')?.value || '',
-    location: document.getElementById('deployLocation')?.value.trim() || '',
     recorder_type: document.getElementById('deployRecorderType')?.value || '',
     recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',
     recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
@@ -5283,7 +5282,7 @@ function deployRenderSummary() {
     ['Camera', [p.camera_title, p.camera_new_ip || p.camera_ip].filter(Boolean).join(' - ') || '-'],
     ['MAC camera', p.camera_mac || '-'],
     ['Gravador', [p.recorder_type?.toUpperCase(), p.recorder_host, p.recorder_channel && `CH ${p.recorder_channel}`].filter(Boolean).join(' / ') || '-'],
-    ['Localizacao', p.location || p.site || '-'],
+    ['Site', p.site || '-'],
   ];
   const filled = [p.connector_id, p.site, (p.camera_new_ip || p.camera_ip), p.camera_title].filter(Boolean).length;
   const summary = document.getElementById('deploySummary');
