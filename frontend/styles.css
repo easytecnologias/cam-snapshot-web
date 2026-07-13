@@ -1423,6 +1423,7 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 .map-sidebar {
   width: 260px;
@@ -1432,6 +1433,8 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   flex-direction: column;
   min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 .map-sidebar-title {
   position: sticky;
@@ -1447,12 +1450,16 @@ a { color: inherit; text-decoration: none; }
   color: var(--muted);
 }
 .map-layers-list {
+  flex: 1 1 auto;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  max-height: 100%;
+  scrollbar-gutter: stable;
 }
 .map-layer-bulk {
   display: grid;
@@ -1486,6 +1493,7 @@ a { color: inherit; text-decoration: none; }
   border-radius: 8px;
   background: var(--surface);
   overflow: hidden;
+  flex: 0 0 auto;
 }
 .map-layer-card.active {
   border-color: var(--primary);
