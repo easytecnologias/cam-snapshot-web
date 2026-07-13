@@ -5204,6 +5204,7 @@ async function runNetTool(e) {
 //  Implantacao
 let _deployCurrentId = '';
 let _deployConnectors = [];
+let _deployPullTargetIp = ''; // IP achado no Mikrotik, so pra conectar/puxar -- nao vai no campo visivel
 
 function deployPayload() {
   return {
@@ -5710,7 +5711,6 @@ async function deployLookupMac() {
     return;
   }
   const first = matches[0];
-  if (first.ip && !document.getElementById('deployCameraIp')?.value) document.getElementById('deployCameraIp').value = first.ip;
   if (first.mac && !document.getElementById('deployCameraMac')?.value) document.getElementById('deployCameraMac').value = first.mac;
   deploySetResult(matches.slice(0, 5).map(m => `
     <div class="deploy-match deploy-cam-pick" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" style="cursor:pointer">
@@ -5721,7 +5721,10 @@ async function deployLookupMac() {
   `).join(''));
   document.querySelectorAll('#deployLookupResult .deploy-cam-pick').forEach(el => {
     el.addEventListener('click', () => {
-      if (el.dataset.ip) document.getElementById('deployCameraIp').value = el.dataset.ip;
+      // So guarda o IP encontrado no Mikrotik pra usar na conexao de "puxar
+      // dados" -- o campo visivel "IP da camera" so preenche com o que vier
+      // da propria camera (pull), nao com o achado aqui no MAC/ARP.
+      _deployPullTargetIp = el.dataset.ip || '';
       if (el.dataset.mac) document.getElementById('deployCameraMac').value = el.dataset.mac;
       showToast(`Selecionado: ${el.dataset.ip || el.dataset.mac}`);
       deployRenderSummary();
@@ -5731,7 +5734,7 @@ async function deployLookupMac() {
         deployPullCameraInfo();
       } else {
         const box = document.getElementById('deployPullCameraResult');
-        if (box) box.innerHTML = 'IP selecionado. Preencha usuario/senha da camera e clique em "Puxar dados da camera".';
+        if (box) box.innerHTML = `IP ${esc(el.dataset.ip || '')} selecionado (via Mikrotik). Preencha usuario/senha da camera e clique em "Puxar dados da camera" pra confirmar.`;
       }
     });
   });
@@ -5739,11 +5742,14 @@ async function deployLookupMac() {
 }
 
 async function deployPullCameraInfo() {
-  const ip = document.getElementById('deployCameraIp')?.value.trim() || '';
+  // IP pra conectar vem do que foi selecionado na busca de MAC (Mikrotik),
+  // ou do valor ja confirmado no campo (de um pull anterior) -- nunca de
+  // digitacao manual, ja que o campo visivel fica travado.
+  const ip = _deployPullTargetIp || document.getElementById('deployCameraIp')?.value.trim() || '';
   const user = document.getElementById('deployCameraUser')?.value.trim() || '';
   const pass = document.getElementById('deployCameraPassword')?.value || '';
   const box = document.getElementById('deployPullCameraResult');
-  if (!ip) { showToast('Informe o IP da camera primeiro.', true); return; }
+  if (!ip) { showToast('Descubra o IP da camera pelo MAC primeiro (etapa acima).', true); return; }
   if (!user || !pass) { showToast('Informe usuario e senha da camera primeiro.', true); return; }
   if (box) box.innerHTML = 'Conectando na camera e trazendo os dados (pode levar alguns segundos)...';
   const res = await api('/api/rescan-single-ip', {
@@ -5818,6 +5824,7 @@ async function deployCommitCamera(e) {
 
 function deployClear() {
   _deployCurrentId = '';
+  _deployPullTargetIp = '';
   document.getElementById('deployForm')?.reset();
   const conn = deploySelectedConnector();
   const siteEl = document.getElementById('deploySite');
@@ -5826,7 +5833,7 @@ function deployClear() {
   deployRenderConnectorStatus();
   const pullBox = document.getElementById('deployPullCameraResult');
   if (pullBox) {
-    pullBox.innerHTML = 'Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.';
+    pullBox.innerHTML = 'Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.';
     pullBox.classList.remove('error');
   }
   deployRenderSummary();
