@@ -39,6 +39,7 @@ DEBUG_OLT_ADD_ONU = str(os.getenv("OLT_DEBUG_ADD_ONU", "0")).strip().lower() in 
 # Mapa de modelo de ONU -> perfil (meprof) da OLT. Mesmos valores usados em
 # producao no bot de referencia (telegram-olt-bot/config.json).
 DEFAULT_PROFILE = "intelbras-r1"
+ONT_DEFAULT_PROFILE = "intelbras-120ac"
 MODEL_PROFILES = {
     "110gi": "intelbras-r1",
     "110g": "intelbras-r1",
@@ -67,12 +68,12 @@ class OnuAddError(Exception):
         self.commands_run = commands_run
 
 
-def profile_for_model(model: str) -> str:
+def profile_for_model(model: str, terminal: str = "onu") -> str:
     key = re.sub(r"[^a-z0-9]", "", (model or "").strip().lower())
     for needle, profile in MODEL_PROFILES.items():
         if needle in key:
             return profile
-    return DEFAULT_PROFILE
+    return ONT_DEFAULT_PROFILE if str(terminal).strip().lower() == "ont" else DEFAULT_PROFILE
 
 
 def command_failed(output: str) -> bool:
@@ -276,6 +277,7 @@ def add_onu(
     service: str = "",
     vlan: Optional[int] = None,
     tag_mode: str = "tagged",
+    terminal: str = "onu",
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
     """Autoriza a ONU descoberta (serno_id) numa posicao livre da PON.
@@ -313,7 +315,8 @@ def add_onu(
 
         if service and vlan:
             tag = "untagged" if str(tag_mode).strip().lower() == "untagged" else "tagged"
-            cmd = f"bridge add gpon {pon} onu {chosen_slot} {service} vlan {vlan} {tag} eth 1"
+            bridge_port = "router" if str(terminal).strip().lower() == "ont" else "eth 1"
+            cmd = f"bridge add gpon {pon} onu {chosen_slot} {service} vlan {vlan} {tag} {bridge_port}"
             out = cli_run(chan, cmd, timeout=timeout)
             commands_run.append(cmd)
             if command_failed(out):

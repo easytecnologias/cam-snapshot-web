@@ -5429,6 +5429,7 @@ async function onuAdd() {
   const vlan = Number(document.getElementById('onuAddVlan')?.value.trim() || '0');
   const service = document.getElementById('onuAddService')?.value || 'downlink';
   const tagMode = document.getElementById('onuAddTagMode')?.value || 'tagged';
+  const terminal = document.getElementById('onuAddTerminal')?.value || 'onu';
 
   const payload = {
     olt_ip: olt.olt_ip,
@@ -5441,6 +5442,7 @@ async function onuAdd() {
     service,
     vlan: vlan || undefined,
     tag_mode: tagMode,
+    terminal,
   };
   onuSetResult('onuAddResult', 'Autorizando ONU na OLT (equipamento vivo, aguarde)...');
   const res = await api('/api/olt/add-onu', { method: 'POST', body: JSON.stringify(payload) });

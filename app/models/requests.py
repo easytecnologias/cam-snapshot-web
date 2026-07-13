@@ -96,6 +96,7 @@ class OltAddOnuRequest(BaseModel):
     service: str = "downlink"
     vlan: int
     tag_mode: str = "tagged"
+    terminal: str = "onu"
     timeout: float = 15.0
 
 

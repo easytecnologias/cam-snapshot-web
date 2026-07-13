@@ -278,7 +278,7 @@ def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
 def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     """Autoriza uma ONU descoberta (serno_id) na OLT Intelbras 8820i, com
     servico/VLAN opcional. Equipamento vivo -- ver aviso na UI de Implantacao."""
-    profile = (req.profile or "").strip() or profile_for_model(req.onu_model)
+    profile = (req.profile or "").strip() or profile_for_model(req.onu_model, req.terminal)
     with perf_step("OLT_add_onu"):
         try:
             return _add_onu_8820i(
@@ -292,6 +292,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 service=req.service,
                 vlan=req.vlan,
                 tag_mode=req.tag_mode,
+                terminal=req.terminal,
                 timeout=req.timeout,
             )
         except OnuAddError as e:
