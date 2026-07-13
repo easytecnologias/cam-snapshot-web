@@ -148,7 +148,7 @@ const VIEW_META = {
   'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
   'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
-  'deploy-new':    { title: 'Implantacao - Nova instalacao', sub: 'Assistente de campo' },
+  'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
   kmz:             { title: 'KMZ  Mapa',        sub: 'Localizacao das cameras' },
