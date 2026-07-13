@@ -2119,12 +2119,6 @@
                   <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="deployCameraIp">IP atual da camera (pra conectar)</label>
-                      <input id="deployCameraIp" placeholder="192.168.20.21">
-                    </div>
-                  </div>
-                  <div class="form-row">
-                    <div class="form-group">
                       <label for="deployCameraUser">Usuario da camera</label>
                       <input id="deployCameraUser" placeholder="admin" autocomplete="username">
                     </div>
@@ -2137,10 +2131,14 @@
                     <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="download-cloud"></i> Puxar dados da camera</button>
                   </div>
                   <div id="deployPullCameraResult" class="deploy-result-box">Preencha IP e usuario/senha, depois clique para trazer os dados reais da camera.</div>
-                  <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-row">
                     <div class="form-group">
                       <label for="deployCameraTitle">Titulo obrigatorio</label>
                       <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployCameraIp">IP da camera</label>
+                      <input id="deployCameraIp" placeholder="192.168.20.21">
                     </div>
                   </div>
                   <div class="form-row">
