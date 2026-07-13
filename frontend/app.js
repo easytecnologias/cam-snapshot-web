@@ -5336,7 +5336,22 @@ async function populateOltIpDatalist(inputId, listId, ponInputId) {
 
 function loadDeployOnu() {
   populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
+  document.querySelectorAll('#viewDeployOnu details.onu-step').forEach(d => {
+    if (d.dataset.onuAccordionBound) return;
+    d.dataset.onuAccordionBound = '1';
+    d.addEventListener('toggle', () => {
+      if (!d.open) return;
+      document.querySelectorAll('#viewDeployOnu details.onu-step').forEach(other => {
+        if (other !== d) other.open = false;
+      });
+    });
+  });
   lucide.createIcons();
+}
+
+function onuAccordionOpen(stepId) {
+  const el = document.getElementById(stepId);
+  if (el && !el.open) el.open = true;
 }
 
 function onuOltPayload() {
@@ -5406,6 +5421,7 @@ async function onuDiscover() {
       if (sernoEl) sernoEl.value = el.dataset.serno;
       if (modelEl) modelEl.value = `${el.dataset.vendor} ${el.dataset.model}`;
       showToast(`ONU ${el.dataset.serial} selecionada (PON ${el.dataset.pon}).`);
+      onuAccordionOpen('onuStepAdd');
     });
   });
 }
@@ -5460,6 +5476,7 @@ async function onuAdd() {
   showToast(`ONU autorizada: PON ${data.pon} / posicao ${data.slot}`);
   const targetEl = document.getElementById('onuTargetNum');
   if (targetEl) targetEl.value = data.slot;
+  onuAccordionOpen('onuStepQuery');
 }
 
 async function onuQuery() {

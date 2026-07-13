@@ -2126,6 +2126,42 @@ a { color: inherit; text-decoration: none; }
   font-size: 14px;
   color: var(--text);
 }
+.onu-accordion { padding: 16px; display: grid; gap: 10px; }
+.onu-step {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.onu-step > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.onu-step > summary::-webkit-details-marker { display: none; }
+.onu-step > summary::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+  flex-shrink: 0;
+}
+.onu-step[open] > summary::after { transform: rotate(45deg); }
+.onu-step-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.onu-step-sub { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.onu-step-body {
+  padding: 0 16px 16px;
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
 .deployment-form label {
   color: var(--muted);
   font-size: 13px;
