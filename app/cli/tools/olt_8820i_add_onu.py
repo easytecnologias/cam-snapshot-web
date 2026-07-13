@@ -276,6 +276,7 @@ def add_onu(
     description: str = "",
     service: str = "",
     vlan: Optional[int] = None,
+    services: Optional[List[Dict[str, Any]]] = None,
     tag_mode: str = "tagged",
     terminal: str = "onu",
     timeout: float = 15.0,
@@ -285,6 +286,11 @@ def add_onu(
     Reconfirma a posicao livre bem antes de executar (o serno_id/free_slots
     podem ter mudado desde a descoberta se outro tecnico mexeu na mesma OLT
     nesse meio tempo) -- mesma protecao usada no bot de referencia.
+
+    `services` permite mais de um par servico/VLAN (um "bridge add" por
+    entrada) -- so faz sentido em modo ONT/roteador; em modo ONU/bridge
+    so a primeira entrada e aplicada (mesma regra do bot de referencia).
+    Se `services` nao for passado, cai no par unico `service`/`vlan`.
 
     Levanta OnuAddError se algum comando falhar, com o que ja foi aplicado.
     """
@@ -313,14 +319,26 @@ def add_onu(
             if command_failed(out):
                 raise OnuAddError(f"ONU autorizada, mas falha ao gravar descricao: {out.strip()[:300]}", cmd, commands_run)
 
-        if service and vlan:
+        entries = [e for e in (services or []) if e.get("service") and e.get("vlan")]
+        if not entries and service and vlan:
+            entries = [{"service": service, "vlan": vlan}]
+        is_ont = str(terminal).strip().lower() == "ont"
+        if not is_ont:
+            entries = entries[:1]
+
+        if entries:
             tag = "untagged" if str(tag_mode).strip().lower() == "untagged" else "tagged"
-            bridge_port = "router" if str(terminal).strip().lower() == "ont" else "eth 1"
-            cmd = f"bridge add gpon {pon} onu {chosen_slot} {service} vlan {vlan} {tag} {bridge_port}"
-            out = cli_run(chan, cmd, timeout=timeout)
-            commands_run.append(cmd)
-            if command_failed(out):
-                raise OnuAddError(f"ONU autorizada, mas falha ao aplicar servico/VLAN: {out.strip()[:300]}", cmd, commands_run)
+            bridge_port = "router" if is_ont else "eth 1"
+            for entry in entries:
+                cmd = f"bridge add gpon {pon} onu {chosen_slot} {entry['service']} vlan {entry['vlan']} {tag} {bridge_port}"
+                out = cli_run(chan, cmd, timeout=timeout)
+                commands_run.append(cmd)
+                if command_failed(out):
+                    raise OnuAddError(
+                        f"ONU autorizada, mas falha ao aplicar servico/VLAN ({entry['service']} vlan {entry['vlan']}): {out.strip()[:300]}",
+                        cmd,
+                        commands_run,
+                    )
 
         return {"ok": True, "pon": pon, "slot": chosen_slot, "commands_run": commands_run}
     finally:

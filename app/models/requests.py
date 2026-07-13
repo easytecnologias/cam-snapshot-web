@@ -84,6 +84,11 @@ class OltDiscoverOnusRequest(BaseModel):
     timeout: float = 12.0
 
 
+class OnuServiceEntry(BaseModel):
+    service: str = "downlink"
+    vlan: int
+
+
 class OltAddOnuRequest(BaseModel):
     olt_ip: str
     user: str
@@ -95,6 +100,7 @@ class OltAddOnuRequest(BaseModel):
     description: str = ""
     service: str = "downlink"
     vlan: int
+    services: List[OnuServiceEntry] = []
     tag_mode: str = "tagged"
     terminal: str = "onu"
     timeout: float = 15.0

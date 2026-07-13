@@ -5346,12 +5346,98 @@ function loadDeployOnu() {
       });
     });
   });
+  bindOnuStepLockGuards();
+  onuUpdateStepsLock();
+  ['onuOltIp', 'onuOltPassword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.lockWatchBound) {
+      el.dataset.lockWatchBound = '1';
+      el.addEventListener('input', onuUpdateStepsLock);
+    }
+  });
+  onuUpdateTerminalUI();
   lucide.createIcons();
 }
 
 function onuAccordionOpen(stepId) {
   const el = document.getElementById(stepId);
   if (el && !el.open) el.open = true;
+}
+
+// Etapas abaixo da conexao ficam travadas ate IP + senha da OLT serem preenchidos.
+function onuLockedStepIds() {
+  return ['onuStepDiscover', 'onuStepAdd', 'onuStepQuery', 'onuStepDelete'];
+}
+
+function onuUpdateStepsLock() {
+  const ip = document.getElementById('onuOltIp')?.value.trim();
+  const pass = document.getElementById('onuOltPassword')?.value;
+  const locked = !ip || !pass;
+  onuLockedStepIds().forEach(id => {
+    const details = document.getElementById(id);
+    if (!details) return;
+    details.classList.toggle('onu-step-locked', locked);
+    if (locked) details.open = false;
+  });
+}
+
+function bindOnuStepLockGuards() {
+  onuLockedStepIds().forEach(id => {
+    const details = document.getElementById(id);
+    const summary = details?.querySelector('summary');
+    if (!summary || summary.dataset.lockGuardBound) return;
+    summary.dataset.lockGuardBound = '1';
+    summary.addEventListener('click', (e) => {
+      if (details.classList.contains('onu-step-locked')) {
+        e.preventDefault();
+        showToast('Informe o IP e a senha da OLT primeiro.', true);
+      }
+    });
+  });
+}
+
+// Etapa "Autorizar" -- ONT permite mais de uma VLAN, ONU fica com uma so.
+function onuServiceRowHtml() {
+  return `
+    <div class="form-row onu-service-row">
+      <div class="form-group">
+        <label>Servico</label>
+        <select class="onuAddServiceSel">
+          <option value="downlink">Downlink (internet)</option>
+          <option value="tls">TLS (transparente)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>VLAN</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input class="onuAddVlanInput" type="number" placeholder="Ex: 3000" style="flex:1">
+          <button type="button" class="icon-button onu-service-row-remove" title="Remover VLAN"><i data-lucide="x"></i></button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function onuAddVlanRow() {
+  const container = document.getElementById('onuAddServiceRows');
+  if (!container) return;
+  container.insertAdjacentHTML('beforeend', onuServiceRowHtml());
+  lucide.createIcons();
+  container.querySelectorAll('.onu-service-row-remove').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => btn.closest('.onu-service-row')?.remove());
+  });
+}
+
+function onuUpdateTerminalUI() {
+  const terminal = document.getElementById('onuAddTerminal')?.value || 'onu';
+  const wrap = document.getElementById('onuAddVlanAddWrap');
+  if (wrap) wrap.style.display = terminal === 'ont' ? '' : 'none';
+  if (terminal !== 'ont') {
+    document.querySelectorAll('#onuAddServiceRows .onu-service-row').forEach((row, idx) => {
+      if (idx > 0) row.remove();
+    });
+  }
 }
 
 function onuOltPayload() {
@@ -5442,10 +5528,15 @@ async function onuAdd() {
   }
   if (!pon) { showToast('Escolha uma PON especifica (nao "Todas") na conexao, ou descubra e selecione uma ONU.', true); return; }
 
-  const vlan = Number(document.getElementById('onuAddVlan')?.value.trim() || '0');
-  const service = document.getElementById('onuAddService')?.value || 'downlink';
   const tagMode = document.getElementById('onuAddTagMode')?.value || 'tagged';
   const terminal = document.getElementById('onuAddTerminal')?.value || 'onu';
+
+  const rows = [...document.querySelectorAll('#onuAddServiceRows .onu-service-row')];
+  const services = rows.map(row => ({
+    service: row.querySelector('.onuAddServiceSel')?.value || 'downlink',
+    vlan: Number(row.querySelector('.onuAddVlanInput')?.value.trim() || '0'),
+  })).filter(e => e.vlan > 0);
+  if (!services.length) { showToast('Informe pelo menos uma VLAN.', true); return; }
 
   const payload = {
     olt_ip: olt.olt_ip,
@@ -5455,8 +5546,9 @@ async function onuAdd() {
     serno_id: sernoId,
     onu_model: model,
     description: document.getElementById('onuAddDescription')?.value.trim() || '',
-    service,
-    vlan: vlan || undefined,
+    service: services[0].service,
+    vlan: services[0].vlan,
+    services,
     tag_mode: tagMode,
     terminal,
   };
@@ -6454,6 +6546,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Implantacao - ONU (pagina dedicada)
   document.getElementById('btnOnuDiscover')?.addEventListener('click', onuDiscover);
   document.getElementById('btnOnuAdd')?.addEventListener('click', onuAdd);
+  document.getElementById('onuAddTerminal')?.addEventListener('change', onuUpdateTerminalUI);
+  document.getElementById('btnOnuAddVlanRow')?.addEventListener('click', onuAddVlanRow);
   document.getElementById('btnOnuQuery')?.addEventListener('click', onuQuery);
   document.getElementById('btnOnuDelete')?.addEventListener('click', onuDelete);
   document.getElementById('confirmOnuDelete')?.addEventListener('click', onuConfirmDelete);

@@ -1969,22 +1969,9 @@
                   <div class="form-group">
                     <label for="onuAddTerminal">Tipo</label>
                     <select id="onuAddTerminal">
-                      <option value="onu">ONU (bridge, saida eth 1)</option>
-                      <option value="ont">ONT (roteador, saida router)</option>
+                      <option value="onu">ONU (bridge, saida eth 1, 1 VLAN)</option>
+                      <option value="ont">ONT (roteador, saida router, 1+ VLANs)</option>
                     </select>
-                  </div>
-                  <div class="form-group">
-                    <label for="onuAddService">Servico</label>
-                    <select id="onuAddService">
-                      <option value="downlink">Downlink (internet)</option>
-                      <option value="tls">TLS (transparente)</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="onuAddVlan">VLAN</label>
-                    <input id="onuAddVlan" type="number" placeholder="Ex: 3000">
                   </div>
                   <div class="form-group">
                     <label for="onuAddTagMode">Modo VLAN</label>
@@ -1993,6 +1980,24 @@
                       <option value="untagged">Untagged</option>
                     </select>
                   </div>
+                </div>
+                <div id="onuAddServiceRows">
+                  <div class="form-row onu-service-row">
+                    <div class="form-group">
+                      <label for="onuAddService">Servico</label>
+                      <select class="onuAddServiceSel" id="onuAddService">
+                        <option value="downlink">Downlink (internet)</option>
+                        <option value="tls">TLS (transparente)</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="onuAddVlan">VLAN</label>
+                      <input class="onuAddVlanInput" id="onuAddVlan" type="number" placeholder="Ex: 3000">
+                    </div>
+                  </div>
+                </div>
+                <div class="deploy-inline-button" id="onuAddVlanAddWrap" style="display:none;margin:-6px 0 4px">
+                  <button class="secondary-action" id="btnOnuAddVlanRow" type="button"><i data-lucide="plus"></i> Adicionar outra VLAN</button>
                 </div>
                 <div class="form-row" style="grid-template-columns:1fr">
                   <div class="form-group">
