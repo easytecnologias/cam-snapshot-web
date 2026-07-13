@@ -5229,7 +5229,7 @@ function deploySelectedConnector() {
   return _deployConnectors.find(c => String(c.id || c.connector_id || '') === id) || null;
 }
 
-function deployRenderConnectorStatus(justTested = false) {
+function deployRenderConnectorStatus() {
   const box = document.getElementById('deployConnectorStatus');
   if (!box) return;
   const conn = deploySelectedConnector();
@@ -5247,23 +5247,7 @@ function deployRenderConnectorStatus(justTested = false) {
   ].filter(Boolean).join(' / ');
   const lastSeen = conn.last_seen ? esc(formatDateTimeShort(conn.last_seen)) : 'nunca';
   box.classList.toggle('error', !online);
-  box.innerHTML = `
-    <div><b style="color:${online ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(conn.name || conn.id)}</div>
-    <div style="margin-top:4px">Ultimo sinal: ${lastSeen}</div>
-    <div style="margin-top:2px">${counts || 'Sem inventario recebido ainda.'}</div>
-    ${justTested ? '<div style="margin-top:4px;font-size:11px;color:var(--muted)">Testado agora.</div>' : ''}
-  `;
-}
-
-async function deployTestConnector() {
-  const sel = document.getElementById('deployConnector');
-  const currentId = sel?.value || '';
-  const box = document.getElementById('deployConnectorStatus');
-  if (box) box.innerHTML = 'Consultando status do conector...';
-  const data = await apiJson('/api/deployments/connectors');
-  _deployConnectors = Array.isArray(data?.connectors) ? data.connectors : [];
-  if (sel && currentId) sel.value = currentId;
-  deployRenderConnectorStatus(true);
+  box.innerHTML = `<b style="color:${online ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(conn.name || conn.id)} - Ultimo sinal: ${lastSeen} - ${counts || 'sem inventario recebido ainda'}`;
 }
 
 function deploySetResult(html, isError = false) {
@@ -6553,7 +6537,6 @@ document.addEventListener('DOMContentLoaded', () => {
     deployRenderConnectorStatus();
     deployRenderSummary();
   });
-  document.getElementById('btnDeployTestConnector')?.addEventListener('click', deployTestConnector);
   document.getElementById('deployCameraTitle')?.addEventListener('input', () => {
     const recTitle = document.getElementById('deployRecorderTitle');
     if (recTitle && !recTitle.value) recTitle.value = document.getElementById('deployCameraTitle')?.value || '';
