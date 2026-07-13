@@ -5777,14 +5777,8 @@ async function deployPullCameraInfo() {
   if (modEl && cam.modelo) modEl.value = cam.modelo;
   if (titleEl && cam.titulo) titleEl.value = cam.titulo;
   if (ipEl) ipEl.value = cam.ip || ip;
-  if (box) {
-    box.innerHTML = `
-      <div><b>Camera encontrada:</b> ${esc(cam.fabricante || '-')} ${esc(cam.modelo || '-')}</div>
-      ${cam.titulo ? `<div style="margin-top:2px">Nome atual na camera: <b>${esc(cam.titulo)}</b></div>` : ''}
-      <div style="margin-top:4px">IP: ${esc(cam.ip || ip)} ${cam.mac ? `- MAC: ${esc(cam.mac)}` : ''}</div>
-      ${cam.snapshot_path ? '<div style="margin-top:4px">Snapshot capturado.</div>' : ''}
-    `;
-  }
+  if (box) box.innerHTML = 'Dados da camera trazidos com sucesso.';
+  showToast(`Camera encontrada: ${cam.fabricante || ''} ${cam.modelo || ''}`.trim());
   deployRenderSummary();
 }
 
