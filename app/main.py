@@ -7,11 +7,11 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.core.observability import RequestContextMiddleware, configure_logging
-from app.core.paths import WEB_DIR, STATIC_DIR, SAIDA_DIR, DATA_DIR, WEB_APP_DIR, ensure_dirs
+from app.core.paths import SAIDA_DIR, DATA_DIR, ensure_dirs
 from app.core.security import ApiAuthMiddleware
 from app.core.settings import get_settings
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
@@ -189,118 +189,9 @@ async def shutdown_events() -> None:
 
 
 @app.get("/", include_in_schema=False)
-def index_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "dashboard.html")
-
-
-@app.get("/inventory.html", include_in_schema=False)
-def inventory_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory.html")
-
-
-@app.get("/inventory_switch.html", include_in_schema=False)
-def inventory_switch_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory_switch.html")
-
-
-@app.get("/index.html", include_in_schema=False)
-def index_alias() -> FileResponse:
-    return FileResponse(WEB_DIR / "dashboard.html")
-
-
-@app.get("/dashboard.html", include_in_schema=False)
-def dashboard_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "dashboard.html")
-
-
-@app.get("/windows.html", include_in_schema=False)
-def windows_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "windows.html")
-
-
-@app.get("/backup.html", include_in_schema=False)
-def backup_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "backup.html")
-
-
-@app.get("/olt.html", include_in_schema=False)
-def olt_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "olt.html")
-
-
-@app.get("/switch.html", include_in_schema=False)
-def switch_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "switch.html")
-
-
-@app.get("/snapshot.html", include_in_schema=False)
-def snapshot_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "snapshot.html")
-
-
-@app.get("/snapshot_dvr.html", include_in_schema=False)
-def snapshot_dvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "snapshot_dvr.html")
-
-
-@app.get("/snapshot_nvr.html", include_in_schema=False)
-def snapshot_nvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "snapshot_nvr.html")
-
-
-@app.get("/dvr.html", include_in_schema=False)
-def dvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "dvr.html")
-
-
-@app.get("/nvr.html", include_in_schema=False)
-def nvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "nvr.html")
-
-
-@app.get("/ia_nvr.html", include_in_schema=False)
-def ia_nvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "ia_nvr.html")
-
-
-@app.get("/discovery.html", include_in_schema=False)
-def discovery_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "discovery.html")
-
-
-@app.get("/kmz.html", include_in_schema=False)
-def kmz_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "kmz.html")
-
-
-@app.get("/scripts.html", include_in_schema=False)
-def scripts_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "scripts.html")
-
-
-@app.get("/tools.html", include_in_schema=False)
-def tools_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "tools.html")
-
-
-@app.get("/grafana.html", include_in_schema=False)
-def grafana_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "grafana.html")
-
-
-@app.get("/maintenance.html", include_in_schema=False)
-def maintenance_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "maintenance.html")
-
-
-@app.get("/maintenance_dvr.html", include_in_schema=False)
-def maintenance_dvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "maintenance_dvr.html")
-
-
-@app.get("/maintenance_nvr.html", include_in_schema=False)
-def maintenance_nvr_page() -> FileResponse:
-    return FileResponse(WEB_DIR / "maintenance_nvr.html")
+def index_page() -> RedirectResponse:
+    # Frontend legado (web/pages) aposentado -- /v2/ e a unica UI agora.
+    return RedirectResponse(url="/v2/")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -317,12 +208,8 @@ def chrome_devtools_manifest() -> JSONResponse:
 
 # Static
 (DATA_DIR / "nvr_ai").mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/saida", StaticFiles(directory=str(SAIDA_DIR)), name="saida")
 app.mount("/data/nvr_ai", StaticFiles(directory=str(DATA_DIR / "nvr_ai")), name="nvr_ai")
-# Novo frontend Vue — disponivel em /app/ durante a migracao
-WEB_APP_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/app", StaticFiles(directory=str(WEB_APP_DIR), html=True), name="vue_app")
 
 # Snapshots: URL estavel /data/snapshot/<arquivo> com fallback entre pastas.
 (DATA_DIR / "snapshot").mkdir(parents=True, exist_ok=True)

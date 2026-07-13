@@ -26,7 +26,6 @@ from app.core.paths import (
     INVENTORY_JSON_PATH,
     DVR_INVENTORY_JSON_PATH,
     NVR_INVENTORY_JSON_PATH,
-    WEB_DIR,
     KMZ_INPUT_DIR,
     KMZ_IMPORTED_PATH,
     KMZ_IMPORTED_GEOJSON_PATH,
@@ -673,65 +672,6 @@ async def api_discovery_run(payload: Dict[str, Any]) -> Dict[str, Any]:
         "found": len(rows),
         "results": rows,
     }
-
-
-# -----------------
-# HTML pages (tools)
-# -----------------
-
-@router.get("/ui/inventory", include_in_schema=False)
-def ui_inventory() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory.html")
-
-
-@router.get("/ui/inventory-switch", include_in_schema=False)
-def ui_inventory_switch() -> FileResponse:
-    return FileResponse(WEB_DIR / "inventory_switch.html")
-
-
-@router.get("/ui/olt", include_in_schema=False)
-def ui_olt() -> FileResponse:
-    return FileResponse(WEB_DIR / "olt.html")
-
-
-@router.get("/ui/switch", include_in_schema=False)
-def ui_switch() -> FileResponse:
-    return FileResponse(WEB_DIR / "switch.html")
-
-
-@router.get("/ui/snapshot", include_in_schema=False)
-def ui_snapshot() -> FileResponse:
-    return FileResponse(WEB_DIR / "snapshot.html")
-
-
-@router.get("/ui/discovery", include_in_schema=False)
-def ui_discovery() -> FileResponse:
-    return FileResponse(WEB_DIR / "discovery.html")
-
-
-@router.get("/ui/kmz", include_in_schema=False)
-def ui_kmz() -> FileResponse:
-    return FileResponse(WEB_DIR / "kmz.html")
-
-
-@router.get("/ui/scripts", include_in_schema=False)
-def ui_scripts() -> FileResponse:
-    return FileResponse(WEB_DIR / "scripts.html")
-
-
-@router.get("/ui/tools", include_in_schema=False)
-def ui_tools() -> FileResponse:
-    return FileResponse(WEB_DIR / "tools.html")
-
-
-@router.get("/ui/grafana", include_in_schema=False)
-def ui_grafana() -> FileResponse:
-    return FileResponse(WEB_DIR / "grafana.html")
-
-
-@router.get("/ui/maintenance", include_in_schema=False)
-def ui_maintenance() -> FileResponse:
-    return FileResponse(WEB_DIR / "maintenance.html")
 
 
 # -----------------
