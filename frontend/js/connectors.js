@@ -1,0 +1,730 @@
+function uniqueCoveredCidrs(values) {
+  const infos = values.map(parseCidrInfo).filter(Boolean);
+  const seen = new Set();
+  const unique = infos.filter(info => {
+    if (seen.has(info.cidr)) return false;
+    seen.add(info.cidr);
+    return true;
+  });
+  return unique.filter(info => !unique.some(other =>
+    other.cidr !== info.cidr &&
+    other.prefix < info.prefix &&
+    other.start <= info.start &&
+    other.end >= info.end
+  )).sort((a, b) => cidrSortValue(a.cidr) - cidrSortValue(b.cidr)).map(info => info.cidr);
+}
+
+function splitCidrValues(value) {
+  if (Array.isArray(value)) return value.flatMap(item => splitCidrValues(item));
+  if (typeof value !== 'string') return [];
+  return value.split(/[\s,;|]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function cidrSortValue(cidr) {
+  const [ip, prefix = '0'] = String(cidr || '').split('/');
+  const parts = ip.split('.').map(part => Number(part) || 0);
+  return parts.reduce((acc, part) => (acc * 256) + part, 0) * 100 + (Number(prefix) || 0);
+}
+
+function connectorDetectedLans(row) {
+  const inv = row?.inventory || {};
+  const host = row?.host || {};
+  const tunnel = row?.tunnel || {};
+  const trusted = [];
+  const addValue = value => {
+    splitCidrValues(value).forEach(item => {
+      const cidr = normalizePrivateCidr(item);
+      if (cidr) trusted.push(cidr);
+    });
+  };
+  ['lan_networks', 'networks', 'routes'].forEach(key => addValue(inv[key]));
+  addValue(host.lan_networks);
+  addValue(tunnel.client_lans);
+  const addressSample = String(inv.address_sample || inv.ip_address_sample || '');
+  addressSample.split(/[;\n\r]+/).forEach(item => {
+    const first = String(item || '').split('|')[0]?.trim();
+    const cidr = normalizePrivateCidr(first);
+    if (cidr) trusted.push(cidr);
+  });
+
+  const trustedClean = uniqueCoveredCidrs(trusted);
+  if (trustedClean.length) return trustedClean;
+
+  const values = [];
+  ['dhcp_sample', 'arp_sample', 'neighbor_sample'].forEach(key => {
+    String(inv[key] || '').match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)?.forEach(ip => {
+      const cidr = private24FromIp(ip);
+      if (cidr) values.push(cidr);
+    });
+  });
+  const seen = new Set();
+  return values.map(v => String(v || '').trim()).filter(v => {
+    if (!/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/.test(v)) return false;
+    if (v === '10.250.0.0/24') return false;
+    if (seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  }).sort((a, b) => cidrSortValue(a) - cidrSortValue(b));
+}
+
+async function loadConnectors() {
+  const data = await apiJson('/api/connectors');
+  const rows = data?.connectors || [];
+  _connectors = rows;
+  const tbody = document.getElementById('connectorsTable');
+  const summary = document.getElementById('connectorsSummary');
+  if (summary) {
+    const online = rows.filter(r => String(r.status).toLowerCase() === 'online').length;
+    summary.textContent = `${rows.length} conector(es), ${online} online.`;
+  }
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum conector criado.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(row => `
+      <tr>
+        <td class="connector-name-cell" title="${esc(row.name || row.id)}"><strong>${esc(row.name || row.id)}</strong><br><span class="monospace text-muted" title="${esc(row.id || '')}">${esc(row.id || '')}</span></td>
+        <td class="connector-text-cell" title="${esc(row.client || '-')}">${esc(row.client || '-')}</td>
+        <td class="connector-text-cell" title="${esc(row.site || '-')}">${esc(row.site || '-')}</td>
+        <td class="connector-status-cell">${statusBadge(row.status)}</td>
+        <td class="connector-host-cell" title="${esc(`${connectorHostLabel(row.host)} ${connectorInventoryLabel(row) || ''}`.trim())}">${esc(connectorHostLabel(row.host))}${connectorInventoryLabel(row) ? `<br><span class="text-muted">${esc(connectorInventoryLabel(row))}</span>` : ''}</td>
+        <td class="connector-ip-cell monospace" title="${esc(row.remote_ip || '-')}">${esc(row.remote_ip || '-')}</td>
+        <td class="connector-date-cell" title="${esc(formatDateTimeShort(row.last_seen))}">${esc(formatDateTimeShort(row.last_seen))}</td>
+        <td class="connector-actions-cell">
+          <div class="connector-actions-wrap">
+            <button class="connector-row-action" data-conn-download="${esc(row.id)}" title="Baixar script"><i data-lucide="download"></i></button>
+            <button class="connector-row-action" data-conn-vpn="${esc(row.id)}" title="VPN"><i data-lucide="shield"></i></button>
+            <button class="connector-row-action danger" data-conn-delete="${esc(row.id)}" title="Apagar"><i data-lucide="trash-2"></i></button>
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+  const sel = document.getElementById('connJobConnector');
+  if (sel) {
+    sel.innerHTML = rows.map(row => `<option value="${esc(row.id)}">${esc(row.name || row.id)} - ${esc(row.site || '')}</option>`).join('');
+  }
+  lucide.createIcons();
+}
+
+function downloadConnectorAgent(connectorId) {
+  if (!connectorId) return;
+  const row = connectorById(connectorId);
+  const fallbackType = String(connectorId) === String(_lastCreatedConnectorId) ? _lastCreatedConnectorType : '';
+  const isRouter = String(row?.type || fallbackType).toLowerCase() === 'routeros';
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
+  const params = new URLSearchParams();
+  if (_token) params.set('auth_token', _token);
+  if (publicUrl) params.set('base_url', publicUrl.replace(/\/+$/, ''));
+  const endpoint = isRouter ? 'routeros-script' : 'agent-script';
+  const query = params.toString() ? `?${params.toString()}` : '';
+  window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/${endpoint}${query}`, '_blank');
+}
+
+async function downloadConnectorVpn(connectorId) {
+  if (!connectorId) return;
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
+  const endpointDefault = `${publicUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '').replace(/\/.*$/, '')}:51820`;
+  openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
+}
+
+function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.80:51820') {
+  const modal = document.getElementById('modalConnectorVpn');
+  if (!modal) {
+    prepareConnectorVpn(connectorId, endpointDefault, '__auto__', 'auto');
+    return;
+  }
+  const row = connectorById(connectorId);
+  const detected = connectorDetectedLans(row);
+  document.getElementById('connectorVpnId').value = connectorId;
+  document.getElementById('connectorVpnEndpoint').value = endpointDefault;
+  document.getElementById('connectorVpnLans').value = detected.join(', ');
+  const autoRadio = document.querySelector('input[name="connectorVpnLanMode"][value="auto"]');
+  const manualRadio = document.querySelector('input[name="connectorVpnLanMode"][value="manual"]');
+  if (autoRadio) autoRadio.disabled = !detected.length;
+  (detected.length ? autoRadio : manualRadio)?.click();
+  const preview = document.getElementById('connectorVpnDetectedPreview');
+  if (preview) {
+    preview.textContent = detected.length
+      ? `Redes detectadas pelo MikroTik: ${detected.join(', ')}.`
+      : 'Nenhuma rede com mascara confiavel foi detectada. Atualize/reinstale o script RouterOS 0.6 ou informe uma rede manualmente.';
+  }
+  updateConnectorVpnLanMode();
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+  setTimeout(() => document.getElementById('connectorVpnEndpoint')?.focus(), 50);
+}
+
+function closeConnectorVpnModal() {
+  document.getElementById('modalConnectorVpn')?.classList.add('hidden');
+}
+
+function updateConnectorVpnLanMode() {
+  const mode = document.querySelector('input[name="connectorVpnLanMode"]:checked')?.value || 'auto';
+  const manual = mode === 'manual';
+  document.getElementById('connectorVpnLansGroup')?.classList.toggle('hidden', !manual);
+  document.getElementById('connectorVpnAutoHelp')?.classList.toggle('hidden', manual);
+  const autoRadio = document.querySelector('input[name="connectorVpnLanMode"][value="auto"]');
+  const autoCard = autoRadio?.closest('label');
+  if (autoCard) {
+    autoCard.style.opacity = autoRadio?.disabled ? '0.55' : '1';
+    autoCard.style.cursor = autoRadio?.disabled ? 'not-allowed' : 'pointer';
+  }
+}
+
+async function submitConnectorVpnModal() {
+  const connectorId = document.getElementById('connectorVpnId')?.value || '';
+  const endpoint = document.getElementById('connectorVpnEndpoint')?.value.trim() || '';
+  const lanMode = document.querySelector('input[name="connectorVpnLanMode"]:checked')?.value || 'auto';
+  const clientLans = lanMode === 'auto' ? '__auto__' : (document.getElementById('connectorVpnLans')?.value.trim() || '');
+  if (!connectorId) return;
+  if (!endpoint) {
+    showToast('Informe o endpoint publico do WireGuard.', true);
+    document.getElementById('connectorVpnEndpoint')?.focus();
+    return;
+  }
+  if (lanMode === 'manual' && !clientLans) {
+    showToast('Informe pelo menos uma rede LAN do cliente.', true);
+    document.getElementById('connectorVpnLans')?.focus();
+    return;
+  }
+  await prepareConnectorVpn(connectorId, endpoint, clientLans, lanMode);
+}
+
+async function prepareConnectorVpn(connectorId, endpoint, clientLans, lanMode = 'manual') {
+  const btn = document.getElementById('confirmConnectorVpnModal');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Preparando';
+    lucide.createIcons();
+  }
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/wireguard`, {
+    method: 'POST',
+    body: JSON.stringify({ endpoint, client_lans: clientLans, lan_mode: lanMode }),
+  });
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = oldHtml || '<i data-lucide="shield"></i> Preparar VPN';
+    lucide.createIcons();
+  }
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao preparar VPN.', true);
+    return;
+  }
+  const params = new URLSearchParams();
+  if (_token) params.set('auth_token', _token);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  showToast('VPN preparada. Baixando script RouterOS.');
+  closeConnectorVpnModal();
+  window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/wireguard-routeros-script${query}`, '_blank');
+  await loadConnectors();
+}
+
+async function createConnectorFromForm() {
+  const payload = {
+    type: document.getElementById('connType')?.value || 'routeros',
+    name: document.getElementById('connName')?.value.trim() || '',
+    client: document.getElementById('connClient')?.value.trim() || '',
+    site: document.getElementById('connSite')?.value.trim() || '',
+    public_base_url: document.getElementById('connPublicUrl')?.value.trim() || '',
+  };
+  const btn = document.getElementById('btnCreateConnector');
+  if (btn) { btn.disabled = true; btn.textContent = 'Criando'; }
+  const res = await api('/api/connectors', { method: 'POST', body: JSON.stringify(payload) });
+  const body = await res?.json().catch(() => ({}));
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="plus"></i> Criar conector';
+    lucide.createIcons();
+  }
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao criar conector.', true);
+    return;
+  }
+  const conn = body.connector || {};
+  _lastCreatedConnectorId = conn.id || '';
+  _lastCreatedConnectorType = conn.type || payload.type || '';
+  document.getElementById('connCreatedBox')?.classList.remove('hidden');
+  const txt = document.getElementById('connCreatedText');
+  const typeText = 'Baixe o script e cole no terminal do MikroTik do cliente.';
+  if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
+  ['connName', 'connClient', 'connSite'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  showToast('Conector criado.');
+  await loadConnectors();
+}
+
+async function deleteConnector(connectorId) {
+  if (!connectorId) return;
+  if (!await showConfirm({ title: 'Apagar conector', msg: 'Apagar este conector e seus jobs?', label: 'Apagar' })) return;
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}`, { method: 'DELETE' });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao apagar conector.', true);
+    return;
+  }
+  showToast('Conector apagado.');
+  await loadConnectors();
+}
+
+async function sendConnectorPingJob() {
+  const connectorId = document.getElementById('connJobConnector')?.value || '';
+  const raw = document.getElementById('connJobTargets')?.value.trim() || '';
+  const targets = raw.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
+  if (!connectorId) { showToast('Crie ou selecione um conector.', true); return; }
+  if (!targets.length) { showToast('Informe ao menos um IP ou host.', true); return; }
+  const res = await api('/api/connectors/jobs', {
+    method: 'POST',
+    body: JSON.stringify({ connector_id: connectorId, type: 'ping_many', payload: { targets } }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao criar job.', true);
+    return;
+  }
+  showToast('Job enviado. O conector executa no proximo ciclo.');
+  await loadConnectorJobs(connectorId);
+}
+
+async function sendConnectorLanInventoryJob() {
+  const connectorId = document.getElementById('connJobConnector')?.value || '';
+  if (!connectorId) { showToast('Crie ou selecione um conector.', true); return; }
+  const res = await api('/api/connectors/jobs', {
+    method: 'POST',
+    body: JSON.stringify({ connector_id: connectorId, type: 'lan_inventory', payload: {} }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao criar job.', true);
+    return;
+  }
+  showToast('Coleta LAN enviada. O MikroTik executa no proximo ciclo.');
+  await loadConnectorJobs(connectorId);
+}
+
+async function loadConnectorJobs(connectorId) {
+  const log = document.getElementById('connectorJobsLog');
+  if (!log || !connectorId) return;
+  const data = await apiJson(`/api/connectors/${encodeURIComponent(connectorId)}/jobs`);
+  const jobs = data?.jobs || [];
+  if (!jobs.length) {
+    log.textContent = 'Nenhum job para este conector.';
+    return;
+  }
+  log.innerHTML = jobs.slice(0, 12).map(job => {
+    const items = job?.result?.items || job?.result?.result?.items || [];
+    const routerosPing = job?.result?.routeros_ping || job?.result?.result?.routeros_ping || '';
+    const inventory = job?.result?.inventory || job?.result?.result?.inventory || null;
+    const inventoryText = inventory
+      ? [
+          `DHCP: ${inventory.dhcp_leases ?? 0}`,
+          `ARP: ${inventory.arp_entries ?? 0}`,
+          `Vizinhos: ${inventory.neighbors ?? 0}`,
+        ].join('<br>')
+      : '';
+    let resultText = '';
+    if (routerosPing) {
+      resultText = routerosPing.split(/[;,]/).filter(Boolean).map(item => {
+          const separator = item.includes('=') ? '=' : ':';
+          const [target, ok] = item.split(separator);
+          const normalized = String(ok || '').toLowerCase();
+          return `${normalized === 'true' || normalized === '1' ? 'OK' : 'FAIL'} ${esc(target || item)}`;
+        }).join('<br>');
+    } else if (Array.isArray(items) && items.length) {
+      resultText = items.map(item => `${item.online ? 'OK' : 'FAIL'} ${item.target} ${item.rtt_ms ? item.rtt_ms + 'ms' : ''}`).join('<br>');
+    } else if (inventoryText) {
+      resultText = inventoryText;
+    } else {
+      resultText = esc(job.error || '');
+    }
+    return `<div class="connector-job-item">
+      <div><strong>${esc(job.type)}</strong> <span class="badge ${job.status === 'done' ? 'badge-green' : job.status === 'failed' ? 'badge-red' : 'badge-amber'}">${esc(job.status)}</span></div>
+      <div class="text-muted">${esc(formatDateTimeShort(job.created_at))}</div>
+      <div class="monospace">${resultText || 'Aguardando MikroTik.'}</div>
+    </div>`;
+  }).join('');
+}
+
+//  Modal ImgBB settings 
+async function openImgbbModal() {
+  const data = await apiJson('/api/settings/imgbb');
+  document.getElementById('imgbbApiKey').value = data?.api_key || data?.key || '';
+  document.getElementById('imgbbTestResult').style.display = 'none';
+  document.getElementById('imgbbErro').hidden = true;
+  document.getElementById('modalImgbb').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+//  Modal editar cameras (multiplas) 
+function openEditCamModal(cams, opts = {}) {
+  const count = cams.length;
+  document.getElementById('modalEditCamTitle').textContent =
+    count === 1 ? `Editar  ${cams[0].ip}` : `Editar ${count} cameras`;
+  document.getElementById('editCamErro').hidden = true;
+  const applyDevice = document.getElementById('editCamApplyDevice');
+  const deviceUser = document.getElementById('editCamDeviceUser');
+  const devicePass = document.getElementById('editCamDevicePass');
+  if (applyDevice) applyDevice.checked = !!opts.renameDevice;
+  if (deviceUser) deviceUser.value = deviceUser.value || 'admin';
+  if (devicePass) devicePass.value = '';
+  if (devicePass && opts.renameDevice) setTimeout(() => devicePass.focus(), 80);
+
+  const s = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box';
+
+  document.getElementById('editCamTableBody').innerHTML = cams.map(c => `
+    <tr data-key="${esc(_camKey(c))}" data-connector-id="${esc(c.remote_connector_id || c.connector_id || '')}" data-site="${esc(c.site || c.site_name || c.local || '')}" data-remote="${c.remote ? '1' : ''}">
+      <td class="monospace" style="font-size:11px;color:var(--muted);white-space:nowrap">${esc(c.ip)}</td>
+      <td><input data-ip="${esc(c.ip)}" data-field="titulo"     style="${s}" value="${esc(c.titulo    || '')}" placeholder="Titulo"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="fabricante" style="${s}" value="${esc(c.fabricante|| '')}" placeholder="Fabricante"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="model"      style="${s}" value="${esc(c.modelo || c.model || '')}" placeholder="Modelo"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="local"      style="${s}" value="${esc(c.local     || '')}" placeholder="Local"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="mac"        style="${s};font-family:monospace" value="${esc(c.mac       || '')}" placeholder="MAC"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="pon"        style="${s};text-align:center" value="${esc(c.pon       || '')}" placeholder=""></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="onu_id"     style="${s};text-align:center" value="${esc(c.onu_id    || '')}" placeholder=""></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="onu_name"   style="${s}" value="${esc(c.onu_name  || '')}" placeholder="gpon x onu y"></td>
+      <td><input data-ip="${esc(c.ip)}" data-field="onu_serial" style="${s};font-family:monospace" value="${esc(c.onu_serial|| '')}" placeholder="ONU Serial"></td>
+    </tr>`).join('');
+
+  document.getElementById('modalEditCam').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeEditCamModal() {
+  document.getElementById('modalEditCam').classList.add('hidden');
+}
+
+function applyCamPayloadsLocally(payloads) {
+  ['basico', 'olt', 'switch'].forEach(mode => {
+    if (!_invCam[mode]?.length) return;
+    _invCam[mode] = _invCam[mode].map(cam => {
+      const patch = payloads.find(p => _camKey(p) === _camKey(cam) || (!p.remote_connector_id && !p.connector_id && p.ip === cam.ip));
+      return patch ? { ...cam, ...patch } : cam;
+    });
+    _camSessionSave(mode, _invCam[mode]);
+  });
+}
+
+function applyCamStatusesLocally(statusByIp) {
+  const patches = Object.entries(statusByIp || {})
+    .filter(([ip, status]) => ip && status)
+    .map(([ip, status]) => ({ ip, status }));
+  if (patches.length) applyCamPayloadsLocally(patches);
+  ['nvr', 'dvr'].forEach(type => {
+    const store = type === 'dvr' ? _invDvr : _invNvr;
+    ['basico', 'olt', 'switch'].forEach(mode => {
+      if (!store?.[mode]?.length) return;
+      store[mode] = store[mode].map(row => {
+        const ip = row.camera_ip || row.ip_camera || row.host || '';
+        const status = statusByIp?.[ip];
+        return status ? { ...row, status } : row;
+      });
+      _recSessionSave(type, mode, store[mode]);
+    });
+  });
+}
+
+async function saveEditCam() {
+  const rows = document.querySelectorAll('#editCamTableBody tr');
+  const payloads = [];
+
+  rows.forEach(tr => {
+    const inputs = tr.querySelectorAll('input[data-ip]');
+    if (!inputs.length) return;
+    const ip = inputs[0].dataset.ip;
+    const payload = {
+      ip,
+      remote_connector_id: tr.dataset.connectorId || '',
+      connector_id: tr.dataset.connectorId || '',
+      site: tr.dataset.site || '',
+      site_name: tr.dataset.site || '',
+      remote: tr.dataset.remote === '1',
+    };
+    inputs.forEach(inp => { payload[inp.dataset.field] = inp.value.trim(); });
+    payloads.push(payload);
+  });
+
+  const btn = document.getElementById('saveEditCam');
+  btn.disabled = true;
+  btn.textContent = 'Salvando';
+
+  const mode = _invOltView || 'olt';
+  const res = await api(`/api/cameras/save?mode=${encodeURIComponent(mode)}`, {
+    method: 'POST',
+    body: JSON.stringify({ cameras: payloads }),
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i data-lucide="check"></i> Salvar tudo';
+  lucide.createIcons();
+
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    const el = document.getElementById('editCamErro');
+    const firstErr = { body };
+    const detail = firstErr?.body?.detail || firstErr?.body?.error || 'linha nao encontrada no inventario atual';
+    el.textContent = `${payloads.length} camera(s) nao foram salvas: ${detail}.`;
+    el.hidden = false;
+    return;
+  }
+
+  const shouldRenameDevice = !!document.getElementById('editCamApplyDevice')?.checked;
+  if (shouldRenameDevice) {
+    const user = document.getElementById('editCamDeviceUser')?.value.trim() || 'admin';
+    const pass = document.getElementById('editCamDevicePass')?.value || '';
+    const el = document.getElementById('editCamErro');
+    if (!pass) {
+      el.textContent = 'Informe a senha para renomear no equipamento.';
+      el.hidden = false;
+      return;
+    }
+    const renameRes = await api('/api/maintenance/batch/rename', {
+      method: 'POST',
+      body: JSON.stringify({
+        user,
+        pass,
+        targets: payloads.map(p => ({ ip: p.ip, title: p.titulo || p.title || '', channel: 1 })),
+      }),
+    });
+    const renameBody = await renameRes?.json().catch(() => ({}));
+    if (!renameRes?.ok || renameBody?.ok === false) {
+      const failed = (renameBody?.results || []).filter(r => !r.ok);
+      const first = failed[0] || {};
+      el.textContent = renameBody?.error || first.error || 'Inventario salvo, mas o equipamento nao aceitou a renomeacao.';
+      el.hidden = false;
+      return;
+    }
+    showToast(`${payloads.length} camera(s) salva(s) e renomeada(s) no equipamento!`);
+  } else {
+    showToast(`${payloads.length} camera(s) salva(s)!`);
+  }
+  closeEditCamModal();
+  applyCamPayloadsLocally(payloads);
+  updateCamTabs();
+  populateCamSiteFilter();
+  applyInvOltFilters();
+}
+
+//  Varredura WebSocket 
+function _connectorLabel(row) {
+  return `${row.name || row.client || 'Conector'} - ${row.site || row.client || '-'}`;
+}
+
+function _connectorNorm(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function _connectorIsOnline(row) {
+  return _connectorNorm(row?.status) === 'online';
+}
+
+function _connectorHasTunnel(row) {
+  return Boolean(row?.tunnel?.enabled || row?.vpn?.enabled || row?.wireguard?.enabled);
+}
+
+function _routerConnectors() {
+  return (_connectors || []).filter(c => _connectorNorm(c.type) === 'routeros');
+}
+
+function _connectorMatchesSite(row, site) {
+  const wanted = _connectorNorm(site);
+  if (!wanted) return false;
+  return [row?.site, row?.name, row?.client]
+    .map(_connectorNorm)
+    .filter(Boolean)
+    .includes(wanted);
+}
+
+function _findConnectorForSite(site) {
+  const rows = _routerConnectors().filter(c => _connectorMatchesSite(c, site));
+  if (!rows.length) return null;
+  return rows.find(c => _connectorIsOnline(c) && _connectorHasTunnel(c))
+    || rows.find(c => _connectorIsOnline(c))
+    || rows[0];
+}
+
+function _connectorById(id) {
+  const wanted = String(id || '');
+  return _routerConnectors().find(c => String(c.id || c.connector_id || '') === wanted) || null;
+}
+
+function _networkContextForSite(site, selectedConnectorId = '') {
+  const explicit = selectedConnectorId ? _connectorById(selectedConnectorId) : null;
+  const connector = explicit || _findConnectorForSite(site);
+  if (!connector) {
+    return { origin: 'local', connector: null, connectorId: '', hasTunnel: false, online: false };
+  }
+  const connectorId = String(connector.id || connector.connector_id || '');
+  return {
+    origin: 'connector',
+    connector,
+    connectorId,
+    hasTunnel: _connectorHasTunnel(connector),
+    online: _connectorIsOnline(connector),
+  };
+}
+
+async function refreshScanConnectors() {
+  const sel = document.getElementById('scanConnector');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/connectors');
+    _connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+  } catch {
+    _connectors = _connectors || [];
+  }
+  const rows = _routerConnectors();
+  sel.innerHTML = '<option value="">Opcional: usar servidor local/VPN</option>' + rows.map(c => {
+    const online = _connectorIsOnline(c);
+    const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+    return `<option value="${esc(c.id || '')}" ${online ? '' : 'disabled'}>${esc(_connectorLabel(c))}${tunnel}${online ? '' : ' (offline)'}</option>`;
+  }).join('');
+
+  const site = (document.getElementById('scanLocal')?.value || document.getElementById('filterSiteOlt')?.value || '').trim();
+  const match = _findConnectorForSite(site);
+  if (match?.id) sel.value = match.id;
+}
+
+function updateScanOriginUi() {
+  const site = (document.getElementById('scanLocal')?.value || document.getElementById('filterSiteOlt')?.value || '').trim();
+  const connector = document.getElementById('scanConnector');
+  const context = _networkContextForSite(site, connector?.value || '');
+  const originEl = document.getElementById('scanOrigin');
+  if (originEl) originEl.value = context.connectorId ? 'connector' : 'local';
+  if (connector) connector.disabled = false;
+  const status = document.getElementById('scanConnectorStatus');
+  if (status) {
+    status.innerHTML = context.connectorId
+      ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN ativa: scan real pela rota do cliente.' : ' -- sem VPN: descoberta limitada pelo MikroTik.'}`
+      : 'Sem conector para este site: usando servidor local.';
+  }
+  const remote = context.connectorId && !context.hasTunnel;
+  ['scanSnapshot', 'scanImgbb'].forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.disabled = remote;
+    if (remote) input.checked = false;
+    input.closest('.scan-task-row')?.classList.toggle('is-disabled', remote);
+  });
+}
+
+function openScanModal() {
+  document.getElementById('scanLog').textContent = 'Aguardando inicio';
+  document.getElementById('modalScan').classList.remove('hidden');
+  refreshScanConnectors().finally(updateScanOriginUi);
+}
+
+function closeScanModal() {
+  document.getElementById('modalScan').classList.add('hidden');
+  if (_scanWs) { _scanWs.close(); _scanWs = null; }
+}
+
+function resetScanForm() {
+  const ids = ['scanAlvo', 'scanSenha', 'scanLocal'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const user = document.getElementById('scanUsuario');
+  if (user) user.value = 'admin';
+  const mode = document.getElementById('scanMode');
+  if (mode) mode.value = 'olt';
+  const origin = document.getElementById('scanOrigin');
+  if (origin) origin.value = 'local';
+  const connector = document.getElementById('scanConnector');
+  if (connector) connector.value = '';
+  updateScanOriginUi();
+  const checks = {
+    scanDiscover: true,
+    scanOltEnrich: true,
+    scanSnapshot: false,
+    scanImgbb: false,
+    scanAppend: false,
+    scanNat: false,
+  };
+  Object.entries(checks).forEach(([id, checked]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = checked;
+  });
+}
+
+function _scanPayloadBase() {
+  const alvo    = document.getElementById('scanAlvo').value.trim();
+  const usuario = document.getElementById('scanUsuario').value.trim() || 'admin';
+  const senha   = document.getElementById('scanSenha').value;
+  const selectedSite = document.getElementById('filterSiteOlt')?.value || '';
+  const local   = document.getElementById('scanLocal').value.trim() || selectedSite;
+  const context = _networkContextForSite(local, document.getElementById('scanConnector')?.value || '');
+  const origin = context.connectorId ? 'connector' : 'local';
+  const connectorId = context.connectorId;
+  if (!alvo) { showToast('Informe o alvo (IP, range ou CIDR)', true); return null; }
+  if (origin === 'connector' && !context.online) {
+    showToast('O conector selecionado esta offline.', true);
+    return null;
+  }
+  return {
+    alvo, usuario, senha,
+    append_inventory: document.getElementById('scanAppend').checked,
+    nat_mode:         document.getElementById('scanNat').checked,
+    inventory_mode:   document.getElementById('scanMode').value,
+    scan_origin:      origin,
+    connector_id:     origin === 'connector' ? connectorId : '',
+    remote_connector_id: origin === 'connector' ? connectorId : '',
+    remote_only:      origin === 'connector' && !context.hasTunnel,
+    ...(local && { set_local: true, local }),
+  };
+}
+
+function _runWsScan(payload) {
+  const log = document.getElementById('scanLog');
+  log.innerHTML = '';
+  appendLog(log, ` ${payload.alvo}`, 'info');
+  let completed = false;
+  const requestedMode = payload.inventory_mode || document.getElementById('scanMode')?.value || 'basico';
+
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  if (_scanWs) _scanWs.close();
+  _scanWs = new WebSocket(`${wsProto}://${location.host}/ws/scan`);
+
+  _scanWs.onopen  = () => _scanWs.send(JSON.stringify(payload));
+  _scanWs.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'done' || msg.type === 'inventory_updated') {
+        completed = true;
+        appendLog(log, ' ' + (msg.message || 'Concluido'), 'ok');
+        appendLog(log, ' Varredura concluida. Campos limpos.', 'ok');
+        resetScanForm();
+        showToast('Varredura concluida.');
+        if (_currentView === 'inv-nvr') {
+          loadInvNvr();
+        } else if (_currentView === 'inv-dvr') {
+          loadInvDvr();
+        } else {
+          const scanMode = requestedMode;
+          (async () => {
+            await _loadCamForMode(scanMode);
+            if (scanMode === 'basico') {
+              await Promise.allSettled([
+                _loadCamForMode('olt'),
+                _loadCamForMode('switch'),
+              ]);
+            }
+            updateCamTabs();
+            if (!(_invCam[_invOltView] || []).length) setInvOltView(scanMode);
+            populateCamSiteFilter();
+            applyInvOltFilters();
+          })();
+        }
+      } else if (msg.type === 'error') {
+        appendLog(log, ' ' + (msg.message || 'Erro'), 'err');
+      } else {
+        appendLog(log, msg.message || JSON.stringify(msg), 'info');
+      }
+    } catch { appendLog(log, e.data, 'info'); }
+  };
+  _scanWs.onerror = () => appendLog(log, 'Erro WebSocket', 'err');
+  _scanWs.onclose = () => {
+    appendLog(log, completed ? ' Concluido ' : ' Encerrado ', completed ? 'ok' : 'info');
+  };
+}
+

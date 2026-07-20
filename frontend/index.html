@@ -3983,6 +3983,22 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=140"></script>
+  <!-- app.js foi dividido por assunto. A ORDEM importa: os arquivos sao os
+       trechos do app.js original na sequencia em que estavam, entao carregar
+       fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
+       antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
+  <script src="js/core.js?v=141"></script>
+  <script src="js/dashboard.js?v=141"></script>
+  <script src="js/cameras.js?v=141"></script>
+  <script src="js/recorders.js?v=141"></script>
+  <script src="js/windows.js?v=141"></script>
+  <script src="js/snapshots.js?v=141"></script>
+  <script src="js/maintenance.js?v=141"></script>
+  <script src="js/analysis.js?v=141"></script>
+  <script src="js/network.js?v=141"></script>
+  <script src="js/deploy.js?v=141"></script>
+  <script src="js/connectors.js?v=141"></script>
+  <script src="js/helpers.js?v=141"></script>
+  <script src="js/bootstrap.js?v=141"></script>
 </body>
 </html>
