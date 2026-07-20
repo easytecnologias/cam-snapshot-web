@@ -7,6 +7,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
@@ -169,9 +170,42 @@ def _execute_on(c: Any, backend: str, query: str, params: tuple[Any, ...] = ()) 
 
 
 
+_SCHEMA_READY = False
+_SCHEMA_LOCK = threading.Lock()
+
+
+def _ensure_schema() -> None:
+    """Garante o schema uma vez por processo.
+
+    Toda funcao publica daqui comecava chamando init_auth_db(), que desde as
+    migrations versionadas faz muito mais que antes: no Postgres ela abre
+    conexao, pega um `pg_advisory_lock` global, le a tabela de migrations e
+    checa o usuario de bootstrap. Como get_user_by_token() passa por aqui, isso
+    acontecia **uma vez por requisicao autenticada** -- e o advisory lock e
+    global, entao as requisicoes ficavam em fila umas atras das outras.
+
+    Ficou pior com as rotas de midia: cada <img> de snapshot e uma requisicao
+    autenticada, entao uma galeria com 30 cameras pegava o mesmo lock 30 vezes.
+
+    Schema nao muda com o processo rodando: basta a primeira chamada. O lock
+    aqui e pra duas threads nao entrarem juntas no primeiro acesso.
+    """
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    with _SCHEMA_LOCK:
+        if _SCHEMA_READY:
+            return
+        with _conn() as c:
+            _init_auth_db_on_connection(c, _auth_backend())
+        _SCHEMA_READY = True
+
+
 def init_auth_db() -> Dict[str, Any]:
+    global _SCHEMA_READY
     with _conn() as c:
         status = _init_auth_db_on_connection(c, _auth_backend())
+        _SCHEMA_READY = True
         tenant_count = int((_fetchone(c, "SELECT COUNT(1) AS n FROM tenants") or {}).get("n") or 0)
         user_count = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
     return {
@@ -378,7 +412,7 @@ def list_tenants(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
     Owner enxerga todos os clientes para operacao/admin. Admin comum fica
     restrito ao proprio tenant para evitar vazamento entre clientes.
     """
-    init_auth_db()
+    _ensure_schema()
     actor_role = str(actor.get("role") or "").strip().lower()
     with _conn() as c:
         if actor_role == "owner":
@@ -429,7 +463,7 @@ def create_tenant(
     if owner_user and len(str(owner_password or "")) < 8:
         raise ValueError("senha do owner deve ter ao menos 8 caracteres")
 
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         existing = _fetchone(c, "SELECT id FROM tenants WHERE slug=?", (s,))
         if existing:
@@ -582,7 +616,7 @@ def _audit(
 
 
 def auth_status() -> Dict[str, Any]:
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         tenants = int((_fetchone(c, "SELECT COUNT(1) AS n FROM tenants") or {}).get("n") or 0)
         users = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
@@ -618,7 +652,7 @@ def bootstrap_admin(
         raise ValueError("username obrigatorio")
     if len(str(password or "")) < 8:
         raise ValueError("password deve ter ao menos 8 caracteres")
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         existing = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
         if existing > 0:
@@ -662,7 +696,7 @@ def create_user(
     if role_norm == "owner" and actor_role != "owner":
         raise ValueError("somente owner pode criar outro owner")
 
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         tenant_id = int(actor["tenant_id"])
         exists = _fetchone(c, "SELECT id FROM users WHERE username=?", (u,))
@@ -763,7 +797,7 @@ def update_user_status(actor: Dict[str, Any], target_user_id: int, active: bool)
     actor_role = str(actor.get("role") or "").strip().lower()
     if actor_role not in ("owner", "admin"):
         raise ValueError("permissao insuficiente")
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         tenant_id = int(actor["tenant_id"])
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
@@ -803,7 +837,7 @@ def update_user_password(actor: Dict[str, Any], target_user_id: int, new_passwor
         raise ValueError("permissao insuficiente")
     if len(str(new_password or "")) < 8:
         raise ValueError("password deve ter ao menos 8 caracteres")
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         tenant_id = int(actor["tenant_id"])
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
@@ -849,7 +883,7 @@ def update_user_profile(
     if role_norm == "owner" and actor_role != "owner":
         raise ValueError("somente owner pode promover outro owner")
 
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         tenant_id = int(actor["tenant_id"])
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
@@ -897,7 +931,7 @@ def update_user_profile(
 
 
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-    init_auth_db()
+    _ensure_schema()
     user = None
     with _conn() as c:
         user = _fetchone(
@@ -921,7 +955,7 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
 
 
 def create_access_token(user: Dict[str, Any], label: str = "", ttl_hours: int = 24) -> Dict[str, Any]:
-    init_auth_db()
+    _ensure_schema()
     token = secrets.token_urlsafe(32)
     expires_at = _utc_now() + timedelta(hours=max(1, int(ttl_hours or 24)))
     token_hash = _token_hash(token)
@@ -949,7 +983,7 @@ def get_user_by_token(token: str) -> Optional[Dict[str, Any]]:
     raw = str(token or "").strip()
     if not raw:
         return None
-    init_auth_db()
+    _ensure_schema()
     now_text = _utc_text(_utc_now())
     with _conn() as c:
         user = _fetchone(
@@ -981,7 +1015,7 @@ def revoke_token(token: str, actor: Optional[Dict[str, Any]] = None) -> Dict[str
     raw = str(token or "").strip()
     if not raw:
         raise ValueError("token obrigatorio")
-    init_auth_db()
+    _ensure_schema()
     now_text = _utc_text(_utc_now())
     token_hash = _token_hash(raw)
     with _conn() as c:
@@ -1001,7 +1035,7 @@ def revoke_token(token: str, actor: Optional[Dict[str, Any]] = None) -> Dict[str
 
 
 def list_users(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
-    init_auth_db()
+    _ensure_schema()
     with _conn() as c:
         return _fetchall(
             c,
@@ -1018,7 +1052,7 @@ def list_users(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def recent_audit_events(actor: Dict[str, Any], limit: int = 50) -> List[Dict[str, Any]]:
-    init_auth_db()
+    _ensure_schema()
     lim = max(1, min(int(limit or 50), 200))
     with _conn() as c:
         return _fetchall(
