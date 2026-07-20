@@ -86,12 +86,12 @@ def _postgres_status(database_url: str) -> DatabaseRuntimeStatus:
             port=port,
             database=database,
         )
-    except Exception as exc:
+    except Exception:
         return DatabaseRuntimeStatus(
             backend="postgres",
             configured=True,
             reachable=False,
-            detail=str(exc),
+            detail="PostgreSQL indisponivel",
             host=host,
             port=port,
             database=database,

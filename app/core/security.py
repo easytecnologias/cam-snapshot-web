@@ -10,6 +10,8 @@ from app.core.settings import AppSettings
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services.auth_store import get_user_by_token
 
+AUTH_COOKIE_NAME = "sightops_session"
+
 ROLE_RANK = {
     "viewer": 10,
     "operator": 20,
@@ -28,16 +30,26 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             "/api/auth/bootstrap-admin",
             "/api/system/health/live",
             "/api/system/health/ready",
-            "/api/system/info",
-            "/api/backup/status",
             "/api/live/jpeg",
             "/api/live/mjpeg",
             "/api/windows/agent/report",
         }
+        self._query_token_paths = (
+            "/api/connectors/",
+            "/api/backup/export",
+            "/api/inventory/export",
+            "/api/inventory/report",
+            "/api/dvr/report",
+            "/api/nvr/report",
+            "/api/kmz/",
+            "/api/playback/files/",
+        )
         self._role_rules = [
             (("GET",), "/api/auth/users", "admin"),
             (("GET",), "/api/auth/audit", "admin"),
+            (("GET",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/auth/users", "admin"),
+            (("POST",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/system/product", "admin"),
             (("POST",), "/api/db/init", "admin"),
             (("POST",), "/api/db/migrate", "admin"),
@@ -68,6 +80,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("GET",), "/api/connectors", "operator"),
             (("POST",), "/api/connectors", "operator"),
             (("DELETE",), "/api/connectors", "operator"),
+            (("GET", "POST"), "/api/deployments", "operator"),
             (("POST",), "/api/tools/scan-ip", "operator"),
             (("POST",), "/api/discovery/run", "operator"),
             (("POST",), "/api/portscan/apply", "operator"),
@@ -98,6 +111,11 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 return min_role
         return ""
 
+    def _query_token_allowed(self, path: str, method: str) -> bool:
+        if method.upper() not in ("GET", "HEAD"):
+            return False
+        return any(path == prefix or path.startswith(prefix) for prefix in self._query_token_paths)
+
     def _require_auth(self, path: str, method: str) -> bool:
         if not self.settings.auth_enabled:
             return False
@@ -121,11 +139,14 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
         need = ROLE_RANK.get(str(required_role or "").strip().lower(), 10**9)
         return have >= need
 
-    @staticmethod
-    def _extract_bearer_token(headers: Iterable[tuple[str, str]] | dict | Request) -> str:
+    def _extract_bearer_token(self, headers: Iterable[tuple[str, str]] | dict | Request) -> str:
         if isinstance(headers, Request):
             raw = str(headers.headers.get("authorization") or "").strip()
             if not raw:
+                cookie_token = str(headers.cookies.get(AUTH_COOKIE_NAME) or "").strip()
+                if cookie_token:
+                    return cookie_token
+            if not raw and self._query_token_allowed(headers.url.path, headers.method):
                 query_token = str(
                     headers.query_params.get("auth_token")
                     or headers.query_params.get("access_token")

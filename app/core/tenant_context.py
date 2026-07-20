@@ -53,7 +53,12 @@ def tenant_recorder_inventory_path(source: str, slug: str = "") -> Path:
 
 def tenant_snapshot_dir(source: str, slug: str = "") -> Path:
     src = str(source or "").strip().lower()
-    filename = "nvr_snapshot" if src == "nvr" else "dvr_snapshot"
+    if src == "nvr":
+        filename = "nvr_snapshot"
+    elif src == "dvr":
+        filename = "dvr_snapshot"
+    else:
+        filename = "snapshot"
     p = tenant_scoped_path(filename, slug)
     p.mkdir(parents=True, exist_ok=True)
     return p
