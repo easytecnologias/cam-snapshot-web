@@ -6,7 +6,7 @@
 window.lucide = window.lucide || { createIcons() {} };
 
 //  Estado global 
-let _token = localStorage.getItem('so_token') || null;
+let _token = null;
 let _currentView = 'dashboard';
 let _scanWs = null;
 let _camAuthAction = null;
@@ -16,8 +16,13 @@ async function api(path, opts = {}) {
   const { skipLogout, ...fetchOpts } = opts;
   const headers = { 'Content-Type': 'application/json', ...(fetchOpts.headers || {}) };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
-  const res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, headers });
-  if (res.status === 401 && !skipLogout) { logout(); return null; }
+  const res = await fetch(`${API_BASE}${path}`, { credentials: 'same-origin', ...fetchOpts, headers });
+  if (res.status === 401 && !skipLogout) {
+    _token = null;
+    try { localStorage.removeItem('so_token'); } catch {}
+    showLoginScreen();
+    return null;
+  }
   return res;
 }
 
@@ -25,6 +30,22 @@ async function apiJson(path, opts = {}) {
   const res = await api(path, opts);
   if (!res || !res.ok) return null;
   return res.json();
+}
+
+async function jsonOrReadableError(res, fallback = 'Erro na requisicao.') {
+  if (!res) throw new Error(fallback);
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    const clean = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+    throw new Error(clean ? `Servidor retornou resposta inesperada: ${clean}` : fallback);
+  }
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data?.detail || data?.error || data?.msg || data?.message || fallback);
+  }
+  return data;
 }
 
 //  Confirmacao customizada 
@@ -79,6 +100,7 @@ window.addEventListener('unhandledrejection', (event) => {
 async function login(user, pass) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: user, password: pass }),
   });
@@ -88,25 +110,25 @@ async function login(user, pass) {
   }
   const data = await res.json();
   _token = data.access_token || data.token || null;
-  if (_token) {
-    localStorage.setItem('so_token', _token);
-    return { ok: true };
-  }
-  return { ok: false, msg: 'Token nao recebido' };
+  try { localStorage.removeItem('so_token'); } catch {}
+  const me = await fetch(`${API_BASE}/api/auth/me`, { credentials: 'same-origin' });
+  if (me.ok) return { ok: true };
+  return { ok: false, msg: 'Sessao nao confirmada apos login' };
 }
 
 function logout() {
-  api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  api('/api/auth/logout', { method: 'POST', skipLogout: true }).catch(() => {});
   _token = null;
-  localStorage.removeItem('so_token');
+  try { localStorage.removeItem('so_token'); } catch {}
   showLoginScreen();
 }
 
 async function loadProfile() {
   const data = await apiJson('/api/auth/me');
   if (!data) return;
-  const name = data.name || data.username || data.email || '?';
-  const role = data.role || data.perfil || '';
+  const user = data.user || data;
+  const name = user.full_name || user.username || user.email || '?';
+  const role = user.role || user.perfil || '';
   document.getElementById('profileName').textContent = name;
   document.getElementById('profileRole').textContent = role;
   document.getElementById('profileAvatar').textContent = name[0].toUpperCase();
@@ -148,6 +170,7 @@ const VIEW_META = {
   'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
   'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
+  'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
   'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
   olt:             { title: 'OLT',               sub: 'Coleta de MACs da OLT' },
   switch:          { title: 'Switch',            sub: 'Coleta de MACs do switch' },
@@ -178,6 +201,7 @@ const VIEW_ID_MAP = {
   'net-learn':      'viewNetLearn',
   'net-operate':    'viewNetOperate',
   'deploy-onu':     'viewDeployOnu',
+  'deploy-recorder':'viewDeployRecorder',
   'deploy-new':     'viewDeployNew',
   olt:              'viewOlt',
   switch:           'viewSwitch',
@@ -243,22 +267,164 @@ function loadView(view) {
     case 'net-learn':   loadStaticView();   break;
     case 'net-operate': loadNetOperate();   break;
     case 'deploy-onu':  loadDeployOnu();    break;
+    case 'deploy-recorder': loadDeployRecorder(); break;
     case 'deploy-new':  loadDeployNew();    break;
     case 'connectors':  loadConnectors();   break;
     case 'script-grafana': loadScriptGrafana(); break;
     case 'script-zabbix':  loadScriptZabbix();  break;
     case 'tools':
     case 'settings':
-      loadStaticView();
+      if (view === 'settings') loadSettings();
+      else loadStaticView();
       break;
     default:
       loadStaticView();
       break;
   }
+  scheduleResponsiveHydration();
+}
+
+let _responsiveHydrationQueued = false;
+function scheduleResponsiveHydration(root = document) {
+  if (_responsiveHydrationQueued) return;
+  _responsiveHydrationQueued = true;
+  requestAnimationFrame(() => {
+    _responsiveHydrationQueued = false;
+    hydrateResponsiveTables(root);
+  });
+}
+
+function hydrateResponsiveTables(root = document) {
+  const scope = root && root.querySelectorAll ? root : document;
+  scope.querySelectorAll('table').forEach(table => {
+    if (table.closest('.leaflet-container')) return;
+    const headers = [...table.querySelectorAll('thead th')].map(th =>
+      (th.textContent || '').replace(/\s+/g, ' ').trim()
+    );
+    if (!headers.length) return;
+    table.classList.add('responsive-data-table');
+    table.querySelectorAll('tbody tr').forEach(row => {
+      row.querySelectorAll('td').forEach((td, idx) => {
+        if (!td.dataset.label) td.dataset.label = headers[idx] || '';
+      });
+    });
+  });
 }
 
 function loadStaticView() {
   lucide.createIcons();
+}
+
+async function loadSettings() {
+  const [me, tenants, users, authStatus, dbStatus] = await Promise.all([
+    apiJson('/api/auth/me'),
+    apiJson('/api/auth/tenants'),
+    apiJson('/api/auth/users'),
+    apiJson('/api/auth/status'),
+    apiJson('/api/db/status'),
+  ]);
+  const currentUser = me?.user || {};
+  const tenantRows = tenants?.tenants || [];
+  const userRows = users?.users || [];
+
+  setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
+  const tenantsBody = document.getElementById('settingsTenantsBody');
+  if (tenantsBody) {
+    tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => `
+      <tr>
+        <td><strong>${esc(t.name || '')}</strong></td>
+        <td><span class="monospace">${esc(t.slug || '')}</span></td>
+        <td>${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td>${esc(t.users ?? 0)}</td>
+        <td><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
+      </tr>
+    `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado.</td></tr>';
+  }
+
+  setText('settingsUsersSummary', `${userRows.length} usuario${userRows.length === 1 ? '' : 's'} no cliente atual (${currentUser.tenant_name || currentUser.tenant_slug || '-'}).`);
+  const usersBody = document.getElementById('settingsUsersBody');
+  if (usersBody) {
+    usersBody.innerHTML = userRows.length ? userRows.map(u => `
+      <tr>
+        <td><strong>${esc(u.username || '')}</strong></td>
+        <td>${esc(u.full_name || '-')}</td>
+        <td><span class="badge badge-gray">${esc(u.role || '')}</span></td>
+        <td>${Number(u.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td>${esc(u.tenant_name || u.tenant_slug || '')}</td>
+      </tr>
+    `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum usuario cadastrado.</td></tr>';
+  }
+
+  const storage = document.getElementById('settingsStorageStatus');
+  if (storage) {
+    const auth = authStatus?.storage || authStatus || {};
+    const db = dbStatus || {};
+    storage.innerHTML = [
+      ['Auth backend', auth.backend || '-'],
+      ['Tenants', auth.tenants ?? '-'],
+      ['Usuarios', auth.users ?? '-'],
+      ['Tokens ativos', auth.active_tokens ?? '-'],
+      ['DB backend', db.backend || '-'],
+      ['Sites', db.sites ?? '-'],
+      ['Auth required', authStatus?.auth_required ? 'sim' : 'nao'],
+      ['Legacy open', authStatus?.legacy_open ? 'sim' : 'nao'],
+    ].map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+  }
+
+  scheduleResponsiveHydration(document.getElementById('viewSettings'));
+  lucide.createIcons();
+}
+
+async function createTenantFromSettings() {
+  const name = document.getElementById('tenantName')?.value.trim() || '';
+  const slug = document.getElementById('tenantSlug')?.value.trim() || '';
+  const owner_username = document.getElementById('tenantOwnerUser')?.value.trim() || '';
+  const owner_password = document.getElementById('tenantOwnerPass')?.value || '';
+  if (!name) {
+    showToast('Informe o nome do cliente.', true);
+    return;
+  }
+  const res = await api('/api/auth/tenants', {
+    method: 'POST',
+    body: JSON.stringify({ name, slug, owner_username, owner_password }),
+  });
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({}));
+    showToast(err?.detail || 'Nao foi possivel criar o cliente.', true);
+    return;
+  }
+  ['tenantName', 'tenantSlug', 'tenantOwnerUser', 'tenantOwnerPass'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  showToast('Cliente criado.');
+  loadSettings();
+}
+
+async function createUserFromSettings() {
+  const username = document.getElementById('newUserName')?.value.trim() || '';
+  const password = document.getElementById('newUserPass')?.value || '';
+  const role = document.getElementById('newUserRole')?.value || 'viewer';
+  const full_name = document.getElementById('newUserFullName')?.value.trim() || '';
+  if (!username || !password) {
+    showToast('Informe usuario e senha.', true);
+    return;
+  }
+  const res = await api('/api/auth/users', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, role, full_name }),
+  });
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({}));
+    showToast(err?.detail || 'Nao foi possivel criar o usuario.', true);
+    return;
+  }
+  ['newUserName', 'newUserPass', 'newUserFullName'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  showToast('Usuario criado.');
+  loadSettings();
 }
 
 function loadScriptGrafana() {
@@ -513,6 +679,119 @@ async function openDashDrawerWindows(filterKey) {
     </div>`).join(''));
 }
 
+function _dashNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function _dashPct(part, total) {
+  const t = _dashNum(total);
+  if (!t) return 0;
+  return Math.max(0, Math.min(100, Math.round((_dashNum(part) / t) * 100)));
+}
+
+function _dashPriorityAction(action) {
+  if (action === 'ip_offline') return openDashDrawerIp('offline');
+  if (action === 'no_snapshot') return openDashDrawerIp('no_snap');
+  if (action === 'dvr_offline') return openDashDrawerRecorder('dvr', 'offline');
+  if (action === 'nvr_offline') return openDashDrawerRecorder('nvr', 'offline');
+  if (action === 'windows_offline') return openDashDrawerWindows('offline');
+  if (action === 'map') return navigateTo('kmz');
+  return null;
+}
+
+function renderDashboardPriorities(data) {
+  const inv = data.inventory || {};
+  const ip = inv.ip || {};
+  const dvr = inv.dvr || {};
+  const nvr = inv.nvr || {};
+  const win = inv.windows || {};
+  const priorities = [
+    { label: 'Cameras offline', sub: 'Abrir cameras com falha', count: _dashNum(ip.offline), icon: 'alert-circle', level: 'danger', action: 'ip_offline' },
+    { label: 'Sem snapshot', sub: 'Cameras sem imagem recente', count: _dashNum(ip.missing_snapshot), icon: 'image-off', level: 'warning', action: 'no_snapshot' },
+    { label: 'Sem local', sub: 'Itens sem site/local definido', count: _dashNum(ip.missing_local) + _dashNum(dvr.missing_local) + _dashNum(nvr.missing_local), icon: 'map-pin-off', level: 'info', action: 'map' },
+    { label: 'Gravadores offline', sub: 'DVR/NVR com erro ou sem resposta', count: _dashNum(dvr.offline) + _dashNum(nvr.offline), icon: 'hard-drive', level: 'danger', action: 'dvr_offline' },
+    { label: 'Windows offline', sub: 'Computadores sem resposta', count: _dashNum(win.offline), icon: 'monitor-x', level: 'info', action: 'windows_offline' },
+  ].filter(item => item.count > 0).slice(0, 5);
+
+  const el = document.getElementById('dashPriorityList');
+  if (!el) return;
+  if (!priorities.length) {
+    el.innerHTML = `<div class="dash-priority-item" style="cursor:default">
+      <span class="dash-priority-icon info"><i data-lucide="check-circle-2"></i></span>
+      <span><span class="dash-priority-title">Sem pendencias criticas</span><span class="dash-priority-sub">O painel nao encontrou alertas principais agora.</span></span>
+      <span class="dash-priority-count">OK</span>
+    </div>`;
+    return;
+  }
+  el.innerHTML = priorities.map(item => `
+    <div class="dash-priority-item" data-priority-action="${esc(item.action)}">
+      <span class="dash-priority-icon ${item.level === 'warning' ? 'warning' : item.level === 'info' ? 'info' : ''}"><i data-lucide="${item.icon}"></i></span>
+      <span><span class="dash-priority-title">${esc(item.label)}</span><span class="dash-priority-sub">${esc(item.sub)}</span></span>
+      <span class="dash-priority-count">${item.count}</span>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-priority-action]').forEach(btn => {
+    btn.addEventListener('click', () => _dashPriorityAction(btn.dataset.priorityAction));
+  });
+}
+
+function renderDashboardHealth(data) {
+  const inv = data.inventory || {};
+  const ip = inv.ip || {};
+  const dvr = inv.dvr || {};
+  const nvr = inv.nvr || {};
+  const totals = data.totals || {};
+  const recTotal = _dashNum(dvr.total) + _dashNum(nvr.total);
+  const recOnline = _dashNum(dvr.online) + _dashNum(nvr.online);
+  const health = [
+    { label: 'Disponibilidade IP', value: `${_dashPct(ip.online, ip.total)}%`, sub: `${_dashNum(ip.online)} online de ${_dashNum(ip.total)}`, pct: _dashPct(ip.online, ip.total) },
+    { label: 'Cobertura snapshot', value: `${_dashPct(_dashNum(ip.total) - _dashNum(ip.missing_snapshot), ip.total)}%`, sub: `${_dashNum(ip.missing_snapshot)} sem snapshot`, pct: _dashPct(_dashNum(ip.total) - _dashNum(ip.missing_snapshot), ip.total) },
+    { label: 'Gravadores', value: `${_dashPct(recOnline, recTotal)}%`, sub: `${recOnline} canais online de ${recTotal}`, pct: _dashPct(recOnline, recTotal) },
+    { label: 'Pendencias', value: _dashNum(totals.offline), sub: 'itens offline ou com erro', pct: 100 - _dashPct(totals.offline, totals.items) },
+  ];
+  const el = document.getElementById('dashHealthGrid');
+  if (!el) return;
+  el.innerHTML = health.map(item => `
+    <div class="dash-health-card">
+      <div class="dash-health-label">${esc(item.label)}</div>
+      <div class="dash-health-value">${esc(item.value)}</div>
+      <div class="dash-health-sub">${esc(item.sub)}</div>
+      <div class="dash-meter"><span style="width:${item.pct}%"></span></div>
+    </div>
+  `).join('');
+}
+
+function renderDashboardSiteSummary(data) {
+  const rows = Array.isArray(data.site_summary) ? data.site_summary.slice(0, 8) : [];
+  const el = document.getElementById('dashSiteSummary');
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = rows.map(site => `
+    <div class="dash-site-card" data-dash-site="${esc(site.site || '')}">
+      <div class="dash-site-head">
+        <span class="dash-site-name" title="${esc(site.site || '')}">${esc(site.site || '')}</span>
+        <span class="dash-site-total">${_dashNum(site.total)} itens</span>
+      </div>
+      <div class="dash-site-stats">
+        <span><i class="dash-dot online"></i>${_dashNum(site.online)} online</span>
+        <span><i class="dash-dot offline"></i>${_dashNum(site.offline)} offline</span>
+        <span><i class="dash-dot warning"></i>${_dashNum(site.missing_snapshot)} sem foto</span>
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('[data-dash-site]').forEach(card => {
+    card.addEventListener('click', () => {
+      _openDashDrawer('Site', card.dataset.dashSite || 'Site');
+      document.getElementById('dashDrawerFilters').innerHTML = '';
+      _drawerRenderRows(`<div class="drawer-item"><i data-lucide="map-pin" style="width:14px;height:14px;color:var(--primary)"></i><div class="drawer-item-main"><div class="drawer-item-title">${esc(card.dataset.dashSite || '')}</div><div class="drawer-item-sub">Use o filtro de site nos inventarios para ver os itens.</div></div></div>`);
+    });
+  });
+}
+
 // 
 async function loadDashboard() {
   _dashDrawerData = null; // limpa cache ao recarregar
@@ -574,6 +853,9 @@ async function loadDashboard() {
   } else {
     alertsEl.style.display = 'none';
   }
+
+  renderDashboardPriorities(data);
+  renderDashboardHealth(data);
 
   // Status por tipo  clicaveis
   const statusGrid = document.getElementById('dashStatusGrid');
@@ -637,22 +919,28 @@ async function loadDashboard() {
     document.getElementById('dashSitesList').innerHTML = sites.map(s =>
       `<span style="padding:4px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);font-size:12px">${esc(s)}</span>`
     ).join('');
+    renderDashboardSiteSummary(data);
     sitesPanel.style.display = '';
   } else {
+    renderDashboardSiteSummary(data);
     sitesPanel.style.display = 'none';
   }
 
   // Click handlers: KPI cards
-  document.getElementById('kpiCamerasIp')?.addEventListener('click', () => openDashDrawerIp('all'));
-  document.getElementById('kpiGravadores')?.addEventListener('click', () => openDashDrawerRecorder('dvr', 'all'));
-  document.getElementById('kpiSnapshots')?.addEventListener('click', () => openDashDrawerIp('no_snap'));
-  document.getElementById('kpiSites')?.addEventListener('click', () => {
+  const kpiCamerasIp = document.getElementById('kpiCamerasIp');
+  if (kpiCamerasIp) kpiCamerasIp.onclick = () => openDashDrawerIp('all');
+  const kpiGravadores = document.getElementById('kpiGravadores');
+  if (kpiGravadores) kpiGravadores.onclick = () => openDashDrawerRecorder('dvr', 'all');
+  const kpiSnapshots = document.getElementById('kpiSnapshots');
+  if (kpiSnapshots) kpiSnapshots.onclick = () => openDashDrawerIp('no_snap');
+  const kpiSites = document.getElementById('kpiSites');
+  if (kpiSites) kpiSites.onclick = () => {
     _openDashDrawer('Sites', 'Sites monitorados');
     document.getElementById('dashDrawerFilters').innerHTML = '';
     _drawerRenderRows(sites.length
       ? sites.map(s => `<div class="drawer-item"><i data-lucide="map-pin" style="width:14px;height:14px;color:var(--primary)"></i><div class="drawer-item-main"><div class="drawer-item-title">${esc(s)}</div></div></div>`).join('')
       : '');
-  });
+  };
 
   // Click handlers: status rows (adicionados via dataset)
   document.querySelectorAll('.dash-status-row.clickable').forEach(row => {
@@ -755,14 +1043,16 @@ function updateCamTabs() {
 
 function cameraImgbbUrl(c) {
   if (!c) return '';
-  return c.imgbb_url
-    || c.imgbb_thumb_url
-    || c.thumbnail_url
-    || c.thumb_url
-    || c.display_url
-    || c.url
-    || (isImgbbUrl(c.snapshot_url) ? c.snapshot_url : '')
-    || '';
+  const candidates = [
+    c.imgbb_url,
+    c.imgbb_thumb_url,
+    c.thumbnail_url,
+    c.thumb_url,
+    c.display_url,
+    c.url,
+    c.snapshot_url,
+  ];
+  return candidates.map(v => String(v || '').trim()).find(isImgbbUrl) || '';
 }
 
 // Celulas base compartilhadas entre as 3 visoes
@@ -822,14 +1112,12 @@ async function setInvOltView(view) {
   document.querySelectorAll('.inv-view-tab').forEach(t =>
     t.classList.toggle('active', t.dataset.view === view)
   );
-  if (!(_invCam[view] || []).length) {
-    try {
-      await _loadCamForMode(view);
-      updateCamTabs();
-      populateCamSiteFilter();
-    } catch (e) {
-      console.warn('Falha ao carregar visao', view, e);
-    }
+  try {
+    await _loadCamForMode(view);
+    updateCamTabs();
+    populateCamSiteFilter();
+  } catch (e) {
+    console.warn('Falha ao carregar visao', view, e);
   }
   applyInvOltFilters();
 }
@@ -1588,12 +1876,7 @@ function renderMapMarkers(camByName, camByIp) {
 async function loadInvOlt() {
   _camSessionLoad();
   const desired = _invOltView || 'olt';
-  const hasAny = ['basico','olt','switch'].some(mode => _invCam[mode]?.length);
-  if (!_invCam[desired]?.length) {
-    await _loadCamForMode(desired);
-  } else if (!hasAny) {
-    await _loadCamForMode('olt');
-  }
+  await _loadCamForMode(desired);
   updateCamTabs();
   populateCamSiteFilter();
   applyInvOltFilters();
@@ -1633,15 +1916,6 @@ async function _loadCamForMode(mode) {
         onu_name:   c.onu_name   || olt.onu_name   || '',
         onu_serial: c.onu_serial || olt.onu_serial || '',
       };
-    });
-  }
-
-  // Mescla imgbb_url da sessao
-  const saved = _imgbbGet();
-  if (Object.keys(saved).length) {
-    cameras = cameras.map(c => {
-      const savedUrl = saved[_camKey(c)] || saved[`IP:${String(c.ip || '').trim()}`] || saved[c.ip];
-      return savedUrl ? { ...c, imgbb_url: savedUrl, imgbb_status: 'up' } : c;
     });
   }
 
@@ -1877,6 +2151,7 @@ function openCamPanel(cam) {
   header.textContent = cam.status || '';
   header.style.color = statusColor;
   setText('camPanelTitulo', cam.titulo || cam.ip);
+  setText('cpIp',     cam.ip     || '');
   setText('cpMac',    cam.mac    || '');
   setText('cpModelo', cam.model  || '');
   setText('cpLocal',  cam.local  || '');
@@ -1907,6 +2182,7 @@ function openCamPanel(cam) {
 
 function closeCamPanel() {
   stopPing();
+  closeCamPanelLive();
   _invOltActive = null;
   document.getElementById('camPanelBackdrop')?.classList.add('hidden');
   document.getElementById('camPanel').classList.add('hidden');
@@ -1990,6 +2266,245 @@ function closePingTerminal() {
 function startPing() {
   if (!_invOltActive) return;
   openPingTerminal(_invOltActive.ip);
+}
+
+function openCamPanelLive() {
+  if (!_invOltActive?.ip) return;
+  const live = document.getElementById('cpInlineLive');
+  const auth = document.getElementById('cpLiveAuth');
+  const status = document.getElementById('cpLiveStatus');
+  const video = document.getElementById('cpLiveVideo');
+  if (!live || !auth || !status || !video) return;
+  live.classList.remove('hidden');
+  auth.style.display = '';
+  status.classList.add('hidden');
+  video.classList.add('hidden');
+  video.srcObject = null;
+  document.getElementById('cpLiveUser').value = document.getElementById('mntCamUser')?.value || 'admin';
+  document.getElementById('cpLivePass').value = document.getElementById('mntCamPass')?.value || '';
+  setTimeout(() => {
+    const pass = document.getElementById('cpLivePass');
+    if (pass && !pass.value) pass.focus();
+    else document.getElementById('cpLiveStart')?.focus();
+  }, 60);
+  lucide.createIcons();
+}
+
+let _cpRtcPeer = null;
+let _cpLiveIp = '';
+
+function closeCamPanelLive() {
+  if (_cpRtcPeer) { try { _cpRtcPeer.close(); } catch(e){} _cpRtcPeer = null; }
+  _cpLiveIp = '';
+  const video = document.getElementById('cpLiveVideo');
+  if (video) { video.srcObject = null; video.classList.add('hidden'); }
+  const live = document.getElementById('cpInlineLive');
+  live?.classList.remove('playing', 'mobile-fullscreen');
+  live?.classList.add('hidden');
+  document.body.classList.remove('cam-live-lock');
+  const status = document.getElementById('cpLiveStatus');
+  if (status) status.classList.add('hidden');
+}
+
+function cameraStreamHint(ip, fallback = null) {
+  const lists = [
+    fallback ? [fallback] : [],
+    _invOltActive ? [_invOltActive] : [],
+    Array.isArray(_mntCamAll) ? _mntCamAll : [],
+    _invCam?.basic || [],
+    _invCam?.olt || [],
+    _invCam?.switch || []
+  ];
+  for (const list of lists) {
+    const cam = list.find?.(c => String(c?.ip || c?.host || '') === String(ip));
+    if (cam) {
+      return {
+        vendor: cam.fabricante || cam.vendor || cam.brand || '',
+        model: cam.modelo || cam.model || cam.camera_model || ''
+      };
+    }
+  }
+  return { vendor: '', model: '' };
+}
+
+function isHikvisionStream(hint = {}) {
+  const txt = `${hint.vendor || ''} ${hint.model || ''}`.toLowerCase();
+  return txt.includes('hikvision') || txt.includes('ds-2') || txt.includes('ipc-');
+}
+
+function buildCameraRtspUrl(ip, user, pass, subtype = 1, hint = {}) {
+  const st = Number(subtype) === 0 ? 0 : 1;
+  const auth = `${encodeURIComponent(user || 'admin')}:${encodeURIComponent(pass || '')}`;
+  if (isHikvisionStream(hint)) {
+    return `rtsp://${auth}@${ip}:554/Streaming/Channels/${st === 0 ? '101' : '102'}`;
+  }
+  return `rtsp://${auth}@${ip}:554/cam/realmonitor?channel=1&subtype=${st}`;
+}
+
+function toggleCamLivePassword() {
+  const input = document.getElementById('cpLivePass');
+  const btn = document.getElementById('cpLivePassToggle');
+  if (!input || !btn) return;
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}"></i>`;
+  btn.title = show ? 'Ocultar senha' : 'Mostrar senha';
+  btn.setAttribute('aria-label', btn.title);
+  lucide.createIcons();
+}
+
+function fullscreenCamPanelLive() {
+  const live = document.getElementById('cpInlineLive');
+  if (!live) return;
+  const btn = document.getElementById('cpLiveFullscreen');
+  const setIcon = (expanded) => {
+    if (!btn) return;
+    btn.innerHTML = `<i data-lucide="${expanded ? 'minimize-2' : 'maximize-2'}"></i>`;
+    btn.title = expanded ? 'Reduzir video' : 'Ampliar video';
+    lucide.createIcons();
+  };
+
+  if (live.classList.contains('mobile-fullscreen')) {
+    live.classList.remove('mobile-fullscreen');
+    document.body.classList.remove('cam-live-lock');
+    setIcon(false);
+    return;
+  }
+
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+    setIcon(false);
+    return;
+  }
+
+  const useFallback = () => {
+    live.classList.add('mobile-fullscreen');
+    document.body.classList.add('cam-live-lock');
+    setIcon(true);
+  };
+
+  if (live.requestFullscreen) {
+    live.requestFullscreen()
+      .then(() => setIcon(true))
+      .catch(useFallback);
+  } else {
+    useFallback();
+  }
+}
+
+async function startCamPanelLive() {
+  if (!_invOltActive?.ip) return;
+  const ip = _invOltActive.ip;
+  const user = document.getElementById('cpLiveUser')?.value.trim() || 'admin';
+  const pass = document.getElementById('cpLivePass')?.value || '';
+  if (!pass) {
+    showToast('Informe a senha da camera para ver ao vivo.', true);
+    document.getElementById('cpLivePass')?.focus();
+    return;
+  }
+
+  const auth = document.getElementById('cpLiveAuth');
+  const status = document.getElementById('cpLiveStatus');
+  const statusText = status?.querySelector('span');
+  const video = document.getElementById('cpLiveVideo');
+  if (!auth || !status || !video) return;
+
+  if (_cpRtcPeer) { try { _cpRtcPeer.close(); } catch(e){} _cpRtcPeer = null; }
+  _cpLiveIp = ip;
+  auth.style.display = 'none';
+  status.classList.remove('hidden');
+  if (statusText) statusText.textContent = 'Conectando...';
+  video.srcObject = null;
+  video.classList.add('hidden');
+
+  const subtype = 1;
+  const streamName = `cam_${ip.replace(/\./g, '_')}_${subtype}`;
+  const hint = cameraStreamHint(ip, _invOltActive);
+  try {
+    const params = new URLSearchParams({
+      user,
+      password: pass,
+      subtype: String(subtype),
+      vendor: hint.vendor || '',
+      model: hint.model || ''
+    });
+    const regResp = await api(
+      `/api/maintenance/stream_register/${ip}?${params.toString()}`,
+      { method: 'POST' }
+    );
+    if (!regResp || !regResp.ok) {
+      if (statusText) statusText.textContent = 'Falha ao registrar stream';
+      auth.style.display = '';
+      return;
+    }
+  } catch (e) {
+    if (statusText) statusText.textContent = 'Servidor de stream indisponivel';
+    auth.style.display = '';
+    return;
+  }
+
+  if (_cpLiveIp !== ip) return;
+
+  try {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    _cpRtcPeer = pc;
+
+    pc.ontrack = ({ streams }) => {
+      if (!streams[0] || _cpLiveIp !== ip) return;
+      video.srcObject = streams[0];
+      video.muted = true;
+      video.classList.remove('hidden');
+      document.getElementById('cpInlineLive')?.classList.add('playing');
+      status.classList.add('hidden');
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (_cpLiveIp === ip && ['failed','disconnected'].includes(pc.iceConnectionState)) {
+        if (statusText) statusText.textContent = 'Stream desconectado';
+        status.classList.remove('hidden');
+      }
+    };
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${wsProto}://${location.host}/go2rtc/api/ws?src=${streamName}`);
+
+    ws.onopen = async () => {
+      if (statusText) statusText.textContent = 'Aguardando video...';
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && ws.readyState === WebSocket.OPEN)
+          ws.send(JSON.stringify({ type: 'webrtc/candidate', value: candidate.candidate }));
+      };
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
+    };
+
+    ws.onmessage = async ({ data }) => {
+      const msg = JSON.parse(data);
+      if (msg.type === 'webrtc/answer') {
+        await pc.setRemoteDescription({ type: 'answer', sdp: msg.value });
+      } else if (msg.type === 'webrtc/candidate' && msg.value) {
+        await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0', sdpMLineIndex: 0 });
+      } else if (msg.type === 'error') {
+        if (statusText) statusText.textContent = 'Erro: ' + msg.value;
+        status.classList.remove('hidden');
+        auth.style.display = '';
+      }
+    };
+
+    ws.onerror = () => {
+      if (_cpLiveIp === ip && statusText) statusText.textContent = 'Erro de conexao WebSocket';
+      status.classList.remove('hidden');
+      auth.style.display = '';
+    };
+  } catch (e) {
+    if (statusText) statusText.textContent = 'Erro: ' + (e.message || e);
+    status.classList.remove('hidden');
+    auth.style.display = '';
+  }
 }
 
 //  Acoes do painel 
@@ -2120,6 +2635,7 @@ async function camAction(action) {
     document.getElementById('trocarIpUser').value  = 'admin';
     document.getElementById('trocarIpPass').value  = '';
     document.getElementById('trocarIpErro').hidden = true;
+    _fillTrocarIpNetwork(cam.ip, true);
     document.getElementById('modalTrocarIp').classList.remove('hidden');
     setTimeout(() => document.getElementById('trocarIpNovo').focus(), 50);
     lucide.createIcons();
@@ -2204,7 +2720,7 @@ async function loadInvDvr() {
 const _invNvr   = { basico: [], olt: [], switch: [] };
 const _invDvr   = { basico: [], olt: [], switch: [] };
 let _invNvrView   = (() => {
-  try { return sessionStorage.getItem('so_rec_view') || 'olt'; } catch { return 'olt'; }
+  return 'basico';
 })();
 let _recType      = (() => {
   try { return sessionStorage.getItem('so_rec_type') || 'nvr'; } catch { return 'nvr'; }
@@ -2237,8 +2753,8 @@ async function _loadRecBasico() {
     apiJson('/api/nvr/inventory'),
     apiJson('/api/dvr/inventory'),
   ]);
-  _invNvr.basico = nvrData?.inventory || [];
-  _invDvr.basico = dvrData?.inventory || [];
+  _invNvr.basico = (nvrData?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
+  _invDvr.basico = (dvrData?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
   _recSessionSave('nvr', 'basico', _invNvr.basico);
   _recSessionSave('dvr', 'basico', _invDvr.basico);
 }
@@ -2246,7 +2762,7 @@ async function _loadRecBasico() {
 async function _loadRecBasicoForType(type) {
   const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
   const data = await apiJson(endpoint);
-  const rows = data?.inventory || [];
+  const rows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
   const store = type === 'dvr' ? _invDvr : _invNvr;
   store.basico = rows;
   _recSessionSave(type, 'basico', rows);
@@ -2258,10 +2774,10 @@ async function _loadRecForMode(type, mode) {
   if (mode === 'basico') {
     return _loadRecBasicoForType(type);
   }
-  if (!store.basico?.length) {
-    await _loadRecBasicoForType(type);
-  }
-  const rows = await enrichRecRowsForMode(store.basico || [], mode);
+  const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
+  const data = await apiJson(endpoint);
+  const sourceRows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === mode);
+  const rows = await enrichRecRowsForMode(sourceRows, mode);
   if (recModeHasRealData(rows, mode)) {
     store[mode] = rows;
     _recSessionSave(type, mode, rows);
@@ -2562,7 +3078,19 @@ async function loadInvNvr() {
 }
 
 function _currentRecStore() { return _recType === 'dvr' ? _invDvr : _invNvr; }
-function _currentNvrRows() { return _currentRecStore()[_invNvrView] || []; }
+function recIsSyntheticFreeChannel(row) {
+  return _recType === 'nvr'
+    && _isBlankValue(row?.camera_ip)
+    && /(^|\s|-)livre($|\s|-)/i.test(String(row?.title || ''));
+}
+
+function recRowInventoryMode(row) {
+  const value = String(row?.inventory_mode || '').trim().toLowerCase();
+  if (value === 'olt') return 'olt';
+  if (value === 'switch') return 'switch';
+  return 'basico';
+}
+function _currentNvrRows() { return (_currentRecStore()[_invNvrView] || []).filter(row => !recIsSyntheticFreeChannel(row)); }
 function _currentColDef()  { return (_recType === 'dvr' ? DVR_COLS : NVR_COLS)[_invNvrView] || NVR_COLS.basico; }
 
 function populateNvrFilters() {
@@ -2614,6 +3142,13 @@ function applyNvrFilters() {
     return true;
   });
 
+  filtered.sort((a, b) => {
+    const aFree = recHasNoCamera(a) ? 1 : 0;
+    const bFree = recHasNoCamera(b) ? 1 : 0;
+    if (aFree !== bFree) return aFree - bFree;
+    const hostCmp = String(a.host || '').localeCompare(String(b.host || ''), undefined, { numeric: true });
+    return hostCmp || Number(a.channel || 0) - Number(b.channel || 0);
+  });
   renderNvrTable(filtered);
 }
 
@@ -3718,6 +4253,59 @@ function _ipToInt(ip) {
   return ip.split('.').reduce((acc, o) => (acc << 8) + (parseInt(o, 10) || 0), 0) >>> 0;
 }
 
+function _isIpv4(ip) {
+  const parts = String(ip || '').trim().split('.');
+  return parts.length === 4 && parts.every((p) => {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    return n >= 0 && n <= 255 && String(n) === String(Number(p));
+  });
+}
+
+function _isValidSubnetMask(mask) {
+  if (!_isIpv4(mask)) return false;
+  const n = _ipToInt(mask);
+  const inv = (~n) >>> 0;
+  return ((inv + 1) & inv) === 0;
+}
+
+function _isInCameras22(ip) {
+  return _isIpv4(ip) && ((_ipToInt(ip) & _ipToInt('255.255.252.0')) === _ipToInt('10.10.8.0'));
+}
+
+function _suggestNetworkForIp(ip) {
+  if (_isInCameras22(ip)) {
+    return {
+      mask: '255.255.252.0',
+      gateway: '10.10.10.1',
+      label: 'Rede de cameras 10.10.8.0/22',
+      locked: true,
+    };
+  }
+  if (_isIpv4(ip)) {
+    const base = ip.split('.').slice(0, 3).join('.');
+    return {
+      mask: '255.255.255.0',
+      gateway: `${base}.1`,
+      label: `Sugestao por /24: ${base}.0/24`,
+      locked: false,
+    };
+  }
+  return { mask: '', gateway: '', label: 'Informe novo IP, mascara e gateway reais da camera.', locked: false };
+}
+
+function _fillTrocarIpNetwork(ip, force = false) {
+  const hint = document.getElementById('trocarIpNetworkHint');
+  const maskEl = document.getElementById('trocarIpMask');
+  const gwEl = document.getElementById('trocarIpGw');
+  const s = _suggestNetworkForIp(ip);
+  if (force || !maskEl.value.trim()) maskEl.value = s.mask;
+  if (force || !gwEl.value.trim()) gwEl.value = s.gateway;
+  if (hint) hint.textContent = s.locked
+    ? `${s.label}: use mascara ${s.mask} e gateway ${s.gateway}.`
+    : `${s.label}. Ajuste se a rede real for diferente.`;
+}
+
 // Retorna true/false se ip bate com term como range/CIDR, ou null se term n\u00e3o \u00e9 padr\u00e3o de IP.
 function _mntIpMatchTerm(ip, term) {
   // Range completo: 10.10.9.20-10.10.9.30
@@ -3876,11 +4464,12 @@ function openMntStream(ip, titulo) {
   _mntStreamPass = document.getElementById('mntCamPass')?.value || '';
   _mntStreamSubtype = 1;
   _mntStreamMuted   = true;
+  const hint = cameraStreamHint(ip);
 
   document.getElementById('mntStreamTitle').textContent = titulo || ip;
   document.getElementById('mntStreamIp').textContent    = ip;
-  document.getElementById('mntStreamRtspMain').value    = `rtsp://${_mntStreamUser}:${_mntStreamPass}@${ip}:554/cam/realmonitor?channel=1&subtype=0`;
-  document.getElementById('mntStreamRtspSub').value     = `rtsp://${_mntStreamUser}:${_mntStreamPass}@${ip}:554/cam/realmonitor?channel=1&subtype=1`;
+  document.getElementById('mntStreamRtspMain').value    = buildCameraRtspUrl(ip, _mntStreamUser, _mntStreamPass, 0, hint);
+  document.getElementById('mntStreamRtspSub').value     = buildCameraRtspUrl(ip, _mntStreamUser, _mntStreamPass, 1, hint);
   const qualLabel = document.getElementById('mntStreamQualLabel');
   if (qualLabel) qualLabel.textContent = 'Sub-stream';
   const webLink = document.getElementById('mntStreamOpenWeb');
@@ -3913,10 +4502,18 @@ async function _startWebRTC(ip, user, pass, subtype) {
   const streamName = `cam_${ip.replace(/\./g, '_')}_${subtype}`;
   const uEnc = encodeURIComponent(user);
   const pEnc = encodeURIComponent(pass);
+  const hint = cameraStreamHint(ip);
 
   try {
+    const params = new URLSearchParams({
+      user,
+      password: pass,
+      subtype: String(subtype),
+      vendor: hint.vendor || '',
+      model: hint.model || ''
+    });
     const regResp = await api(
-      `/api/maintenance/stream_register/${ip}?user=${uEnc}&password=${pEnc}&subtype=${subtype}`,
+      `/api/maintenance/stream_register/${ip}?${params.toString()}`,
       { method: 'POST' }
     );
     if (!regResp || !regResp.ok) {
@@ -4204,9 +4801,8 @@ async function runMntNetwork() {
   document.getElementById(bodyId).innerHTML = '';
   _mntLog(consoleId, bodyId, null, `Aplicando configuracao de rede em ${targets.length} camera(s)`, true);
   try {
-    const r = await fetch('/api/maintenance/batch/network_config', {
+    const r = await api('/api/maintenance/batch/network_config', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targets, mask, gateway, user, pass })
     });
     const data = await r.json();
@@ -4277,9 +4873,8 @@ async function runMntShiftIp() {
   document.getElementById(bodyId).innerHTML = '';
   _mntLog(consoleId, bodyId, null, `Deslocando ${prefix}${start}${prefix}${end} por ${delta > 0 ? '+' : ''}${delta}`, true);
   try {
-    const r = await fetch('/api/maintenance/batch/shift_ips', {
+    const r = await api('/api/maintenance/batch/shift_ips', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prefix, start_octet: start, end_octet: end, delta, user, pass, gateway })
     });
     const data = await r.json();
@@ -4849,7 +5444,7 @@ function renderOltTable(rows) {
   if (!tbody) return;
   setText('oltTableFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhum dado. Execute a coleta.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => `
@@ -4896,6 +5491,60 @@ function oltConsoleLog(text, cls = '') {
   el.scrollTop = el.scrollHeight;
 }
 
+async function refreshOltConnectors() {
+  const sel = document.getElementById('oltConnector');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/connectors');
+    _connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+  } catch {
+    _connectors = _connectors || [];
+  }
+  const rows = _routerConnectors();
+  sel.innerHTML = '<option value="">Opcional: usar servidor local/VPN</option>' + rows.map(c => {
+    const online = _connectorIsOnline(c);
+    const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+    return `<option value="${esc(c.id || '')}" ${online ? '' : 'disabled'}>${esc(_connectorLabel(c))}${tunnel}${online ? '' : ' (offline)'}</option>`;
+  }).join('');
+
+  const site = (document.getElementById('oltSite')?.value || document.getElementById('oltFilterSite')?.value || '').trim();
+  const match = _findConnectorForSite(site);
+  if (match?.id) sel.value = match.id;
+}
+
+function updateOltOriginUi() {
+  const sel = document.getElementById('oltConnector');
+  const site = (document.getElementById('oltSite')?.value || document.getElementById('oltFilterSite')?.value || '').trim();
+  const context = _networkContextForSite(site, sel?.value || '');
+  const origin = context.connectorId ? 'connector' : 'local';
+  const originEl = document.getElementById('oltOrigin');
+  if (originEl) originEl.value = origin;
+  const status = document.getElementById('oltConnectorStatus');
+  if (sel) sel.disabled = false;
+
+  if (origin !== 'connector') {
+    if (status) status.innerHTML = 'Sem conector para este site: usando servidor local/VPN ja roteada.';
+    return;
+  }
+
+  if (status) {
+    status.innerHTML = context.online
+      ? `<span style="color:var(--primary);font-weight:700">Online</span> -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN configurada para coleta real' : ' -- configure a VPN antes da coleta da OLT'}`
+      : `<span style="color:var(--danger);font-weight:700">Offline</span> -- conector indisponivel.`;
+  }
+  const siteEl = document.getElementById('oltSite');
+  if (context.connector?.site && siteEl && !siteEl.value.trim()) siteEl.value = context.connector.site;
+}
+
+function openOltCollectModal() {
+  document.getElementById('modalOltCollect')?.classList.remove('hidden');
+  const siteEl = document.getElementById('oltSite');
+  const currentSite = document.getElementById('oltFilterSite')?.value || '';
+  if (siteEl && currentSite && !siteEl.value.trim()) siteEl.value = currentSite;
+  refreshOltConnectors().finally(updateOltOriginUi);
+  lucide.createIcons();
+}
+
 async function oltCollect() {
   const ip   = document.getElementById('oltIp')?.value.trim();
   const user = document.getElementById('oltUser')?.value.trim() || 'admin';
@@ -4904,8 +5553,21 @@ async function oltCollect() {
   const pon  = document.getElementById('oltPon')?.value || 'all';
   const model= document.getElementById('oltModel')?.value || '8820i';
   const reuse= document.getElementById('oltReuse')?.checked || false;
+  const context = _networkContextForSite(site, document.getElementById('oltConnector')?.value || '');
+  const origin = context.connectorId ? 'connector' : 'local';
+  const connectorId = context.connectorId;
 
   if (!ip) { showToast('Informe o IP da OLT', true); return; }
+  if (origin === 'connector') {
+    if (!context.online) {
+      showToast('O conector selecionado esta offline.', true);
+      return;
+    }
+    if (!context.hasTunnel) {
+      showToast('Prepare a VPN do conector antes de coletar OLT remota.', true);
+      return;
+    }
+  }
 
   // Abre terminal
   const term = document.getElementById('oltTerminal');
@@ -4921,7 +5583,7 @@ async function oltCollect() {
   let ws = null;
   try {
     ws = new WebSocket(`${wsProto}://${location.host}/ws/olt-console`);
-    ws.onopen = () => ws.send(JSON.stringify({ token: _token }));
+    ws.onopen = () => {};
     ws.onmessage = (e) => {
       try {
         const m = JSON.parse(e.data);
@@ -4935,7 +5597,7 @@ async function oltCollect() {
   // Sequencia de logs animados (refletem o que o servico realmente faz)
   const ponLabel = pon === 'all' ? 'TODAS as PONs' : `PON ${pon}`;
   const steps = [
-    [0,    'info', `[INFO] Conectando em ${ip}${site ? ` [site: ${site}]` : ''}...`],
+    [0,    'info', `[INFO] Conectando em ${ip}${site ? ` [site: ${site}]` : ''}${origin === 'connector' ? ' via VPN do conector' : ''}...`],
     [600,  'info', `[INFO] Autenticando como "${user}"...`],
     [1100, 'info', `[INFO] Varredura automatica de PONs usando 'onu status gpon <pon>'`],
     [1800, 'info', `[INFO] Descobrindo PONs configuradas em ${ip}...`],
@@ -4962,7 +5624,18 @@ async function oltCollect() {
     setText('oltTermFooter', `Coletando via SSH ${tick}s`);
   }, 1000);
 
-  const payload = { olt_ip: ip, user, password: pass, pon, olt_model: model, reuse_json: reuse, ...(site && { site }) };
+  const payload = {
+    olt_ip: ip,
+    user,
+    password: pass,
+    pon,
+    olt_model: model,
+    reuse_json: reuse,
+    scan_origin: origin,
+    connector_id: origin === 'connector' ? connectorId : '',
+    remote_connector_id: origin === 'connector' ? connectorId : '',
+    ...(site && { site }),
+  };
 
   try {
     const res = await api('/api/olt/collect-macs', { method: 'POST', body: JSON.stringify(payload), skipLogout: true });
@@ -5204,44 +5877,139 @@ async function runNetTool(e) {
 //  Implantacao
 let _deployCurrentId = '';
 let _deployConnectors = [];
+let _deploySites = [];
+let _deployAvailableRecorders = [];
+let _deployRecorderListTimer = null;
 let _deployPullTargetIp = ''; // IP achado no Mikrotik, so pra conectar/puxar -- nao vai no campo visivel
 let _deployConfirmedCameraIp = ''; // ultimo IP confirmado por um pull bem sucedido (usado como alvo de conexao)
+const DEPLOY_LOCAL_ORIGIN = '__local__';
+
+function deploymentPreferredInventoryMode() {
+  try {
+    const value = localStorage.getItem('so_deployment_inventory_mode') || 'basic';
+    return ['basic', 'olt', 'switch'].includes(value) ? value : 'basic';
+  } catch { return 'basic'; }
+}
+
+function deploymentApplyPreferredInventoryMode() {
+  const value = deploymentPreferredInventoryMode();
+  document.querySelectorAll('.deployment-inventory-mode').forEach(select => { select.value = value; });
+}
+
+function deploymentSetPreferredInventoryMode(value) {
+  const mode = ['basic', 'olt', 'switch'].includes(value) ? value : 'basic';
+  try { localStorage.setItem('so_deployment_inventory_mode', mode); } catch {}
+  document.querySelectorAll('.deployment-inventory-mode').forEach(select => { select.value = mode; });
+}
 
 function deployPayload() {
   return {
     id: _deployCurrentId || '',
-    connector_id: document.getElementById('deployConnector')?.value || '',
+    connector_id: deploySelectedConnectorId(),
     site: document.getElementById('deploySite')?.value.trim() || '',
     camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
     camera_ip: document.getElementById('deployCameraIp')?.value.trim() || '',
     camera_title: document.getElementById('deployCameraTitle')?.value.trim() || '',
     camera_model: document.getElementById('deployCameraModel')?.value.trim() || '',
     camera_manufacturer: document.getElementById('deployCameraManufacturer')?.value.trim() || '',
+    location: document.getElementById('deployCameraLocation')?.value.trim() || '',
     camera_user: document.getElementById('deployCameraUser')?.value.trim() || '',
     camera_password: document.getElementById('deployCameraPassword')?.value || '',
-    inventory_mode: document.getElementById('deployInventoryMode')?.value || 'olt',
+    inventory_mode: document.getElementById('deployInventoryMode')?.value || 'basic',
     recorder_type: document.getElementById('deployRecorderType')?.value || '',
     recorder_host: document.getElementById('deployRecorderHost')?.value.trim() || '',
+    recorder_user: document.getElementById('deployRecorderUser')?.value.trim() || '',
+    recorder_password: document.getElementById('deployRecorderPassword')?.value || '',
     recorder_channel: document.getElementById('deployRecorderChannel')?.value.trim() || '',
+    recorder_camera_ip: document.getElementById('deployRecorderCameraIp')?.value.trim() || document.getElementById('deployCameraIp')?.value.trim() || '',
     recorder_title: document.getElementById('deployRecorderTitle')?.value.trim() || '',
   };
 }
 
+function deploySyncRecorderCameraIp() {
+  const el = document.getElementById('deployRecorderCameraIp');
+  if (!el) return;
+  const ip = document.getElementById('deployCameraIp')?.value.trim() || _deployConfirmedCameraIp || _deployPullTargetIp || '';
+  el.value = ip;
+}
+
+function deployConnectorKey(conn) {
+  return String(conn?.id || conn?.connector_id || '');
+}
+
+function deployConnectorRawValue() {
+  return document.getElementById('deployConnector')?.value || '';
+}
+
+function deployIsLocalOrigin() {
+  return deployConnectorRawValue() === DEPLOY_LOCAL_ORIGIN;
+}
+
+function deploySelectedConnectorId() {
+  const raw = deployConnectorRawValue();
+  return raw && raw !== DEPLOY_LOCAL_ORIGIN ? raw : '';
+}
+
+function deployConnectorSite(conn) {
+  return String(conn?.site || conn?.client || '').trim();
+}
+
+function deployConnectorOnline(conn) {
+  return _connectorIsOnline(conn);
+}
+
+function deployConnectorVpnReady(conn) {
+  return _connectorHasTunnel(conn);
+}
+
+function deployConnectorLabel(conn) {
+  return _connectorLabel(conn);
+}
+
+function deployOriginReady() {
+  if (deployIsLocalOrigin()) return true;
+  const conn = deploySelectedConnector();
+  return Boolean(conn && deployConnectorOnline(conn) && deployConnectorVpnReady(conn));
+}
+
+function deployApplyOriginFields() {
+  const site = document.getElementById('deploySite');
+  const raw = deployConnectorRawValue();
+  const conn = deploySelectedConnector();
+  if (!site) return;
+  site.disabled = !raw;
+  site.readOnly = false;
+  if (!raw) site.value = '';
+  if (conn && !deployIsLocalOrigin()) site.value = deployConnectorSite(conn);
+}
+
 function deploySelectedConnector() {
-  const id = document.getElementById('deployConnector')?.value || '';
-  return _deployConnectors.find(c => String(c.id || c.connector_id || '') === id) || null;
+  const id = deploySelectedConnectorId();
+  return _deployConnectors.find(c => deployConnectorKey(c) === id) || null;
 }
 
 function deployRenderConnectorStatus() {
   const box = document.getElementById('deployConnectorStatus');
   if (!box) return;
-  const conn = deploySelectedConnector();
-  if (!conn) {
-    box.innerHTML = 'Selecione um conector.';
+  const raw = deployConnectorRawValue();
+  if (!raw) {
+    box.innerHTML = 'Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do CFTV ficam bloqueados ate definir a origem.';
+    box.classList.add('error');
+    return;
+  }
+  if (deployIsLocalOrigin()) {
+    box.innerHTML = '<b style="color:var(--primary)">● Local / VPN do servidor</b> -- informe o site/local e use apenas redes acessiveis pelo servidor.';
     box.classList.remove('error');
     return;
   }
-  const online = conn.status === 'online';
+  const conn = deploySelectedConnector();
+  if (!conn) {
+    box.innerHTML = 'Conector nao encontrado. Atualize a lista.';
+    box.classList.add('error');
+    return;
+  }
+  const online = deployConnectorOnline(conn);
+  const vpnReady = deployConnectorVpnReady(conn);
   const inv = conn.inventory || {};
   const counts = [
     inv.dhcp_leases != null ? `${esc(inv.dhcp_leases)} DHCP` : '',
@@ -5249,8 +6017,8 @@ function deployRenderConnectorStatus() {
     inv.neighbors != null ? `${esc(inv.neighbors)} vizinhos` : '',
   ].filter(Boolean).join(' / ');
   const lastSeen = conn.last_seen ? esc(formatDateTimeShort(conn.last_seen)) : 'nunca';
-  box.classList.toggle('error', !online);
-  box.innerHTML = `<b style="color:${online ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(conn.name || conn.id)} - Ultimo sinal: ${lastSeen} - ${counts || 'sem inventario recebido ainda'}`;
+  box.classList.toggle('error', !online || !vpnReady);
+  box.innerHTML = `<b style="color:${online && vpnReady ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(deployConnectorLabel(conn))} - ${vpnReady ? 'VPN pronta' : 'sem VPN configurada'} - Ultimo sinal: ${lastSeen} - ${counts || 'sem inventario recebido ainda'}`;
 }
 
 function deploySetResult(html, isError = false) {
@@ -5260,7 +6028,257 @@ function deploySetResult(html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+function deploySetRecorderLoginResult(html, isError = false) {
+  const box = document.getElementById('deployRecorderLoginResult');
+  if (!box) return;
+  box.innerHTML = html || 'Informe host, usuario e senha do gravador e clique em Entrar.';
+  box.classList.toggle('error', !!isError);
+}
+
+function deployRenderRecorderChannels(channels = []) {
+  const input = document.getElementById('deployRecorderChannel');
+  const grid = document.getElementById('deployRecorderChannelGrid');
+  const toggle = document.getElementById('deployRecorderChannelButton');
+  const labelEl = document.getElementById('deployRecorderChannelLabel');
+  const dropdown = document.getElementById('deployRecorderChannelDropdown');
+  if (!input || !grid || !toggle || !labelEl || !dropdown) return;
+  const previous = input.value;
+  if (!channels.length) {
+    input.value = '';
+    labelEl.textContent = 'Entre no gravador';
+    toggle.disabled = true;
+    dropdown.classList.add('disabled');
+    grid.innerHTML = '<span class="deploy-channel-empty">Entre no gravador para carregar os canais.</span>';
+    grid.classList.add('hidden');
+    return;
+  }
+  toggle.disabled = false;
+  dropdown.classList.remove('disabled');
+  grid.innerHTML = channels.map(item => {
+    const ch = Number(item.channel || 0);
+    const used = !!item.used;
+    const detail = [item.title, item.camera_ip].filter(Boolean).join(' - ');
+    const selected = !used && String(ch) === String(previous);
+    const label = String(ch).padStart(2, '0');
+    const title = used ? `Canal ${label} em uso${detail ? `: ${detail}` : ''}` : `Canal ${label} livre`;
+    return `<button type="button" class="deploy-channel-pill ${used ? 'used' : 'free'} ${selected ? 'selected' : ''}" data-channel="${esc(ch)}" ${used ? 'disabled' : ''} title="${esc(title)}">${esc(label)}</button>`;
+  }).join('');
+  const free = channels.filter(item => !item.used);
+  const canKeep = free.some(item => String(item.channel) === String(previous));
+  if (canKeep) {
+    input.value = previous;
+  } else {
+    input.value = free[0]?.channel ? String(free[0].channel) : '';
+  }
+  labelEl.textContent = input.value ? `Canal ${String(input.value).padStart(2, '0')}` : 'Sem canal livre';
+  grid.querySelectorAll('.deploy-channel-pill').forEach(btn => {
+    btn.classList.toggle('selected', btn.dataset.channel === input.value);
+  });
+}
+
+function deployToggleRecorderChannelDropdown() {
+  const toggle = document.getElementById('deployRecorderChannelButton');
+  const grid = document.getElementById('deployRecorderChannelGrid');
+  if (!toggle || !grid || toggle.disabled) return;
+  grid.classList.toggle('hidden');
+}
+
+function deployResetRecorderLogin() {
+  deployRenderRecorderChannels();
+  deploySetRecorderLoginResult();
+}
+
+function deployRecorderRowConnectorId(row) {
+  return String(row?.remote_connector_id || row?.connector_id || '').trim();
+}
+
+function deployRecorderRowSite(row) {
+  return String(row?.site || row?.local || row?.site_name || '').trim();
+}
+
+async function deployLoadAvailableRecorders() {
+  const select = document.getElementById('deployRecorderHost');
+  if (!select) return;
+  const type = document.getElementById('deployRecorderType')?.value || '';
+  const connectorId = deploySelectedConnectorId();
+  const site = document.getElementById('deploySite')?.value.trim() || '';
+  const previous = select.value;
+  if (!type || (!connectorId && !deployIsLocalOrigin())) {
+    _deployAvailableRecorders = [];
+    select.innerHTML = '<option value="">Escolha primeiro o tipo e a origem</option>';
+    deployResetRecorderLogin();
+    return;
+  }
+  const data = await apiJson(`/api/${encodeURIComponent(type)}/inventory?site=`).catch(() => null);
+  const rows = Array.isArray(data?.inventory) ? data.inventory : [];
+  const unique = new Map();
+  rows.forEach(row => {
+    const host = String(row.host || row.ip || '').trim();
+    if (!host) return;
+    const rowConnector = deployRecorderRowConnectorId(row);
+    const rowSite = deployRecorderRowSite(row);
+    const sameConnector = connectorId && rowConnector === connectorId;
+    const legacySameSite = connectorId && !rowConnector && site && rowSite.toLowerCase() === site.toLowerCase();
+    const localAllowed = deployIsLocalOrigin() && (!site || rowSite.toLowerCase() === site.toLowerCase());
+    if (!sameConnector && !legacySameSite && !localAllowed) return;
+    unique.set(host, { ...(unique.get(host) || {}), ...row, host });
+  });
+  _deployAvailableRecorders = [...unique.values()].sort((a, b) => a.host.localeCompare(b.host, undefined, { numeric: true }));
+  select.innerHTML = '<option value="">Escolha um gravador do inventario</option>' + _deployAvailableRecorders.map(row => {
+    const label = [row.name || row.recorder_name, row.host, deployRecorderRowSite(row)].filter(Boolean).join(' - ');
+    return `<option value="${esc(row.host)}">${esc(label)}</option>`;
+  }).join('');
+  if (_deployAvailableRecorders.some(row => row.host === previous)) select.value = previous;
+  if (!_deployAvailableRecorders.length) select.innerHTML = '<option value="">Nenhum gravador acessivel neste conector/site</option>';
+  deployResetRecorderLogin();
+}
+
+function deployApplySelectedRecorder() {
+  const host = document.getElementById('deployRecorderHost')?.value || '';
+  const row = _deployAvailableRecorders.find(item => item.host === host);
+  const user = document.getElementById('deployRecorderUser');
+  if (user) user.value = String(row?.recorder_user || row?.user || 'admin');
+  deployResetRecorderLogin();
+  deployRenderSummary();
+  deployUpdateStepLocks({ autoAdvance: true });
+}
+
+function deployScheduleAvailableRecorders() {
+  clearTimeout(_deployRecorderListTimer);
+  _deployRecorderListTimer = setTimeout(deployLoadAvailableRecorders, 250);
+}
+
+function deployStepState() {
+  const p = deployPayload();
+  const step1Done = Boolean(deployOriginReady() && p.site);
+  const step2Done = step1Done && Boolean(p.camera_ip && p.camera_title && p.camera_user && p.camera_password);
+  const step3Done = step2Done && Boolean(p.recorder_type && p.recorder_host && p.recorder_channel);
+  return {
+    step1Done,
+    step2Unlocked: step1Done,
+    step2Done,
+    step3Unlocked: step2Done,
+    step3Done,
+  };
+}
+
+function deploySetStepState(id, { locked = false, complete = false, ready = false } = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('onu-step-locked', locked);
+  el.classList.toggle('onu-step-complete', complete);
+  el.classList.toggle('onu-step-ready', ready && !locked && !complete);
+  const summary = el.querySelector(':scope > summary');
+  if (summary) {
+    summary.setAttribute('aria-disabled', locked ? 'true' : 'false');
+    summary.tabIndex = locked ? -1 : 0;
+  }
+  if (locked) el.open = false;
+}
+
+function deployOpenStep(id) {
+  const el = document.getElementById(id);
+  if (!el || el.classList.contains('onu-step-locked')) return;
+  document.querySelectorAll('#deployForm .onu-step').forEach(step => {
+    step.open = step === el;
+  });
+}
+
+function deployUpdateStepLocks({ autoAdvance = false } = {}) {
+  const state = deployStepState();
+  const wasStep2Locked = document.getElementById('cftvStep2')?.classList.contains('onu-step-locked');
+  const wasStep3Locked = document.getElementById('cftvStep3')?.classList.contains('onu-step-locked');
+
+  deploySetStepState('cftvStep1', {
+    locked: false,
+    complete: state.step1Done,
+    ready: !state.step1Done,
+  });
+  deploySetStepState('cftvStep2', {
+    locked: !state.step2Unlocked,
+    complete: state.step2Done,
+    ready: state.step2Unlocked && !state.step2Done,
+  });
+  deploySetStepState('cftvStep3', {
+    locked: !state.step3Unlocked,
+    complete: state.step3Done,
+    ready: state.step3Unlocked && !state.step3Done,
+  });
+
+  if (!state.step2Unlocked) {
+    deployOpenStep('cftvStep1');
+  } else if (autoAdvance && wasStep2Locked) {
+    deployOpenStep('cftvStep2');
+  } else if (autoAdvance && state.step3Unlocked && wasStep3Locked) {
+    deployOpenStep('cftvStep3');
+  }
+
+  const commitBtn = document.getElementById('btnDeployCommitCamera');
+  if (commitBtn) commitBtn.disabled = !state.step2Done;
+  const recorderAddBtn = document.getElementById('btnDeployRecorderAddCamera');
+  if (recorderAddBtn) recorderAddBtn.disabled = !state.step3Unlocked;
+}
+
+function deployEnsureStepUnlocked(stepId, message) {
+  deployUpdateStepLocks();
+  const step = document.getElementById(stepId);
+  if (step?.classList.contains('onu-step-locked')) {
+    showToast(message || 'Conclua a etapa anterior primeiro.', true);
+    return false;
+  }
+  return true;
+}
+
+function deployBindStepGuards() {
+  ['cftvStep2', 'cftvStep3'].forEach(id => {
+    const step = document.getElementById(id);
+    const summary = step?.querySelector(':scope > summary');
+    if (!summary || summary.dataset.deployGuardBound === '1') return;
+    summary.dataset.deployGuardBound = '1';
+    summary?.addEventListener('click', (ev) => {
+      deployUpdateStepLocks();
+      if (step.classList.contains('onu-step-locked')) {
+        ev.preventDefault();
+        showToast(id === 'cftvStep2' ? 'Conclua a etapa 1 para liberar a camera.' : 'Conclua a etapa 2 para liberar o gravador.', true);
+      }
+    });
+  });
+}
+
+function deploySelectRecorderChannel(channel) {
+  const input = document.getElementById('deployRecorderChannel');
+  const grid = document.getElementById('deployRecorderChannelGrid');
+  const labelEl = document.getElementById('deployRecorderChannelLabel');
+  if (!input || !grid || !channel) return;
+  const btn = grid.querySelector(`.deploy-channel-pill[data-channel="${CSS.escape(String(channel))}"]`);
+  if (!btn || btn.disabled) return;
+  input.value = String(channel);
+  if (labelEl) labelEl.textContent = `Canal ${String(channel).padStart(2, '0')}`;
+  grid.querySelectorAll('.deploy-channel-pill').forEach(item => item.classList.toggle('selected', item === btn));
+  grid.classList.add('hidden');
+  deployRenderSummary();
+}
+
+async function deployLoadRecorderChannels() {
+  const payload = deployPayload();
+  if (!payload.recorder_type || !payload.recorder_host) {
+    deployRenderRecorderChannels();
+    return;
+  }
+  try {
+    const res = await api('/api/deployments/recorder-channels', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (res?.ok && data?.ok !== false) {
+      deployRenderRecorderChannels(Array.isArray(data.channels) ? data.channels : []);
+      deployRenderSummary();
+    }
+  } catch (err) {
+    console.warn('Falha ao carregar canais do gravador', err);
+  }
+}
+
 function deployRenderSummary() {
+  deploySyncRecorderCameraIp();
   const p = deployPayload();
   const conn = deploySelectedConnector();
   const rows = [
@@ -5277,6 +6295,7 @@ function deployRenderSummary() {
   if (summary) {
     summary.innerHTML = rows.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
   }
+  deployUpdateStepLocks();
 }
 
 async function loadDeployHistory() {
@@ -5297,28 +6316,705 @@ async function loadDeployHistory() {
   `).join('');
 }
 
+async function loadDeploySites() {
+  const list = document.getElementById('deploySiteList');
+  if (!list) return;
+  const modes = ['olt', 'basico', 'switch'];
+  const results = await Promise.all(modes.map(mode => apiJson(`/api/cameras?mode=${encodeURIComponent(mode)}`).catch(() => null)));
+  const sites = new Set();
+  results.forEach(data => {
+    const rows = Array.isArray(data?.cameras) ? data.cameras : (Array.isArray(data?.rows) ? data.rows : []);
+    rows.forEach(row => {
+      const site = String(row.site || row.site_name || row.local || '').trim();
+      if (site) sites.add(site);
+    });
+  });
+  _deploySites = [...sites].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  list.innerHTML = _deploySites.map(site => `<option value="${esc(site)}"></option>`).join('');
+}
+
 async function loadDeployNew() {
   const sel = document.getElementById('deployConnector');
   if (!sel) return;
-  const data = await apiJson('/api/deployments/connectors');
-  _deployConnectors = Array.isArray(data?.connectors) ? data.connectors : [];
-  sel.innerHTML = _deployConnectors.length
-    ? _deployConnectors.map(c => `<option value="${esc(c.id || c.connector_id || '')}">${esc(c.name || c.client || 'Conector')} - ${esc(c.site || '-')}</option>`).join('')
-    : '<option value="">Nenhum conector disponivel</option>';
-  const conn = deploySelectedConnector();
-  const siteEl = document.getElementById('deploySite');
-  if (conn && siteEl && !siteEl.value) siteEl.value = conn.site || conn.client || '';
+  const [data] = await Promise.all([
+    apiJson('/api/connectors'),
+    loadDeploySites(),
+  ]);
+  _deployConnectors = (Array.isArray(data?.connectors) ? data.connectors : [])
+    .filter(c => _connectorNorm(c.type) === 'routeros');
+  const connectorOptions = _deployConnectors
+    .map(c => {
+      const online = deployConnectorOnline(c);
+      const tunnel = deployConnectorVpnReady(c);
+      const disabled = online && tunnel ? '' : 'disabled';
+      const suffix = !online ? ' (offline)' : (!tunnel ? ' (sem VPN)' : ' + VPN');
+      return `<option value="${esc(deployConnectorKey(c))}" ${disabled}>${esc(deployConnectorLabel(c))}${suffix}</option>`;
+    })
+    .join('');
+  sel.innerHTML = `<option value="">Escolha a origem de acesso</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>${connectorOptions}`;
+  sel.value = '';
+  deploymentApplyPreferredInventoryMode();
+  deployApplyOriginFields();
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();
   deployRenderSummary();
+  deployOpenStep('cftvStep1');
   await loadDeployHistory();
   bindAccordionExclusive('#viewDeployNew');
+  deployBindStepGuards();
+  await deployLoadAvailableRecorders();
   lucide.createIcons();
+}
+
+// Implantacao - Gravadores
+let _deployStandaloneRecorderProbe = null;
+let _deployStandaloneRecorderSaved = false;
+let _deployRecorderSelectedChannel = 0;
+
+function deployStandaloneRecorderPayload() {
+  const channels = Number(document.getElementById('deployStandaloneRecorderChannelTotal')?.value || 32);
+  return {
+    connector_id: deployStandaloneRecorderSelectedConnectorId(),
+    inventory_mode: document.getElementById('deployStandaloneRecorderInventoryMode')?.value || 'basic',
+    recorder_type: document.getElementById('deployStandaloneRecorderType')?.value || 'nvr',
+    recorder_host: document.getElementById('deployStandaloneRecorderHost')?.value.trim() || '',
+    recorder_http_port: Number(document.getElementById('deployStandaloneRecorderPort')?.value || 80),
+    recorder_user: document.getElementById('deployStandaloneRecorderUser')?.value.trim() || 'admin',
+    recorder_password: document.getElementById('deployStandaloneRecorderPassword')?.value || '',
+    recorder_channel_total: Number.isFinite(channels) && channels > 0 ? channels : 32,
+    channel_total: Number.isFinite(channels) && channels > 0 ? channels : 32,
+    site: document.getElementById('deployStandaloneRecorderSite')?.value.trim() || '',
+    name: document.getElementById('deployStandaloneRecorderName')?.value.trim() || '',
+  };
+}
+
+function deployStandaloneRecorderConnectorValue() {
+  return document.getElementById('deployStandaloneRecorderConnector')?.value || '';
+}
+
+function deployStandaloneRecorderSelectedConnectorId() {
+  const value = deployStandaloneRecorderConnectorValue();
+  return value && value !== DEPLOY_LOCAL_ORIGIN ? value : '';
+}
+
+function deployStandaloneRecorderSelectedConnector() {
+  const id = deployStandaloneRecorderSelectedConnectorId();
+  return _deployConnectors.find(c => deployConnectorKey(c) === id) || null;
+}
+
+function deployStandaloneRecorderOriginReady() {
+  const value = deployStandaloneRecorderConnectorValue();
+  if (value === DEPLOY_LOCAL_ORIGIN) return true;
+  const connector = deployStandaloneRecorderSelectedConnector();
+  return Boolean(connector && deployConnectorOnline(connector) && deployConnectorVpnReady(connector));
+}
+
+function deployStandaloneRecorderUpdateConnectorGate() {
+  const ready = deployStandaloneRecorderOriginReady();
+  const connector = deployStandaloneRecorderSelectedConnector();
+  const site = document.getElementById('deployStandaloneRecorderSite');
+  document.querySelectorAll('[data-recorder-needs-connector="1"]').forEach(el => {
+    el.disabled = !ready;
+    el.classList.toggle('is-disabled', !ready);
+  });
+  if (site) {
+    site.readOnly = false;
+    if (connector) site.value = deployConnectorSite(connector);
+    if (!deployStandaloneRecorderConnectorValue()) site.value = '';
+  }
+}
+
+function deployStandaloneRecorderRenderConnectorStatus() {
+  const box = document.getElementById('deployStandaloneRecorderConnectorStatus');
+  if (!box) return;
+  const value = deployStandaloneRecorderConnectorValue();
+  if (!value) {
+    box.innerHTML = 'Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do gravador ficam bloqueados ate definir a origem.';
+    box.classList.add('error');
+  } else if (value === DEPLOY_LOCAL_ORIGIN) {
+    box.innerHTML = '<b style="color:var(--primary)">Modo local</b> -- usando o servidor/VPN ja roteada. Informe o site correto do gravador.';
+    box.classList.remove('error');
+  } else {
+    const connector = deployStandaloneRecorderSelectedConnector();
+    const online = deployConnectorOnline(connector);
+    const tunnel = deployConnectorVpnReady(connector);
+    box.innerHTML = online
+      ? `<b style="color:var(--primary)">Conector online</b> -- ${esc(deployConnectorLabel(connector))}${tunnel ? ' -- VPN ativa para acessar o gravador.' : ' -- sem VPN configurada: o acesso fica bloqueado.'}`
+      : `<b style="color:var(--danger)">Conector offline</b> -- ${esc(deployConnectorLabel(connector) || 'conector indisponivel')}.`;
+    box.classList.toggle('error', !online || !tunnel);
+  }
+  deployStandaloneRecorderUpdateConnectorGate();
+}
+
+async function deployStandaloneRecorderLoadConnectors() {
+  const select = document.getElementById('deployStandaloneRecorderConnector');
+  if (!select) return;
+  const data = await apiJson('/api/connectors');
+  _deployConnectors = (Array.isArray(data?.connectors) ? data.connectors : [])
+    .filter(c => _connectorNorm(c.type) === 'routeros');
+  select.innerHTML = `<option value="">Escolha a origem de acesso</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>` + _deployConnectors.map(c => {
+    const online = deployConnectorOnline(c);
+    const tunnel = deployConnectorVpnReady(c);
+    const disabled = online && tunnel ? '' : 'disabled';
+    const suffix = !online ? ' (offline)' : (!tunnel ? ' (sem VPN)' : ' + VPN');
+    return `<option value="${esc(deployConnectorKey(c))}" ${disabled}>${esc(deployConnectorLabel(c))}${suffix}</option>`;
+  }).join('');
+  select.value = '';
+  deployStandaloneRecorderRenderConnectorStatus();
+}
+
+function deployStandaloneRecorderChannelsFromProbe(data = null) {
+  const channels = Array.isArray(data?.channels) ? data.channels : [];
+  return channels.map((item, idx) => {
+    const channel = Number(item.channel || item.ch || idx + 1);
+    const cameraIp = item.camera_ip || item.ip || item.remote_ip || '';
+    const title = item.title || item.name || item.channel_name || '';
+    const used = item.used !== undefined ? !!item.used : !!(cameraIp || title || item.enabled);
+    return { ...item, channel, camera_ip: cameraIp, title, used };
+  });
+}
+
+function deployRecorderChannelSnapshotUrl(item) {
+  const raw = String(item?.snapshot_url || item?.imgbb_url || '').trim();
+  if (!raw) return '';
+  return /^https?:\/\//i.test(raw) ? raw : `${API_BASE}${raw}`;
+}
+
+function deployRenderRecorderChannelDetail(item = null) {
+  const detail = document.getElementById('deployRecorderChannelDetail');
+  const layout = document.getElementById('deployRecorderChannelLayout');
+  if (!detail || !layout) return;
+  if (!item) {
+    detail.classList.add('hidden');
+    layout.classList.remove('has-detail');
+    detail.innerHTML = '';
+    return;
+  }
+  const snapshot = deployRecorderChannelSnapshotUrl(item);
+  const channel = String(item.channel || '').padStart(2, '0');
+  detail.classList.remove('hidden');
+  layout.classList.add('has-detail');
+  detail.innerHTML = `
+    <div class="recorder-channel-detail-head"><div><span>CANAL ${esc(channel)}</span><h4>${esc(item.title || (item.used ? 'Canal ocupado' : 'Canal livre'))}</h4></div><button type="button" data-recorder-channel-action="close" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+    <div class="recorder-channel-preview">${snapshot ? `<img src="${esc(snapshot)}" alt="Snapshot do canal ${esc(channel)}">` : '<div><i data-lucide="image-off"></i><span>Sem snapshot</span></div>'}</div>
+    <div class="recorder-channel-fields">
+      <div><span>Status</span><b>${item.used ? 'Ocupado' : 'Livre'}</b></div>
+      <div><span>IP da camera</span><b class="monospace">${esc(item.camera_ip || '-')}</b></div>
+      <div><span>Modelo</span><b>${esc(item.camera_model || item.model || '-')}</b></div>
+      <div><span>MAC</span><b class="monospace">${esc(item.camera_mac || item.mac || '-')}</b></div>
+    </div>
+    <div class="recorder-channel-detail-actions">
+      ${item.used ? '<button type="button" class="secondary-action" data-recorder-channel-action="refresh"><i data-lucide="refresh-cw"></i> Atualizar</button><button type="button" class="secondary-action" data-recorder-channel-action="web"><i data-lucide="globe"></i> Web</button><button type="button" class="primary-action" data-recorder-channel-action="ping"><i data-lucide="activity"></i> Ping</button>' : '<button type="button" class="primary-action" data-recorder-channel-action="add"><i data-lucide="plus-circle"></i> Adicionar camera</button>'}
+    </div>`;
+  lucide.createIcons();
+}
+
+function deployRenderStandaloneRecorderChannels() {
+  const grid = document.getElementById('deployStandaloneRecorderChannels');
+  const counters = document.getElementById('deployRecorderChannelCounters');
+  if (!grid || !counters) return;
+  const channels = deployStandaloneRecorderChannelsFromProbe(_deployStandaloneRecorderProbe);
+  const search = (document.getElementById('deployRecorderChannelSearch')?.value || '').trim().toLowerCase();
+  const filter = document.getElementById('deployRecorderChannelFilter')?.value || 'all';
+  const used = channels.filter(item => item.used).length;
+  const free = channels.length - used;
+  const missingModel = channels.filter(item => item.used && !(item.camera_model || item.model)).length;
+  const missingSnapshot = channels.filter(item => item.used && !deployRecorderChannelSnapshotUrl(item)).length;
+  counters.innerHTML = `<span><b>${esc(channels.length)}</b> total</span><span class="online"><b>${esc(used)}</b> ocupados</span><span class="free"><b>${esc(free)}</b> livres</span><span class="warning"><b>${esc(missingModel)}</b> sem modelo</span><span class="warning"><b>${esc(missingSnapshot)}</b> sem snapshot</span>`;
+  const visible = channels.filter(item => {
+    if (filter === 'used' && !item.used) return false;
+    if (filter === 'free' && item.used) return false;
+    if (filter === 'no_model' && (!item.used || item.camera_model || item.model)) return false;
+    if (filter === 'no_snapshot' && (!item.used || deployRecorderChannelSnapshotUrl(item))) return false;
+    if (search && ![item.channel, item.title, item.camera_ip, item.camera_model, item.model, item.camera_mac].some(value => String(value || '').toLowerCase().includes(search))) return false;
+    return true;
+  });
+  if (!visible.length) {
+    grid.innerHTML = '<div class="recorder-deploy-empty">Nenhum canal encontrado neste filtro.</div>';
+  } else {
+    grid.innerHTML = visible.map(item => {
+      const snapshot = deployRecorderChannelSnapshotUrl(item);
+      const ch = String(item.channel || '').padStart(2, '0');
+      return `<button type="button" class="recorder-deploy-channel ${item.used ? 'used' : 'free'} ${Number(item.channel) === _deployRecorderSelectedChannel ? 'selected' : ''}" data-recorder-channel="${esc(item.channel)}">
+        <div class="recorder-channel-thumb">${snapshot ? `<img src="${esc(snapshot)}" alt="">` : `<i data-lucide="${item.used ? 'image-off' : 'plus'}"></i>`}</div>
+        <div class="recorder-channel-card-body"><div><b>CH ${esc(ch)}</b><span>${item.used ? 'ocupado' : 'livre'}</span></div><strong title="${esc(item.title || '')}">${esc(item.title || (item.used ? 'Sem titulo' : 'Disponivel'))}</strong><small class="monospace">${esc(item.camera_ip || '')}</small><small>${esc(item.camera_model || item.model || (item.used ? 'Modelo nao informado' : 'Pronto para adicionar'))}</small></div>
+      </button>`;
+    }).join('');
+  }
+  const selected = channels.find(item => Number(item.channel) === _deployRecorderSelectedChannel) || null;
+  deployRenderRecorderChannelDetail(selected);
+  lucide.createIcons();
+}
+
+function deployStandaloneRecorderSetResult(html, isError = false) {
+  const box = document.getElementById('deployStandaloneRecorderResult');
+  if (!box) return;
+  box.innerHTML = html || 'Entre no gravador para validar modelo, serial e canais.';
+  box.classList.toggle('error', !!isError);
+}
+
+function deployStandaloneRecorderSetQuickResult(html, isError = false) {
+  const box = document.getElementById('deployStandaloneRecorderQuickResult');
+  if (!box) return;
+  box.innerHTML = html || 'Entre no gravador para liberar as configuracoes rapidas.';
+  box.classList.toggle('error', !!isError);
+}
+
+function deployStandaloneRecorderUpdateQuickActions() {
+  const enabled = !!_deployStandaloneRecorderProbe;
+  [
+    'btnDeployStandaloneRecorderOpenWeb',
+    'btnDeployStandaloneRecorderRefreshChannels',
+    'btnDeployStandaloneRecorderPlayback',
+    'btnDeployStandaloneRecorderSetNtp',
+    'btnDeployStandaloneRecorderReboot',
+    'btnDeployStandaloneRecorderFicha',
+  ].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !enabled;
+  });
+}
+
+function deployStandaloneRecorderSelectConfigTab(tab = 'overview') {
+  const target = tab || 'overview';
+  document.querySelectorAll('.recorder-config-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.recorderConfigTab === target);
+  });
+  document.querySelectorAll('.recorder-config-panel').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.recorderConfigPanel === target);
+  });
+}
+
+function deployStandaloneRecorderRenderProbe(data = null) {
+  const summary = document.getElementById('deployStandaloneRecorderSummary');
+  const channelsBox = document.getElementById('deployStandaloneRecorderChannels');
+  const headStatus = document.getElementById('deployRecorderDiscoveryStatus');
+  if (!summary || !channelsBox) return;
+  if (!data) {
+    const originReady = deployStandaloneRecorderOriginReady();
+    summary.innerHTML = `
+      <div class="recorder-discovery-empty">
+        <i data-lucide="${originReady ? 'log-in' : 'plug-zap'}"></i>
+        <div><b>${originReady ? 'Pronto para validar o gravador' : 'Escolha primeiro o conector'}</b><span>${originReady ? 'Informe host e credenciais ao lado e clique em Entrar.' : 'Os dados e as acoes serao liberados quando a origem estiver definida.'}</span></div>
+      </div>
+      <div class="recorder-discovery-checklist">
+        <div class="${originReady ? 'done' : ''}"><i data-lucide="${originReady ? 'check' : 'circle'}"></i><span><b>1. Conector</b><small>${originReady ? 'Origem de acesso definida' : 'Aguardando origem'}</small></span></div>
+        <div><i data-lucide="circle"></i><span><b>2. Login</b><small>Validar modelo e serial</small></span></div>
+        <div><i data-lucide="circle"></i><span><b>3. Canais</b><small>Identificar ocupados e livres</small></span></div>
+        <div><i data-lucide="circle"></i><span><b>4. Inventario</b><small>Revisar e salvar</small></span></div>
+      </div>
+    `;
+    _deployRecorderSelectedChannel = 0;
+    deployRenderStandaloneRecorderChannels();
+    if (headStatus) {
+      headStatus.className = 'recorder-head-status waiting';
+      headStatus.innerHTML = '<i data-lucide="circle"></i><span>Aguardando login</span>';
+    }
+    deployStandaloneRecorderUpdateQuickActions();
+    lucide.createIcons();
+    return;
+  }
+  const channels = deployStandaloneRecorderChannelsFromProbe(data);
+  const used = channels.filter(ch => !!ch.used).length;
+  const free = channels.length ? channels.length - used : 0;
+  const total = Number(data.channel_total || channels.length || 0);
+  const payload = deployStandaloneRecorderPayload();
+  const brand = data.brand || 'Fabricante nao informado';
+  const model = data.model || 'Modelo nao informado';
+  const modeLabel = { basic: 'Basico', olt: 'Via OLT', switch: 'Via Switch' }[payload.inventory_mode] || 'Basico';
+  if (headStatus) {
+    headStatus.className = 'recorder-head-status online';
+    headStatus.innerHTML = '<i data-lucide="circle-check"></i><span>Conectado</span>';
+  }
+  summary.innerHTML = `
+    <div class="recorder-discovery-identity">
+      <div><span>Fabricante</span><b>${esc(brand)}</b></div>
+      <div><span>Modelo</span><b>${esc(model)}</b></div>
+      <div class="identity-serial"><span>Serial</span><b class="monospace">${esc(data.serial || 'nao informado')}</b></div>
+    </div>
+    <div class="recorder-discovery-metrics">
+      <div><span>Total</span><b>${esc(total)}</b><small>canais</small></div>
+      <div class="metric-online"><span>Ocupados</span><b>${esc(used)}</b><small>com camera</small></div>
+      <div class="metric-free"><span>Livres</span><b>${esc(free)}</b><small>disponiveis</small></div>
+    </div>
+    <div class="recorder-discovery-context">
+      <div><span>Host</span><b class="monospace">${esc(payload.recorder_host)}</b></div>
+      <div><span>Site / local</span><b>${esc(payload.site || '-')}</b></div>
+      <div><span>Tipo</span><b>${esc(payload.recorder_type.toUpperCase())}</b></div>
+      <div><span>Destino</span><b>${esc(modeLabel)}</b></div>
+    </div>
+    <div class="recorder-discovery-checklist compact">
+      <div class="done"><i data-lucide="check"></i><span><b>Conector</b><small>Rota pronta</small></span></div>
+      <div class="done"><i data-lucide="check"></i><span><b>Login</b><small>Credenciais OK</small></span></div>
+      <div class="done"><i data-lucide="check"></i><span><b>Canais</b><small>${esc(used)} detectados</small></span></div>
+      <div class="${_deployStandaloneRecorderSaved ? 'done' : ''}"><i data-lucide="${_deployStandaloneRecorderSaved ? 'check' : 'circle'}"></i><span><b>Inventario</b><small>${_deployStandaloneRecorderSaved ? 'Salvo' : 'Falta salvar'}</small></span></div>
+    </div>
+    <div class="recorder-discovery-actions">
+      <button type="button" class="secondary-action" data-recorder-overview-action="refresh"><i data-lucide="refresh-cw"></i> Revalidar</button>
+      <button type="button" class="secondary-action" data-recorder-overview-action="channels"><i data-lucide="layout-grid"></i> Ver canais</button>
+      <button type="button" class="primary-action" id="btnDeployStandaloneRecorderSaveOverview" data-recorder-overview-action="save"><i data-lucide="${_deployStandaloneRecorderSaved ? 'check' : 'save'}"></i> ${_deployStandaloneRecorderSaved ? 'Salvo no inventario' : 'Salvar no inventario'}</button>
+    </div>
+  `;
+  deployRenderStandaloneRecorderChannels();
+  deployStandaloneRecorderSetQuickResult('Login confirmado. Escolha uma configuracao rapida para executar.');
+  deployStandaloneRecorderUpdateQuickActions();
+  lucide.createIcons();
+}
+
+async function loadDeployRecorderSites() {
+  const list = document.getElementById('deployStandaloneRecorderSiteList');
+  if (!list) return;
+  const sites = new Set(_deploySites || []);
+  const cameraModes = ['olt', 'basico', 'switch'];
+  const cameraResults = await Promise.all(cameraModes.map(mode => apiJson(`/api/cameras?mode=${encodeURIComponent(mode)}`).catch(() => null)));
+  cameraResults.forEach(data => {
+    const rows = Array.isArray(data?.cameras) ? data.cameras : (Array.isArray(data?.rows) ? data.rows : []);
+    rows.forEach(row => {
+      const site = String(row.site || row.site_name || row.local || '').trim();
+      if (site) sites.add(site);
+    });
+  });
+  const recorderResults = await Promise.all([
+    apiJson('/api/nvr/rows').catch(() => null),
+    apiJson('/api/dvr/rows').catch(() => null),
+  ]);
+  recorderResults.forEach(data => {
+    const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.recorders) ? data.recorders : []);
+    rows.forEach(row => {
+      const site = String(row.site || row.site_name || row.local || '').trim();
+      if (site) sites.add(site);
+    });
+  });
+  _deploySites = [...sites].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  list.innerHTML = _deploySites.map(site => `<option value="${esc(site)}"></option>`).join('');
+}
+
+async function loadDeployRecorder() {
+  deploymentApplyPreferredInventoryMode();
+  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors()]);
+  deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
+  deployStandaloneRecorderSelectConfigTab(
+    document.querySelector('.recorder-config-tab.active')?.dataset.recorderConfigTab || 'overview'
+  );
+  lucide.createIcons();
+}
+
+async function deployStandaloneRecorderLogin() {
+  _deployStandaloneRecorderSaved = false;
+  const payload = deployStandaloneRecorderPayload();
+  if (!payload.site) {
+    deployStandaloneRecorderSetResult('Informe o site/local antes de cadastrar o gravador.', true);
+    showToast('Informe o site/local.', true);
+    return;
+  }
+  if (!payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
+    deployStandaloneRecorderSetResult('Informe host, usuario e senha do gravador.', true);
+    showToast('Informe host, usuario e senha do gravador.', true);
+    return;
+  }
+  const btn = document.getElementById('btnDeployStandaloneRecorderLogin');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Entrando'; lucide.createIcons(); }
+  deployStandaloneRecorderSetResult(`Conectando em ${esc(payload.recorder_host)}...`);
+  try {
+    const res = await api('/api/deployments/recorder-login', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao entrar no gravador.';
+      _deployStandaloneRecorderProbe = null;
+      deployStandaloneRecorderRenderProbe(null);
+      deployStandaloneRecorderSetResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    _deployStandaloneRecorderProbe = data;
+    deployStandaloneRecorderRenderProbe(data);
+    const label = [data.brand, data.model, data.serial].filter(Boolean).join(' / ');
+    deployStandaloneRecorderSetResult(`Login confirmado em ${esc(payload.recorder_host)}${label ? ` - ${esc(label)}` : ''}. Agora pode salvar no inventario.`);
+    showToast('Login do gravador confirmado.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao entrar no gravador.';
+    _deployStandaloneRecorderProbe = null;
+    deployStandaloneRecorderRenderProbe(null);
+    deployStandaloneRecorderSetResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="log-in"></i> Entrar'; lucide.createIcons(); }
+  }
+}
+
+function deployStandaloneRecorderRows(payload, probe) {
+  const channels = deployStandaloneRecorderChannelsFromProbe(probe);
+  const byChannel = new Map(channels.map(item => [Number(item.channel || 0), item]));
+  const total = Number(probe?.channel_total || payload.recorder_channel_total || channels.length || 32);
+  const model = probe?.model || '';
+  const serial = probe?.serial || '';
+  return Array.from({ length: total }, (_, idx) => {
+    const channel = idx + 1;
+    const live = byChannel.get(channel) || {};
+    const used = !!live.used;
+    const title = live.title || `${String(channel).padStart(2, '0')} - LIVRE`;
+    const row = {
+      remote: Boolean(payload.connector_id),
+      remote_connector_id: payload.connector_id || '',
+      inventory_mode: payload.inventory_mode || 'basic',
+      host: payload.recorder_host,
+      http_port: payload.recorder_http_port,
+      recorder_user: payload.recorder_user,
+      name: payload.name,
+      channel,
+      title,
+      local: payload.site,
+      site: payload.site,
+      status: used ? 'online' : 'offline',
+      video_loss: used ? 'nao' : 'sim',
+      equip_serial: serial,
+      snapshot_url: live.snapshot_url || '',
+      imgbb_url: live.imgbb_url || '',
+      imgbb_thumb_url: live.imgbb_thumb_url || '',
+    };
+    if (payload.recorder_type === 'dvr') {
+      row.modelo = model;
+      row.model = model;
+      row.mac = live.mac || '';
+    } else {
+      row.nvr_model = model;
+      row.modelo = model;
+      row.camera_ip = live.camera_ip || '';
+      row.camera_model = live.camera_model || live.model || '';
+      row.camera_mac = live.mac || live.camera_mac || '';
+      row.mac = live.mac || live.camera_mac || '';
+    }
+    return row;
+  }).filter(row => row.status === 'online');
+}
+
+async function deployStandaloneRecorderSave() {
+  const payload = deployStandaloneRecorderPayload();
+  if (!payload.site || !payload.recorder_host) {
+    deployStandaloneRecorderSetResult('Site/local e host do gravador sao obrigatorios.', true);
+    showToast('Informe site e host do gravador.', true);
+    return;
+  }
+  if (!_deployStandaloneRecorderProbe) {
+    deployStandaloneRecorderSetResult('Entre no gravador antes de salvar no inventario.', true);
+    showToast('Entre no gravador antes de salvar.', true);
+    return;
+  }
+  const rows = deployStandaloneRecorderRows(payload, _deployStandaloneRecorderProbe);
+  if (!rows.length) {
+    deployStandaloneRecorderSetResult('Nenhum canal encontrado para salvar.', true);
+    showToast('Nenhum canal encontrado.', true);
+    return;
+  }
+  const btn = document.getElementById('btnDeployStandaloneRecorderSaveOverview');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Salvando'; lucide.createIcons(); }
+  try {
+    const endpoint = payload.recorder_type === 'dvr' ? '/api/dvr/save' : '/api/nvr/save';
+    const res = await api(endpoint, { method: 'POST', body: JSON.stringify({ recorders: rows }) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao salvar gravador no inventario.';
+      deployStandaloneRecorderSetResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    deployStandaloneRecorderSetResult(`${rows.length} canal(is) salvos no inventario de ${payload.recorder_type.toUpperCase()} para ${esc(payload.site)}.`);
+    _deployStandaloneRecorderSaved = true;
+    deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
+    showToast('Gravador salvo no inventario.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao salvar gravador no inventario.';
+    deployStandaloneRecorderSetResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save"></i> Salvar no inventario'; lucide.createIcons(); }
+  }
+}
+
+function deployStandaloneRecorderClear() {
+  _deployStandaloneRecorderProbe = null;
+  _deployStandaloneRecorderSaved = false;
+  ['deployStandaloneRecorderSite', 'deployStandaloneRecorderHost', 'deployStandaloneRecorderPassword', 'deployStandaloneRecorderName'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const port = document.getElementById('deployStandaloneRecorderPort');
+  const channels = document.getElementById('deployStandaloneRecorderChannelTotal');
+  const user = document.getElementById('deployStandaloneRecorderUser');
+  if (port) port.value = '80';
+  if (channels) channels.value = '32';
+  if (user) user.value = 'admin';
+  const connector = document.getElementById('deployStandaloneRecorderConnector');
+  if (connector) connector.value = '';
+  deployStandaloneRecorderRenderConnectorStatus();
+  deployStandaloneRecorderRenderProbe(null);
+  deployStandaloneRecorderSetResult('Entre no gravador para validar modelo, serial e canais.');
+  deployStandaloneRecorderSetQuickResult('Entre no gravador para liberar as configuracoes rapidas.');
+  lucide.createIcons();
+}
+
+function deployStandaloneRecorderEndpointBase(payload = deployStandaloneRecorderPayload()) {
+  return payload.recorder_type === 'dvr' ? '/api/dvr' : '/api/nvr';
+}
+
+function deployStandaloneRecorderCommonPayload(payload = deployStandaloneRecorderPayload()) {
+  return {
+    ip: payload.recorder_host,
+    http_port: payload.recorder_http_port,
+    user: payload.recorder_user,
+    password: payload.recorder_password,
+    timeout_sec: 10,
+  };
+}
+
+function deployStandaloneRecorderWebUrl(payload = deployStandaloneRecorderPayload()) {
+  const port = Number(payload.recorder_http_port || 80);
+  const suffix = port && port !== 80 ? `:${port}` : '';
+  return `http://${payload.recorder_host}${suffix}`;
+}
+
+function deployStandaloneRecorderFirstUsedChannel() {
+  const channels = deployStandaloneRecorderChannelsFromProbe(_deployStandaloneRecorderProbe);
+  return channels.find(ch => ch.used)?.channel || 1;
+}
+
+function deployStandaloneRecorderRequireLogin() {
+  if (_deployStandaloneRecorderProbe) return true;
+  deployStandaloneRecorderSetQuickResult('Entre no gravador antes de executar esta acao.', true);
+  showToast('Entre no gravador antes.', true);
+  return false;
+}
+
+function deployStandaloneRecorderOpenWeb() {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  window.open(deployStandaloneRecorderWebUrl(), '_blank', 'noopener');
+}
+
+function deployStandaloneRecorderPlayback() {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  const payload = deployStandaloneRecorderPayload();
+  navigateTo('playback');
+  setTimeout(() => {
+    const host = document.getElementById('playbackHost');
+    const user = document.getElementById('playbackUser');
+    const pass = document.getElementById('playbackPassword');
+    const channel = document.getElementById('playbackChannel');
+    if (host) host.value = `${payload.recorder_host}${payload.recorder_http_port && payload.recorder_http_port !== 80 ? `:${payload.recorder_http_port}` : ''}`;
+    if (user) user.value = payload.recorder_user;
+    if (pass) pass.value = payload.recorder_password;
+    if (channel) channel.value = deployStandaloneRecorderFirstUsedChannel();
+  }, 60);
+}
+
+function deployStandaloneRecorderFicha() {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  const payload = deployStandaloneRecorderPayload();
+  const channels = deployStandaloneRecorderChannelsFromProbe(_deployStandaloneRecorderProbe);
+  const data = {
+    site: payload.site,
+    type: payload.recorder_type,
+    host: payload.recorder_host,
+    http_port: payload.recorder_http_port,
+    name: payload.name,
+    brand: _deployStandaloneRecorderProbe?.brand || '',
+    model: _deployStandaloneRecorderProbe?.model || '',
+    serial: _deployStandaloneRecorderProbe?.serial || '',
+    channel_total: channels.length || payload.recorder_channel_total,
+    used_channels: channels.filter(ch => ch.used).length,
+    free_channels: channels.filter(ch => !ch.used).length,
+    channels,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sightops-gravador-${payload.recorder_host || 'novo'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  deployStandaloneRecorderSetQuickResult('Ficha tecnica gerada com os dados da descoberta.');
+}
+
+async function deployStandaloneRecorderSetNtp() {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  const payload = deployStandaloneRecorderPayload();
+  const ntp = document.getElementById('deployStandaloneRecorderNtpServer')?.value.trim() || 'time.cloudflare.com';
+  const btn = document.getElementById('btnDeployStandaloneRecorderSetNtp');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Ajustando'; lucide.createIcons(); }
+  deployStandaloneRecorderSetQuickResult(`Enviando NTP ${esc(ntp)} para ${esc(payload.recorder_host)}...`);
+  try {
+    const res = await api(`${deployStandaloneRecorderEndpointBase(payload)}/ntp`, {
+      method: 'POST',
+      body: JSON.stringify({ ...deployStandaloneRecorderCommonPayload(payload), address: ntp }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao acertar NTP.';
+      deployStandaloneRecorderSetQuickResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    deployStandaloneRecorderSetQuickResult(`NTP aplicado em ${esc(payload.recorder_host)}.`);
+    showToast('NTP aplicado no gravador.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao acertar NTP.';
+    deployStandaloneRecorderSetQuickResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="clock"></i> Acertar NTP'; lucide.createIcons(); }
+    deployStandaloneRecorderUpdateQuickActions();
+  }
+}
+
+async function deployStandaloneRecorderReboot() {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  const payload = deployStandaloneRecorderPayload();
+  if (!confirm(`Reiniciar o gravador ${payload.recorder_host}?`)) return;
+  const btn = document.getElementById('btnDeployStandaloneRecorderReboot');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Reiniciando'; lucide.createIcons(); }
+  deployStandaloneRecorderSetQuickResult(`Enviando reboot para ${esc(payload.recorder_host)}...`);
+  try {
+    const res = await api(`${deployStandaloneRecorderEndpointBase(payload)}/reboot`, {
+      method: 'POST',
+      body: JSON.stringify(deployStandaloneRecorderCommonPayload(payload)),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao reiniciar gravador.';
+      deployStandaloneRecorderSetQuickResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    deployStandaloneRecorderSetQuickResult(`Comando de reboot enviado para ${esc(payload.recorder_host)}.`);
+    showToast('Reboot enviado ao gravador.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao reiniciar gravador.';
+    deployStandaloneRecorderSetQuickResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="power"></i> Reboot'; lucide.createIcons(); }
+    deployStandaloneRecorderUpdateQuickActions();
+  }
 }
 
 //  Implantacao - ONU (pagina dedicada: descobrir/autorizar/consultar/excluir)
 let _onuSelectedDiscovered = null; // {pon, serno_id, serial, model, vendor}
 let _oltInventoryRows = null; // cache: linhas de /api/olt/rows (IP/site/PON ja conhecidos)
+
+function onuInferOltContext(oltIp) {
+  const ip = (oltIp || '').trim();
+  const rows = Array.isArray(_oltInventoryRows) ? _oltInventoryRows : [];
+  const same = rows.filter(r => (r.olt_ip || '').trim() === ip);
+  if (!same.length) return { site: '', olt_name: '' };
+  const bySite = same.reduce((acc, r) => {
+    const site = (r.site || r.local || '').trim();
+    if (!site) return acc;
+    acc[site] = (acc[site] || 0) + 1;
+    return acc;
+  }, {});
+  const site = Object.entries(bySite).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  const oltName = same.map(r => (r.olt_name || '').trim()).find(Boolean) || '';
+  return { site, olt_name: oltName };
+}
 
 async function populateOltIpDatalist(inputId, listId, ponInputId) {
   const listEl = document.getElementById(listId);
@@ -5354,6 +7050,93 @@ async function populateOltIpDatalist(inputId, listId, ponInputId) {
   }
 }
 
+async function refreshOnuConnectors() {
+  const sel = document.getElementById('onuConnector');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/connectors');
+    _connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+  } catch {
+    _connectors = _connectors || [];
+  }
+  const current = sel.value;
+  const rows = _routerConnectors();
+  sel.innerHTML = '<option value="">Escolha a origem de acesso</option><option value="__local__">Local / VPN do servidor</option>' + rows.map(c => {
+    const online = _connectorIsOnline(c);
+    const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+    const disabled = online && _connectorHasTunnel(c) ? '' : 'disabled';
+    const suffix = !online ? ' (offline)' : (!_connectorHasTunnel(c) ? ' (sem VPN)' : '');
+    return `<option value="${esc(c.id || c.connector_id || '')}" ${disabled}>${esc(_connectorLabel(c))}${tunnel}${suffix}</option>`;
+  }).join('');
+  if (current === '__local__' || (current && rows.some(c => String(c.id || c.connector_id || '') === current))) {
+    sel.value = current;
+  }
+}
+
+function updateOnuConnectorStatus() {
+  const status = document.getElementById('onuConnectorStatus');
+  const connectorId = document.getElementById('onuConnector')?.value || '';
+  const connector = connectorId ? _connectorById(connectorId) : null;
+  if (!status) return;
+  if (!connectorId) {
+    status.innerHTML = 'Escolha Local/VPN do servidor ou um conector online com VPN. Os dados da OLT ficam bloqueados ate definir a origem.';
+    status.classList.add('error');
+    onuUpdateConnectorGate();
+    return;
+  }
+  if (connectorId === '__local__') {
+    status.innerHTML = '<b style="color:var(--primary)">Modo local</b> -- usando o servidor/VPN ja roteada. Confirme manualmente que a OLT pertence ao site correto.';
+    status.classList.remove('error');
+    onuUpdateConnectorGate();
+    return;
+  }
+  const online = _connectorIsOnline(connector);
+  const tunnel = _connectorHasTunnel(connector);
+  status.innerHTML = online
+    ? `<b style="color:var(--primary)">Conector online</b> -- ${esc(_connectorLabel(connector))}${tunnel ? ' -- VPN ativa para acessar a OLT.' : ' -- sem VPN configurada: a acao sera bloqueada.'}`
+    : `<b style="color:var(--danger)">Conector offline</b> -- ${esc(_connectorLabel(connector) || 'conector indisponivel')}.`;
+  status.classList.toggle('error', !online || !tunnel);
+  onuUpdateConnectorGate();
+}
+
+function onuConnectorGateOk() {
+  const connectorId = document.getElementById('onuConnector')?.value || '';
+  if (!connectorId) return false;
+  if (connectorId === '__local__') return true;
+  const connector = _connectorById(connectorId);
+  return _connectorIsOnline(connector) && _connectorHasTunnel(connector);
+}
+
+function onuUpdateConnectorGate() {
+  const unlocked = onuConnectorGateOk();
+  document.querySelectorAll('[data-onu-needs-connector="1"]').forEach(el => {
+    el.disabled = !unlocked;
+    el.classList.toggle('is-disabled', !unlocked);
+  });
+  onuUpdateStepsLock();
+}
+
+function onuConnectorReady(olt) {
+  if (olt.access_mode === 'local') return true;
+  if (!olt.connector_id) {
+    showToast('Escolha Local/VPN do servidor ou um conector antes de acessar a OLT.', true);
+    updateOnuConnectorStatus();
+    return false;
+  }
+  const connector = _connectorById(olt.connector_id);
+  if (!_connectorIsOnline(connector)) {
+    showToast('O conector selecionado esta offline.', true);
+    updateOnuConnectorStatus();
+    return false;
+  }
+  if (!_connectorHasTunnel(connector)) {
+    showToast('Esse conector ainda nao tem VPN ativa para acessar a OLT.', true);
+    updateOnuConnectorStatus();
+    return false;
+  }
+  return true;
+}
+
 // Acordeao generico ("sanfonado"): dentro de containerSelector, so um
 // <details class="onu-step"> fica aberto por vez (fallback via JS para
 // navegadores sem suporte nativo a details[name]).
@@ -5371,17 +7154,32 @@ function bindAccordionExclusive(containerSelector) {
 }
 
 function loadDeployOnu() {
+  deploymentApplyPreferredInventoryMode();
   populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
+  refreshOnuConnectors().finally(() => {
+    updateOnuConnectorStatus();
+    onuUpdateConnectorGate();
+  });
   bindAccordionExclusive('#viewDeployOnu');
   bindOnuStepLockGuards();
-  onuUpdateStepsLock();
-  ['onuOltIp', 'onuOltPassword'].forEach(id => {
+  onuUpdateConnectorGate();
+  ['onuOltIp', 'onuOltUser', 'onuOltPassword'].forEach(id => {
     const el = document.getElementById(id);
     if (el && !el.dataset.lockWatchBound) {
       el.dataset.lockWatchBound = '1';
-      el.addEventListener('input', onuUpdateStepsLock);
+      el.addEventListener('input', () => {
+        onuUpdateStepsLock();
+      });
     }
   });
+  const connectorEl = document.getElementById('onuConnector');
+  if (connectorEl && !connectorEl.dataset.onuConnectorBound) {
+    connectorEl.dataset.onuConnectorBound = '1';
+    connectorEl.addEventListener('change', () => {
+      updateOnuConnectorStatus();
+      onuUpdateConnectorGate();
+    });
+  }
   onuUpdateTerminalUI();
   lucide.createIcons();
 }
@@ -5399,7 +7197,8 @@ function onuLockedStepIds() {
 function onuUpdateStepsLock() {
   const ip = document.getElementById('onuOltIp')?.value.trim();
   const pass = document.getElementById('onuOltPassword')?.value;
-  const locked = !ip || !pass;
+  const connectorOk = onuConnectorGateOk();
+  const locked = !connectorOk || !ip || !pass;
   onuLockedStepIds().forEach(id => {
     const details = document.getElementById(id);
     if (!details) return;
@@ -5417,7 +7216,7 @@ function bindOnuStepLockGuards() {
     summary.addEventListener('click', (e) => {
       if (details.classList.contains('onu-step-locked')) {
         e.preventDefault();
-        showToast('Informe o IP e a senha da OLT primeiro.', true);
+        showToast(onuConnectorGateOk() ? 'Informe o IP e a senha da OLT primeiro.' : 'Escolha Local/VPN do servidor ou um conector online com VPN primeiro.', true);
       }
     });
   });
@@ -5468,11 +7267,25 @@ function onuUpdateTerminalUI() {
 }
 
 function onuOltPayload() {
+  const oltIp = document.getElementById('onuOltIp')?.value.trim() || '';
+  const ctx = onuInferOltContext(oltIp);
+  const selectedOrigin = document.getElementById('onuConnector')?.value || '';
+  const localMode = selectedOrigin === '__local__';
+  const connectorId = localMode ? '' : selectedOrigin;
+  const connector = connectorId ? _connectorById(connectorId) : null;
+  const site = connector ? (connector.site || connector.client || ctx.site || '') : ctx.site;
   return {
-    olt_ip: document.getElementById('onuOltIp')?.value.trim() || '',
+    access_mode: localMode ? 'local' : 'connector',
+    olt_ip: oltIp,
     user: document.getElementById('onuOltUser')?.value.trim() || 'admin',
     password: document.getElementById('onuOltPassword')?.value || '',
     pon: document.getElementById('onuOltPon')?.value.trim() || 'all',
+    site,
+    olt_name: ctx.olt_name,
+    connector_id: connectorId,
+    remote_connector_id: connectorId,
+    connector_name: connector ? (connector.name || connector.client || '') : '',
+    inventory_mode: document.getElementById('onuInventoryMode')?.value || 'basic',
   };
 }
 
@@ -5489,10 +7302,16 @@ function onuSetResult(boxId, html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+function onuMacLine(m) {
+  const ip = m?.ip ? ` - <b>${esc(m.ip)}</b>` : '';
+  return `<li><code>${esc(m?.mac || '')}</code>${ip} - ${esc(m?.interface || '')}</li>`;
+}
+
 async function onuDiscover() {
   const olt = onuOltPayload();
   if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
   if (!olt.password) { showToast('Informe a senha da OLT.', true); return; }
+  if (!onuConnectorReady(olt)) return;
   onuSetResult('onuDiscoverResult', 'Consultando OLT (pode levar alguns segundos)...');
   const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
   const data = await res?.json().catch(() => ({}));
@@ -5542,6 +7361,7 @@ async function onuDiscover() {
 async function onuAdd() {
   const olt = onuOltPayload();
   if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!onuConnectorReady(olt)) return;
   const sernoId = Number(document.getElementById('onuAddSernoId')?.value.trim() || '0');
   if (!sernoId) { showToast('Descubra e selecione uma ONU primeiro (ou digite o serno_id).', true); return; }
 
@@ -5572,12 +7392,19 @@ async function onuAdd() {
     pon,
     serno_id: sernoId,
     onu_model: model,
+    serial: _onuSelectedDiscovered?.serial || '',
+    vendor: _onuSelectedDiscovered?.vendor || '',
+    site: olt.site || '',
+    olt_name: olt.olt_name || '',
     description: document.getElementById('onuAddDescription')?.value.trim() || '',
     service: services[0].service,
     vlan: services[0].vlan,
     services,
     tag_mode: tagMode,
     terminal,
+    connector_id: olt.connector_id || '',
+    remote_connector_id: olt.remote_connector_id || '',
+    connector_name: olt.connector_name || '',
   };
   onuSetResult('onuAddResult', 'Autorizando ONU na OLT (equipamento vivo, aguarde)...');
   const res = await api('/api/olt/add-onu', { method: 'POST', body: JSON.stringify(payload) });
@@ -5591,8 +7418,10 @@ async function onuAdd() {
     showToast('Falha ao autorizar ONU -- confira o detalhe.', true);
     return;
   }
-  onuSetResult('onuAddResult', `ONU autorizada na PON ${esc(data.pon)}, posicao ${esc(data.slot)}.`);
-  showToast(`ONU autorizada: PON ${data.pon} / posicao ${data.slot}`);
+  _oltInventoryRows = null;
+  const invMsg = data.inventory?.updated ? ' Inventario OLT atualizado.' : ' Inventario OLT nao foi alterado.';
+  onuSetResult('onuAddResult', `ONU autorizada na PON ${esc(data.pon)}, posicao ${esc(data.slot)}.${esc(invMsg)}`);
+  showToast(`ONU autorizada: PON ${data.pon} / posicao ${data.slot}. Inventario atualizado.`);
   const targetEl = document.getElementById('onuTargetNum');
   if (targetEl) targetEl.value = data.slot;
   onuAccordionOpen('onuStepQuery');
@@ -5601,6 +7430,7 @@ async function onuAdd() {
 async function onuQuery() {
   const olt = onuOltPayload();
   if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!onuConnectorReady(olt)) return;
   const onuNum = Number(document.getElementById('onuTargetNum')?.value.trim() || '0');
   const serial = document.getElementById('onuQuerySerial')?.value.trim() || '';
   if (!onuNum && !serial) { showToast('Informe o numero da ONU ou o serial.', true); return; }
@@ -5614,6 +7444,11 @@ async function onuQuery() {
     pon: ponNum,
     onu: onuNum || 0,
     serial,
+    site: olt.site || '',
+    olt_name: olt.olt_name || '',
+    connector_id: olt.connector_id || '',
+    remote_connector_id: olt.remote_connector_id || '',
+    connector_name: olt.connector_name || '',
   };
   onuSetResult('onuQueryResult', 'Consultando sinal e MACs na OLT...');
   const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify(payload) });
@@ -5627,14 +7462,19 @@ async function onuQuery() {
   if (targetEl) targetEl.value = data.onu;
 
   const macsHtml = (data.macs || []).length
-    ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(m => `<li><code>${esc(m.mac)}</code> - ${esc(m.interface)}</li>`).join('')}</ul>`
+    ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(onuMacLine).join('')}</ul>`
     : '<p style="margin:6px 0 0">Nenhum MAC aprendido atras dessa ONU ainda.</p>';
+  _oltInventoryRows = null;
+  const invSync = data.inventory?.updated
+    ? `<div style="margin-top:6px;color:var(--primary)">Inventario OLT atualizado com ${esc(String(data.inventory.macs || 0))} MAC(s).</div>`
+    : '';
 
   onuSetResult('onuQueryResult', `
     <div><b>PON ${esc(data.pon)} / ONU ${esc(data.onu)}</b> - ${esc(data.serial)} (${esc(data.model)})</div>
     <div style="margin-top:4px">Status: ${esc(data.oper_status || '-')} / OMCI ${esc(data.omci_status || '-')}</div>
     <div>OLT RX: ${esc(data.olt_rx || '-')} &nbsp; ONU RX: ${esc(data.onu_rx || '-')} &nbsp; Distancia: ${esc(data.distance_km || '-')} km</div>
     <div style="margin-top:6px"><b>MACs aprendidos:</b>${macsHtml}</div>
+    ${invSync}
   `);
 }
 
@@ -5646,6 +7486,7 @@ function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.clas
 async function onuDelete() {
   const olt = onuOltPayload();
   if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!onuConnectorReady(olt)) return;
   const ponNum = Number(document.getElementById('onuDeletePon')?.value.trim() || '0');
   if (!ponNum) { showToast('Escolha a PON da ONU a excluir.', true); return; }
   const onuNum = Number(document.getElementById('onuDeleteOnuNum')?.value.trim() || '0');
@@ -5658,7 +7499,7 @@ async function onuDelete() {
   if (panoramaEl) panoramaEl.innerHTML = 'Consultando dados da ONU na OLT...';
   openOnuDeleteModal();
 
-  const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum }) });
+  const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   const data = await res?.json().catch(() => ({}));
   if (confirmBtn) confirmBtn.disabled = false;
   if (!panoramaEl) return;
@@ -5667,7 +7508,7 @@ async function onuDelete() {
     return;
   }
   const macsHtml = (data.macs || []).length
-    ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(m => `<li><code>${esc(m.mac)}</code> - ${esc(m.interface)}</li>`).join('')}</ul>`
+    ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(onuMacLine).join('')}</ul>`
     : '<p style="margin:6px 0 0">Nenhum MAC aprendido atras dessa ONU.</p>';
   panoramaEl.innerHTML = `
     <p>Voce esta prestes a excluir:</p>
@@ -5688,7 +7529,7 @@ async function onuConfirmDelete() {
   if (confirmBtn) confirmBtn.disabled = true;
   if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo, aguarde)...</p>');
 
-  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu }) });
+  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   const data = await res?.json().catch(() => ({}));
   closeOnuDeleteModal();
   _onuDeleteTarget = null;
@@ -5696,14 +7537,22 @@ async function onuConfirmDelete() {
     onuSetResult('onuDeleteResult', esc(data?.detail || 'Falha ao excluir ONU (confira se a posicao esta correta).'), true);
     return;
   }
-  onuSetResult('onuDeleteResult', `ONU excluida da PON ${esc(data.pon)} / posicao ${esc(data.onu)}.`);
-  showToast('ONU excluida com sucesso.');
+  _oltInventoryRows = null;
+  const removed = Number(data.inventory?.removed || 0);
+  const invMsg = removed > 0 ? ` Removida do inventario OLT (${removed} registro${removed !== 1 ? 's' : ''}).` : ' Nenhum registro correspondente no inventario OLT.';
+  onuSetResult('onuDeleteResult', `ONU excluida da PON ${esc(data.pon)} / posicao ${esc(data.onu)}.${esc(invMsg)}`);
+  showToast(removed > 0 ? 'ONU excluida e removida do inventario.' : 'ONU excluida; nao havia registro no inventario.');
 }
 
 
 async function deployLookupMac() {
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de procurar a camera.')) return;
   const p = deployPayload();
-  if (!p.connector_id) { showToast('Selecione um conector MikroTik.', true); return; }
+  if (!p.connector_id) {
+    deploySetResult('Busca por MAC exige um conector MikroTik. No modo Local, preencha o IP da camera e clique em Entrar.', true);
+    showToast('Busca por MAC exige conector MikroTik.', true);
+    return;
+  }
   if (!p.camera_mac) { showToast('Digite o MAC ou IP da camera.', true); return; }
   deploySetResult('Consultando DHCP, ARP e neighbors do MikroTik...');
   const data = await apiJson(`/api/deployments/lookup?connector_id=${encodeURIComponent(p.connector_id)}&query=${encodeURIComponent(p.camera_mac)}`);
@@ -5744,6 +7593,7 @@ async function deployLookupMac() {
 }
 
 async function deployPullCameraInfo() {
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de entrar na camera.')) return;
   // IP pra conectar vem do que foi selecionado na busca de MAC (Mikrotik),
   // ou do valor ja confirmado no campo (de um pull anterior) -- nunca de
   // digitacao manual, ja que o campo visivel fica travado.
@@ -5756,7 +7606,13 @@ async function deployPullCameraInfo() {
   if (box) box.innerHTML = 'Conectando na camera e trazendo os dados (pode levar alguns segundos)...';
   const res = await api('/api/rescan-single-ip', {
     method: 'POST',
-    body: JSON.stringify({ ip, usuario: user, senha: pass, inventory_mode: 'olt', capture_snapshot: true }),
+    body: JSON.stringify({
+      ip,
+      usuario: user,
+      senha: pass,
+      inventory_mode: document.getElementById('deployInventoryMode')?.value || 'basic',
+      capture_snapshot: true,
+    }),
   });
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false || data?.success === false) {
@@ -5783,6 +7639,7 @@ async function deployPullCameraInfo() {
   if (box) box.innerHTML = 'Dados da camera trazidos com sucesso.';
   showToast(`Camera encontrada: ${cam.fabricante || ''} ${cam.modelo || ''}`.trim());
   deployRenderSummary();
+  deployUpdateStepLocks({ autoAdvance: true });
 }
 
 // Grava o titulo direto na camera (best-effort). Chamado como parte do
@@ -5812,6 +7669,7 @@ function deploySetCheckIpResult(html, isError = false) {
 }
 
 async function deployCheckNewIp() {
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de checar IP.')) return;
   const p = deployPayload();
   const newIp = document.getElementById('deployCameraIp')?.value.trim() || '';
   if (!newIp) { showToast('Informe o IP a checar.', true); return; }
@@ -5867,11 +7725,145 @@ async function deploySaveDraft() {
   deployRenderSummary();
 }
 
+async function deploySaveCameraInventory() {
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de salvar a camera.')) return;
+  const payload = deployPayload();
+  if (!payload.camera_title || !payload.camera_ip) {
+    showToast('IP e titulo da camera sao obrigatorios para salvar no inventario.', true);
+    return;
+  }
+  if (!payload.site) {
+    showToast('Site/local e obrigatorio. Escolha do inventario ou digite um novo.', true);
+    return;
+  }
+  const btn = document.getElementById('btnDeploySaveCameraInventory');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Salvando'; lucide.createIcons(); }
+  try {
+    const res = await api('/api/deployments/commit-camera', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      showToast(data?.detail || 'Falha ao salvar camera no inventario.', true);
+      return;
+    }
+    _deployCurrentId = data.deployment?.id || _deployCurrentId;
+    const rec = data.recorder_link || {};
+    const recMsg = rec.ok ? ` Gravador ${rec.source?.toUpperCase() || ''} ${rec.host} canal ${rec.channel} -> ${rec.camera_ip}.` : '';
+    showToast(`Camera salva no inventario: ${payload.camera_title}`);
+    deploySetResult(`Camera salva no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Coordenada: ${esc(payload.location || '-')}.${esc(recMsg)}`);
+    const savedMode = data.inventory_mode || payload.inventory_mode || 'basic';
+    const camMode = savedMode === 'basic' ? 'basico' : savedMode;
+    if (_invCam[camMode]) {
+      await _loadCamForMode(camMode);
+      updateCamTabs();
+      populateCamSiteFilter();
+      if (_currentView === 'inv-olt' && _invOltView === camMode) applyInvOltFilters();
+    }
+    await loadDeployHistory();
+    deployRenderSummary();
+    deployUpdateStepLocks({ autoAdvance: true });
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="save"></i> Salvar'; lucide.createIcons(); }
+  }
+}
+
+async function deployRecorderLogin() {
+  if (!deployEnsureStepUnlocked('cftvStep3', 'Conclua a etapa 2 antes de entrar no gravador.')) return;
+  const payload = deployPayload();
+  if (!payload.recorder_type) {
+    deploySetRecorderLoginResult('Escolha o tipo do gravador antes de entrar.', true);
+    showToast('Escolha NVR IP ou DVR analogico.', true);
+    return;
+  }
+  if (!payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
+    deploySetRecorderLoginResult('Informe host, usuario e senha do gravador.', true);
+    showToast('Informe host, usuario e senha do gravador.', true);
+    return;
+  }
+  const btn = document.getElementById('btnDeployRecorderLogin');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Entrando'; lucide.createIcons(); }
+  deploySetRecorderLoginResult(`Conectando em ${esc(payload.recorder_host)}...`);
+  try {
+    const res = await api('/api/deployments/recorder-login', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao entrar no gravador. Confira host, usuario e senha.';
+      deploySetRecorderLoginResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    const label = [data.brand, data.model, data.name].filter(Boolean).join(' / ');
+    const msg = `Login confirmado em ${esc(payload.recorder_host)}${label ? ` - ${esc(label)}` : ''}.`;
+    deployRenderRecorderChannels(Array.isArray(data.channels) ? data.channels : []);
+    deploySetRecorderLoginResult(msg);
+    showToast('Login do gravador confirmado.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao entrar no gravador.';
+    deploySetRecorderLoginResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="log-in"></i> Entrar'; lucide.createIcons(); }
+  }
+}
+
+async function deployRecorderAddCamera() {
+  if (!deployEnsureStepUnlocked('cftvStep3', 'Conclua a etapa 2 antes de adicionar no gravador.')) return;
+  const payload = deployPayload();
+  if (!payload.recorder_type || !payload.recorder_host || !payload.recorder_user || !payload.recorder_password) {
+    deploySetRecorderLoginResult('Entre no gravador antes de adicionar a camera.', true);
+    showToast('Entre no gravador antes de adicionar a camera.', true);
+    return;
+  }
+  if (!payload.recorder_channel) {
+    deploySetRecorderLoginResult('Selecione um canal livre antes de adicionar.', true);
+    showToast('Selecione um canal livre.', true);
+    return;
+  }
+  if (!payload.recorder_camera_ip || !payload.recorder_title) {
+    deploySetRecorderLoginResult('IP da camera e titulo no gravador sao obrigatorios.', true);
+    showToast('IP da camera e titulo no gravador sao obrigatorios.', true);
+    return;
+  }
+  if (!payload.camera_user || !payload.camera_password) {
+    deploySetRecorderLoginResult('Usuario e senha da camera sao obrigatorios para adicionar no NVR.', true);
+    showToast('Informe usuario e senha da camera.', true);
+    return;
+  }
+  const btn = document.getElementById('btnDeployRecorderAddCamera');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Adicionando'; lucide.createIcons(); }
+  deploySetRecorderLoginResult(`Adicionando ${esc(payload.recorder_camera_ip)} no canal ${esc(payload.recorder_channel)}...`);
+  try {
+    const res = await api('/api/deployments/recorder-add-camera', { method: 'POST', body: JSON.stringify(payload) });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || 'Falha ao adicionar camera no gravador.';
+      deploySetRecorderLoginResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    deployRenderRecorderChannels(Array.isArray(data.channels) ? data.channels : []);
+    deploySetRecorderLoginResult(`Camera adicionada no ${esc(payload.recorder_type.toUpperCase())} ${esc(payload.recorder_host)} canal ${String(data.channel || payload.recorder_channel).padStart(2, '0')}.`);
+    showToast('Camera adicionada no gravador.');
+    await loadDeployHistory();
+    deployRenderSummary();
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao adicionar camera no gravador.';
+    deploySetRecorderLoginResult(esc(detail), true);
+    showToast(detail, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="plus-circle"></i> Adicionar no NVR'; lucide.createIcons(); }
+  }
+}
+
 async function deployCommitCamera(e) {
   e?.preventDefault();
+  if (!deployEnsureStepUnlocked('cftvStep2', 'Conclua a etapa 1 antes de registrar a camera.')) return;
   const payload = deployPayload();
   if (!payload.camera_title || !payload.camera_ip) {
     showToast('IP e titulo da camera sao obrigatorios.', true);
+    return;
+  }
+  if (!payload.site) {
+    showToast('Site/local e obrigatorio. Escolha do inventario ou digite um novo.', true);
     return;
   }
 
@@ -5889,10 +7881,13 @@ async function deployCommitCamera(e) {
     return;
   }
   _deployCurrentId = data.deployment?.id || _deployCurrentId;
+  const rec = data.recorder_link || {};
+  const recMsg = rec.ok ? ` Gravador ${rec.source?.toUpperCase() || ''} ${rec.host} canal ${rec.channel} -> ${rec.camera_ip}.` : '';
   showToast(`Camera registrada: ${payload.camera_title}`);
-  deploySetResult(`Camera registrada no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Chave: ${esc(data.inventory_key || '-')}`);
+  deploySetResult(`Camera registrada no inventario (${esc(data.inventory_mode || payload.inventory_mode)}). Chave: ${esc(data.inventory_key || '-')}.${esc(recMsg)}`);
   await loadDeployHistory();
   deployRenderSummary();
+  deployUpdateStepLocks({ autoAdvance: true });
 }
 
 function deployClear() {
@@ -5900,9 +7895,9 @@ function deployClear() {
   _deployPullTargetIp = '';
   _deployConfirmedCameraIp = '';
   document.getElementById('deployForm')?.reset();
-  const conn = deploySelectedConnector();
-  const siteEl = document.getElementById('deploySite');
-  if (conn && siteEl) siteEl.value = conn.site || conn.client || '';
+  const connEl = document.getElementById('deployConnector');
+  if (connEl) connEl.value = '';
+  deployApplyOriginFields();
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();
   const pullBox = document.getElementById('deployPullCameraResult');
@@ -5911,7 +7906,10 @@ function deployClear() {
     pullBox.classList.remove('error');
   }
   deploySetCheckIpResult();
+  deploySetRecorderLoginResult();
+  deployRenderRecorderChannels();
   deployRenderSummary();
+  deployOpenStep('cftvStep1');
 }
 
 //  Conectores SaaS 
@@ -5953,6 +7951,125 @@ function connectorTypeLabel(type) {
 
 function connectorById(connectorId) {
   return _connectors.find(row => String(row.id || '') === String(connectorId || '')) || null;
+}
+
+function private24FromIp(value) {
+  const parts = String(value || '').trim().split('.');
+  if (parts.length !== 4) return '';
+  const nums = parts.map(part => Number(part));
+  if (nums.some(num => !Number.isInteger(num) || num < 0 || num > 255)) return '';
+  const [a, b, c] = nums;
+  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  if (!isPrivate) return '';
+  return `${a}.${b}.${c}.0/24`;
+}
+
+function ipToNumber(ip) {
+  const nums = String(ip || '').split('.').map(part => Number(part));
+  if (nums.length !== 4 || nums.some(num => !Number.isInteger(num) || num < 0 || num > 255)) return null;
+  return nums.reduce((acc, num) => ((acc << 8) + num) >>> 0, 0);
+}
+
+function numberToIp(num) {
+  return [24, 16, 8, 0].map(shift => ((num >>> shift) & 255)).join('.');
+}
+
+function normalizePrivateCidr(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+  if (!match) return '';
+  const ipNum = ipToNumber(match[1]);
+  const prefix = Number(match[2]);
+  if (ipNum === null || !Number.isInteger(prefix) || prefix < 1 || prefix >= 32) return '';
+  const parts = match[1].split('.').map(part => Number(part));
+  const [a, b] = parts;
+  const privateLan = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  if (!privateLan) return '';
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  const network = numberToIp((ipNum & mask) >>> 0);
+  const cidr = `${network}/${prefix}`;
+  if (cidr === '10.250.0.0/24') return '';
+  return cidr;
+}
+
+function parseCidrInfo(cidr) {
+  const raw = normalizePrivateCidr(cidr);
+  if (!raw) return null;
+  const [ip, prefixRaw] = raw.split('/');
+  const networkNum = ipToNumber(ip);
+  const prefix = Number(prefixRaw);
+  if (networkNum === null || !Number.isInteger(prefix)) return null;
+  const size = 2 ** (32 - prefix);
+  return { cidr: raw, networkNum, prefix, start: networkNum, end: networkNum + size - 1 };
+}
+
+function uniqueCoveredCidrs(values) {
+  const infos = values.map(parseCidrInfo).filter(Boolean);
+  const seen = new Set();
+  const unique = infos.filter(info => {
+    if (seen.has(info.cidr)) return false;
+    seen.add(info.cidr);
+    return true;
+  });
+  return unique.filter(info => !unique.some(other =>
+    other.cidr !== info.cidr &&
+    other.prefix < info.prefix &&
+    other.start <= info.start &&
+    other.end >= info.end
+  )).sort((a, b) => cidrSortValue(a.cidr) - cidrSortValue(b.cidr)).map(info => info.cidr);
+}
+
+function splitCidrValues(value) {
+  if (Array.isArray(value)) return value.flatMap(item => splitCidrValues(item));
+  if (typeof value !== 'string') return [];
+  return value.split(/[\s,;|]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function cidrSortValue(cidr) {
+  const [ip, prefix = '0'] = String(cidr || '').split('/');
+  const parts = ip.split('.').map(part => Number(part) || 0);
+  return parts.reduce((acc, part) => (acc * 256) + part, 0) * 100 + (Number(prefix) || 0);
+}
+
+function connectorDetectedLans(row) {
+  const inv = row?.inventory || {};
+  const host = row?.host || {};
+  const tunnel = row?.tunnel || {};
+  const trusted = [];
+  const addValue = value => {
+    splitCidrValues(value).forEach(item => {
+      const cidr = normalizePrivateCidr(item);
+      if (cidr) trusted.push(cidr);
+    });
+  };
+  ['lan_networks', 'networks', 'routes'].forEach(key => addValue(inv[key]));
+  addValue(host.lan_networks);
+  addValue(tunnel.client_lans);
+  const addressSample = String(inv.address_sample || inv.ip_address_sample || '');
+  addressSample.split(/[;\n\r]+/).forEach(item => {
+    const first = String(item || '').split('|')[0]?.trim();
+    const cidr = normalizePrivateCidr(first);
+    if (cidr) trusted.push(cidr);
+  });
+
+  const trustedClean = uniqueCoveredCidrs(trusted);
+  if (trustedClean.length) return trustedClean;
+
+  const values = [];
+  ['dhcp_sample', 'arp_sample', 'neighbor_sample'].forEach(key => {
+    String(inv[key] || '').match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)?.forEach(ip => {
+      const cidr = private24FromIp(ip);
+      if (cidr) values.push(cidr);
+    });
+  });
+  const seen = new Set();
+  return values.map(v => String(v || '').trim()).filter(v => {
+    if (!/^\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2}$/.test(v)) return false;
+    if (v === '10.250.0.0/24') return false;
+    if (seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  }).sort((a, b) => cidrSortValue(a) - cidrSortValue(b));
 }
 
 async function loadConnectors() {
@@ -6012,14 +8129,89 @@ async function downloadConnectorVpn(connectorId) {
   if (!connectorId) return;
   const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
   const endpointDefault = `${publicUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '').replace(/\/.*$/, '')}:51820`;
-  const endpoint = prompt('Endpoint WireGuard publico:', endpointDefault || '201.182.184.80:51820');
-  if (endpoint === null) return;
-  const clientLans = prompt('Redes LAN do cliente (CIDR, separadas por virgula):', '192.168.20.0/24');
-  if (clientLans === null) return;
+  openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
+}
+
+function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.80:51820') {
+  const modal = document.getElementById('modalConnectorVpn');
+  if (!modal) {
+    prepareConnectorVpn(connectorId, endpointDefault, '__auto__', 'auto');
+    return;
+  }
+  const row = connectorById(connectorId);
+  const detected = connectorDetectedLans(row);
+  document.getElementById('connectorVpnId').value = connectorId;
+  document.getElementById('connectorVpnEndpoint').value = endpointDefault;
+  document.getElementById('connectorVpnLans').value = detected.join(', ');
+  const autoRadio = document.querySelector('input[name="connectorVpnLanMode"][value="auto"]');
+  const manualRadio = document.querySelector('input[name="connectorVpnLanMode"][value="manual"]');
+  if (autoRadio) autoRadio.disabled = !detected.length;
+  (detected.length ? autoRadio : manualRadio)?.click();
+  const preview = document.getElementById('connectorVpnDetectedPreview');
+  if (preview) {
+    preview.textContent = detected.length
+      ? `Redes detectadas pelo MikroTik: ${detected.join(', ')}.`
+      : 'Nenhuma rede com mascara confiavel foi detectada. Atualize/reinstale o script RouterOS 0.6 ou informe uma rede manualmente.';
+  }
+  updateConnectorVpnLanMode();
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+  setTimeout(() => document.getElementById('connectorVpnEndpoint')?.focus(), 50);
+}
+
+function closeConnectorVpnModal() {
+  document.getElementById('modalConnectorVpn')?.classList.add('hidden');
+}
+
+function updateConnectorVpnLanMode() {
+  const mode = document.querySelector('input[name="connectorVpnLanMode"]:checked')?.value || 'auto';
+  const manual = mode === 'manual';
+  document.getElementById('connectorVpnLansGroup')?.classList.toggle('hidden', !manual);
+  document.getElementById('connectorVpnAutoHelp')?.classList.toggle('hidden', manual);
+  const autoRadio = document.querySelector('input[name="connectorVpnLanMode"][value="auto"]');
+  const autoCard = autoRadio?.closest('label');
+  if (autoCard) {
+    autoCard.style.opacity = autoRadio?.disabled ? '0.55' : '1';
+    autoCard.style.cursor = autoRadio?.disabled ? 'not-allowed' : 'pointer';
+  }
+}
+
+async function submitConnectorVpnModal() {
+  const connectorId = document.getElementById('connectorVpnId')?.value || '';
+  const endpoint = document.getElementById('connectorVpnEndpoint')?.value.trim() || '';
+  const lanMode = document.querySelector('input[name="connectorVpnLanMode"]:checked')?.value || 'auto';
+  const clientLans = lanMode === 'auto' ? '__auto__' : (document.getElementById('connectorVpnLans')?.value.trim() || '');
+  if (!connectorId) return;
+  if (!endpoint) {
+    showToast('Informe o endpoint publico do WireGuard.', true);
+    document.getElementById('connectorVpnEndpoint')?.focus();
+    return;
+  }
+  if (lanMode === 'manual' && !clientLans) {
+    showToast('Informe pelo menos uma rede LAN do cliente.', true);
+    document.getElementById('connectorVpnLans')?.focus();
+    return;
+  }
+  await prepareConnectorVpn(connectorId, endpoint, clientLans, lanMode);
+}
+
+async function prepareConnectorVpn(connectorId, endpoint, clientLans, lanMode = 'manual') {
+  const btn = document.getElementById('confirmConnectorVpnModal');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Preparando';
+    lucide.createIcons();
+  }
   const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/wireguard`, {
     method: 'POST',
-    body: JSON.stringify({ endpoint, client_lans: clientLans }),
+    body: JSON.stringify({ endpoint, client_lans: clientLans, lan_mode: lanMode }),
   });
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = oldHtml || '<i data-lucide="shield"></i> Preparar VPN';
+    lucide.createIcons();
+  }
   const body = await res?.json().catch(() => ({}));
   if (!res?.ok || body?.ok === false) {
     showToast(body?.detail || 'Erro ao preparar VPN.', true);
@@ -6029,6 +8221,7 @@ async function downloadConnectorVpn(connectorId) {
   if (_token) params.set('auth_token', _token);
   const query = params.toString() ? `?${params.toString()}` : '';
   showToast('VPN preparada. Baixando script RouterOS.');
+  closeConnectorVpnModal();
   window.open(`${API_BASE}/api/connectors/${encodeURIComponent(connectorId)}/wireguard-routeros-script${query}`, '_blank');
   await loadConnectors();
 }
@@ -6317,9 +8510,112 @@ async function saveEditCam() {
 }
 
 //  Varredura WebSocket 
+function _connectorLabel(row) {
+  return `${row.name || row.client || 'Conector'} - ${row.site || row.client || '-'}`;
+}
+
+function _connectorNorm(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function _connectorIsOnline(row) {
+  return _connectorNorm(row?.status) === 'online';
+}
+
+function _connectorHasTunnel(row) {
+  return Boolean(row?.tunnel?.enabled || row?.vpn?.enabled || row?.wireguard?.enabled);
+}
+
+function _routerConnectors() {
+  return (_connectors || []).filter(c => _connectorNorm(c.type) === 'routeros');
+}
+
+function _connectorMatchesSite(row, site) {
+  const wanted = _connectorNorm(site);
+  if (!wanted) return false;
+  return [row?.site, row?.name, row?.client]
+    .map(_connectorNorm)
+    .filter(Boolean)
+    .includes(wanted);
+}
+
+function _findConnectorForSite(site) {
+  const rows = _routerConnectors().filter(c => _connectorMatchesSite(c, site));
+  if (!rows.length) return null;
+  return rows.find(c => _connectorIsOnline(c) && _connectorHasTunnel(c))
+    || rows.find(c => _connectorIsOnline(c))
+    || rows[0];
+}
+
+function _connectorById(id) {
+  const wanted = String(id || '');
+  return _routerConnectors().find(c => String(c.id || c.connector_id || '') === wanted) || null;
+}
+
+function _networkContextForSite(site, selectedConnectorId = '') {
+  const explicit = selectedConnectorId ? _connectorById(selectedConnectorId) : null;
+  const connector = explicit || _findConnectorForSite(site);
+  if (!connector) {
+    return { origin: 'local', connector: null, connectorId: '', hasTunnel: false, online: false };
+  }
+  const connectorId = String(connector.id || connector.connector_id || '');
+  return {
+    origin: 'connector',
+    connector,
+    connectorId,
+    hasTunnel: _connectorHasTunnel(connector),
+    online: _connectorIsOnline(connector),
+  };
+}
+
+async function refreshScanConnectors() {
+  const sel = document.getElementById('scanConnector');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/connectors');
+    _connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+  } catch {
+    _connectors = _connectors || [];
+  }
+  const rows = _routerConnectors();
+  sel.innerHTML = '<option value="">Opcional: usar servidor local/VPN</option>' + rows.map(c => {
+    const online = _connectorIsOnline(c);
+    const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+    return `<option value="${esc(c.id || '')}" ${online ? '' : 'disabled'}>${esc(_connectorLabel(c))}${tunnel}${online ? '' : ' (offline)'}</option>`;
+  }).join('');
+
+  const site = (document.getElementById('scanLocal')?.value || document.getElementById('filterSiteOlt')?.value || '').trim();
+  const match = _findConnectorForSite(site);
+  if (match?.id) sel.value = match.id;
+}
+
+function updateScanOriginUi() {
+  const site = (document.getElementById('scanLocal')?.value || document.getElementById('filterSiteOlt')?.value || '').trim();
+  const connector = document.getElementById('scanConnector');
+  const context = _networkContextForSite(site, connector?.value || '');
+  const originEl = document.getElementById('scanOrigin');
+  if (originEl) originEl.value = context.connectorId ? 'connector' : 'local';
+  if (connector) connector.disabled = false;
+  const status = document.getElementById('scanConnectorStatus');
+  if (status) {
+    status.innerHTML = context.connectorId
+      ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN ativa: scan real pela rota do cliente.' : ' -- sem VPN: descoberta limitada pelo MikroTik.'}`
+      : 'Sem conector para este site: usando servidor local.';
+  }
+  const remote = context.connectorId && !context.hasTunnel;
+  ['scanSnapshot', 'scanImgbb'].forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) return;
+    input.disabled = remote;
+    if (remote) input.checked = false;
+    input.closest('.scan-task-row')?.classList.toggle('is-disabled', remote);
+  });
+}
+
 function openScanModal() {
   document.getElementById('scanLog').textContent = 'Aguardando inicio';
   document.getElementById('modalScan').classList.remove('hidden');
+  refreshScanConnectors().finally(updateScanOriginUi);
 }
 
 function closeScanModal() {
@@ -6337,6 +8633,11 @@ function resetScanForm() {
   if (user) user.value = 'admin';
   const mode = document.getElementById('scanMode');
   if (mode) mode.value = 'olt';
+  const origin = document.getElementById('scanOrigin');
+  if (origin) origin.value = 'local';
+  const connector = document.getElementById('scanConnector');
+  if (connector) connector.value = '';
+  updateScanOriginUi();
   const checks = {
     scanDiscover: true,
     scanOltEnrich: true,
@@ -6357,14 +8658,24 @@ function _scanPayloadBase() {
   const senha   = document.getElementById('scanSenha').value;
   const selectedSite = document.getElementById('filterSiteOlt')?.value || '';
   const local   = document.getElementById('scanLocal').value.trim() || selectedSite;
+  const context = _networkContextForSite(local, document.getElementById('scanConnector')?.value || '');
+  const origin = context.connectorId ? 'connector' : 'local';
+  const connectorId = context.connectorId;
   if (!alvo) { showToast('Informe o alvo (IP, range ou CIDR)', true); return null; }
+  if (origin === 'connector' && !context.online) {
+    showToast('O conector selecionado esta offline.', true);
+    return null;
+  }
   return {
     alvo, usuario, senha,
     append_inventory: document.getElementById('scanAppend').checked,
     nat_mode:         document.getElementById('scanNat').checked,
     inventory_mode:   document.getElementById('scanMode').value,
+    scan_origin:      origin,
+    connector_id:     origin === 'connector' ? connectorId : '',
+    remote_connector_id: origin === 'connector' ? connectorId : '',
+    remote_only:      origin === 'connector' && !context.hasTunnel,
     ...(local && { set_local: true, local }),
-    token: _token,
   };
 }
 
@@ -6509,6 +8820,9 @@ function initNavGroups() {
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   initNavGroups();
+  hydrateResponsiveTables();
+  const responsiveObserver = new MutationObserver(() => scheduleResponsiveHydration());
+  responsiveObserver.observe(document.body, { childList: true, subtree: true });
 
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
@@ -6540,10 +8854,21 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.view));
   });
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-dash-nav]');
+    if (!btn) return;
+    const view = btn.dataset.dashNav;
+    if (view) navigateTo(view);
+  });
 
   // Logout
   document.getElementById('logoutBtn').addEventListener('click', logout);
   document.getElementById('logoutBtnTop').addEventListener('click', logout);
+
+  // Configuracoes SaaS
+  document.getElementById('btnSettingsRefresh')?.addEventListener('click', loadSettings);
+  document.getElementById('btnCreateTenant')?.addEventListener('click', createTenantFromSettings);
+  document.getElementById('btnCreateUser')?.addEventListener('click', createUserFromSettings);
 
   // Profile dropdown
   document.getElementById('profileMenu').addEventListener('click', (e) => {
@@ -6563,6 +8888,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeScanModal').addEventListener('click', closeScanModal);
   document.getElementById('cancelScan').addEventListener('click', closeScanModal);
   document.getElementById('startScan').addEventListener('click', startScan);
+  document.getElementById('scanOrigin')?.addEventListener('change', updateScanOriginUi);
+  document.getElementById('scanLocal')?.addEventListener('change', () => refreshScanConnectors().finally(updateScanOriginUi));
+  document.getElementById('scanConnector')?.addEventListener('change', updateScanOriginUi);
 
   // Refresh topbar
   document.getElementById('btnRefreshTopbar').addEventListener('click', async () => {
@@ -6582,6 +8910,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnSendPingJob')?.addEventListener('click', sendConnectorPingJob);
   document.getElementById('btnSendLanInventoryJob')?.addEventListener('click', sendConnectorLanInventoryJob);
   document.getElementById('connJobConnector')?.addEventListener('change', (e) => loadConnectorJobs(e.target.value));
+  document.getElementById('closeConnectorVpnModal')?.addEventListener('click', closeConnectorVpnModal);
+  document.getElementById('cancelConnectorVpnModal')?.addEventListener('click', closeConnectorVpnModal);
+  document.getElementById('confirmConnectorVpnModal')?.addEventListener('click', submitConnectorVpnModal);
+  document.querySelectorAll('input[name="connectorVpnLanMode"]').forEach(el => el.addEventListener('change', updateConnectorVpnLanMode));
   document.getElementById('connectorsTable')?.addEventListener('click', (e) => {
     const download = e.target.closest('[data-conn-download]');
     const vpn = e.target.closest('[data-conn-vpn]');
@@ -6608,6 +8940,58 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cancelOnuDelete')?.addEventListener('click', closeOnuDeleteModal);
   document.getElementById('closeOnuDeleteModalBtn')?.addEventListener('click', closeOnuDeleteModal);
 
+  // Implantacao - Gravadores
+  document.querySelectorAll('.deployment-inventory-mode').forEach(select => {
+    select.addEventListener('change', () => deploymentSetPreferredInventoryMode(select.value));
+  });
+  document.getElementById('deployStandaloneRecorderConnector')?.addEventListener('change', () => {
+    _deployStandaloneRecorderProbe = null;
+    deployStandaloneRecorderRenderProbe(null);
+    deployStandaloneRecorderRenderConnectorStatus();
+  });
+  document.getElementById('btnDeployStandaloneRecorderLogin')?.addEventListener('click', deployStandaloneRecorderLogin);
+  document.getElementById('btnDeployStandaloneRecorderClear')?.addEventListener('click', deployStandaloneRecorderClear);
+  document.getElementById('btnDeployStandaloneRecorderOpenWeb')?.addEventListener('click', deployStandaloneRecorderOpenWeb);
+  document.getElementById('btnDeployStandaloneRecorderRefreshChannels')?.addEventListener('click', deployStandaloneRecorderLogin);
+  document.getElementById('btnDeployStandaloneRecorderPlayback')?.addEventListener('click', deployStandaloneRecorderPlayback);
+  document.getElementById('btnDeployStandaloneRecorderSetNtp')?.addEventListener('click', deployStandaloneRecorderSetNtp);
+  document.getElementById('btnDeployStandaloneRecorderReboot')?.addEventListener('click', deployStandaloneRecorderReboot);
+  document.getElementById('btnDeployStandaloneRecorderFicha')?.addEventListener('click', deployStandaloneRecorderFicha);
+  document.getElementById('deployRecorderChannelSearch')?.addEventListener('input', deployRenderStandaloneRecorderChannels);
+  document.getElementById('deployRecorderChannelFilter')?.addEventListener('change', deployRenderStandaloneRecorderChannels);
+  document.getElementById('viewDeployRecorder')?.addEventListener('click', event => {
+    const channelCard = event.target.closest('[data-recorder-channel]');
+    if (channelCard) {
+      _deployRecorderSelectedChannel = Number(channelCard.dataset.recorderChannel || 0);
+      deployRenderStandaloneRecorderChannels();
+      return;
+    }
+    const channelAction = event.target.closest('[data-recorder-channel-action]')?.dataset.recorderChannelAction;
+    if (channelAction) {
+      const item = deployStandaloneRecorderChannelsFromProbe(_deployStandaloneRecorderProbe).find(row => Number(row.channel) === _deployRecorderSelectedChannel);
+      if (channelAction === 'close') { _deployRecorderSelectedChannel = 0; deployRenderStandaloneRecorderChannels(); return; }
+      if (channelAction === 'refresh') { deployStandaloneRecorderLogin(); return; }
+      if (channelAction === 'web' && item?.camera_ip) { window.open(`http://${item.camera_ip}`, '_blank', 'noopener'); return; }
+      if (channelAction === 'ping' && item?.camera_ip) { openPingTerminal(item.camera_ip); return; }
+      if (channelAction === 'add') { navigateTo('deploy-new'); return; }
+    }
+    const action = event.target.closest('[data-recorder-overview-action]')?.dataset.recorderOverviewAction;
+    if (action === 'refresh') { deployStandaloneRecorderLogin(); return; }
+    if (action === 'channels') { deployStandaloneRecorderSelectConfigTab('channels'); return; }
+    if (action === 'save') { deployStandaloneRecorderSave(); return; }
+    const tab = event.target.closest('.recorder-config-tab');
+    if (!tab) return;
+    deployStandaloneRecorderSelectConfigTab(tab.dataset.recorderConfigTab || 'overview');
+  });
+  ['deployStandaloneRecorderHost', 'deployStandaloneRecorderType', 'deployStandaloneRecorderPort', 'deployStandaloneRecorderChannelTotal'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      _deployStandaloneRecorderProbe = null;
+      deployStandaloneRecorderRenderProbe(null);
+      deployStandaloneRecorderSetResult('Entre no gravador para validar modelo, serial e canais.');
+      deployStandaloneRecorderSetQuickResult('Entre no gravador para liberar as configuracoes rapidas.');
+    });
+  });
+
   // Implantacao
   document.getElementById('btnDeployClear')?.addEventListener('click', deployClear);
   document.getElementById('deployForm')?.addEventListener('submit', deployCommitCamera);
@@ -6615,17 +8999,40 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDeployLookupMac')?.addEventListener('click', deployLookupMac);
   document.getElementById('btnDeployPullCamera')?.addEventListener('click', deployPullCameraInfo);
   document.getElementById('btnDeployCheckNewIp')?.addEventListener('click', deployCheckNewIp);
+  document.getElementById('btnDeploySaveCameraInventory')?.addEventListener('click', deploySaveCameraInventory);
+  document.getElementById('btnDeployRecorderLogin')?.addEventListener('click', deployRecorderLogin);
+  document.getElementById('btnDeployRecorderAddCamera')?.addEventListener('click', deployRecorderAddCamera);
+  document.getElementById('deployRecorderType')?.addEventListener('change', deployLoadAvailableRecorders);
+  document.getElementById('deployRecorderHost')?.addEventListener('change', deployApplySelectedRecorder);
+  document.getElementById('deployRecorderUser')?.addEventListener('input', deployResetRecorderLogin);
+  document.getElementById('deployRecorderPassword')?.addEventListener('input', deployResetRecorderLogin);
+  document.getElementById('deployRecorderChannelButton')?.addEventListener('click', deployToggleRecorderChannelDropdown);
+  document.getElementById('deployRecorderChannelGrid')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest?.('.deploy-channel-pill');
+    if (btn) deploySelectRecorderChannel(btn.dataset.channel);
+  });
+  document.addEventListener('click', (ev) => {
+    const dropdown = document.getElementById('deployRecorderChannelDropdown');
+    if (!dropdown || dropdown.contains(ev.target)) return;
+    document.getElementById('deployRecorderChannelGrid')?.classList.add('hidden');
+  });
   document.getElementById('deployConnector')?.addEventListener('change', () => {
-    const conn = deploySelectedConnector();
-    const siteEl = document.getElementById('deploySite');
-    if (conn && siteEl && !siteEl.value) siteEl.value = conn.site || conn.client || '';
+    deployApplyOriginFields();
     deployRenderConnectorStatus();
     deployRenderSummary();
+    deployUpdateStepLocks({ autoAdvance: true });
+    deployLoadAvailableRecorders();
+  });
+  document.getElementById('deploySite')?.addEventListener('input', () => {
+    deployRenderSummary();
+    deployUpdateStepLocks({ autoAdvance: true });
+    deployScheduleAvailableRecorders();
   });
   document.getElementById('deployCameraTitle')?.addEventListener('input', () => {
     const recTitle = document.getElementById('deployRecorderTitle');
     if (recTitle && !recTitle.value) recTitle.value = document.getElementById('deployCameraTitle')?.value || '';
     deployRenderSummary();
+    deployUpdateStepLocks({ autoAdvance: true });
   });
   document.getElementById('deployForm')?.addEventListener('input', deployRenderSummary);
   document.getElementById('deployForm')?.addEventListener('change', deployRenderSummary);
@@ -6692,7 +9099,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Filtros inventario OLT
   document.getElementById('searchInvOlt')?.addEventListener('input', applyInvOltFilters);
   document.getElementById('filterStatusOlt')?.addEventListener('change', applyInvOltFilters);
-  document.getElementById('filterSiteOlt')?.addEventListener('change', applyInvOltFilters);
+  document.getElementById('filterSiteOlt')?.addEventListener('change', () => {
+    applyInvOltFilters();
+    refreshScanConnectors().finally(updateScanOriginUi);
+  });
   document.getElementById('btnOltClearFilter')?.addEventListener('click', () => {
     document.getElementById('searchInvOlt').value = '';
     document.getElementById('filterStatusOlt').value = '';
@@ -6712,6 +9122,35 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cpBtnWeb')?.addEventListener('click', () => camAction('web'));
   document.getElementById('cpBtnMapa')?.addEventListener('click', () => focusCameraOnMap(_invOltActive));
   document.getElementById('cpBtnPing')?.addEventListener('click', startPing);
+  document.getElementById('cpSnapshotWrap')?.addEventListener('click', openCamPanelLive);
+  document.getElementById('cpBtnLive')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openCamPanelLive();
+  });
+  document.getElementById('cpLiveStart')?.addEventListener('click', startCamPanelLive);
+  document.getElementById('cpLiveClose')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeCamPanelLive();
+  });
+  document.getElementById('cpLivePass')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') startCamPanelLive();
+  });
+  document.getElementById('cpLivePassToggle')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleCamLivePassword();
+  });
+  document.getElementById('cpLiveFullscreen')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    fullscreenCamPanelLive();
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const btn = document.getElementById('cpLiveFullscreen');
+    if (!btn) return;
+    const expanded = Boolean(document.fullscreenElement) || document.getElementById('cpInlineLive')?.classList.contains('mobile-fullscreen');
+    btn.innerHTML = `<i data-lucide="${expanded ? 'minimize-2' : 'maximize-2'}"></i>`;
+    btn.title = expanded ? 'Reduzir video' : 'Ampliar video';
+    lucide.createIcons();
+  });
   document.getElementById('closeCamAuthAction')?.addEventListener('click', closeCamAuthAction);
   document.getElementById('cancelCamAuthAction')?.addEventListener('click', closeCamAuthAction);
   document.getElementById('confirmCamAuthAction')?.addEventListener('click', runCamAuthAction);
@@ -6755,7 +9194,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface-soft)">
         <span class="monospace">${esc(c.ip)}</span>
         <span style="color:var(--muted)">${esc(c.titulo || '')}</span>
-        <span>${(c.imgbb_url || isImgbbUrl(c.snapshot_url)) ? '<span style="color:var(--primary);font-weight:600"> up</span>' : '<span style="color:var(--danger);font-weight:600"> down</span>'}</span>
+        <span>${cameraImgbbUrl(c) ? '<span style="color:var(--primary);font-weight:600"> up</span>' : '<span style="color:var(--danger);font-weight:600"> down</span>'}</span>
       </div>`).join('') + (allCams.length > 20 ? `<p style="font-size:12px;color:var(--muted);text-align:center;margin:4px 0">+ ${allCams.length - 20} mais</p>` : '');
 
     document.getElementById('imgbbUploadProgress').style.display = 'none';
@@ -6789,15 +9228,83 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.disabled = true;
 
     try {
-      const payload = { mode: _invOltView || 'olt', ...(ips.length ? { ips } : {}), ...(keys.length ? { keys } : {}) };
-      const res = await api('/api/inventory/imgbb/upload', { method: 'POST', body: JSON.stringify(payload) });
-      const data = await res.json();
-      if (!res?.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'Erro ao enviar.');
+      const allRows = _invOltAll_get();
+      const selectedRows = ips.length
+        ? allRows.filter(c => keys.includes(_camKey(c)) || ips.includes(c.ip))
+        : allRows;
+      const uploadIps = selectedRows.map(c => c.ip).filter(Boolean);
+      const uploadKeys = selectedRows.map(c => _camKey(c)).filter(Boolean);
+      const chunkSize = 1;
+      const chunks = [];
+      for (let i = 0; i < uploadIps.length; i += chunkSize) {
+        chunks.push({
+          ips: uploadIps.slice(i, i + chunkSize),
+          keys: uploadKeys.slice(i, i + chunkSize),
+        });
+      }
+      if (!chunks.length) throw new Error('Nenhuma camera selecionada para upload.');
+
+      let uploadedTotal = 0;
+      let processedTotal = 0;
+      let skippedNoSnapshot = 0;
+      let failedTotal = 0;
+      let lastError = '';
+      let updatedRows = [];
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const part = chunks[i];
+        const pct = Math.max(8, Math.round((i / chunks.length) * 92));
+        bar.style.width = `${pct}%`;
+        msg.textContent = `Enviando lote ${i + 1}/${chunks.length} (${part.ips.length} camera(s))`;
+
+        const payload = { mode: _invOltView || 'olt', ips: part.ips, keys: part.keys };
+        const res = await api('/api/inventory/imgbb/upload', { method: 'POST', body: JSON.stringify(payload) });
+        if (!res) throw new Error('Erro ao enviar ao ImgBB.');
+        const text = await res.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          const clean = String(text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+          throw new Error(clean ? `Servidor retornou resposta inesperada: ${clean}` : 'Erro ao enviar ao ImgBB.');
+        }
+
+        const skippedFromApi = Number(data?.skipped_no_snapshot || 0);
+        if (skippedFromApi > 0) {
+          skippedNoSnapshot += skippedFromApi;
+          lastError = data?.error ? String(data.error) : lastError;
+          processedTotal += Number(data?.processed || part.ips.length || 0);
+          continue;
+        }
+
+        if (data?.ok === false && Number(data?.uploaded || 0) === 0) {
+          const err = String(data?.error || 'Nenhuma foto foi enviada ao ImgBB.');
+          const errLower = err.toLowerCase();
+          if (errLower.includes('rate limit')) {
+            throw new Error(`ImgBB atingiu limite de envio. Enviadas: ${uploadedTotal}. Tente novamente mais tarde.`);
+          }
+          if (errLower.includes('nenhum snapshot local')) {
+            skippedNoSnapshot += Number(data?.processed || part.ips.length || 1);
+            lastError = err;
+            continue;
+          }
+          failedTotal += Number(data?.processed || part.ips.length || 1);
+          lastError = err;
+          continue;
+        }
+
+        uploadedTotal += Number(data?.uploaded || 0);
+        processedTotal += Number(data?.processed || part.ips.length || 0);
+        if (data?.error) lastError = String(data.error);
+        if (Array.isArray(data?.inventory) && data.inventory.length) updatedRows = data.inventory;
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2500));
+        }
+      }
 
       bar.style.width = '100%';
-      const updatedRows = data?.inventory || [];
-      const sentIps = new Set(ips.length ? ips : _invOltAll_get().map(c => c.ip));
-      const sentKeys = new Set(keys.length ? keys : _invOltAll_get().map(c => _camKey(c)));
+      const sentIps = new Set(uploadIps);
+      const sentKeys = new Set(uploadKeys);
 
       if (updatedRows.length) {
         const byKey = {};
@@ -6808,7 +9315,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const u = byKey[cKey];
             if (!u || (!sentKeys.has(cKey) && !sentIps.has(c.ip))) return c;
             const imgbbUrl = cameraImgbbUrl(u);
-            if (imgbbUrl) _imgbbSave(c, imgbbUrl);
             return {
               ...c,
               ...u,
@@ -6826,17 +9332,18 @@ document.addEventListener('DOMContentLoaded', () => {
       populateCamSiteFilter();
       applyInvOltFilters();
 
-      const uploaded = Number(data?.uploaded || 0);
-      const processed = Number(data?.processed || sentIps.size || 0);
-      const suffix = data?.error ? ` (${data.error})` : '';
-      msg.textContent = uploaded > 0
-        ? ` ${uploaded}/${processed} foto(s) enviada(s)!${suffix}`
-        : ` Nenhuma foto enviada.${suffix}`;
-      msg.style.color = 'var(--primary)';
-      showToast(uploaded > 0 ? `${uploaded} foto(s) enviada(s) ao ImgBB.` : 'Nenhuma foto enviada ao ImgBB.', uploaded === 0);
-      setTimeout(() => {
-        document.getElementById('modalImgbbUpload').classList.add('hidden');
-      }, 1400);
+      const noisyNoSnapshot = lastError && lastError.toLowerCase().includes('nenhum snapshot local');
+      const suffix = lastError && !(uploadedTotal > 0 && noisyNoSnapshot) ? ` (${lastError})` : '';
+      msg.textContent = uploadedTotal > 0
+        ? ` ${uploadedTotal} foto(s) enviada(s). ${skippedNoSnapshot} sem snapshot local, ${failedTotal} falharam.${suffix}`
+        : ` Nenhuma foto enviada. ${skippedNoSnapshot} sem snapshot local, ${failedTotal} falharam.${suffix}`;
+      msg.style.color = uploadedTotal > 0 ? 'var(--primary)' : 'var(--danger)';
+      showToast(uploadedTotal > 0 ? `${uploadedTotal} foto(s) enviada(s) ao ImgBB.` : 'Nenhuma foto enviada ao ImgBB.', uploadedTotal === 0);
+      if (uploadedTotal > 0) {
+        setTimeout(() => {
+          document.getElementById('modalImgbbUpload').classList.add('hidden');
+        }, 1400);
+      }
     } catch (err) {
       bar.style.width = '100%';
       msg.textContent = ' ' + (err?.message || 'Erro ao enviar.');
@@ -6910,6 +9417,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('saveEditCam')?.addEventListener('click', saveEditCam);
 
   // Modal trocar IP
+  document.getElementById('trocarIpNovo')?.addEventListener('input', (ev) => {
+    const ip = ev.target.value.trim();
+    if (_isIpv4(ip)) _fillTrocarIpNetwork(ip, false);
+  });
+
   document.getElementById('btnConfirmarTrocarIp')?.addEventListener('click', async () => {
     const ip    = document.getElementById('trocarIpAtual').value;
     const novo  = document.getElementById('trocarIpNovo').value.trim();
@@ -6919,12 +9431,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const pass  = document.getElementById('trocarIpPass').value;
     const erro  = document.getElementById('trocarIpErro');
     if (!novo) { erro.textContent = 'Informe o novo IP.'; erro.hidden = false; return; }
+    if (!_isIpv4(novo)) { erro.textContent = 'Novo IP invalido.'; erro.hidden = false; return; }
+    if (novo === ip) { erro.textContent = 'O novo IP precisa ser diferente do IP atual.'; erro.hidden = false; return; }
+    if (!mask) { erro.textContent = 'Informe a mascara da rede.'; erro.hidden = false; return; }
+    if (!_isValidSubnetMask(mask)) { erro.textContent = 'Mascara de rede invalida.'; erro.hidden = false; return; }
+    if (!gw) { erro.textContent = 'Informe o gateway da camera.'; erro.hidden = false; return; }
+    if (!_isIpv4(gw)) { erro.textContent = 'Gateway invalido.'; erro.hidden = false; return; }
+    if (_isInCameras22(novo) && (mask !== '255.255.252.0' || gw !== '10.10.10.1')) {
+      erro.textContent = 'Para a rede 10.10.8.0/22 use mascara 255.255.252.0 e gateway 10.10.10.1.';
+      erro.hidden = false;
+      return;
+    }
     if (!pass) { erro.textContent = 'Informe a senha atual da camera.'; erro.hidden = false; return; }
-    const payload = { ip, new_ip: novo, user, pass, ...(mask && { mask }), ...(gw && { gateway: gw }) };
+    const payload = { ip, new_ip: novo, user, pass, mask, gateway: gw };
     const res = await api('/api/maintenance/change_ip', { method: 'POST', body: JSON.stringify(payload) });
-    if (!res?.ok) {
-      const e = await res?.json().catch(() => ({}));
-      erro.textContent = e?.detail || 'Erro ao trocar IP.'; erro.hidden = false; return;
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || !data?.ok) {
+      const detail = data?.detail || data?.error || data?.msg || data?.message || 'Erro ao trocar IP.';
+      erro.textContent = detail;
+      erro.hidden = false;
+      return;
     }
     document.getElementById('modalTrocarIp').classList.add('hidden');
     showToast(`IP alterado para ${novo}. Aguarde a camera reconectar.`);
@@ -7086,24 +9612,12 @@ document.addEventListener('DOMContentLoaded', () => {
     applySnapGravFilters();
   });
   document.getElementById('btnSnapGravAll')?.addEventListener('click', async () => {
-    showToast('Atualizando snapshots dos gravadores');
-    await Promise.all([
-      api('/api/dvr/snapshot/update', { method: 'POST', body: '{}' }),
-      api('/api/nvr/snapshot/update', { method: 'POST', body: '{}' }),
-    ]);
-    setTimeout(loadSnapDvr, 3000);
+    showToast('Use Varredura do gravador para atualizar snapshots com usuario e senha.', true);
   });
   document.getElementById('btnSnapGravSelected')?.addEventListener('click', async () => {
     const idxs = [...document.querySelectorAll('.chk-snap-grav:checked')].map(c => parseInt(c.value));
     if (!idxs.length) { showToast('Selecione canais para capturar', true); return; }
-    showToast(`Capturando ${idxs.length} snapshot(s)`);
-    for (const i of idxs) {
-      const r = _snapGravAll[i];
-      if (!r) continue;
-      const endpoint = r._tipo === 'dvr' ? '/api/dvr/snapshot/update' : '/api/nvr/snapshot/update';
-      await api(endpoint, { method: 'POST', body: JSON.stringify({ ip: r.host, channel: r.channel }) });
-    }
-    setTimeout(loadSnapDvr, 2000);
+    showToast('Atualizacao de snapshot do gravador exige usuario e senha. Abra a varredura do gravador.', true);
   });
 
   // Snapshots Cameras IP
@@ -7132,10 +9646,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Varredura DVR
-  document.getElementById('btnScanDvr')?.addEventListener('click', async () => {
-    showToast('Iniciando varredura DVR');
-    await api('/api/dvr/scan', { method: 'POST', body: '{}' });
-    setTimeout(loadInvDvr, 2000);
+  document.getElementById('btnScanDvr')?.addEventListener('click', () => {
+    setRecType('dvr');
+    const scanType = document.getElementById('nvrScanType');
+    if (scanType) scanType.value = 'dvr';
+    updateNvrScanTypeLabels();
+    document.getElementById('nvrScanErro').hidden = true;
+    document.getElementById('modalNvrScan').classList.remove('hidden');
+    lucide.createIcons();
   });
 
   // Gravadores  seletor de tipo (NVR / DVR)
@@ -7555,7 +10073,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let importRes;
     try {
-      importRes = await fetch(`${API_BASE}/api/kmz/import`, { method: 'POST', headers, body: form });
+      importRes = await fetch(`${API_BASE}/api/kmz/import`, { method: 'POST', credentials: 'same-origin', headers, body: form });
     } catch (err) {
       showToast('Erro de conexao ao importar KMZ', true);
       e.target.value = '';
@@ -7636,8 +10154,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // OLT  abre modal de configuracao
   document.getElementById('btnOltCollect')?.addEventListener('click', () => {
-    document.getElementById('modalOltCollect').classList.remove('hidden');
-    lucide.createIcons();
+    openOltCollectModal();
+  });
+  document.getElementById('oltOrigin')?.addEventListener('change', updateOltOriginUi);
+  document.getElementById('oltConnector')?.addEventListener('change', updateOltOriginUi);
+  document.getElementById('oltSite')?.addEventListener('input', () => {
+    refreshOltConnectors().finally(updateOltOriginUi);
   });
   document.getElementById('closeOltModal')?.addEventListener('click', () => document.getElementById('modalOltCollect').classList.add('hidden'));
   document.getElementById('cancelOltModal')?.addEventListener('click', () => document.getElementById('modalOltCollect').classList.add('hidden'));
@@ -7900,8 +10422,10 @@ document.addEventListener('DOMContentLoaded', () => {
     _mntNvrUpdateCount();
   });
 
-  // Auto-login se tem token
-  if (_token) {
-    showApp();
-  }
+  // Auto-login via cookie HttpOnly.
+  (async () => {
+    const profile = await apiJson('/api/auth/me', { skipLogout: true });
+    if (profile) showApp();
+    else showLoginScreen();
+  })();
 });

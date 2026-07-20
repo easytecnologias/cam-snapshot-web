@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=35">
+  <link rel="stylesheet" href="styles.css?v=68">
 </head>
 <body>
 
@@ -36,50 +36,6 @@
     </div>
   </div>
 
-  <script>
-    // Login minimo e independente do app.js. Mantem acesso mesmo se algum modulo da SPA quebrar.
-    (function () {
-      var form = document.getElementById('loginForm');
-      if (!form) return;
-      form.addEventListener('submit', async function (event) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        var btn = document.getElementById('loginBtn');
-        var err = document.getElementById('loginError');
-        var user = document.getElementById('loginUser').value;
-        var pass = document.getElementById('loginPassword').value;
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = 'Entrando';
-        }
-        if (err) err.hidden = true;
-        try {
-          var base = (window.API_BASE || window.location.origin || '').replace(/\/$/, '');
-          var res = await fetch(base + '/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: user, password: pass })
-          });
-          var data = await res.json().catch(function () { return {}; });
-          if (!res.ok || !(data.access_token || data.token)) {
-            throw new Error(data.detail || 'Credenciais invalidas');
-          }
-          localStorage.setItem('so_token', data.access_token || data.token);
-          window.location.href = window.location.pathname + window.location.search;
-        } catch (e) {
-          if (err) {
-            err.textContent = e && e.message ? e.message : 'Falha no login';
-            err.hidden = false;
-          }
-          if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Entrar';
-          }
-        }
-      }, true);
-    })();
-  </script>
-
   <!-- --- APP SHELL --- -->
   <div id="appShell" class="app-shell" hidden>
     <div id="mobileBackdrop" class="mobile-backdrop"></div>
@@ -102,6 +58,7 @@
         <!-- Implantacao -->
         <div class="nav-section-label">Implantacao</div>
         <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
+        <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>CFTV</span></button>
 
         <!-- Inventario -->
@@ -230,8 +187,31 @@
           <div id="dashAlertsList" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
 
+        <div class="dash-action-bar">
+          <button class="dash-action-btn" data-dash-nav="inv-olt"><i data-lucide="camera"></i><span>Cameras</span></button>
+          <button class="dash-action-btn" data-dash-nav="inv-nvr"><i data-lucide="hard-drive"></i><span>Gravadores</span></button>
+          <button class="dash-action-btn" data-dash-nav="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
+          <button class="dash-action-btn" data-dash-nav="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
+          <button class="dash-action-btn" data-dash-nav="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
+        </div>
+
+        <div class="dash-insights-grid">
+          <div class="panel dash-panel" style="margin:0">
+            <div class="panel-header"><div><h2>Prioridades</h2><p>O que precisa de atencao agora</p></div></div>
+            <div class="dash-priority-list" id="dashPriorityList">
+              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+            </div>
+          </div>
+          <div class="panel dash-panel" style="margin:0">
+            <div class="panel-header"><div><h2>Saude operacional</h2><p>Disponibilidade e cobertura do parque</p></div></div>
+            <div class="dash-health-grid" id="dashHealthGrid">
+              <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Grid de status por tipo + Atividade recente -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="dash-main-grid">
 
           <!-- Status por tipo -->
           <div class="panel" style="margin:0">
@@ -255,6 +235,7 @@
         <div class="panel" id="dashSitesPanel" style="display:none">
           <div class="panel-header"><div><h2>Sites monitorados</h2><p id="dashSitesCount"></p></div></div>
           <div id="dashSitesList" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 8px"></div>
+          <div class="dash-site-grid" id="dashSiteSummary"></div>
         </div>
       </section>
 
@@ -381,15 +362,47 @@
               <button class="icon-button" id="btnCloseCamPanel"><i data-lucide="x"></i></button>
             </div>
             <div class="cam-panel-info">
+              <div class="cam-info-row"><span>IP</span><span id="cpIp">-</span></div>
               <div class="cam-info-row"><span>MAC</span><span id="cpMac">-</span></div>
               <div class="cam-info-row"><span>Modelo</span><span id="cpModelo">-</span></div>
               <div class="cam-info-row"><span>Local</span><span id="cpLocal">-</span></div>
               <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">-</span></div>
               <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">-</span></div>
             </div>
-            <div class="cam-snapshot-wrap">
+            <div class="cam-snapshot-wrap" id="cpSnapshotWrap" title="Clique para ver a câmera ao vivo">
               <img id="cpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none'">
               <div id="cpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
+              <div id="cpInlineLive" class="cam-inline-live hidden" onclick="event.stopPropagation()">
+                <video id="cpLiveVideo" class="hidden" autoplay muted playsinline></video>
+                <div id="cpLiveAuth" class="cam-live-auth">
+                  <div>
+                    <strong>Ver ao vivo</strong>
+                    <span>Informe o acesso da camera.</span>
+                  </div>
+                  <input id="cpLiveUser" type="text" value="admin" autocomplete="username" placeholder="Usuario">
+                  <div class="cam-live-pass-field">
+                    <input id="cpLivePass" type="password" autocomplete="current-password" placeholder="Senha">
+                    <button id="cpLivePassToggle" type="button" aria-label="Mostrar senha" title="Mostrar senha">
+                      <i data-lucide="eye"></i>
+                    </button>
+                  </div>
+                  <button id="cpLiveStart" type="button"><i data-lucide="play-circle"></i> Entrar</button>
+                </div>
+                <div id="cpLiveStatus" class="cam-live-status hidden">
+                  <i data-lucide="loader"></i>
+                  <span>Conectando...</span>
+                </div>
+                <button id="cpLiveClose" class="cam-live-close" type="button" title="Voltar para snapshot">
+                  <i data-lucide="x"></i>
+                </button>
+                <button id="cpLiveFullscreen" class="cam-live-fullscreen" type="button" title="Ampliar video">
+                  <i data-lucide="maximize-2"></i>
+                </button>
+              </div>
+              <button class="cam-live-open" id="cpBtnLive" type="button" aria-label="Ver camera ao vivo">
+                <i data-lucide="play-circle"></i>
+                <span>Ver ao vivo</span>
+              </button>
               <div class="cam-snap-overlay">
                 <span id="cpSnapshotTitle">-</span>
                 <span id="cpSnapshotTime">-</span>
@@ -1404,7 +1417,7 @@
                 </tr>
               </thead>
               <tbody id="oltTableBody">
-                <tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>
+                <tr class="empty-row"><td colspan="9">Nenhum dado. Execute a coleta.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1757,7 +1770,7 @@
                     <th>Host</th>
                     <th>IP remoto</th>
                     <th>Ultimo sinal</th>
-                    <th>Ações</th>
+                    <th>Acoes</th>
                   </tr>
                 </thead>
                 <tbody id="connectorsTable">
@@ -1802,10 +1815,103 @@
       <!-- --- VIEW: CONFIGURA--ES --- -->
       <section class="workspace hidden" id="viewSettings">
         <div class="page-heading">
-          <div><p class="eyebrow">Sistema</p><h1>Configuracoes</h1><p>Usuarios, banco de dados e parametros gerais.</p></div>
+          <div><p class="eyebrow">Sistema</p><h1>Configuracoes</h1><p>Clientes SaaS, usuarios, banco de dados e parametros gerais.</p></div>
+          <button class="secondary-action" id="btnSettingsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">
-          Em constru--o.
+        <div class="settings-saas-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <div><h2>Novo cliente</h2><p>Crie um tenant independente para operacao SaaS.</p></div>
+            </div>
+            <div class="settings-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="tenantName">Cliente</label>
+                  <input id="tenantName" placeholder="Ex: Condominio Reserva">
+                </div>
+                <div class="form-group">
+                  <label for="tenantSlug">Slug</label>
+                  <input id="tenantSlug" placeholder="reserva">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="tenantOwnerUser">Owner inicial</label>
+                  <input id="tenantOwnerUser" placeholder="usuario do cliente">
+                </div>
+                <div class="form-group">
+                  <label for="tenantOwnerPass">Senha</label>
+                  <input id="tenantOwnerPass" type="password" placeholder="opcional, minimo 8">
+                </div>
+              </div>
+              <button class="primary-action" id="btnCreateTenant" type="button"><i data-lucide="building-2"></i> Criar cliente</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div><h2>Novo usuario</h2><p>Usuarios sao criados dentro do cliente logado.</p></div>
+            </div>
+            <div class="settings-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="newUserName">Usuario</label>
+                  <input id="newUserName" placeholder="login">
+                </div>
+                <div class="form-group">
+                  <label for="newUserPass">Senha</label>
+                  <input id="newUserPass" type="password" placeholder="minimo 8">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="newUserRole">Perfil</label>
+                  <select id="newUserRole">
+                    <option value="viewer">Viewer</option>
+                    <option value="operator">Operator</option>
+                    <option value="admin">Admin</option>
+                    <option value="owner">Owner</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="newUserFullName">Nome</label>
+                  <input id="newUserFullName" placeholder="nome completo">
+                </div>
+              </div>
+              <button class="primary-action" id="btnCreateUser" type="button"><i data-lucide="user-plus"></i> Criar usuario</button>
+            </div>
+          </div>
+
+          <div class="panel settings-wide-panel">
+            <div class="panel-header">
+              <div><h2>Clientes</h2><p id="settingsTenantsSummary">Carregando clientes.</p></div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table settings-table">
+                <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th></tr></thead>
+                <tbody id="settingsTenantsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel settings-wide-panel">
+            <div class="panel-header">
+              <div><h2>Usuarios</h2><p id="settingsUsersSummary">Carregando usuarios.</p></div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table settings-table">
+                <thead><tr><th>Usuario</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Cliente</th></tr></thead>
+                <tbody id="settingsUsersBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel settings-wide-panel">
+            <div class="panel-header">
+              <div><h2>Banco e autenticacao</h2><p>Estado atual dos storages do SaaS.</p></div>
+            </div>
+            <div class="settings-status-grid" id="settingsStorageStatus"></div>
+          </div>
         </div>
       </section>
 
@@ -1908,15 +2014,37 @@
                 <span><span class="onu-step-title">Conexao com a OLT</span><span class="onu-step-sub">IP e PON onde o tecnico esta trabalhando agora.</span></span>
               </summary>
               <div class="onu-step-body">
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="onuConnector">Conector MikroTik</label>
+                    <select id="onuConnector" class="filter-select" style="width:100%">
+                      <option value="">Escolha a origem de acesso</option>
+                      <option value="__local__">Local / VPN do servidor</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="onuConnectorStatus" class="deploy-result-box error" style="padding:10px 12px;margin:0 0 12px;font-size:13px">
+                  Escolha Local/VPN do servidor ou um conector online com VPN. Os dados da OLT ficam bloqueados ate definir a origem.
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="onuInventoryMode">Destino do inventario</label>
+                    <select id="onuInventoryMode" data-onu-needs-connector="1" class="deployment-inventory-mode" disabled>
+                      <option value="basic">Basico</option>
+                      <option value="olt">OLT (camera atras de ONU/PON)</option>
+                      <option value="switch">Switch</option>
+                    </select>
+                  </div>
+                </div>
                 <div class="form-row">
                   <div class="form-group">
                     <label for="onuOltIp">IP da OLT</label>
-                    <input id="onuOltIp" list="onuOltIpList" placeholder="Digite o IP ou escolha uma do inventario">
+                    <input id="onuOltIp" data-onu-needs-connector="1" list="onuOltIpList" placeholder="Digite o IP ou escolha uma do inventario">
                     <datalist id="onuOltIpList"></datalist>
                   </div>
                   <div class="form-group">
                     <label for="onuOltPon">PON</label>
-                    <select id="onuOltPon">
+                    <select id="onuOltPon" data-onu-needs-connector="1">
                       <option value="all">Todas (1-8)</option>
                       <option value="1">PON 1</option>
                       <option value="2">PON 2</option>
@@ -1932,11 +2060,11 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label for="onuOltUser">Usuario da OLT</label>
-                    <input id="onuOltUser" placeholder="admin" autocomplete="username">
+                    <input id="onuOltUser" data-onu-needs-connector="1" placeholder="admin" autocomplete="username">
                   </div>
                   <div class="form-group">
                     <label for="onuOltPassword">Senha da OLT</label>
-                    <input id="onuOltPassword" type="password" placeholder="Senha" autocomplete="current-password">
+                    <input id="onuOltPassword" data-onu-needs-connector="1" type="password" placeholder="Senha" autocomplete="current-password">
                   </div>
                 </div>
               </div>
@@ -2072,6 +2200,222 @@
         </div>
       </section>
 
+      <!-- --- VIEW: IMPLANTACAO - GRAVADORES --- -->
+      <section class="workspace hidden" id="viewDeployRecorder">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>Gravadores</h1>
+            <p>Configure DVR/NVR, valide acesso e grave os canais no inventario.</p>
+          </div>
+          <button class="secondary-action" id="btnDeployStandaloneRecorderClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar</button>
+        </div>
+
+        <div class="deployment-grid recorder-deploy-grid">
+          <div class="panel deployment-form-panel">
+            <div class="panel-header">
+              <div><h2>Novo gravador</h2><p>Informe site, acesso e quantidade de canais para registrar no inventario.</p></div>
+            </div>
+            <form id="deployStandaloneRecorderForm" class="deployment-form">
+              <div class="recorder-connector-block">
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="deployStandaloneRecorderConnector">Conector MikroTik</label>
+                    <select id="deployStandaloneRecorderConnector" class="filter-select" style="width:100%">
+                      <option value="">Escolha a origem de acesso</option>
+                      <option value="__local__">Local / VPN do servidor</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="deployStandaloneRecorderConnectorStatus" class="deploy-result-box error">
+                  Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do gravador ficam bloqueados ate definir a origem.
+                </div>
+              </div>
+              <div class="form-row recorder-destination-row">
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderSite">Site / local</label>
+                  <input id="deployStandaloneRecorderSite" data-recorder-needs-connector="1" list="deployStandaloneRecorderSiteList" placeholder="Site manual ou vindo do conector" disabled>
+                  <datalist id="deployStandaloneRecorderSiteList"></datalist>
+                </div>
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderType">Tipo</label>
+                  <select id="deployStandaloneRecorderType" data-recorder-needs-connector="1" disabled>
+                    <option value="nvr">NVR IP</option>
+                    <option value="dvr">DVR analogico</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderInventoryMode">Destino do inventario</label>
+                  <select id="deployStandaloneRecorderInventoryMode" data-recorder-needs-connector="1" class="deployment-inventory-mode" disabled>
+                    <option value="basic">Basico</option>
+                    <option value="olt">Via OLT</option>
+                    <option value="switch">Via Switch</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row deploy-standalone-recorder-host-row">
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderHost">Host do gravador</label>
+                  <input id="deployStandaloneRecorderHost" data-recorder-needs-connector="1" placeholder="10.10.9.154" disabled>
+                </div>
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderPort">Porta HTTP</label>
+                  <input id="deployStandaloneRecorderPort" data-recorder-needs-connector="1" type="number" value="80" min="1" max="65535" disabled>
+                </div>
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderChannelTotal">Canais</label>
+                  <input id="deployStandaloneRecorderChannelTotal" data-recorder-needs-connector="1" type="number" value="32" min="1" max="256" disabled>
+                </div>
+              </div>
+              <div class="form-row deploy-standalone-recorder-login-row">
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderUser">Usuario</label>
+                  <input id="deployStandaloneRecorderUser" data-recorder-needs-connector="1" value="admin" autocomplete="username" disabled>
+                </div>
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderPassword">Senha</label>
+                  <input id="deployStandaloneRecorderPassword" data-recorder-needs-connector="1" type="password" placeholder="Senha" autocomplete="current-password" disabled>
+                </div>
+                <div class="form-group deploy-button-field">
+                  <label>&nbsp;</label>
+                  <button class="primary-action" id="btnDeployStandaloneRecorderLogin" data-recorder-needs-connector="1" type="button" disabled><i data-lucide="log-in"></i> Entrar</button>
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-group">
+                  <label for="deployStandaloneRecorderName">Nome do gravador (opcional)</label>
+                  <input id="deployStandaloneRecorderName" data-recorder-needs-connector="1" placeholder="Ex: NVR Portaria" disabled>
+                </div>
+              </div>
+              <div id="deployStandaloneRecorderResult" class="deploy-result-box">Entre no gravador para validar modelo, serial e canais.</div>
+            </form>
+          </div>
+
+          <div class="panel deployment-side-panel">
+            <div class="panel-header">
+              <div><h2>Console do gravador</h2><p>Descoberta, configuracoes e canais em um fluxo lateral.</p></div>
+            </div>
+            <div class="recorder-config-shell">
+              <aside class="recorder-config-sidebar" aria-label="Configuracoes do gravador">
+                <button class="recorder-config-tab active" data-recorder-config-tab="overview" type="button"><i data-lucide="radar"></i><span>Descoberta</span><small>Modelo, serial e status</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="channels" type="button"><i data-lucide="layout-grid"></i><span>Canais</span><small>Ocupados e livres</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="quick" type="button"><i data-lucide="zap"></i><span>Rapidas</span><small>NTP, web e reboot</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="network" type="button"><i data-lucide="network"></i><span>Rede</span><small>IP, gateway e portas</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="recording" type="button"><i data-lucide="calendar-clock"></i><span>Gravacao</span><small>Agenda e modo</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="storage" type="button"><i data-lucide="hard-drive"></i><span>HD</span><small>Disco e retencao</small></button>
+                <button class="recorder-config-tab" data-recorder-config-tab="maintenance" type="button"><i data-lucide="wrench"></i><span>Manutencao</span><small>Checklist tecnico</small></button>
+              </aside>
+
+              <div class="recorder-config-content">
+                <section class="recorder-config-panel active" data-recorder-config-panel="overview">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>Descoberta</h3><p>Resumo do gravador depois do login.</p></div>
+                    <div id="deployRecorderDiscoveryStatus" class="recorder-head-status waiting"><i data-lucide="circle"></i><span>Aguardando login</span></div>
+                  </div>
+                  <div id="deployStandaloneRecorderSummary" class="recorder-deploy-summary">
+                    <div class="recorder-discovery-empty">
+                      <i data-lucide="log-in"></i>
+                      <div><b>Aguardando acesso ao gravador</b><span>Preencha os dados ao lado e clique em Entrar.</span></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="channels">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>Canais</h3><p>Mapa rapido dos canais ocupados, livres e dados das cameras.</p></div>
+                  </div>
+                  <div class="recorder-channel-toolbar">
+                    <div class="recorder-channel-search"><i data-lucide="search"></i><input id="deployRecorderChannelSearch" placeholder="Buscar canal, titulo, IP ou modelo"></div>
+                    <select id="deployRecorderChannelFilter" aria-label="Filtrar canais">
+                      <option value="all">Todos</option>
+                      <option value="used">Ocupados</option>
+                      <option value="free">Livres</option>
+                      <option value="no_model">Sem modelo</option>
+                      <option value="no_snapshot">Sem snapshot</option>
+                    </select>
+                  </div>
+                  <div id="deployRecorderChannelCounters" class="recorder-channel-counters"></div>
+                  <div id="deployRecorderChannelLayout" class="recorder-channel-layout">
+                    <div id="deployStandaloneRecorderChannels" class="recorder-deploy-channel-grid">
+                      <div class="recorder-deploy-empty">Nenhum canal carregado ainda.</div>
+                    </div>
+                    <aside id="deployRecorderChannelDetail" class="recorder-channel-detail hidden"></aside>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="quick">
+                  <div class="recorder-quick-panel">
+                    <div class="recorder-quick-head">
+                      <div>
+                        <h3>Configuracoes rapidas</h3>
+                        <p>Acoes liberadas depois que o login no gravador for confirmado.</p>
+                      </div>
+                      <div class="form-group">
+                        <label for="deployStandaloneRecorderNtpServer">NTP</label>
+                        <input id="deployStandaloneRecorderNtpServer" value="time.cloudflare.com" placeholder="time.cloudflare.com">
+                      </div>
+                    </div>
+                    <div class="recorder-quick-actions">
+                      <button class="secondary-action" id="btnDeployStandaloneRecorderOpenWeb" type="button" disabled><i data-lucide="globe"></i> Web</button>
+                      <button class="secondary-action" id="btnDeployStandaloneRecorderRefreshChannels" type="button" disabled><i data-lucide="refresh-cw"></i> Canais</button>
+                      <button class="secondary-action" id="btnDeployStandaloneRecorderPlayback" type="button" disabled><i data-lucide="film"></i> Reproducao</button>
+                      <button class="secondary-action" id="btnDeployStandaloneRecorderSetNtp" type="button" disabled><i data-lucide="clock"></i> Acertar NTP</button>
+                      <button class="secondary-action danger-action" id="btnDeployStandaloneRecorderReboot" type="button" disabled><i data-lucide="power"></i> Reboot</button>
+                      <button class="secondary-action" id="btnDeployStandaloneRecorderFicha" type="button" disabled><i data-lucide="file-json"></i> Ficha</button>
+                    </div>
+                    <div id="deployStandaloneRecorderQuickResult" class="deploy-result-box muted">Entre no gravador para liberar as configuracoes rapidas.</div>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="network">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>Rede</h3><p>Configuracoes que nunca podem faltar no cadastro tecnico.</p></div>
+                  </div>
+                  <div class="recorder-config-cards">
+                    <div><span>IP fixo</span><b>Obrigatorio</b><small>IP, mascara, gateway e DNS.</small></div>
+                    <div><span>Portas</span><b>HTTP / RTSP / TCP</b><small>Necessario para web, reproducao e integracoes.</small></div>
+                    <div><span>Teste final</span><b>Validar acesso</b><small>Confirmar login depois de qualquer troca de rede.</small></div>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="recording">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>Gravacao</h3><p>Checklist de agenda e modo de gravacao por canal.</p></div>
+                  </div>
+                  <div class="recorder-config-cards">
+                    <div><span>Agenda</span><b>24/7 ou regra local</b><small>Evita canal cadastrado sem gravar.</small></div>
+                    <div><span>Modo</span><b>Continuo / movimento</b><small>Mostra diferenca por canal.</small></div>
+                    <div><span>Retencao</span><b>Dias estimados</b><small>Depende do HD e bitrate.</small></div>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="storage">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>HD e armazenamento</h3><p>Status de disco, capacidade e sobrescrita.</p></div>
+                  </div>
+                  <div class="recorder-config-cards">
+                    <div><span>HD</span><b>Presente / erro</b><small>Sem HD bom, nao existe gravacao confiavel.</small></div>
+                    <div><span>Espaco</span><b>Total / usado / livre</b><small>Base para retencao.</small></div>
+                    <div><span>Sobrescrita</span><b>Quando cheio</b><small>Padrao recomendado para CFTV.</small></div>
+                  </div>
+                </section>
+
+                <section class="recorder-config-panel" data-recorder-config-panel="maintenance">
+                  <div class="recorder-config-panel-head">
+                    <div><h3>Manutencao</h3><p>Checklist final antes de entregar o gravador.</p></div>
+                  </div>
+                  <div class="recorder-config-cards">
+                    <div><span>Senha</span><b>Validada</b><small>Evitar senha vazia, padrao antiga ou divergente.</small></div>
+                    <div><span>Snapshots</span><b>Atualizar</b><small>Conferir imagem de canais principais.</small></div>
+                    <div><span>Inventario</span><b>Salvar tudo</b><small>Registrar canais, modelo, serial e local.</small></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- --- VIEW: IMPLANTACAO --- -->
       <section class="workspace hidden" id="viewDeployNew">
         <div class="page-heading">
@@ -2090,48 +2434,55 @@
             </div>
             <form id="deployForm" class="deployment-form">
               <details class="onu-step" name="cftvAccordion" id="cftvStep1" open>
-                <summary><span class="onu-step-title">1. Cliente e conector</span></summary>
+                <summary>
+                  <span><span class="onu-step-title">Conexao com o CFTV</span><span class="onu-step-sub">Conector e site onde o tecnico esta trabalhando agora.</span></span>
+                </summary>
                 <div class="onu-step-body">
-                  <div class="form-row">
+                  <div class="form-row" style="grid-template-columns:1fr">
                     <div class="form-group">
                       <label for="deployConnector">Conector MikroTik</label>
-                      <select id="deployConnector"></select>
-                    </div>
-                    <div class="form-group">
-                      <label for="deploySite">Site / local</label>
-                      <input id="deploySite" placeholder="Reserva, Jardins I, Cliente X">
+                      <select id="deployConnector" class="filter-select" style="width:100%">
+                        <option value="">Escolha a origem de acesso</option>
+                        <option value="__local__">Local / VPN do servidor</option>
+                      </select>
                     </div>
                   </div>
-                  <div id="deployConnectorStatus" class="deploy-result-box">Selecione um conector.</div>
+                  <div id="deployConnectorStatus" class="deploy-result-box error" style="padding:10px 12px;margin:0 0 12px;font-size:13px">
+                    Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do CFTV ficam bloqueados ate definir a origem.
+                  </div>
+                  <div class="form-row" style="grid-template-columns:1fr">
+                    <div class="form-group">
+                      <label for="deploySite">Site / local</label>
+                      <input id="deploySite" list="deploySiteList" placeholder="Site manual ou vindo do conector" disabled>
+                      <datalist id="deploySiteList"></datalist>
+                    </div>
+                  </div>
                 </div>
               </details>
 
               <details class="onu-step" name="cftvAccordion" id="cftvStep2">
                 <summary><span class="onu-step-title">2. Camera</span></summary>
                 <div class="onu-step-body">
-                  <div class="form-row deploy-inline-button">
-                    <div class="form-group">
-                      <label for="deployCameraMac">MAC da camera</label>
+                  <div class="form-group deploy-camera-mac-group">
+                    <label for="deployCameraMac">MAC da camera</label>
+                    <div class="deploy-control-line deploy-camera-mac-row">
                       <input id="deployCameraMac" placeholder="MAC visto no MikroTik">
+                      <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
                     </div>
-                    <button class="secondary-action" id="btnDeployLookupMac" type="button"><i data-lucide="search"></i> Procurar</button>
                   </div>
                   <div id="deployLookupResult" class="deploy-result-box">Aguardando consulta no conector.</div>
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label for="deployCameraUser">Usuario da camera</label>
-                      <input id="deployCameraUser" placeholder="admin" autocomplete="username">
-                    </div>
-                    <div class="form-group">
-                      <label for="deployCameraPassword">Senha da camera</label>
-                      <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="new-password">
-                    </div>
+                  <div class="deploy-camera-login-labels">
+                    <label for="deployCameraUser">Usuario da camera</label>
+                    <label for="deployCameraPassword">Senha da camera</label>
+                    <span></span>
                   </div>
-                  <div class="deploy-inline-button" style="margin:2px 0 4px">
-                    <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="download-cloud"></i> Puxar dados da camera</button>
+                  <div class="deploy-camera-login-row">
+                    <input id="deployCameraUser" placeholder="admin" autocomplete="username">
+                    <input id="deployCameraPassword" type="password" placeholder="Senha" autocomplete="new-password">
+                    <button class="primary-action" id="btnDeployPullCamera" type="button"><i data-lucide="log-in"></i> Entrar</button>
                   </div>
                   <div id="deployPullCameraResult" class="deploy-result-box">Descubra o IP pelo MAC (acima), preencha usuario/senha, depois clique para trazer os dados reais da camera.</div>
-                  <div class="form-row deploy-inline-button">
+                  <div class="deploy-camera-title-ip-row">
                     <div class="form-group">
                       <label for="deployCameraTitle">Titulo obrigatorio</label>
                       <input id="deployCameraTitle" required placeholder="01 - ENTRADA">
@@ -2140,12 +2491,13 @@
                       <label for="deployCameraIp">IP da camera</label>
                       <input id="deployCameraIp" placeholder="Preenchido ao puxar dados, ou digite outro">
                     </div>
-                  </div>
-                  <div class="deploy-inline-button" style="margin:2px 0 4px">
-                    <button class="secondary-action" id="btnDeployCheckNewIp" type="button"><i data-lucide="shield-check"></i> Checar novo IP</button>
+                    <div class="form-group deploy-button-field">
+                      <label aria-hidden="true">&nbsp;</label>
+                      <button class="secondary-action" id="btnDeployCheckNewIp" type="button"><i data-lucide="shield-check"></i> Checar novo IP</button>
+                    </div>
                   </div>
                   <div id="deployCheckIpResult" class="deploy-result-box">Se trocar o IP e clicar em "Checar novo IP", confiro disponibilidade e pergunto se quer aplicar na camera.</div>
-                  <div class="form-row">
+                  <div class="deploy-camera-meta-row">
                     <div class="form-group">
                       <label for="deployCameraManufacturer">Fabricante</label>
                       <input id="deployCameraManufacturer" placeholder="Preenchido ao puxar dados, ou digite">
@@ -2154,15 +2506,23 @@
                       <label for="deployCameraModel">Modelo</label>
                       <input id="deployCameraModel" placeholder="Preenchido ao puxar dados, ou digite">
                     </div>
-                  </div>
-                  <div class="form-row" style="grid-template-columns:1fr">
                     <div class="form-group">
                       <label for="deployInventoryMode">Tipo de inventario</label>
-                      <select id="deployInventoryMode">
-                        <option value="olt">OLT (padrao -- camera atras de ONU/PON)</option>
+                      <select id="deployInventoryMode" class="deployment-inventory-mode">
                         <option value="basic">Basico</option>
+                        <option value="olt">OLT (camera atras de ONU/PON)</option>
                         <option value="switch">Switch</option>
                       </select>
+                    </div>
+                  </div>
+                  <div class="deploy-camera-save-row">
+                    <div class="form-group">
+                      <label for="deployCameraLocation">Localizacao da camera</label>
+                      <input id="deployCameraLocation" placeholder="Coordenada: -9.755000, -36.660000">
+                    </div>
+                    <div class="form-group deploy-button-field">
+                      <label aria-hidden="true">&nbsp;</label>
+                      <button class="primary-action" id="btnDeploySaveCameraInventory" type="button"><i data-lucide="save"></i> Salvar</button>
                     </div>
                   </div>
                 </div>
@@ -2182,18 +2542,53 @@
                     </div>
                     <div class="form-group">
                       <label for="deployRecorderHost">Host do gravador</label>
-                      <input id="deployRecorderHost" placeholder="10.10.9.150">
+                      <select id="deployRecorderHost">
+                        <option value="">Escolha um gravador do inventario</option>
+                      </select>
                     </div>
                   </div>
-                  <div class="form-row">
+                  <div class="form-row deploy-recorder-login-row">
+                    <div class="form-group">
+                      <label for="deployRecorderUser">Usuario do gravador</label>
+                      <input id="deployRecorderUser" value="admin" autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                      <label for="deployRecorderPassword">Senha do gravador</label>
+                      <input id="deployRecorderPassword" type="password" placeholder="Senha" autocomplete="new-password">
+                    </div>
+                    <div class="form-group deploy-button-field">
+                      <label aria-hidden="true">&nbsp;</label>
+                      <button class="primary-action" id="btnDeployRecorderLogin" type="button"><i data-lucide="log-in"></i> Entrar</button>
+                    </div>
+                  </div>
+                  <div id="deployRecorderLoginResult" class="deploy-result-box">Informe host, usuario e senha do gravador e clique em Entrar.</div>
+                  <div class="form-row deploy-recorder-channel-row">
                     <div class="form-group">
                       <label for="deployRecorderChannel">Canal</label>
-                      <input id="deployRecorderChannel" placeholder="1">
+                      <input id="deployRecorderChannel" type="hidden">
+                      <div id="deployRecorderChannelDropdown" class="deploy-channel-dropdown disabled">
+                        <button id="deployRecorderChannelButton" class="deploy-channel-toggle" type="button" disabled>
+                          <span id="deployRecorderChannelLabel">Entre no gravador</span>
+                          <i data-lucide="chevron-down"></i>
+                        </button>
+                        <div id="deployRecorderChannelGrid" class="deploy-channel-grid hidden">
+                          <span class="deploy-channel-empty">Entre no gravador para carregar os canais.</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label for="deployRecorderCameraIp">IP da camera</label>
+                      <input id="deployRecorderCameraIp" placeholder="Preenchido pela etapa 2" readonly>
                     </div>
                     <div class="form-group">
                       <label for="deployRecorderTitle">Titulo no gravador</label>
                       <input id="deployRecorderTitle" placeholder="Mesmo titulo da camera">
                     </div>
+                  </div>
+                  <div class="deploy-recorder-add-row">
+                    <button class="primary-action" id="btnDeployRecorderAddCamera" type="button">
+                      <i data-lucide="plus-circle"></i> Adicionar no NVR
+                    </button>
                   </div>
                 </div>
               </details>
@@ -2549,7 +2944,7 @@
   </div>
 
   <div id="modalTrocarIp" class="modal-backdrop hidden">
-    <div class="modal" style="max-width:400px">
+    <div class="modal" style="max-width:460px">
       <div class="modal-header">
         <div>
           <p class="eyebrow">Manutencao</p>
@@ -2578,15 +2973,16 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div class="form-group">
-            <label>M-scara</label>
-            <input id="trocarIpMask" type="text" placeholder="255.255.255.0 (opcional)">
+            <label>Mascara obrigatoria</label>
+            <input id="trocarIpMask" type="text" placeholder="255.255.252.0" autocomplete="off">
           </div>
           <div class="form-group">
-            <label>Gateway</label>
-            <input id="trocarIpGw" type="text" placeholder="10.10.9.1 (opcional)">
+            <label>Gateway obrigatorio</label>
+            <input id="trocarIpGw" type="text" placeholder="10.10.10.1" autocomplete="off">
           </div>
         </div>
-        <p style="font-size:12px;color:var(--amber);margin:0"><i data-lucide="triangle-alert" style="width:13px;vertical-align:middle"></i> A camera ficar- offline temporariamente ao trocar o IP.</p>
+        <p id="trocarIpNetworkHint" style="font-size:12px;color:var(--muted);margin:0"></p>
+        <p style="font-size:12px;color:var(--amber);margin:0"><i data-lucide="triangle-alert" style="width:13px;vertical-align:middle"></i> Confirme mascara e gateway antes de aplicar. A camera pode ficar offline temporariamente.</p>
         <p id="trocarIpErro" class="login-error" hidden></p>
       </div>
       <div class="modal-actions">
@@ -2729,6 +3125,24 @@
           </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanAppend" style="accent-color:var(--primary);width:15px;height:15px"> Acumular</label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanNat" style="accent-color:var(--primary);width:15px;height:15px"> NAT</label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:10px">
+          <div class="form-group" style="margin:0;display:none">
+            <label>Origem</label>
+            <select id="scanOrigin" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
+              <option value="local">Servidor local / VPN</option>
+              <option value="connector">Conector MikroTik</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Conector</label>
+            <select id="scanConnector" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
+              <option value="">Selecione um conector online</option>
+            </select>
+          </div>
+        </div>
+        <div id="scanConnectorStatus" class="deploy-result-box" style="padding:10px 12px;margin:0 0 16px;font-size:13px">
+          O contexto sera definido automaticamente pelo site/conector selecionado.
         </div>
 
         <!-- Tarefas individuais -->
@@ -2937,6 +3351,24 @@
         <button id="closeOltModal" class="icon-button"><i data-lucide="x"></i></button>
       </div>
       <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr;gap:12px;min-width:0">
+          <div class="form-group" style="margin:0;min-width:0;display:none">
+            <label>Origem</label>
+            <select id="oltOrigin" class="filter-select" style="width:100%">
+              <option value="local">Servidor local / VPN</option>
+              <option value="connector">Conector MikroTik</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:0">
+            <label>Conector</label>
+            <select id="oltConnector" class="filter-select" style="width:100%" disabled>
+              <option value="">Selecione um conector online</option>
+            </select>
+          </div>
+        </div>
+        <div id="oltConnectorStatus" class="deploy-result-box" style="padding:10px 12px;margin:0;font-size:13px">
+          Use local/VPN quando o servidor ja tiver rota ate a OLT.
+        </div>
         <div class="form-group" style="margin:0">
           <label>IP da OLT</label>
           <input id="oltIp" type="text" placeholder="Ex: 10.80.80.5" autocomplete="off">
@@ -3100,6 +3532,60 @@
     </div>
   </div>
 
+
+  <!-- --- MODAL: VPN DO CONECTOR --- -->
+  <div id="modalConnectorVpn" class="modal-backdrop hidden" style="z-index:80">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Conector MikroTik</p>
+          <h2>Preparar VPN WireGuard</h2>
+        </div>
+        <button class="secondary-action" id="closeConnectorVpnModal" title="Fechar" style="width:44px;height:44px;padding:0;justify-content:center">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.45">
+          Defina onde o servidor SightOps recebe a VPN e quais redes LAN deste cliente devem ficar acessiveis pelo tunnel.
+        </p>
+        <input type="hidden" id="connectorVpnId">
+        <div class="form-group">
+          <label for="connectorVpnEndpoint">Endpoint WireGuard publico</label>
+          <input id="connectorVpnEndpoint" placeholder="Ex: 201.182.184.80:51820">
+          <small style="color:var(--muted)">Use IP publico ou dominio do servidor + porta WireGuard.</small>
+        </div>
+        <div class="form-group">
+          <label>Quais redes liberar?</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer">
+              <input type="radio" name="connectorVpnLanMode" value="auto" checked style="width:18px;height:18px;margin-top:2px">
+              <span><strong>Todas detectadas</strong><br><small style="color:var(--muted)">Usa automaticamente as redes que o MikroTik informar no heartbeat.</small></span>
+            </label>
+            <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:8px;padding:12px;cursor:pointer">
+              <input type="radio" name="connectorVpnLanMode" value="manual" style="width:18px;height:18px;margin-top:2px">
+              <span><strong>Informar redes</strong><br><small style="color:var(--muted)">Digite uma rede especifica ou uma lista de CIDRs.</small></span>
+            </label>
+          </div>
+        </div>
+        <div id="connectorVpnAutoHelp" class="inline-alert" style="margin-top:12px">
+          <span id="connectorVpnDetectedPreview">Carregando redes detectadas...</span>
+        </div>
+        <div id="connectorVpnLansGroup" class="form-group hidden">
+          <label for="connectorVpnLans">Redes LAN do cliente</label>
+          <input id="connectorVpnLans" placeholder="Ex: 192.168.20.0/24 ou 192.168.20.0/24, 10.10.0.0/16">
+          <small style="color:var(--muted)">Separe multiplas redes por virgula. Nao use 0.0.0.0/0.</small>
+        </div>
+        <div class="inline-alert" style="margin-top:12px">
+          Ao confirmar, o SightOps salva a VPN no conector e baixa o script RouterOS para instalar no MikroTik.
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelConnectorVpnModal">Cancelar</button>
+        <button class="primary-action" id="confirmConnectorVpnModal"><i data-lucide="shield"></i> Preparar VPN</button>
+      </div>
+    </div>
+  </div>
   <!-- --- MODAL: CARROSSEL DE SNAPSHOTS --- -->
   <div id="modalCarrossel" style="display:none;position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.92);flex-direction:column;align-items:center;justify-content:center">
 
@@ -3497,6 +3983,6 @@
 
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=95"></script>
+  <script src="app.js?v=140"></script>
 </body>
 </html>

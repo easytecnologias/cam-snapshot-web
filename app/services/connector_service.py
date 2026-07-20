@@ -36,6 +36,97 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _normalize_cidr(value: Any) -> str:
+    raw = _text(value)
+    if not raw:
+        return ""
+    try:
+        net = ipaddress.ip_network(raw, strict=False)
+    except Exception:
+        return ""
+    if net.version != 4 or net.prefixlen >= 32:
+        return ""
+    if not net.is_private:
+        return ""
+    cidr = str(net)
+    if cidr == "10.250.0.0/24":
+        return ""
+    return cidr
+
+
+def _unique_cidrs(values: List[Any], collapse: bool = True) -> List[str]:
+    networks: List[ipaddress.IPv4Network] = []
+    for value in values:
+        cidr = _normalize_cidr(value)
+        if cidr:
+            try:
+                networks.append(ipaddress.ip_network(cidr, strict=False))
+            except Exception:
+                continue
+    if collapse:
+        networks = list(ipaddress.collapse_addresses(networks))
+    seen: set[str] = set()
+    out: List[str] = []
+    for net in sorted(networks, key=lambda item: (int(item.network_address), item.prefixlen)):
+        cidr = str(net)
+        if cidr not in seen:
+            seen.add(cidr)
+            out.append(cidr)
+    return out
+
+
+def _split_cidr_values(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [_text(item) for item in value if _text(item)]
+    if isinstance(value, str):
+        return [_text(item) for item in re.split(r"[\s,;|]+", value) if _text(item)]
+    return []
+
+
+def _trusted_lans_from_connector(row: Dict[str, Any]) -> List[str]:
+    inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
+    host = row.get("host") if isinstance(row.get("host"), dict) else {}
+    tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
+    candidates: List[Any] = []
+    for key in ("lan_networks", "networks", "routes"):
+        candidates.extend(_split_cidr_values(inventory.get(key)))
+    candidates.extend(_split_cidr_values(host.get("lan_networks")))
+    candidates.extend(_split_cidr_values(tunnel.get("client_lans")))
+
+    address_sample = _text(inventory.get("address_sample") or inventory.get("ip_address_sample"))
+    for item in re.split(r"[;\r\n]+", address_sample):
+        first = _text((item.split("|") or [""])[0])
+        if "/" in first:
+            candidates.append(first)
+    return _unique_cidrs(candidates)
+
+
+def _private_24_from_ip(value: Any) -> str:
+    raw = _text(value)
+    try:
+        ip = ipaddress.ip_address(raw)
+    except Exception:
+        return ""
+    if ip.version != 4 or not ip.is_private:
+        return ""
+    parts = raw.split(".")
+    if len(parts) != 4:
+        return ""
+    return f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+
+
+def _sample_lans_from_text(value: Any) -> List[str]:
+    text = _text(value)
+    if not text:
+        return []
+    cidrs: List[str] = []
+    for ip in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+        cidr = _private_24_from_ip(ip)
+        if cidr:
+            cidrs.append(cidr)
+    return cidrs
+
+
 def _read_json(path: Path, default: Any) -> Any:
     try:
         if not path.exists():
@@ -347,6 +438,18 @@ def _parse_routeros_lan_inventory(result: str) -> Dict[str, Any]:
     }
 
 
+def _extract_connector_lans(row: Dict[str, Any]) -> List[str]:
+    inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
+    trusted = _trusted_lans_from_connector(row)
+    if trusted:
+        return trusted[:64]
+
+    candidates: List[Any] = []
+    for key in ("dhcp_sample", "arp_sample", "neighbor_sample"):
+        candidates.extend(_sample_lans_from_text(inventory.get(key)))
+    return _unique_cidrs(candidates)[:64]
+
+
 def _update_connector_inventory_from_job(connector_id: str, job: Dict[str, Any], result: str) -> None:
     if _text(job.get("type")) != "lan_inventory":
         return
@@ -418,21 +521,23 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
         routeros_address = _wireguard_routeros_address(client_address)
         server_allowed = f"{DEFAULT_WG_NETWORK_PREFIX}.0/24"
         return f""":local result "wireguard_install:started";
-:local wgName "sightops-wg";
-/interface wireguard remove [find name=$wgName];
-/ip address remove [find interface=$wgName];
-/ip firewall filter remove [find comment="SightOps WG input"];
-/ip firewall filter remove [find comment="SightOps WG output"];
-/ip firewall filter remove [find comment="SightOps WG entrada"];
-/ip firewall filter remove [find comment="SightOps WG saida"];
-/ip route remove [find comment="SightOps WG"];
-/interface wireguard add name=$wgName private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420;
-/ip address add address="{routeros_address}" interface=$wgName comment="SightOps WG";
-/interface wireguard peers add interface=$wgName public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server";
-/ip firewall filter add chain=input in-interface=$wgName action=accept comment="SightOps WG input";
-/ip firewall filter add chain=output out-interface=$wgName action=accept comment="SightOps WG output";
-/ip firewall filter add chain=forward in-interface=$wgName action=accept comment="SightOps WG entrada";
-/ip firewall filter add chain=forward out-interface=$wgName action=accept comment="SightOps WG saida";
+:local rosVersion [/system resource get version];
+:if ([:pick $rosVersion 0 1] != "7") do={{:set result ("wireguard_install:failed,RouterOS 7 required,current=" . $rosVersion); /tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json; :put ("ERRO SightOps: WireGuard exige RouterOS 7. Versao atual: " . $rosVersion); :error "routeros-7-required";}};
+:do {{/interface wireguard peers remove [/interface wireguard peers find interface="sightops-wg"];}} on-error={{}};
+:do {{/ip address remove [find comment="SightOps WG"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG input"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG output"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG entrada"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG saida"];}} on-error={{}};
+:do {{/ip route remove [find comment="SightOps WG"];}} on-error={{}};
+:do {{/interface wireguard remove [/interface wireguard find name="sightops-wg"];}} on-error={{}};
+/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420;
+/ip address add address="{routeros_address}" interface="sightops-wg" comment="SightOps WG";
+/interface wireguard peers add interface="sightops-wg" public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server";
+/ip firewall filter add chain=input in-interface="sightops-wg" action=accept comment="SightOps WG input";
+/ip firewall filter add chain=output out-interface="sightops-wg" action=accept comment="SightOps WG output";
+/ip firewall filter add chain=forward in-interface="sightops-wg" action=accept comment="SightOps WG entrada";
+/ip firewall filter add chain=forward out-interface="sightops-wg" action=accept comment="SightOps WG saida";
 :do {{/ip firewall filter move [find comment="SightOps WG input"] destination=0}} on-error={{}};
 :do {{/ip firewall filter move [find comment="SightOps WG output"] destination=0}} on-error={{}};
 :do {{/ip firewall filter move [find comment="SightOps WG entrada"] destination=0}} on-error={{}};
@@ -527,21 +632,26 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
     cid = _text(connector_id)
     data = payload if isinstance(payload, dict) else {}
     endpoint = _text(data.get("endpoint") or data.get("server_endpoint") or DEFAULT_WG_ENDPOINT)
+    lan_mode = _text(data.get("lan_mode") or data.get("client_lans_mode") or "manual").lower()
     client_lans_raw = data.get("client_lans")
-    if isinstance(client_lans_raw, str):
-        client_lans = [item.strip() for item in re.split(r"[\s,;]+", client_lans_raw) if item.strip()]
-    elif isinstance(client_lans_raw, list):
-        client_lans = [_text(item) for item in client_lans_raw if _text(item)]
-    else:
-        client_lans = []
-    if not client_lans:
-        client_lans = ["192.168.20.0/24"]
     with _lock:
         rows = _load_connectors()
         idx = next((i for i, row in enumerate(rows) if _text(row.get("id")) == cid), -1)
         if idx < 0 or (enforce_tenant and not _visible_to_current_tenant(rows[idx])):
             raise ValueError("conector nao encontrado")
         row = rows[idx]
+        if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__":
+            client_lans = _extract_connector_lans(row)
+            if not client_lans:
+                raise ValueError("nenhuma rede LAN detectada neste conector; atualize o conector ou informe uma rede especifica")
+        elif isinstance(client_lans_raw, str):
+            client_lans = _unique_cidrs([item.strip() for item in re.split(r"[\s,;]+", client_lans_raw) if item.strip()])
+        elif isinstance(client_lans_raw, list):
+            client_lans = _unique_cidrs(client_lans_raw)
+        else:
+            client_lans = []
+        if not client_lans:
+            raise ValueError("informe pelo menos uma rede LAN valida em CIDR, exemplo 192.168.20.0/24")
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         if not tunnel.get("server_private_key") or not tunnel.get("server_public_key"):
             server = _wg_keypair()
@@ -559,6 +669,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
             "server_address": _text(data.get("server_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.1/24",
             "client_address": _text(data.get("client_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.2/32",
             "client_lans": client_lans,
+            "client_lans_mode": "auto" if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__" else "manual",
             "updated_at": _now(),
         })
         row["tunnel"] = tunnel
@@ -589,17 +700,25 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
     return f"""# SightOps WireGuard - RouterOS
 # Cole no terminal do MikroTik do cliente. Requer RouterOS 7.
 
-:local wgName "sightops-wg"
-/interface wireguard remove [find name=$wgName]
-/ip address remove [find interface=$wgName]
-/ip firewall filter remove [find comment~"SightOps WG"]
-/ip route remove [find comment~"SightOps WG"]
+:local rosVersion [/system resource get version];
+:if ([:pick $rosVersion 0 1] != "7") do={{:put ("ERRO SightOps: WireGuard exige RouterOS 7. Versao atual: " . $rosVersion); :error "routeros-7-required";}};
 
-/interface wireguard add name=$wgName private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420
-/ip address add address="{routeros_address}" interface=$wgName comment="SightOps WG"
-/interface wireguard peers add interface=$wgName public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server"
-/ip firewall filter add chain=forward in-interface=$wgName action=accept comment="SightOps WG entrada"
-/ip firewall filter add chain=forward out-interface=$wgName action=accept comment="SightOps WG saida"
+:do {{/interface wireguard peers remove [/interface wireguard peers find interface="sightops-wg"];}} on-error={{}};
+:do {{/ip address remove [find comment="SightOps WG"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG input"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG output"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG entrada"];}} on-error={{}};
+:do {{/ip firewall filter remove [find comment="SightOps WG saida"];}} on-error={{}};
+:do {{/ip route remove [find comment="SightOps WG"];}} on-error={{}};
+:do {{/interface wireguard remove [/interface wireguard find name="sightops-wg"];}} on-error={{}};
+
+/interface wireguard add name="sightops-wg" private-key="{_text(tunnel.get("client_private_key"))}" listen-port=13231 mtu=1420;
+/ip address add address="{routeros_address}" interface="sightops-wg" comment="SightOps WG";
+/interface wireguard peers add interface="sightops-wg" public-key="{_text(tunnel.get("server_public_key"))}" endpoint-address="{endpoint_host}" endpoint-port={endpoint_port} allowed-address="{server_allowed}" persistent-keepalive=25s comment="SightOps WG server";
+/ip firewall filter add chain=input in-interface="sightops-wg" action=accept comment="SightOps WG input";
+/ip firewall filter add chain=output out-interface="sightops-wg" action=accept comment="SightOps WG output";
+/ip firewall filter add chain=forward in-interface="sightops-wg" action=accept comment="SightOps WG entrada";
+/ip firewall filter add chain=forward out-interface="sightops-wg" action=accept comment="SightOps WG saida";
 
 :put "SightOps WireGuard configurado. Agora configure o peer no servidor com a chave publica do cliente."
 :put "Cliente public-key: {_text(tunnel.get("client_public_key"))}"
@@ -727,10 +846,12 @@ def _routeros_script_template(base_url: str, connector_id: str, token: str) -> s
 :local dhcpCount [:len [/ip dhcp-server lease find]];\
 :local arpCount [:len [/ip arp find]];\
 :local neighborCount [:len [/ip neighbor find]];\
+:local lanNetworks "";:local lanN 0;:foreach i in=[/ip address find disabled=no] do={{:if ($lanN < 100) do={{:local addr [/ip address get $i address];:local net [/ip address get $i network];:local slash [:find $addr "/"];:local prefix "";:if ([:typeof $slash] != "nil") do={{:set prefix [:pick $addr ($slash + 1) [:len $addr]]}};:if (($net != "") && ($prefix != "")) do={{:set lanNetworks ($lanNetworks . $net . "/" . $prefix . ";");:set lanN ($lanN + 1)}}}}}};\
+:local addressSample "";:local addrN 0;:foreach i in=[/ip address find disabled=no] do={{:if ($addrN < 100) do={{:set addressSample ($addressSample . [/ip address get $i address] . "|" . [/ip address get $i interface] . ";");:set addrN ($addrN + 1)}}}};\
 :local dhcpSample "";:local dhcpN 0;:foreach i in=[/ip dhcp-server lease find] do={{:if ($dhcpN < 500) do={{:set dhcpSample ($dhcpSample . [/ip dhcp-server lease get $i address] . "|" . [/ip dhcp-server lease get $i mac-address] . "|" . [/ip dhcp-server lease get $i status] . ";");:set dhcpN ($dhcpN + 1)}}}};\
 :local arpSample "";:local arpN 0;:foreach i in=[/ip arp find] do={{:if ($arpN < 500) do={{:set arpSample ($arpSample . [/ip arp get $i address] . "|" . [/ip arp get $i mac-address] . ";");:set arpN ($arpN + 1)}}}};\
 :local neighborSample "";:local neighN 0;:foreach i in=[/ip neighbor find] do={{:if ($neighN < 500) do={{:set neighborSample ($neighborSample . [/ip neighbor get $i address] . "|" . [/ip neighbor get $i mac-address] . ";");:set neighN ($neighN + 1)}}}};\
-:local payload ("{{\\"version\\":\\"routeros-0.4\\",\\"host\\":{{\\"hostname\\":\\"" . $identity . "\\",\\"os\\":\\"RouterOS\\",\\"model\\":\\"" . $board . "\\",\\"serial\\":\\"" . $serial . "\\",\\"routeros\\":\\"" . $version . "\\",\\"uptime\\":\\"" . $uptime . "\\",\\"cpu_load\\":\\"" . $cpu . "\\",\\"memory_free\\":\\"" . $freeMem . "\\",\\"memory_total\\":\\"" . $totalMem . "\\"}},\\"inventory\\":{{\\"dhcp_leases\\":\\"" . $dhcpCount . "\\",\\"arp_entries\\":\\"" . $arpCount . "\\",\\"neighbors\\":\\"" . $neighborCount . "\\",\\"dhcp_sample\\":\\"" . $dhcpSample . "\\",\\"arp_sample\\":\\"" . $arpSample . "\\",\\"neighbor_sample\\":\\"" . $neighborSample . "\\"}}}}");\
+:local payload ("{{\\"version\\":\\"routeros-0.6\\",\\"host\\":{{\\"hostname\\":\\"" . $identity . "\\",\\"os\\":\\"RouterOS\\",\\"model\\":\\"" . $board . "\\",\\"serial\\":\\"" . $serial . "\\",\\"routeros\\":\\"" . $version . "\\",\\"uptime\\":\\"" . $uptime . "\\",\\"cpu_load\\":\\"" . $cpu . "\\",\\"memory_free\\":\\"" . $freeMem . "\\",\\"memory_total\\":\\"" . $totalMem . "\\"}},\\"inventory\\":{{\\"dhcp_leases\\":\\"" . $dhcpCount . "\\",\\"arp_entries\\":\\"" . $arpCount . "\\",\\"neighbors\\":\\"" . $neighborCount . "\\",\\"lan_networks\\":\\"" . $lanNetworks . "\\",\\"address_sample\\":\\"" . $addressSample . "\\",\\"dhcp_sample\\":\\"" . $dhcpSample . "\\",\\"arp_sample\\":\\"" . $arpSample . "\\",\\"neighbor_sample\\":\\"" . $neighborSample . "\\"}}}}");\
 /tool fetch url=($baseUrl . "/api/connectors/agent/heartbeat") http-method=post http-header-field=("x-sightops-connector-id:" . $connectorId . ",x-sightops-connector-token:" . $token . ",Content-Type:application/json") http-data=$payload dst-path=sightops-connector-last.json;\
 /tool fetch url=($baseUrl . "/api/connectors/agent/routeros/job.rsc") http-method=get http-header-field=("x-sightops-connector-id:" . $connectorId . ",x-sightops-connector-token:" . $token) dst-path=sightops-routeros-job.rsc;\
 /import file-name=sightops-routeros-job.rsc;\

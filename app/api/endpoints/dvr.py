@@ -574,7 +574,7 @@ def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
 @router.post("/save")
 def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
     rows = _read_rows()
-    updates: Dict[tuple[str, int], Dict[str, Any]] = {}
+    updates: Dict[tuple[str, str, int], Dict[str, Any]] = {}
     for item in req.recorders or []:
         host = str(item.get("host") or item.get("ip") or "").strip()
         try:
@@ -582,7 +582,8 @@ def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         except Exception:
             channel = 0
         if host and channel > 0:
-            updates[(host, channel)] = item
+            connector_id = str(item.get("remote_connector_id") or item.get("connector_id") or "").strip()
+            updates[(connector_id, host, channel)] = item
 
     if not updates:
         raise HTTPException(status_code=400, detail="Nenhum canal informado para salvar.")
@@ -591,16 +592,18 @@ def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         "title", "local", "status", "mac", "modelo", "model", "equip_serial",
         "pon", "onu_id", "onu_name", "onu_serial", "switch_ip", "switch_port",
         "switch_vlan", "video_loss", "snapshot_url", "imgbb_url", "imgbb_thumb_url",
+        "site", "remote", "remote_connector_id", "recorder_user", "http_port", "name", "recorder_name", "inventory_mode",
     }
     updated = 0
-    found: set[tuple[str, int]] = set()
+    found: set[tuple[str, str, int]] = set()
     for row in rows:
         host = str(row.get("host") or row.get("ip") or "").strip()
         try:
             channel = int(row.get("channel") or 0)
         except Exception:
             channel = 0
-        key = (host, channel)
+        connector_id = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+        key = (connector_id, host, channel)
         item = updates.get(key)
         if not item:
             continue
@@ -621,9 +624,9 @@ def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         if key in found:
             continue
         new_row = {field: item.get(field, "") for field in editable_fields if field in item}
-        new_row["host"] = key[0]
-        new_row["channel"] = key[1]
-        new_row.setdefault("title", str(item.get("title") or f"Canal {key[1]:02d}").strip())
+        new_row["host"] = key[1]
+        new_row["channel"] = key[2]
+        new_row.setdefault("title", str(item.get("title") or f"Canal {key[2]:02d}").strip())
         new_row.setdefault("status", str(item.get("status") or "online").strip())
         rows.append(new_row)
         inserted += 1
