@@ -158,7 +158,7 @@ def _run(tmp: Path) -> None:
     try:
         os.environ["DATABASE_BACKEND"] = "sqlite"
         os.environ["DATA_DIR"] = str(tmp)
-        from app.core.migrations import apply_migrations
+        from app.core.migrations import apply_migrations, load_migrations
         from app.services.db_store import _tenant_scoped_keys_satisfied
 
         kwargs = dict(
@@ -172,14 +172,21 @@ def _run(tmp: Path) -> None:
         fresh = _connect(tmp / "fresh.db")
         status_fresh = apply_migrations(fresh, **kwargs)
         check(status_fresh["adopted"] == [], f"banco novo nao deveria adotar nada: {status_fresh}")
-        check(status_fresh["applied_now"] == [1, 2], f"banco novo deveria rodar 001 e 002: {status_fresh}")
+        # Sem numero fixo: o banco novo tem que rodar TODAS as migrations, quantas
+        # existirem. Fixar [1, 2] fazia este teste quebrar a cada migration nova,
+        # sem que nada estivesse errado -- e teste que grita por engano acaba
+        # ignorado, que e o oposto do que ele serve.
+        todas = [m.version for m in load_migrations("main", "sqlite")]
+        check(status_fresh["applied_now"] == todas, f"banco novo deveria rodar todas as migrations {todas}: {status_fresh}")
 
         # --- caminho B: banco legado, adotado e migrado ---
         legacy = _connect(tmp / "legacy.db")
         _seed_legacy(legacy)
         status_legacy = apply_migrations(legacy, **kwargs)
         check(status_legacy["adopted"] == [1], f"banco legado deveria adotar so a baseline: {status_legacy}")
-        check(status_legacy["applied_now"] == [2], f"banco legado deveria rodar so a 002: {status_legacy}")
+        # O legado adota a baseline e roda o resto: tudo menos a 001.
+        resto = [v for v in todas if v != 1]
+        check(status_legacy["applied_now"] == resto, f"banco legado deveria rodar {resto}: {status_legacy}")
 
         # --- a asercao que importa ---
         schema_fresh = _schema_snapshot(fresh)
