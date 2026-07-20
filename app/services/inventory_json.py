@@ -114,17 +114,83 @@ def _dedup_key(row: dict[str, Any]) -> str:
     return inventory_row_key(row)
 
 
+def _row_site(row: dict[str, Any]) -> str:
+    return str(row.get("site") or row.get("site_name") or row.get("local") or "").strip().lower()
+
+
+def _placeholder_title(row: dict[str, Any]) -> bool:
+    title = str(row.get("titulo") or row.get("title") or "").strip()
+    ip = _norm_ip(row.get("ip") or row.get("IP") or row.get("host") or "")
+    return not title or bool(ip and title == ip)
+
+
+def _row_quality(row: dict[str, Any]) -> int:
+    score = 0
+    for key in (
+        "mac",
+        "fabricante",
+        "modelo",
+        "pon",
+        "onu_id",
+        "onu_name",
+        "onu_serial",
+        "snapshot_url",
+        "imgbb_url",
+        "lat",
+        "lon",
+    ):
+        if str(row.get(key) or "").strip():
+            score += 1
+    if not _placeholder_title(row):
+        score += 3
+    return score
+
+
+def _merge_inventory_duplicate(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Une duplicatas do mesmo site+IP preservando a linha mais rica.
+
+    O scan remoto pode trazer apenas IP/status/conector. Quando ja existe uma
+    linha completa local, ela deve ser atualizada, nao duplicada nem empobrecida.
+    """
+    base, extra = (dict(a), dict(b)) if _row_quality(a) >= _row_quality(b) else (dict(b), dict(a))
+    for key, value in extra.items():
+        s = str(value or "").strip()
+        if not s:
+            continue
+        if key in {"status", "health", "remote", "remote_connector_id", "remote_connector_name", "site", "site_name", "local"}:
+            base[key] = value
+            continue
+        if key in {"titulo", "title"} and _placeholder_title({"titulo": value, "ip": base.get("ip")}):
+            continue
+        if not str(base.get(key) or "").strip():
+            base[key] = value
+    return base
+
+
 def _normalize_inventory_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    by_site_ip: dict[str, int] = {}
     for r in rows or []:
         if not isinstance(r, dict):
             continue
         nr = _normalize_row(r)
+        ip = _norm_ip(nr.get("ip") or nr.get("IP") or nr.get("host") or "")
+        site = _row_site(nr)
+        site_ip_key = f"{site}|{ip}" if site and ip else ""
+        if site_ip_key and site_ip_key in by_site_ip:
+            idx = by_site_ip[site_ip_key]
+            old_key = _dedup_key(out[idx])
+            out[idx] = _merge_inventory_duplicate(out[idx], nr)
+            seen.discard(old_key)
+            seen.add(_dedup_key(out[idx]))
+            continue
         k = _dedup_key(nr)
         if k in seen:
             continue
         seen.add(k)
+        if site_ip_key:
+            by_site_ip[site_ip_key] = len(out)
         out.append(nr)
     return out
 
@@ -190,7 +256,8 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
     state_obj = get_json_state(_inventory_state_key(norm_mode), None)
     if state_obj is not None:
         state_rows = _extract_rows_from_obj(state_obj)
-        return _filter_rows_by_site(state_rows, site)
+        if state_rows or norm_mode != "olt":
+            return _filter_rows_by_site(state_rows, site)
 
     if norm_mode == "olt":
         try:
@@ -236,7 +303,7 @@ def save_inventory_json(rows: list[dict[str, Any]], mode: str = "olt") -> None:
         set_json_state(_inventory_state_key(norm_mode), {"inventory": rows})
     except Exception:
         pass
-    if norm_mode == "olt" and not get_current_tenant_slug():
+    if norm_mode == "olt":
         try:
             replace_ip_inventory_rows(rows)
         except Exception:

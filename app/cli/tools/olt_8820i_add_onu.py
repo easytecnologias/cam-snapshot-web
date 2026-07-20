@@ -26,6 +26,7 @@ Uso tipico (PowerShell):
 import argparse
 import os
 import re
+import socket
 import sys
 import time
 from typing import Any, Dict, List, Optional
@@ -173,17 +174,49 @@ def cli_run_with_confirmation(chan, cmd: str, answers: List[str], timeout: float
 def _connect(olt_ip: str, user: str, password: str, timeout: float) -> paramiko.SSHClient:
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        olt_ip,
-        username=user,
-        password=password,
-        look_for_keys=False,
-        allow_agent=False,
-        timeout=timeout,
-        banner_timeout=timeout,
-        auth_timeout=timeout,
-    )
-    return client
+    try:
+        client.connect(
+            olt_ip,
+            username=user,
+            password=password,
+            look_for_keys=False,
+            allow_agent=False,
+            timeout=timeout,
+            banner_timeout=timeout,
+            auth_timeout=timeout,
+        )
+        return client
+    except paramiko.ssh_exception.BadAuthenticationType as exc:
+        client.close()
+        allowed = set(getattr(exc, "allowed_types", []) or [])
+        if "keyboard-interactive" not in allowed:
+            raise
+
+    sock = socket.create_connection((olt_ip, 22), timeout=timeout)
+    transport: Optional[paramiko.Transport] = None
+    try:
+        transport = paramiko.Transport(sock)
+        transport.banner_timeout = timeout
+        transport.auth_timeout = timeout
+        transport.start_client(timeout=timeout)
+
+        def password_handler(_title: str, _instructions: str, prompts: list[tuple[str, bool]]) -> list[str]:
+            return [password for _prompt, _echo in prompts]
+
+        transport.auth_interactive(user, password_handler)
+        if not transport.is_authenticated():
+            raise paramiko.AuthenticationException("keyboard-interactive authentication failed")
+
+        ki_client = paramiko.SSHClient()
+        ki_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ki_client._transport = transport
+        return ki_client
+    except Exception:
+        if transport is not None:
+            transport.close()
+        else:
+            sock.close()
+        raise
 
 
 def parse_onu_show(output: str, fallback_pon: Optional[int] = None) -> Dict[str, Any]:

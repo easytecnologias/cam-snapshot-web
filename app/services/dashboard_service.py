@@ -16,7 +16,13 @@ from app.core.paths import (
     NVR_SNAPSHOT_DIR,
 )
 from app.core.settings import get_settings
-from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_snapshot_dir
+from app.core.tenant_context import (
+    get_current_tenant_slug,
+    tenant_kmz_output_dir,
+    tenant_recorder_inventory_path,
+    tenant_scoped_path,
+    tenant_snapshot_dir,
+)
 from app.services.db_store import legacy_rows_from_db
 from app.services.inventory_json import load_inventory_json
 from app.services.windows_inventory_service import load_windows_inventory
@@ -135,7 +141,7 @@ def _duplicate_count(rows: Iterable[Dict[str, Any]], keys: tuple[str, ...]) -> i
 
 def _snapshot_file_count(source: str) -> int:
     if source == "ip":
-        paths = [DATA_DIR / "snapshot"]
+        paths = [tenant_snapshot_dir("ip") if get_current_tenant_slug() else DATA_DIR / "snapshot"]
     elif source == "nvr":
         paths = [tenant_snapshot_dir("nvr") if get_current_tenant_slug() else NVR_SNAPSHOT_DIR]
     else:
@@ -174,6 +180,35 @@ def _sites(rows: Iterable[Dict[str, Any]]) -> List[str]:
     return sorted(names, key=str.casefold)
 
 
+def _site_summary(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    by_site: Dict[str, Dict[str, int]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        site = _text(row.get("site_name") or row.get("site") or row.get("local") or row.get("LOCAL"))
+        if not site or site.upper() == "GERAL":
+            site = "Sem local"
+        item = by_site.setdefault(
+            site,
+            {"total": 0, "online": 0, "offline": 0, "unknown": 0, "missing_snapshot": 0, "missing_local": 0},
+        )
+        item["total"] += 1
+        if _is_online(row):
+            item["online"] += 1
+        elif _is_offline(row):
+            item["offline"] += 1
+        else:
+            item["unknown"] += 1
+        if not _has_snapshot(row):
+            item["missing_snapshot"] += 1
+        if not _has_local(row):
+            item["missing_local"] += 1
+
+    rows_out = [{"site": site, **counts} for site, counts in by_site.items()]
+    rows_out.sort(key=lambda item: (-int(item.get("offline") or 0), -int(item.get("missing_snapshot") or 0), str(item.get("site") or "").casefold()))
+    return rows_out
+
+
 def _mtime_item(path: Path, label: str, kind: str) -> Dict[str, Any] | None:
     try:
         if not path.exists():
@@ -190,6 +225,25 @@ def _mtime_item(path: Path, label: str, kind: str) -> Dict[str, Any] | None:
 
 
 def _recent_activity() -> List[Dict[str, Any]]:
+    if get_current_tenant_slug():
+        candidates = [
+            _mtime_item(tenant_scoped_path("cam-inventory.json"), "Inventario IP", "inventory"),
+            _mtime_item(tenant_scoped_path("cam-inventory-switch.json"), "Inventario Switch", "inventory"),
+            _mtime_item(tenant_recorder_inventory_path("dvr"), "Inventario DVR", "inventory"),
+            _mtime_item(tenant_recorder_inventory_path("nvr"), "Inventario NVR", "inventory"),
+            _mtime_item(tenant_scoped_path("settings.json"), "Configuracoes", "settings"),
+        ]
+        try:
+            kmz_dir = tenant_kmz_output_dir()
+            if kmz_dir.exists():
+                for item in sorted(kmz_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)[:3]:
+                    candidates.append(_mtime_item(item, f"KMZ {item.name}", "kmz"))
+        except Exception:
+            pass
+        rows = [item for item in candidates if item]
+        rows.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        return rows[:8]
+
     candidates = [
         _mtime_item(INVENTORY_JSON_PATH, "Inventario IP", "inventory"),
         _mtime_item(DATA_DIR / "cam-inventory-switch.json", "Inventario Switch", "inventory"),
@@ -299,6 +353,7 @@ def build_dashboard_summary() -> Dict[str, Any]:
             "snapshots": _snapshot_file_count("ip") + _snapshot_file_count("dvr") + _snapshot_file_count("nvr"),
         },
         "sites": site_names[:20],
+        "site_summary": _site_summary(ip_rows),
         "alerts": alerts,
         "recent_activity": _recent_activity(),
     }

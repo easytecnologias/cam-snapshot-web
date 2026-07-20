@@ -1013,6 +1013,16 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
     else:
         target_rows = [r for r in rows if isinstance(r, dict)]
 
+    max_batch = int(os.getenv("IMGBB_UPLOAD_MAX_BATCH", "6") or "6")
+    if len(target_rows) > max_batch:
+        return {
+            "ok": False,
+            "uploaded": 0,
+            "processed": 0,
+            "error": f"Selecione no maximo {max_batch} cameras por lote. A tela atual envia automaticamente em lotes.",
+            "inventory": rows,
+        }
+
     uploaded_rows, uploaded, err = _upload_imgbb_for_inventory(target_rows)
     uploaded_by_key: dict[str, dict[str, Any]] = {}
     for r in uploaded_rows or []:
@@ -1038,12 +1048,20 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
             r["imgbb_status"] = "up"
             r["imgbb_updated_at"] = datetime.now().isoformat(timespec="seconds")
     _save_inventory_rows(rows, mode=mode)
+    err_text = str(err or "").strip()
+    skipped_no_snapshot = 0
+    if int(uploaded or 0) == 0 and "nenhum snapshot local" in err_text.lower():
+        skipped_no_snapshot = len(target_rows)
+    ok = int(uploaded or 0) > 0 or skipped_no_snapshot > 0
+    if len(target_rows) == 0:
+        ok = True
     return {
-        "ok": True,
+        "ok": ok,
         "mode": mode,
         "uploaded": int(uploaded or 0),
         "processed": len(target_rows),
-        "error": str(err or "").strip(),
+        "skipped_no_snapshot": skipped_no_snapshot,
+        "error": err_text,
         "inventory": rows,
     }
 
@@ -1639,5 +1657,3 @@ async def api_telegram_relay_send(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="download/sendPhoto exception")
-
-

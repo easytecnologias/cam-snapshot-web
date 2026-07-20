@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from contextlib import redirect_stderr
+from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 import io
 
@@ -30,8 +32,34 @@ from app.cli.tools.olt_8820i_add_onu import (
     profile_for_model,
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
+from app.services.inventory_json import load_inventory_json
+from app.services.connector_service import get_connector, list_connectors
 
 logger = logging.getLogger("cam-snapshot")
+
+
+def _validate_olt_network_context(req: OltCollectMacsRequest) -> dict[str, Any] | None:
+    origin = str(getattr(req, "scan_origin", "") or "local").strip().lower()
+    if origin not in {"connector", "remote"}:
+        return None
+
+    connector_id = str(
+        getattr(req, "remote_connector_id", None)
+        or getattr(req, "connector_id", None)
+        or ""
+    ).strip()
+    if not connector_id:
+        raise HTTPException(400, "Selecione um conector para coletar OLT remota.")
+
+    connector = get_connector(connector_id, include_token=False, enforce_tenant=True)
+    if not connector:
+        raise HTTPException(404, "Conector nao encontrado.")
+    if str(connector.get("status") or "").lower() != "online":
+        raise HTTPException(409, "Conector offline. Nao foi possivel coletar a OLT remota.")
+    tunnel = connector.get("tunnel") if isinstance(connector.get("tunnel"), dict) else {}
+    if not tunnel.get("enabled"):
+        raise HTTPException(409, "VPN do conector nao configurada. Prepare a VPN antes de coletar a OLT.")
+    return connector
 
 
 def _dedup_cpes_by_key(cpes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -44,7 +72,8 @@ def _dedup_cpes_by_key(cpes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         onu = (str(r.get("onu_id") or r.get("onu") or r.get("ONU") or "")).strip()
         site = (str(r.get("site") or r.get("SITE") or "")).strip().lower()
         olt_ip = (str(r.get("olt_ip") or r.get("OLT_IP") or "")).strip().lower()
-        key = (mac, f"{site}|{olt_ip}|{pon}", onu)
+        connector_id = (str(r.get("remote_connector_id") or r.get("connector_id") or "")).strip().lower()
+        key = (mac, f"{connector_id}|{site}|{olt_ip}|{pon}", onu)
         if key in seen:
             continue
         seen.add(key)
@@ -52,8 +81,307 @@ def _dedup_cpes_by_key(cpes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _norm_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _norm_mac(value: Any) -> str:
+    return re.sub(r"[^0-9a-f]", "", _norm_text(value).lower())
+
+
+def _norm_onu_serial(value: Any) -> str:
+    raw = _norm_text(value).upper()
+    # OLTs Intelbras costumam alternar entre VSOL00181583 e 00181583.
+    return re.sub(r"^(VSOL|HWTC|ZTEG|ALCL|FHTT)", "", raw)
+
+
+def _req_connector_id(req: Any) -> str:
+    return _norm_text(getattr(req, "remote_connector_id", "") or getattr(req, "connector_id", ""))
+
+
+def _req_connector_name(req: Any) -> str:
+    return _norm_text(getattr(req, "connector_name", ""))
+
+
+def _row_connector_id(row: dict[str, Any]) -> str:
+    return _norm_text(row.get("remote_connector_id") or row.get("connector_id"))
+
+
+def _same_connector_scope(row: dict[str, Any], req: Any) -> bool:
+    connector_id = _req_connector_id(req)
+    if not connector_id:
+        return True
+    return _row_connector_id(row) == connector_id
+
+
+def _same_onu_position(row: dict[str, Any], olt_ip: str, pon: int, onu: int) -> bool:
+    return (
+        _norm_text(row.get("olt_ip") or row.get("OLT_IP")).lower() == _norm_text(olt_ip).lower()
+        and _norm_text(row.get("pon") or row.get("PON")) == str(int(pon))
+        and _norm_text(row.get("onu_id") or row.get("onu") or row.get("ONU")) == str(int(onu))
+    )
+
+
+def _same_onu_identity(row: dict[str, Any], olt_ip: str, pon: int, onu: int, serial: Any = "") -> bool:
+    if _same_onu_position(row, olt_ip, pon, onu):
+        return True
+    serial_norm = _norm_onu_serial(serial)
+    row_serial = _norm_onu_serial(row.get("onu_serial") or row.get("serial") or row.get("SERIAL"))
+    return bool(
+        serial_norm
+        and row_serial
+        and serial_norm == row_serial
+        and _norm_text(row.get("olt_ip") or row.get("OLT_IP")).lower() == _norm_text(olt_ip).lower()
+    )
+
+
+def _infer_olt_inventory_scope(rows: list[dict[str, Any]], olt_ip: str) -> tuple[str, str]:
+    for row in rows:
+        if _norm_text(row.get("olt_ip") or row.get("OLT_IP")).lower() != _norm_text(olt_ip).lower():
+            continue
+        site = _norm_text(row.get("site") or row.get("SITE") or row.get("local"))
+        olt_name = _norm_text(row.get("olt_name") or row.get("OLT") or row.get("olt"))
+        if site or olt_name:
+            return site, olt_name
+    return "", ""
+
+
+def _inventory_vlan_from_request(req: OltAddOnuRequest) -> str:
+    vlans: list[str] = []
+    for entry in req.services or []:
+        vlan = int(getattr(entry, "vlan", 0) or 0)
+        if vlan > 0:
+            vlans.append(str(vlan))
+    if not vlans and int(req.vlan or 0) > 0:
+        vlans.append(str(int(req.vlan)))
+    return ",".join(dict.fromkeys(vlans))
+
+
+def _upsert_onu_inventory(req: OltAddOnuRequest, result: dict[str, Any]) -> dict[str, Any]:
+    slot = int(result.get("slot") or result.get("onu") or 0)
+    pon = int(result.get("pon") or req.pon or 0)
+    if not slot or not pon:
+        return {"ok": False, "updated": False, "reason": "sem posicao da ONU"}
+
+    obj = load_olt_cpe_state() or {}
+    existing_rows = [r for r in list(obj.get("cpes") or obj.get("rows") or []) if isinstance(r, dict)]
+    inferred_site, inferred_olt_name = _infer_olt_inventory_scope(existing_rows, req.olt_ip)
+    site = _norm_text(req.site) or inferred_site
+    olt_name = _norm_text(req.olt_name) or inferred_olt_name
+    serial = _norm_text(req.serial).upper()
+    model = " ".join(x for x in [_norm_text(req.vendor), _norm_text(req.onu_model)] if x).strip()
+    description = _norm_text(req.description)
+    connector_id = _req_connector_id(req)
+    connector_name = _req_connector_name(req)
+
+    kept = [r for r in existing_rows if not (_same_connector_scope(r, req) and _same_onu_position(r, req.olt_ip, pon, slot))]
+    row = {
+        "site": site,
+        "olt_ip": _norm_text(req.olt_ip),
+        "olt_name": olt_name,
+        "olt_model": "8820i",
+        "pon": pon,
+        "onu_id": slot,
+        "onu_name": description or f"gpon {pon} onu {slot}",
+        "onu_serial": serial,
+        "onu_model": model,
+        "terminal": _norm_text(req.terminal) or "onu",
+        "service": _norm_text(req.service) or "downlink",
+        "vlan": _inventory_vlan_from_request(req),
+        "tag_mode": _norm_text(req.tag_mode) or "tagged",
+        "cpe_mac": "",
+        "source": "implantacao-onu",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if connector_id:
+        row["remote_connector_id"] = connector_id
+        row["connector_id"] = connector_id
+        row["remote_connector_name"] = connector_name
+        row["remote"] = True
+    out_obj = {
+        **{k: v for k, v in obj.items() if k not in ("cpes", "rows")},
+        "olt": obj.get("olt") if isinstance(obj.get("olt"), dict) else {},
+        "cpes": _dedup_cpes_by_key(kept + [row]),
+    }
+    save_olt_cpe_state(out_obj)
+    return {"ok": True, "updated": True, "row": row, "count": len(out_obj["cpes"])}
+
+
+def _remove_onu_inventory(req: OltDeleteOnuRequest) -> dict[str, Any]:
+    obj = load_olt_cpe_state() or {}
+    existing_rows = [r for r in list(obj.get("cpes") or obj.get("rows") or []) if isinstance(r, dict)]
+    serial = _norm_text(req.serial).upper()
+
+    def _matches(row: dict[str, Any]) -> bool:
+        if not _same_connector_scope(row, req):
+            return False
+        if _same_onu_position(row, req.olt_ip, req.pon, req.onu):
+            return True
+        return bool(serial and _norm_text(row.get("onu_serial")).upper() == serial)
+
+    kept = [r for r in existing_rows if not _matches(r)]
+    removed = len(existing_rows) - len(kept)
+    out_obj = {
+        **{k: v for k, v in obj.items() if k not in ("cpes", "rows")},
+        "olt": obj.get("olt") if isinstance(obj.get("olt"), dict) else {},
+        "cpes": kept,
+    }
+    save_olt_cpe_state(out_obj)
+    return {"ok": True, "removed": removed, "remaining": len(kept)}
+
+
+def _vlan_from_interface(value: Any) -> str:
+    match = re.search(r"\bvlan\s+(\d+)\b", _norm_text(value), re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def _add_mac_ip(index: dict[str, dict[str, str]], mac: Any, ip: Any, source: str) -> None:
+    mac_key = _norm_mac(mac)
+    ip_text = _norm_text(ip)
+    if not mac_key or not ip_text:
+        return
+    index.setdefault(mac_key, {"ip": ip_text, "source": source})
+
+
+def _parse_connector_sample(sample: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for chunk in _norm_text(sample).split(";"):
+        parts = [part.strip() for part in chunk.split("|")]
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            rows.append({"ip": parts[0], "mac": parts[1]})
+    return rows
+
+
+def _known_mac_ip_index() -> dict[str, dict[str, str]]:
+    index: dict[str, dict[str, str]] = {}
+
+    for mode in ("olt", "basic", "switch"):
+        try:
+            for row in load_inventory_json(mode=mode) or []:
+                _add_mac_ip(index, row.get("mac") or row.get("MAC") or row.get("cpe_mac"), row.get("ip") or row.get("IP"), f"inventario-{mode}")
+        except Exception:
+            logger.debug("Nao consegui usar inventario %s como indice MAC->IP", mode, exc_info=True)
+
+    try:
+        obj = load_olt_cpe_state() or {}
+        for row in list(obj.get("cpes") or obj.get("rows") or []):
+            if isinstance(row, dict):
+                _add_mac_ip(index, row.get("cpe_mac") or row.get("mac"), row.get("ip") or row.get("camera_ip"), "olt-cpe")
+    except Exception:
+        logger.debug("Nao consegui usar inventario OLT como indice MAC->IP", exc_info=True)
+
+    try:
+        connectors = list_connectors(include_token=False).get("connectors") or []
+        for connector in connectors:
+            inventory = connector.get("inventory") if isinstance(connector.get("inventory"), dict) else {}
+            for key in ("dhcp_rows", "arp_rows", "neighbor_rows"):
+                for row in inventory.get(key) or []:
+                    if isinstance(row, dict):
+                        _add_mac_ip(index, row.get("mac") or row.get("mac_address"), row.get("ip") or row.get("address"), f"conector-{key}")
+            for key in ("dhcp_sample", "arp_sample", "neighbor_sample"):
+                for row in _parse_connector_sample(inventory.get(key)):
+                    _add_mac_ip(index, row.get("mac"), row.get("ip"), f"conector-{key}")
+    except Exception:
+        logger.debug("Nao consegui usar conectores como indice MAC->IP", exc_info=True)
+
+    return index
+
+
+def _enrich_signal_macs_with_ips(result: dict[str, Any]) -> None:
+    macs = [m for m in list(result.get("macs") or []) if isinstance(m, dict)]
+    if not macs:
+        return
+    index = _known_mac_ip_index()
+    for mac in macs:
+        mac_key = _norm_mac(mac.get("mac") or mac.get("cpe_mac"))
+        found = index.get(mac_key) if mac_key else None
+        if found and found.get("ip"):
+            mac["ip"] = found["ip"]
+            mac["ip_source"] = found.get("source", "")
+    result["macs"] = macs
+
+
+def _sync_onu_signal_inventory(req: OltOnuSignalRequest, result: dict[str, Any]) -> dict[str, Any]:
+    pon = int(result.get("pon") or req.pon or 0)
+    onu = int(result.get("onu") or req.onu or 0)
+    if not pon or not onu:
+        return {"ok": False, "updated": False, "reason": "sem posicao da ONU"}
+
+    obj = load_olt_cpe_state() or {}
+    existing_rows = [r for r in list(obj.get("cpes") or obj.get("rows") or []) if isinstance(r, dict)]
+    serial = result.get("serial") or req.serial
+    matching_rows = [r for r in existing_rows if _same_onu_identity(r, req.olt_ip, pon, onu, serial)]
+    if _req_connector_id(req):
+        matching_rows = [r for r in matching_rows if _same_connector_scope(r, req)]
+    inferred_site, inferred_olt_name = _infer_olt_inventory_scope(existing_rows, req.olt_ip)
+    inferred_site = _norm_text(req.site) or inferred_site
+    inferred_olt_name = _norm_text(req.olt_name) or inferred_olt_name
+    if matching_rows:
+        inferred_site = _norm_text(matching_rows[0].get("site") or matching_rows[0].get("SITE") or matching_rows[0].get("local")) or inferred_site
+        inferred_olt_name = _norm_text(matching_rows[0].get("olt_name") or matching_rows[0].get("OLT") or matching_rows[0].get("olt")) or inferred_olt_name
+
+    base_vlan = ""
+    base_onu_name = f"gpon {pon} onu {onu}"
+    for row in matching_rows:
+        base_vlan = base_vlan or _norm_text(row.get("vlan"))
+        base_onu_name = _norm_text(row.get("onu_name")) or base_onu_name
+
+    macs = [m for m in list(result.get("macs") or []) if isinstance(m, dict)]
+    if not macs:
+        # Sem MAC aprendido nao deve destruir uma linha existente que talvez ja tenha MAC.
+        return {"ok": True, "updated": False, "macs": 0, "rows": 0, "reason": "sem mac aprendido", "count": len(existing_rows)}
+
+    now = datetime.now(timezone.utc).isoformat()
+    connector_id = _req_connector_id(req)
+    connector_name = _req_connector_name(req)
+    new_rows: list[dict[str, Any]] = []
+    for mac in macs:
+        iface = _norm_text(mac.get("interface"))
+        row = {
+            "site": inferred_site,
+            "olt_ip": _norm_text(req.olt_ip),
+            "olt_name": inferred_olt_name,
+            "olt_model": "8820i",
+            "pon": pon,
+            "onu_id": onu,
+            "onu_name": base_onu_name,
+            "onu_serial": _norm_onu_serial(serial),
+            "onu_model": _norm_text(result.get("model")),
+            "profile": _norm_text(result.get("profile")),
+            "oper_status": _norm_text(result.get("oper_status")),
+            "omci_status": _norm_text(result.get("omci_status")),
+            "olt_rx": _norm_text(result.get("olt_rx")),
+            "onu_rx": _norm_text(result.get("onu_rx")),
+            "distance_km": _norm_text(result.get("distance_km")),
+            "vlan": _vlan_from_interface(iface) or base_vlan,
+            "cpe_mac": _norm_text(mac.get("mac") or mac.get("cpe_mac")).lower(),
+            "ip": _norm_text(mac.get("ip")),
+            "interface": iface,
+            "source": "implantacao-onu-signal",
+            "updated_at": now,
+        }
+        if connector_id:
+            row["remote_connector_id"] = connector_id
+            row["connector_id"] = connector_id
+            row["remote_connector_name"] = connector_name
+            row["remote"] = True
+        new_rows.append(row)
+
+    kept = [r for r in existing_rows if not (_same_connector_scope(r, req) and _same_onu_identity(r, req.olt_ip, pon, onu, serial))]
+    out_obj = {
+        **{k: v for k, v in obj.items() if k not in ("cpes", "rows")},
+        "olt": obj.get("olt") if isinstance(obj.get("olt"), dict) else {},
+        "cpes": _dedup_cpes_by_key(kept + new_rows),
+    }
+    save_olt_cpe_state(out_obj)
+    return {"ok": True, "updated": True, "macs": len([r for r in new_rows if r.get("cpe_mac")]), "rows": len(new_rows), "count": len(out_obj["cpes"])}
+
+
 def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
     """Coleta MACs/CPEs na OLT Intelbras (8820i/4840e) e escreve olt-cpe-macs.json (compat legado)."""
+    connector = _validate_olt_network_context(req)
+    connector_id = str(getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or "").strip()
+    connector_name = str((connector or {}).get("name") or (connector or {}).get("client") or "").strip()
     with perf_step("OLT_collect_macs_total"):
         stderr_buf = io.StringIO()
 
@@ -110,6 +438,8 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
 
                 # Normaliza: o legado retorna list[dict]
                 site = str(getattr(req, "site", "") or "").strip()
+                if connector and not site:
+                    site = str(connector.get("site") or connector.get("client") or "").strip()
                 new_cpes: list[dict[str, Any]] = []
                 for r in list(rows or []):
                     if not isinstance(r, dict):
@@ -118,6 +448,10 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                     rr["site"] = site
                     rr["olt_ip"] = req.olt_ip
                     rr["olt_model"] = req.olt_model or "8820i"
+                    if connector_id:
+                        rr["remote_connector_id"] = connector_id
+                        rr["connector_id"] = connector_id
+                        rr["remote_connector_name"] = connector_name
                     new_cpes.append(rr)
 
                 if getattr(req, "reuse_json", False):
@@ -128,6 +462,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                         return (
                             str(x.get("olt_ip") or "").strip() == str(req.olt_ip or "").strip()
                             and str(x.get("site") or "").strip().lower() == site.lower()
+                            and str(x.get("remote_connector_id") or x.get("connector_id") or "").strip() == connector_id
                         )
 
                     kept = [x for x in existing_cpes if isinstance(x, dict) and not _same_scope(x)]
@@ -282,7 +617,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
     with perf_step("OLT_add_onu"):
         try:
-            return _add_onu_8820i(
+            result = _add_onu_8820i(
                 olt_ip=req.olt_ip,
                 user=req.user,
                 password=req.password,
@@ -297,6 +632,9 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 terminal=req.terminal,
                 timeout=req.timeout,
             )
+            if result.get("ok"):
+                result["inventory"] = _upsert_onu_inventory(req, result)
+            return result
         except OnuAddError as e:
             return {
                 "ok": False,
@@ -334,7 +672,7 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
     Equipamento vivo -- remove o cadastro e desliga o servico da ONU."""
     with perf_step("OLT_delete_onu"):
         try:
-            return _delete_onu_8820i(
+            result = _delete_onu_8820i(
                 olt_ip=req.olt_ip,
                 user=req.user,
                 password=req.password,
@@ -342,6 +680,9 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
                 onu=req.onu,
                 timeout=req.timeout,
             )
+            if result.get("ok"):
+                result["inventory"] = _remove_onu_inventory(req)
+            return result
         except Exception as e:
             logger.error(f"Erro ao excluir ONU na OLT: {e}")
             raise HTTPException(500, f"Erro ao excluir ONU na OLT: {e}") from e
@@ -352,7 +693,7 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
     ONU ja autorizada na OLT Intelbras 8820i. Aceita serial OU pon+onu."""
     with perf_step("OLT_onu_signal"):
         try:
-            return _onu_signal_8820i(
+            result = _onu_signal_8820i(
                 olt_ip=req.olt_ip,
                 user=req.user,
                 password=req.password,
@@ -361,6 +702,10 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
                 serial=req.serial,
                 timeout=req.timeout,
             )
+            if result.get("ok"):
+                _enrich_signal_macs_with_ips(result)
+                result["inventory"] = _sync_onu_signal_inventory(req, result)
+            return result
         except Exception as e:
             logger.error(f"Erro ao consultar sinal da ONU: {e}")
             raise HTTPException(500, f"Erro ao consultar sinal da ONU: {e}") from e

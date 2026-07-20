@@ -10,7 +10,7 @@ from fastapi import WebSocket
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.models.requests import ScanRequest
-from app.services.connector_service import create_job, list_connectors, list_jobs
+from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.scan_service import run_http_scan
 
@@ -80,6 +80,26 @@ def _connector_for_site(site: str) -> dict[str, Any] | None:
     return (online or matches or [None])[0]
 
 
+def _connector_from_payload(payload: Dict[str, Any]) -> dict[str, Any] | None:
+    connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
+    if connector_id:
+        return get_connector(connector_id, include_token=False, enforce_tenant=True)
+    return _connector_for_site(str(payload.get("local") or "").strip())
+
+
+def _connector_has_tunnel(connector: dict[str, Any] | None) -> bool:
+    if not connector:
+        return False
+    tunnel = connector.get("tunnel") if isinstance(connector, dict) else None
+    if isinstance(tunnel, dict) and tunnel.get("enabled"):
+        return True
+    vpn = connector.get("vpn") if isinstance(connector, dict) else None
+    if isinstance(vpn, dict) and vpn.get("enabled"):
+        return True
+    wireguard = connector.get("wireguard") if isinstance(connector, dict) else None
+    return isinstance(wireguard, dict) and bool(wireguard.get("enabled"))
+
+
 def _parse_routeros_ping(result: Any) -> dict[str, bool]:
     text = str((result or {}).get("routeros_ping") or "") if isinstance(result, dict) else str(result or "")
     parsed: dict[str, bool] = {}
@@ -97,7 +117,7 @@ def _parse_routeros_ping(result: Any) -> dict[str, bool]:
 
 def _tag_rows_for_connector(payload: Dict[str, Any], result: Dict[str, Any], tenant_slug: str = "") -> Dict[str, Any]:
     site = str(payload.get("local") or "").strip()
-    connector = _connector_for_site(site)
+    connector = _connector_from_payload(payload)
     if not connector:
         return result
     targets = set(_expand_remote_targets(str(payload.get("alvo") or "")))
@@ -136,18 +156,40 @@ def _tag_rows_for_connector(payload: Dict[str, Any], result: Dict[str, Any], ten
 def _merge_remote_rows(existing: list[dict[str, Any]], new_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged = [dict(row) for row in existing if isinstance(row, dict)]
     by_key = {inventory_row_key(row, fallback=f"ROW:{idx}"): row for idx, row in enumerate(merged)}
+
+    def norm_site(row: dict[str, Any]) -> str:
+        return str(row.get("site") or row.get("site_name") or row.get("local") or "").strip().lower()
+
+    def find_site_ip(row: dict[str, Any]) -> dict[str, Any] | None:
+        ip = str(row.get("ip") or "").strip()
+        site = norm_site(row)
+        if not ip or not site:
+            return None
+        for current in merged:
+            if norm_site(current) == site and str(current.get("ip") or "").strip() == ip:
+                return current
+        return None
+
+    def placeholder_title(row: dict[str, Any], value: Any) -> bool:
+        title = str(value or "").strip()
+        ip = str(row.get("ip") or "").strip()
+        return not title or bool(ip and title == ip)
+
     for row in new_rows:
         ip = str(row.get("ip") or "").strip()
         if not ip:
             continue
         row_key = inventory_row_key(row)
-        current = by_key.get(row_key)
+        current = by_key.get(row_key) or find_site_ip(row)
         if current:
             for key, value in row.items():
                 if key in {"status", "local", "site", "site_name", "remote", "remote_connector_id", "remote_connector_name"}:
                     current[key] = value
+                elif key in {"title", "titulo"} and placeholder_title(row, value):
+                    continue
                 elif not str(current.get(key) or "").strip():
                     current[key] = value
+            by_key[row_key] = current
         else:
             merged.append(row)
             by_key[row_key] = row
@@ -156,7 +198,7 @@ def _merge_remote_rows(existing: list[dict[str, Any]], new_rows: list[dict[str, 
 
 async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any], result: Dict[str, Any], tenant_slug: str = "") -> Dict[str, Any]:
     site = str(payload.get("local") or "").strip()
-    connector = _connector_for_site(site)
+    connector = _connector_from_payload(payload)
     if not connector:
         return result
     if connector.get("status") != "online":
@@ -166,14 +208,15 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
     if not targets:
         return result
 
-    await _ws_send(ws, {"type": "status", "message": f"{site} via conector: testando {len(targets)} alvo(s)..."})
+    connector_name = connector.get("name") or site or connector.get("id")
+    await _ws_send(ws, {"type": "status", "message": f"{connector_name} via conector: testando {len(targets)} alvo(s)..."})
 
     online_targets: list[str] = []
     connector_id = str(connector.get("id") or "")
     chunks = [targets[i:i + 50] for i in range(0, len(targets), 50)] or [targets]
     for idx, chunk in enumerate(chunks, start=1):
         if len(chunks) > 1:
-            await _ws_send(ws, {"type": "status", "message": f"{site} via conector: lote {idx}/{len(chunks)} ({len(chunk)} alvo(s))..."})
+            await _ws_send(ws, {"type": "status", "message": f"{connector_name} via conector: lote {idx}/{len(chunks)} ({len(chunk)} alvo(s))..."})
         job = create_job({"connector_id": connector_id, "type": "ping_many", "payload": {"targets": chunk}}).get("job") or {}
         job_id = str(job.get("id") or "")
         final_job: dict[str, Any] | None = None
@@ -208,9 +251,9 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
                 "host": ip,
                 "http_port": 80,
                 "title": ip,
-                "local": site,
-                "site": site,
-                "site_name": site,
+                "local": site or connector.get("site") or connector.get("client") or "",
+                "site": site or connector.get("site") or connector.get("client") or "",
+                "site_name": site or connector.get("site") or connector.get("client") or "",
                 "status": "online",
                 "remote": True,
                 "remote_connector_id": connector.get("id"),
@@ -269,15 +312,34 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
         set_local=bool(payload.get("set_local", False)),
         local=(payload.get("local") or ""),
         inventory_mode=str(payload.get("inventory_mode") or "olt"),
+        scan_origin=str(payload.get("scan_origin") or ""),
+        connector_id=str(payload.get("connector_id") or ""),
+        remote_connector_id=str(payload.get("remote_connector_id") or payload.get("connector_id") or ""),
     )
 
-    await _ws_send(ws, {"type": "status", "message": "Executando inventory_scan..."})
+    scan_origin = str(payload.get("scan_origin") or "").strip().lower()
+    connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
+    connector = _connector_from_payload(payload) if connector_id or scan_origin == "connector" else None
+    connector_has_tunnel = _connector_has_tunnel(connector)
+    remote_only = (scan_origin == "connector" and not connector_has_tunnel) or bool(connector_id and payload.get("remote_only"))
+
+    if scan_origin == "connector" and not connector_id:
+        await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
+        return
+
+    if scan_origin == "connector" and connector_has_tunnel:
+        await _ws_send(ws, {"type": "status", "message": "Executando inventory_scan pela VPN do conector..."})
+    else:
+        await _ws_send(ws, {"type": "status", "message": "Executando via conector..." if remote_only else "Executando inventory_scan..."})
 
     try:
         # roda em thread para não bloquear o loop e não depender de subprocess async
-        result = await anyio.to_thread.run_sync(_run_scan_in_tenant, req, str(tenant_slug or "").strip().lower())
-        result = _tag_rows_for_connector(payload, result, str(tenant_slug or "").strip().lower())
-        result = await _remote_inventory_via_connector(ws, payload, result, str(tenant_slug or "").strip().lower())
+        if remote_only:
+            result: Dict[str, Any] = {"ok": True, "inventory": [], "inventory_count": 0}
+            result = await _remote_inventory_via_connector(ws, payload, result, str(tenant_slug or "").strip().lower())
+        else:
+            result = await anyio.to_thread.run_sync(_run_scan_in_tenant, req, str(tenant_slug or "").strip().lower())
+            result = _tag_rows_for_connector(payload, result, str(tenant_slug or "").strip().lower())
     except Exception as e:
         msg = str(e) or repr(e) or "Erro interno no scan."
         await _ws_send(ws, {"type": "error", "message": msg})

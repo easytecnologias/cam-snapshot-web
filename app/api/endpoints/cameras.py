@@ -94,16 +94,29 @@ def api_cameras(
 
     for r in rows:
         key = make_key(r)
+        snapshot_url = r.get("snapshot_url") or r.get("thumb_url") or ""
+        if not snapshot_url:
+            snap_file = resolve_snapshot_file(
+                path_hint=str(r.get("snapshot_path") or r.get("snapshot_file") or ""),
+                ip=str(r.get("ip") or ""),
+            )
+            if snap_file is not None:
+                snapshot_url = f"/data/snapshot/{snap_file.name}"
+
         cam: dict[str, Any] = {
             "inventory_key": key,
             "ip": r.get("ip") or "",
             "mac": r.get("mac") or "",
             "fabricante": r.get("fabricante") or r.get("manufacturer") or "",
+            "modelo": r.get("modelo") or r.get("model") or "",
             "model": r.get("modelo") or r.get("model") or "",
             "titulo": r.get("titulo") or r.get("nome") or "",
             "status": r.get("status") or "",
             "local": r.get("local") or r.get("LOCAL") or "",
-            "snapshot_url": r.get("snapshot_url") or r.get("thumb_url") or "",
+            "physical_location": r.get("physical_location") or r.get("location") or "",
+            "lat": r.get("lat") or r.get("latitude") or "",
+            "lon": r.get("lon") or r.get("lng") or r.get("longitude") or "",
+            "snapshot_url": snapshot_url,
             "imgbb_url": r.get("imgbb_url") or "",
             "imgbb_thumb_url": r.get("imgbb_thumb_url") or "",
             "imgbb_status": r.get("imgbb_status") or "",

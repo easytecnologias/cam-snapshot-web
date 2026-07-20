@@ -28,7 +28,7 @@ def _extract_urls(payload: Dict[str, Any]) -> tuple[Optional[str], Optional[str]
         thumb_url = url
     return url, thumb_url
 
-def _upload_single(image: Path, api_key: str, name: Optional[str] = None, timeout: int = 30) -> Dict[str, Any]:
+def _upload_single(image: Path, api_key: str, name: Optional[str] = None, timeout: int = 12) -> Dict[str, Any]:
     if not image.is_file():
         raise FileNotFoundError(image)
     with image.open("rb") as f:
@@ -108,6 +108,7 @@ def upload_to_imgbb(
 
     paths = [Path(p) for p in images]
     uploads: List[Dict[str, Any]] = []
+    errors: List[str] = []
     total = len(paths)
     for idx, img in enumerate(paths, 1):
         custom_name = ""
@@ -115,7 +116,8 @@ def upload_to_imgbb(
             custom_name = str(name_map.get(str(img), "") or "").strip()
         name = _sanitize_upload_name(custom_name) if custom_name else _name_from_image_path(img, idx, name_prefix)
         try:
-            info = _upload_single(img, api_key=api_key, name=name)
+            timeout = int(os.getenv("IMGBB_UPLOAD_TIMEOUT", "12") or "12")
+            info = _upload_single(img, api_key=api_key, name=name, timeout=max(5, min(timeout, 30)))
             print(f"[ImgBB] {idx}/{total} OK: {img.name}")
             uploads.append(info)
             if callable(progress_cb):
@@ -136,6 +138,7 @@ def upload_to_imgbb(
             time.sleep(0.12)
         except Exception as e:
             msg = str(e)
+            errors.append(f"{img.name}: {msg}")
             print(f"[ImgBB] ERRO em {img}: {msg}")
             if callable(progress_cb):
                 try:
@@ -154,6 +157,9 @@ def upload_to_imgbb(
             if "rate limit" in msg.lower():
                 print("[ImgBB] Interrompido: limite de taxa da API atingido.")
                 break
+
+    if not uploads and errors:
+        raise RuntimeError("; ".join(errors[:3]))
 
     # Relatório opcional em JSONL simples
     if report_path:

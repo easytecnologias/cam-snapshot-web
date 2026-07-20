@@ -30,6 +30,9 @@ class ScanRequest(BaseModel):
     olt_enrich: bool = False
     switch_enrich: bool = False
     inventory_mode: str = "olt"
+    scan_origin: str | None = None
+    connector_id: str | None = None
+    remote_connector_id: str | None = None
 
     # OLT (enrich)
     olt_model: str | None = None
@@ -62,6 +65,9 @@ class OltCollectMacsRequest(BaseModel):
     olt_name: str | None = None
     olt_model: str | None = None
     site: str | None = None
+    scan_origin: str | None = None
+    connector_id: str | None = None
+    remote_connector_id: str | None = None
     reuse_json: bool = False  # se True, faz append no olt-cpe-macs.json
 
 
@@ -81,6 +87,9 @@ class OltDiscoverOnusRequest(BaseModel):
     user: str
     password: str
     pon: str = "all"
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
     timeout: float = 12.0
 
 
@@ -96,6 +105,10 @@ class OltAddOnuRequest(BaseModel):
     pon: int
     serno_id: int
     onu_model: str = ""
+    serial: str = ""
+    vendor: str = ""
+    site: str = ""
+    olt_name: str = ""
     profile: str = ""
     description: str = ""
     service: str = "downlink"
@@ -103,6 +116,9 @@ class OltAddOnuRequest(BaseModel):
     services: List[OnuServiceEntry] = []
     tag_mode: str = "tagged"
     terminal: str = "onu"
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
     timeout: float = 15.0
 
 
@@ -111,6 +127,9 @@ class OltFindOnuRequest(BaseModel):
     user: str
     password: str
     serial: str
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
     timeout: float = 10.0
 
 
@@ -120,6 +139,11 @@ class OltDeleteOnuRequest(BaseModel):
     password: str
     pon: int
     onu: int
+    serial: str = ""
+    site: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
     timeout: float = 22.0
 
 
@@ -130,4 +154,9 @@ class OltOnuSignalRequest(BaseModel):
     pon: int = 0
     onu: int = 0
     serial: str = ""
+    site: str = ""
+    olt_name: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
     timeout: float = 12.0

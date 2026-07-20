@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.security import AUTH_COOKIE_NAME
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services.ws_scan_service import run_ws_scan
 from app.services.maintenance_ping_service import maintenance_ping_hub
@@ -172,6 +173,8 @@ async def _accept_ws_session(
         return True, None, None
 
     raw_token = str(ws.query_params.get("token") or "").strip()
+    if not raw_token:
+        raw_token = str(ws.cookies.get(AUTH_COOKIE_NAME) or "").strip()
     first_payload: Dict[str, Any] | None = None
 
     if not raw_token:
