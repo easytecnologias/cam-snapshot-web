@@ -5,6 +5,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const responsiveObserver = new MutationObserver(() => scheduleResponsiveHydration());
   responsiveObserver.observe(document.body, { childList: true, subtree: true });
 
+  // Implantacao > OLT (cadastro). Os listeners vivem em js/deployOlt.js junto
+  // do resto da tela, em vez de mais 4 linhas soltas neste arquivo -- que ja
+  // tem 1.600 linhas de fiacao e foi o motivo de dividir o app.js.
+  bindDeployOlt();
+
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
   document.getElementById('dashDrawerOverlay')?.addEventListener('click', closeDashDrawer);

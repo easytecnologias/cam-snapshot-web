@@ -169,6 +169,7 @@ const VIEW_META = {
   'net-devices':   { title: 'Redes - Dispositivos', sub: 'Dispositivos monitorados' },
   'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
   'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
+  'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
   'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
@@ -200,6 +201,7 @@ const VIEW_ID_MAP = {
   'net-devices':    'viewNetDevices',
   'net-learn':      'viewNetLearn',
   'net-operate':    'viewNetOperate',
+  'deploy-olt':     'viewDeployOlt',
   'deploy-onu':     'viewDeployOnu',
   'deploy-recorder':'viewDeployRecorder',
   'deploy-new':     'viewDeployNew',
@@ -266,6 +268,7 @@ function loadView(view) {
     case 'net-devices': loadNetDevices();   break;
     case 'net-learn':   loadStaticView();   break;
     case 'net-operate': loadNetOperate();   break;
+    case 'deploy-olt':  loadDeployOlt();    break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;
     case 'deploy-new':  loadDeployNew();    break;

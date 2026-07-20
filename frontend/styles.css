@@ -4567,3 +4567,25 @@ body.cam-live-lock {
     min-height: 360px !important;
   }
 }
+
+/* Implantacao > OLT: cadastro de OLTs.
+   Duas regras so -- o resto da tela reusa .connectors-layout, .connector-card
+   e .data-table, que ja existiam. */
+.olt-reg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row;
+}
+.olt-reg-check input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+.olt-reg-actions {
+  display: flex;
+  gap: 8px;
+}
+.olt-reg-actions button {
+  flex: 1;
+  justify-content: center;
+}

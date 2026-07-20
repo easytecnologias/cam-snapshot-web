@@ -57,6 +57,7 @@
 
         <!-- Implantacao -->
         <div class="nav-section-label">Implantacao</div>
+        <button class="nav-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
         <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
         <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
         <button class="nav-item" data-view="deploy-new"><i data-lucide="clipboard-check"></i><span>CFTV</span></button>
@@ -1993,6 +1994,99 @@
               <button class="secondary-action" id="btnClearNetToolLog" type="button"><i data-lucide="eraser"></i> Limpar</button>
             </div>
             <div id="netToolLog" class="network-tool-terminal">Nenhum teste executado ainda.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: IMPLANTACAO - OLT --- -->
+      <section class="workspace hidden" id="viewDeployOlt">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Implantacao</p>
+            <h1>OLT</h1>
+            <p>Cadastro das OLTs da operacao. Uma vez cadastrada, ela aparece como opcao nas telas de ONU e CFTV -- sem redigitar IP e senha a cada acao.</p>
+          </div>
+          <button class="primary-action" id="btnOltRegRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+
+        <div class="connectors-layout">
+          <div class="panel connector-card">
+            <div class="panel-header">
+              <div><h2 id="oltRegFormTitle">Nova OLT</h2><p>A senha e guardada cifrada e nunca volta para a tela.</p></div>
+            </div>
+            <div class="connector-form">
+              <input type="hidden" id="oltRegId" value="">
+              <label>Nome
+                <input id="oltRegName" placeholder="OLT Centro" autocomplete="off">
+              </label>
+              <label>IP / Host
+                <input id="oltRegHost" placeholder="10.0.0.10" autocomplete="off">
+              </label>
+              <label>Fabricante
+                <input id="oltRegVendor" list="oltRegVendorList" placeholder="Fiberhome" autocomplete="off">
+                <datalist id="oltRegVendorList">
+                  <option value="Fiberhome"></option>
+                  <option value="Huawei"></option>
+                  <option value="ZTE"></option>
+                  <option value="Parks"></option>
+                </datalist>
+              </label>
+              <label>Modelo
+                <input id="oltRegModel" list="oltRegModelList" placeholder="8820i" autocomplete="off">
+                <!-- 8820i e 4840e sao os dois modelos que o backend sabe operar
+                     hoje (ver app/services/olt_service.py). O campo e livre pra
+                     permitir cadastrar equipamento antes do suporte existir. -->
+                <datalist id="oltRegModelList">
+                  <option value="8820i"></option>
+                  <option value="4840e"></option>
+                </datalist>
+              </label>
+              <label>Usuario
+                <input id="oltRegUsername" placeholder="admin" autocomplete="off">
+              </label>
+              <label>Senha
+                <input id="oltRegPassword" type="password" placeholder="deixe vazio para manter a atual" autocomplete="new-password">
+              </label>
+              <label>Conector
+                <select id="oltRegConnector">
+                  <option value="">Acesso direto (sem conector)</option>
+                </select>
+              </label>
+              <label>Observacoes
+                <input id="oltRegNotes" placeholder="opcional" autocomplete="off">
+              </label>
+              <label class="olt-reg-check">
+                <input type="checkbox" id="oltRegActive" checked>
+                <span>Ativa</span>
+              </label>
+              <div class="olt-reg-actions">
+                <button class="primary-action" id="btnOltRegSave"><i data-lucide="check"></i> Salvar</button>
+                <button class="secondary-action hidden" id="btnOltRegCancel"><i data-lucide="x"></i> Cancelar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel connector-card connector-main-card">
+            <div class="panel-header">
+              <div><h2>OLTs cadastradas</h2><p id="oltRegCount">--</p></div>
+              <label class="search-box" style="flex:1;max-width:320px">
+                <i data-lucide="search"></i>
+                <input id="oltRegSearch" placeholder="Buscar: nome, IP, fabricante, modelo">
+              </label>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th><th>IP / Host</th><th>Fabricante</th><th>Modelo</th>
+                    <th>Usuario</th><th>Senha</th><th>Situacao</th><th style="text-align:right">Acoes</th>
+                  </tr>
+                </thead>
+                <tbody id="oltRegRows">
+                  <tr><td colspan="8">Carregando...</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -3997,6 +4091,7 @@
   <script src="js/analysis.js?v=141"></script>
   <script src="js/network.js?v=141"></script>
   <script src="js/deploy.js?v=141"></script>
+  <script src="js/deployOlt.js?v=141"></script>
   <script src="js/connectors.js?v=141"></script>
   <script src="js/helpers.js?v=141"></script>
   <script src="js/bootstrap.js?v=141"></script>
