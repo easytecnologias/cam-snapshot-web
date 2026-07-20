@@ -57,6 +57,26 @@ class RescanSingleIPRequest(BaseModel):
     inventory_mode: str = "olt"
     # Se True, faz a captura do snapshot local (saida/snapshot)
     capture_snapshot: bool = True
+class OltRegistryRequest(BaseModel):
+    """Cadastro de OLT. `id` presente = edicao.
+
+    `password` vazio numa edicao mantem a senha atual (ver olt_registry.save_olt):
+    a tela nunca recebe a senha, entao nao teria como reenvia-la.
+    """
+
+    id: int | None = None
+    name: str
+    host: str
+    vendor: str = ""
+    model: str = ""
+    username: str = ""
+    password: str = ""
+    site_id: int | None = None
+    connector_id: str = ""
+    notes: str = ""
+    active: bool = True
+
+
 class OltCollectMacsRequest(BaseModel):
     olt_ip: str
     user: str
