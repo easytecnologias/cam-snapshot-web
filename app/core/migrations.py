@@ -37,14 +37,31 @@ _FILENAME_RE = re.compile(r"^(\d{3,})_([a-z0-9_]+)\.sql$")
 # estavel entre processos.
 _PG_LOCK_KEY = 8110723
 
+# `component` faz parte da chave, nao so `version`.
+#
+# Sem isso, `main` e `auth` compartilhando o mesmo banco colidem: a 001 do main
+# e a 001 do auth disputam a mesma linha, e a segunda a rodar falha com "ja
+# aplicada com outro conteudo". E o caso da producao -- AUTH_DATABASE_URL nao e
+# definida, entao o auth cai no mesmo banco do main. O modelo antigo (version
+# como chave) so funcionava com bancos separados, que era uma suposicao nao
+# declarada em lugar nenhum.
+#
+# UNIQUE INDEX em vez de PRIMARY KEY composta pra manter o DDL identico nos dois
+# backends -- e porque indice nomeado e o que a licao da migration 001 mandou.
 _SCHEMA_MIGRATIONS_DDL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER PRIMARY KEY,
+    component TEXT NOT NULL DEFAULT 'main',
+    version INTEGER NOT NULL,
     name TEXT NOT NULL,
     checksum TEXT NOT NULL,
     applied_at TEXT NOT NULL DEFAULT (datetime('now')),
     adopted INTEGER NOT NULL DEFAULT 0
 )
+"""
+
+_SCHEMA_MIGRATIONS_INDEX_DDL = """
+CREATE UNIQUE INDEX IF NOT EXISTS schema_migrations_component_version_uq
+    ON schema_migrations(component, version)
 """
 
 
@@ -193,8 +210,11 @@ def _table_exists(conn: Any, backend: str, table: str) -> bool:
         return False
 
 
-def _applied(conn: Any, backend: str) -> Dict[int, str]:
-    rows = conn.execute(_q(backend, "SELECT version, checksum FROM schema_migrations")).fetchall()
+def _applied(conn: Any, backend: str, component: str) -> Dict[int, str]:
+    rows = conn.execute(
+        _q(backend, "SELECT version, checksum FROM schema_migrations WHERE component = ?"),
+        (component,),
+    ).fetchall()
     out: Dict[int, str] = {}
     for row in rows or []:
         item = dict(row)
@@ -202,11 +222,48 @@ def _applied(conn: Any, backend: str) -> Dict[int, str]:
     return out
 
 
-def _record(conn: Any, backend: str, migration: Migration, adopted: bool) -> None:
+def _record(conn: Any, backend: str, component: str, migration: Migration, adopted: bool) -> None:
     conn.execute(
-        _q(backend, "INSERT INTO schema_migrations(version, name, checksum, adopted) VALUES(?, ?, ?, ?)"),
-        (migration.version, migration.name, migration.checksum, 1 if adopted else 0),
+        _q(backend, "INSERT INTO schema_migrations(component, version, name, checksum, adopted) VALUES(?, ?, ?, ?, ?)"),
+        (component, migration.version, migration.name, migration.checksum, 1 if adopted else 0),
     )
+
+
+def _column_exists(conn: Any, backend: str, table: str, column: str) -> bool:
+    try:
+        if str(backend).strip().lower() == "postgres":
+            row = conn.execute(
+                _q(backend, "SELECT 1 AS ok FROM information_schema.columns "
+                            "WHERE table_name = ? AND column_name = ?"),
+                (table, column),
+            ).fetchone()
+            return row is not None
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(str(dict(r).get("name")) == column for r in rows or [])
+    except Exception:
+        return False
+
+
+def _drop_legacy_registry(conn: Any, backend: str) -> bool:
+    """Remove uma `schema_migrations` no formato antigo (sem `component`).
+
+    O formato antigo usava `version` como chave, o que impede main e auth de
+    conviverem no mesmo banco. Recriar a tabela e seguro porque a adocao a
+    reconstroi: as tabelas de dados ja existem, entao a baseline e carimbada sem
+    rodar, e as migrations posteriores sao idempotentes (CREATE TABLE IF NOT
+    EXISTS / ADD COLUMN IF NOT EXISTS). Nenhum dado de negocio e tocado.
+    """
+    if not _table_exists(conn, backend, "schema_migrations"):
+        return False
+    if _column_exists(conn, backend, "schema_migrations", "component"):
+        return False
+    logger.warning(
+        "schema_migrations em formato antigo (sem coluna component): recriando. "
+        "As versoes serao readotadas a partir do estado real do banco."
+    )
+    conn.execute("DROP TABLE schema_migrations")
+    _commit(conn)
+    return True
 
 
 def _commit(conn: Any) -> None:
@@ -253,14 +310,21 @@ def apply_migrations(
         locked = True
 
     try:
+        _drop_legacy_registry(conn, backend_norm)
         had_registry = _table_exists(conn, backend_norm, "schema_migrations")
         conn.execute(_q(backend_norm, _SCHEMA_MIGRATIONS_DDL))
+        conn.execute(_q(backend_norm, _SCHEMA_MIGRATIONS_INDEX_DDL))
         _commit(conn)
 
+        # "Registro novo" e por componente, nao pela tabela: com main e auth no
+        # mesmo banco, a tabela ja existe quando o segundo componente roda, mas
+        # ele ainda precisa passar pela adocao.
+        ja_registrado = bool(had_registry and _applied(conn, backend_norm, component))
+
         adopted: List[int] = []
-        if not had_registry and any(_table_exists(conn, backend_norm, t) for t in adopt_probe_tables):
+        if not ja_registrado and any(_table_exists(conn, backend_norm, t) for t in adopt_probe_tables):
             # Banco pre-existente: a baseline descreve o que ele ja e.
-            _record(conn, backend_norm, baseline, adopted=True)
+            _record(conn, backend_norm, component, baseline, adopted=True)
             adopted.append(baseline.version)
 
             # Migrations posteriores que este banco ja satisfaz (porque a mudanca
@@ -276,7 +340,7 @@ def apply_migrations(
                     satisfied = False
                 if not satisfied:
                     break
-                _record(conn, backend_norm, migration, adopted=True)
+                _record(conn, backend_norm, component, migration, adopted=True)
                 adopted.append(migration.version)
 
             _commit(conn)
@@ -287,7 +351,7 @@ def apply_migrations(
                 adopted,
             )
 
-        applied = _applied(conn, backend_norm)
+        applied = _applied(conn, backend_norm, component)
         applied_now: List[int] = []
 
         for migration in migrations:
@@ -313,7 +377,7 @@ def apply_migrations(
             try:
                 for stmt in statements:
                     conn.execute(stmt)
-                _record(conn, backend_norm, migration, adopted=False)
+                _record(conn, backend_norm, component, migration, adopted=False)
                 _commit(conn)
             except Exception as exc:
                 _rollback(conn)

@@ -231,6 +231,47 @@ def _run(tmp: Path) -> None:
         # --- rodar de novo nao faz nada (idempotencia) ---
         again = apply_migrations(legacy, **kwargs)
         check(again["applied_now"] == [], f"segunda execucao deveria ser no-op: {again}")
+
+        # --- main e auth no MESMO banco ---
+        #
+        # E a configuracao da producao: AUTH_DATABASE_URL nao e definida, entao o
+        # auth cai no banco do main e os dois dividem a tabela schema_migrations.
+        #
+        # Nenhum teste cobria isso, e o runner usava `version` como chave -- a 001
+        # do auth batia na 001 do main e a API nao subia. So apareceu rodando a
+        # imagem contra um Postgres de verdade, ja com tudo publicado.
+        compartilhado = _connect(tmp / "compartilhado.db")
+        try:
+            st_main = apply_migrations(compartilhado, **kwargs)
+            st_auth = apply_migrations(
+                compartilhado, backend="sqlite", component="auth",
+                adopt_probe_tables=("tenants", "users"),
+            )
+            check(bool(st_main["applied_now"]), f"main deveria ter rodado: {st_main}")
+            check(bool(st_auth["applied_now"]), f"auth deveria ter rodado no mesmo banco: {st_auth}")
+
+            linhas = compartilhado.execute(
+                "SELECT component, version FROM schema_migrations ORDER BY component, version"
+            ).fetchall()
+            componentes = {str(dict(r)["component"]) for r in linhas}
+            check(componentes == {"main", "auth"},
+                  f"schema_migrations deveria ter os dois componentes: {componentes}")
+
+            # a colisao original: versao 1 existe duas vezes, uma por componente
+            v1 = [dict(r) for r in linhas if int(dict(r)["version"]) == 1]
+            check(len(v1) == 2, f"versao 1 deveria existir para main e auth: {v1}")
+
+            # e as tabelas dos dois componentes convivem
+            for tabela in ("sites", "ip_cameras", "olts", "tenants", "users"):
+                existe = compartilhado.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tabela,)
+                ).fetchone()
+                check(existe is not None, f"tabela {tabela} faltando no banco compartilhado")
+        finally:
+            try:
+                compartilhado.close()
+            except Exception:
+                pass
     finally:
         for conn in (fresh, legacy):
             if conn is not None:
