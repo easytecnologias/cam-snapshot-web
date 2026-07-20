@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -21,151 +22,11 @@ from app.core.paths import (
     NVR_INVENTORY_JSON_PATH,
     SIGHTOPS_DB_PATH,
 )
-from app.core.tenant_context import tenant_scoped_key, tenant_scoped_path
+from app.core.migrations import apply_migrations
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_key, tenant_scoped_path
 
 
-_MAIN_SCHEMA_POSTGRES = """
-CREATE TABLE IF NOT EXISTS sites (
-    id BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT DEFAULT '',
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 
-CREATE TABLE IF NOT EXISTS settings_kv (
-    k TEXT PRIMARY KEY,
-    v TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS json_state (
-    k TEXT PRIMARY KEY,
-    v TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS ip_cameras (
-    id BIGSERIAL PRIMARY KEY,
-    site_id BIGINT REFERENCES sites(id) ON DELETE SET NULL,
-    ip TEXT NOT NULL UNIQUE,
-    host TEXT DEFAULT '',
-    http_port INTEGER DEFAULT 80,
-    title TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    status TEXT DEFAULT '',
-    mac TEXT DEFAULT '',
-    fabricante TEXT DEFAULT '',
-    modelo TEXT DEFAULT '',
-    snapshot_url TEXT DEFAULT '',
-    imgbb_url TEXT DEFAULT '',
-    raw_json TEXT DEFAULT '',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS recorders (
-    id BIGSERIAL PRIMARY KEY,
-    site_id BIGINT REFERENCES sites(id) ON DELETE SET NULL,
-    source TEXT NOT NULL,
-    host TEXT NOT NULL,
-    http_port INTEGER NOT NULL DEFAULT 80,
-    mac TEXT DEFAULT '',
-    modelo TEXT DEFAULT '',
-    fabricante TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source, host, http_port)
-);
-
-CREATE TABLE IF NOT EXISTS recorder_channels (
-    id BIGSERIAL PRIMARY KEY,
-    recorder_id BIGINT NOT NULL REFERENCES recorders(id) ON DELETE CASCADE,
-    channel INTEGER NOT NULL,
-    title TEXT DEFAULT '',
-    status TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    camera_ip TEXT DEFAULT '',
-    camera_mac TEXT DEFAULT '',
-    camera_model TEXT DEFAULT '',
-    snapshot_url TEXT DEFAULT '',
-    imgbb_url TEXT DEFAULT '',
-    raw_json TEXT DEFAULT '',
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(recorder_id, channel)
-);
-"""
-
-_MAIN_SCHEMA_SQLITE = """
-CREATE TABLE IF NOT EXISTS sites (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT DEFAULT '',
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS settings_kv (
-    k TEXT PRIMARY KEY,
-    v TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS json_state (
-    k TEXT PRIMARY KEY,
-    v TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS ip_cameras (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id INTEGER REFERENCES sites(id) ON DELETE SET NULL,
-    ip TEXT NOT NULL,
-    host TEXT DEFAULT '',
-    http_port INTEGER DEFAULT 80,
-    title TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    status TEXT DEFAULT '',
-    mac TEXT DEFAULT '',
-    fabricante TEXT DEFAULT '',
-    modelo TEXT DEFAULT '',
-    snapshot_url TEXT DEFAULT '',
-    imgbb_url TEXT DEFAULT '',
-    raw_json TEXT DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(ip)
-);
-
-CREATE TABLE IF NOT EXISTS recorders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id INTEGER REFERENCES sites(id) ON DELETE SET NULL,
-    source TEXT NOT NULL,
-    host TEXT NOT NULL,
-    http_port INTEGER NOT NULL DEFAULT 80,
-    mac TEXT DEFAULT '',
-    modelo TEXT DEFAULT '',
-    fabricante TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(source, host, http_port)
-);
-
-CREATE TABLE IF NOT EXISTS recorder_channels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorder_id INTEGER NOT NULL REFERENCES recorders(id) ON DELETE CASCADE,
-    channel INTEGER NOT NULL,
-    title TEXT DEFAULT '',
-    status TEXT DEFAULT '',
-    local TEXT DEFAULT '',
-    camera_ip TEXT DEFAULT '',
-    camera_mac TEXT DEFAULT '',
-    camera_model TEXT DEFAULT '',
-    snapshot_url TEXT DEFAULT '',
-    imgbb_url TEXT DEFAULT '',
-    raw_json TEXT DEFAULT '',
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(recorder_id, channel)
-);
-"""
 
 
 class _DbCursor:
@@ -203,6 +64,9 @@ class _PgConnWrapper:
 
     def commit(self) -> None:
         self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
 
     def execute(self, query: str, params: Any = ()) -> _DbCursor:
         cur = self._conn.cursor()
@@ -280,6 +144,19 @@ def _exec_many_statements(c: Any, backend: str, schema_sql: str) -> None:
     c.executescript(schema_sql)
 
 
+def _current_tenant_slug() -> str:
+    return str(get_current_tenant_slug() or "default").strip() or "default"
+
+
+def _sqlite_columns(c: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        return {str(r["name"]) for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
+    except Exception:
+        return set()
+
+
+
+
 def _fetchone_on(c: Any, backend: str, query: str, params: tuple[Any, ...] = ()) -> Optional[Dict[str, Any]]:
     row = c.execute(_sql_for_backend(backend, query), params).fetchone()
     if row is None:
@@ -311,16 +188,74 @@ def _conn() -> Any:
     return c
 
 
+def _tenant_scoped_keys_satisfied(c: Any, backend: str) -> bool:
+    """Pos-condicao da migration 002 do banco principal.
+
+    Verdadeira quando as tabelas ja tem tenant_slug **e** nenhuma UNIQUE sem
+    tenant_slug sobrou. Um banco que recebeu so metade disso por remendo antigo
+    (o caso da producao) devolve False e a 002 roda pra terminar o servico.
+    """
+    try:
+        if str(backend).strip().lower() == "postgres":
+            row = c.execute(
+                """
+                SELECT
+                    (SELECT COUNT(1) FROM information_schema.columns
+                      WHERE column_name = 'tenant_slug'
+                        AND table_name IN ('sites', 'ip_cameras', 'recorders', 'recorder_channels')) AS cols,
+                    (SELECT COUNT(1)
+                       FROM pg_constraint con
+                       JOIN pg_class cls ON cls.oid = con.conrelid
+                      WHERE con.contype = 'u'
+                        AND cls.relname IN ('sites', 'ip_cameras', 'recorders')
+                        AND NOT EXISTS (
+                            SELECT 1 FROM unnest(con.conkey) AS k
+                            JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = k
+                            WHERE att.attname = 'tenant_slug')) AS legacy
+                """
+            ).fetchone()
+            item = dict(row or {})
+            return int(item.get("cols") or 0) >= 4 and int(item.get("legacy") or 0) == 0
+
+        for table in ("sites", "ip_cameras", "recorders", "recorder_channels"):
+            if "tenant_slug" not in _sqlite_columns(c, table):
+                return False
+        rows = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name IN ('sites','ip_cameras','recorders')"
+        ).fetchall()
+        for row in rows or []:
+            ddl = str(dict(row).get("sql") or "")
+            for chunk in re.findall(r"UNIQUE\s*\(([^)]*)\)", ddl, flags=re.IGNORECASE):
+                if "tenant_slug" not in chunk.lower():
+                    return False
+        return True
+    except Exception:
+        return False
+
+
 def init_db() -> Dict[str, Any]:
+    backend = _db_backend()
     with _conn() as c:
-        c.executescript(_MAIN_SCHEMA_POSTGRES if _db_backend() == "postgres" else _MAIN_SCHEMA_SQLITE)
-        total = int(c.execute("SELECT COUNT(1) AS n FROM sites").fetchone()["n"])
+        migration_status = apply_migrations(
+            c,
+            backend=backend,
+            component="main",
+            adopt_probe_tables=("sites", "ip_cameras", "recorders"),
+            postconditions={2: _tenant_scoped_keys_satisfied},
+        )
+        tenant = _current_tenant_slug()
+        total = int(c.execute("SELECT COUNT(1) AS n FROM sites WHERE tenant_slug=?", (tenant,)).fetchone()["n"])
     return {
         "ok": True,
-        "backend": _db_backend(),
-        "db_path": str(SIGHTOPS_DB_PATH) if _db_backend() == "sqlite" else "",
-        "database_url": _redact_url_secret(_postgres_db_url()) if _db_backend() == "postgres" else "",
+        "backend": backend,
+        "db_path": str(SIGHTOPS_DB_PATH) if backend == "sqlite" else "",
+        "database_url": _redact_url_secret(_postgres_db_url()) if backend == "postgres" else "",
+        "tenant": tenant,
         "sites": total,
+        "schema_version": migration_status.get("current_version"),
+        "migrations_applied": migration_status.get("applied_now"),
+        "migrations_adopted": migration_status.get("adopted"),
     }
 
 
@@ -336,6 +271,7 @@ def _load_json_rows(path: Path) -> List[Dict[str, Any]]:
 
 def list_sites(source: str = "") -> List[Dict[str, Any]]:
     src = str(source or "").strip().lower()
+    tenant = _current_tenant_slug()
     with _conn() as c:
         names: set[str] = set()
 
@@ -344,28 +280,34 @@ def list_sites(source: str = "") -> List[Dict[str, Any]]:
                 """
                 SELECT DISTINCT trim(COALESCE(name,'')) AS name
                 FROM sites
-                WHERE active = 1
+                WHERE tenant_slug = ?
+                  AND active = 1
                   AND trim(COALESCE(name,'')) <> ''
                   AND upper(trim(name)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
-                """
+                """,
+                (tenant,),
             ).fetchall()
             rows_site = c.execute(
                 """
                 SELECT DISTINCT trim(COALESCE(s.name,'')) AS name
                 FROM ip_cameras ic
                 LEFT JOIN sites s ON s.id = ic.site_id
-                WHERE trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
+                WHERE ic.tenant_slug = ?
+                  AND trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
-                """
+                """,
+                (tenant,),
             ).fetchall()
             rows_local = c.execute(
                 """
                 SELECT DISTINCT trim(COALESCE(local,'')) AS name
                 FROM ip_cameras
-                WHERE trim(COALESCE(local,'')) <> '' AND upper(trim(local)) <> 'GERAL'
+                WHERE tenant_slug = ?
+                  AND trim(COALESCE(local,'')) <> '' AND upper(trim(local)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
-                """
+                """,
+                (tenant,),
             ).fetchall()
             for bucket in (rows_all_sites, rows_site, rows_local):
                 for r in bucket:
@@ -378,35 +320,38 @@ def list_sites(source: str = "") -> List[Dict[str, Any]]:
                 SELECT DISTINCT trim(COALESCE(s.name,'')) AS name
                 FROM recorders r
                 LEFT JOIN sites s ON s.id = r.site_id
-                WHERE r.source = ?
+                WHERE r.tenant_slug = ?
+                  AND r.source = ?
                   AND trim(COALESCE(s.name,'')) <> ''
                   AND upper(trim(s.name)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
                 """,
-                (src,),
+                (tenant, src),
             ).fetchall()
             rows_rec_local = c.execute(
                 """
                 SELECT DISTINCT trim(COALESCE(r.local,'')) AS name
                 FROM recorders r
-                WHERE r.source = ?
+                WHERE r.tenant_slug = ?
+                  AND r.source = ?
                   AND trim(COALESCE(r.local,'')) <> ''
                   AND upper(trim(r.local)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
                 """,
-                (src,),
+                (tenant, src),
             ).fetchall()
             rows_ch_local = c.execute(
                 """
                 SELECT DISTINCT trim(COALESCE(rc.local,'')) AS name
                 FROM recorder_channels rc
                 JOIN recorders r ON r.id = rc.recorder_id
-                WHERE r.source = ?
+                WHERE r.tenant_slug = ?
+                  AND r.source = ?
                   AND trim(COALESCE(rc.local,'')) <> ''
                   AND upper(trim(rc.local)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
                 """,
-                (src,),
+                (tenant, src),
             ).fetchall()
             for bucket in (rows_site, rows_rec_local, rows_ch_local):
                 for r in bucket:
@@ -419,26 +364,27 @@ def list_sites(source: str = "") -> List[Dict[str, Any]]:
                 SELECT DISTINCT trim(COALESCE(s.name,'')) AS name
                 FROM ip_cameras ic
                 LEFT JOIN sites s ON s.id = ic.site_id
-                WHERE trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
+                WHERE ic.tenant_slug = ? AND trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
                 UNION
                 SELECT DISTINCT trim(COALESCE(ic.local,'')) AS name
                 FROM ip_cameras ic
-                WHERE trim(COALESCE(ic.local,'')) <> '' AND upper(trim(ic.local)) <> 'GERAL'
+                WHERE ic.tenant_slug = ? AND trim(COALESCE(ic.local,'')) <> '' AND upper(trim(ic.local)) <> 'GERAL'
                 UNION
                 SELECT DISTINCT trim(COALESCE(s.name,'')) AS name
                 FROM recorders r
                 LEFT JOIN sites s ON s.id = r.site_id
-                WHERE trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
+                WHERE r.tenant_slug = ? AND trim(COALESCE(s.name,'')) <> '' AND upper(trim(s.name)) <> 'GERAL'
                 UNION
                 SELECT DISTINCT trim(COALESCE(r.local,'')) AS name
                 FROM recorders r
-                WHERE trim(COALESCE(r.local,'')) <> '' AND upper(trim(r.local)) <> 'GERAL'
+                WHERE r.tenant_slug = ? AND trim(COALESCE(r.local,'')) <> '' AND upper(trim(r.local)) <> 'GERAL'
                 UNION
                 SELECT DISTINCT trim(COALESCE(rc.local,'')) AS name
                 FROM recorder_channels rc
-                WHERE trim(COALESCE(rc.local,'')) <> '' AND upper(trim(rc.local)) <> 'GERAL'
+                WHERE rc.tenant_slug = ? AND trim(COALESCE(rc.local,'')) <> '' AND upper(trim(rc.local)) <> 'GERAL'
                 ORDER BY name COLLATE NOCASE
-                """
+                """,
+                (tenant, tenant, tenant, tenant, tenant),
             ).fetchall()
             for r in rows:
                 n = str(r["name"] or "").strip()
@@ -452,18 +398,22 @@ def upsert_site(name: str, description: str = "", active: bool = True) -> Dict[s
     n = str(name or "").strip()
     if not n:
         raise ValueError("name obrigatorio")
+    tenant = _current_tenant_slug()
     with _conn() as c:
         c.execute(
             """
-            INSERT INTO sites(name, description, active)
-            VALUES(?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET
+            INSERT INTO sites(tenant_slug, name, description, active)
+            VALUES(?, ?, ?, ?)
+            ON CONFLICT(tenant_slug, name) DO UPDATE SET
               description=excluded.description,
               active=excluded.active
             """,
-            (n, str(description or "").strip(), 1 if bool(active) else 0),
+            (tenant, n, str(description or "").strip(), 1 if bool(active) else 0),
         )
-        row = c.execute("SELECT id, name, description, active FROM sites WHERE name=?", (n,)).fetchone()
+        row = c.execute(
+            "SELECT id, tenant_slug, name, description, active FROM sites WHERE tenant_slug=? AND name=?",
+            (tenant, n),
+        ).fetchone()
     return dict(row) if row else {}
 
 
@@ -471,15 +421,16 @@ def _site_id_for_name(c: sqlite3.Connection, site_name: str) -> Optional[int]:
     n = str(site_name or "").strip()
     if not n:
         return None
+    tenant = _current_tenant_slug()
     c.execute(
         """
-        INSERT INTO sites(name, description, active)
-        VALUES(?, '', 1)
-        ON CONFLICT(name) DO NOTHING
+        INSERT INTO sites(tenant_slug, name, description, active)
+        VALUES(?, ?, '', 1)
+        ON CONFLICT(tenant_slug, name) DO NOTHING
         """,
-        (n,),
+        (tenant, n),
     )
-    r = c.execute("SELECT id FROM sites WHERE name=?", (n,)).fetchone()
+    r = c.execute("SELECT id FROM sites WHERE tenant_slug=? AND name=?", (tenant, n)).fetchone()
     return int(r["id"]) if r else None
 
 
@@ -493,6 +444,7 @@ def _site_name_from_row(row: Dict[str, Any]) -> str:
 
 def migrate_json_to_db() -> Dict[str, Any]:
     init_db()
+    tenant = _current_tenant_slug()
     ip_rows = _load_json_rows(INVENTORY_JSON_PATH)
     dvr_rows = _load_json_rows(DVR_INVENTORY_JSON_PATH)
     nvr_rows = _load_json_rows(NVR_INVENTORY_JSON_PATH)
@@ -508,9 +460,9 @@ def migrate_json_to_db() -> Dict[str, Any]:
             c.execute(
                 """
                 INSERT INTO ip_cameras(
-                  site_id, ip, host, http_port, title, local, status, mac, fabricante, modelo, snapshot_url, imgbb_url, raw_json, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(ip) DO UPDATE SET
+                  tenant_slug, site_id, ip, host, http_port, title, local, status, mac, fabricante, modelo, snapshot_url, imgbb_url, raw_json, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(tenant_slug, ip) DO UPDATE SET
                   site_id=excluded.site_id,
                   host=excluded.host,
                   http_port=excluded.http_port,
@@ -526,6 +478,7 @@ def migrate_json_to_db() -> Dict[str, Any]:
                   updated_at=datetime('now')
                 """,
                 (
+                    tenant,
                     site_id,
                     ip,
                     str(r.get("host") or ip),
@@ -556,9 +509,9 @@ def migrate_json_to_db() -> Dict[str, Any]:
                 site_id = _site_id_for_name(c, _site_name_from_row(r))
                 c.execute(
                     """
-                    INSERT INTO recorders(site_id, source, host, http_port, mac, modelo, fabricante, local, updated_at)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                    ON CONFLICT(source, host, http_port) DO UPDATE SET
+                    INSERT INTO recorders(tenant_slug, site_id, source, host, http_port, mac, modelo, fabricante, local, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT(tenant_slug, source, host, http_port) DO UPDATE SET
                       site_id=excluded.site_id,
                       mac=excluded.mac,
                       modelo=excluded.modelo,
@@ -567,6 +520,7 @@ def migrate_json_to_db() -> Dict[str, Any]:
                       updated_at=datetime('now')
                     """,
                     (
+                        tenant,
                         site_id,
                         source,
                         host,
@@ -578,8 +532,8 @@ def migrate_json_to_db() -> Dict[str, Any]:
                     ),
                 )
                 rec = c.execute(
-                    "SELECT id FROM recorders WHERE source=? AND host=? AND http_port=?",
-                    (source, host, http_port),
+                    "SELECT id FROM recorders WHERE tenant_slug=? AND source=? AND host=? AND http_port=?",
+                    (tenant, source, host, http_port),
                 ).fetchone()
                 if not rec:
                     continue
@@ -592,9 +546,10 @@ def migrate_json_to_db() -> Dict[str, Any]:
                 c.execute(
                     """
                     INSERT INTO recorder_channels(
-                      recorder_id, channel, title, status, local, camera_ip, camera_mac, camera_model, snapshot_url, imgbb_url, raw_json, updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                      tenant_slug, recorder_id, channel, title, status, local, camera_ip, camera_mac, camera_model, snapshot_url, imgbb_url, raw_json, updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                     ON CONFLICT(recorder_id, channel) DO UPDATE SET
+                      tenant_slug=excluded.tenant_slug,
                       title=excluded.title,
                       status=excluded.status,
                       local=excluded.local,
@@ -607,6 +562,7 @@ def migrate_json_to_db() -> Dict[str, Any]:
                       updated_at=datetime('now')
                     """,
                     (
+                        tenant,
                         recorder_id,
                         channel,
                         str(r.get("title") or ""),
@@ -637,13 +593,21 @@ def db_status() -> Dict[str, Any]:
     if _db_backend() == "sqlite" and not SIGHTOPS_DB_PATH.exists():
         return {"ok": True, "backend": "sqlite", "exists": False, "db_path": str(SIGHTOPS_DB_PATH)}
     init_db()
+    tenant = _current_tenant_slug()
     with _conn() as c:
         tables = {
+            "sites": int(c.execute("SELECT COUNT(1) AS n FROM sites WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
+            "ip_cameras": int(c.execute("SELECT COUNT(1) AS n FROM ip_cameras WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
+            "recorders": int(c.execute("SELECT COUNT(1) AS n FROM recorders WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
+            "recorder_channels": int(c.execute("SELECT COUNT(1) AS n FROM recorder_channels WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
+            "json_state": int(c.execute("SELECT COUNT(1) AS n FROM json_state").fetchone()["n"]),
+        }
+        totals = {
             "sites": int(c.execute("SELECT COUNT(1) AS n FROM sites").fetchone()["n"]),
             "ip_cameras": int(c.execute("SELECT COUNT(1) AS n FROM ip_cameras").fetchone()["n"]),
             "recorders": int(c.execute("SELECT COUNT(1) AS n FROM recorders").fetchone()["n"]),
             "recorder_channels": int(c.execute("SELECT COUNT(1) AS n FROM recorder_channels").fetchone()["n"]),
-            "json_state": int(c.execute("SELECT COUNT(1) AS n FROM json_state").fetchone()["n"]),
+            "json_state": tables["json_state"],
         }
     return {
         "ok": True,
@@ -651,7 +615,9 @@ def db_status() -> Dict[str, Any]:
         "exists": True,
         "db_path": str(SIGHTOPS_DB_PATH) if _db_backend() == "sqlite" else "",
         "database_url": _redact_url_secret(_postgres_db_url()) if _db_backend() == "postgres" else "",
+        "tenant": tenant,
         "counts": tables,
+        "total_counts": totals,
     }
 
 
@@ -668,7 +634,16 @@ def migrate_db_storage(source_backend: str = "sqlite", target_backend: str = "po
     try:
         if src_backend == "sqlite":
             init_db()
-        _exec_many_statements(dst, dst_backend, _MAIN_SCHEMA_POSTGRES)
+        # O destino tambem nasce pelas migrations -- nunca por um literal de
+        # schema paralelo, que era como os dois caminhos divergiam antes.
+        dst_wrapped = _PgConnWrapper(dst) if dst_backend == "postgres" else dst
+        apply_migrations(
+            dst_wrapped,
+            backend=dst_backend,
+            component="main",
+            adopt_probe_tables=("sites", "ip_cameras", "recorders"),
+            postconditions={2: _tenant_scoped_keys_satisfied},
+        )
 
         src_counts = {
             "sites": int((_fetchone_on(src, src_backend, "SELECT COUNT(1) AS n FROM sites") or {}).get("n") or 0),
@@ -910,7 +885,8 @@ def _legacy_state_import_enabled() -> bool:
 
 
 def load_olt_cpe_state() -> Dict[str, Any]:
-    state = get_json_state("olt_cpe_macs", None)
+    key = tenant_scoped_key("olt_cpe_macs")
+    state = get_json_state(key, None)
     if isinstance(state, dict):
         return state
     if not _legacy_state_import_enabled():
@@ -920,7 +896,7 @@ def load_olt_cpe_state() -> Dict[str, Any]:
         if p.exists():
             obj = json.loads(p.read_text(encoding="utf-8") or "{}")
             if isinstance(obj, dict):
-                set_json_state("olt_cpe_macs", obj)
+                set_json_state(key, obj)
                 return obj
     except Exception:
         pass
@@ -930,10 +906,10 @@ def load_olt_cpe_state() -> Dict[str, Any]:
 def save_olt_cpe_state(obj: Dict[str, Any]) -> Dict[str, Any]:
     payload = obj if isinstance(obj, dict) else {}
     try:
-        set_json_state("olt_cpe_macs", payload)
+        set_json_state(tenant_scoped_key("olt_cpe_macs"), payload)
     except Exception:
         # fallback de escrita legado
-        p = DATA_DIR / "olt-cpe-macs.json"
+        p = tenant_scoped_path("olt-cpe-macs.json")
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -943,7 +919,8 @@ def save_olt_cpe_state(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_switch_mac_state() -> Dict[str, Any]:
-    state = get_json_state("switch_mac_table", None)
+    key = tenant_scoped_key("switch_mac_table")
+    state = get_json_state(key, None)
     if isinstance(state, dict):
         return state
     if not _legacy_state_import_enabled():
@@ -953,7 +930,7 @@ def load_switch_mac_state() -> Dict[str, Any]:
         if p.exists():
             obj = json.loads(p.read_text(encoding="utf-8") or "{}")
             if isinstance(obj, dict):
-                set_json_state("switch_mac_table", obj)
+                set_json_state(key, obj)
                 return obj
     except Exception:
         pass
@@ -963,9 +940,9 @@ def load_switch_mac_state() -> Dict[str, Any]:
 def save_switch_mac_state(obj: Dict[str, Any]) -> Dict[str, Any]:
     payload = obj if isinstance(obj, dict) else {}
     try:
-        set_json_state("switch_mac_table", payload)
+        set_json_state(tenant_scoped_key("switch_mac_table"), payload)
     except Exception:
-        p = DATA_DIR / "switch-mac-table.json"
+        p = tenant_scoped_path("switch-mac-table.json")
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -977,15 +954,17 @@ def save_switch_mac_state(obj: Dict[str, Any]) -> Dict[str, Any]:
 def query_inventory(source: str = "ip", site: str = "", only_online: bool = False) -> List[Dict[str, Any]]:
     src = str(source or "ip").strip().lower()
     site = str(site or "").strip()
+    tenant = _current_tenant_slug()
     with _conn() as c:
         if src == "ip":
             q = """
             SELECT ic.*, s.name AS site_name
             FROM ip_cameras ic
             LEFT JOIN sites s ON s.id = ic.site_id
-            WHERE (? = '' OR s.name = ? OR lower(trim(ic.local)) = lower(trim(?)))
+            WHERE ic.tenant_slug = ?
+              AND (? = '' OR s.name = ? OR lower(trim(ic.local)) = lower(trim(?)))
             """
-            params: List[Any] = [site, site, site]
+            params: List[Any] = [tenant, site, site, site]
             if only_online:
                 q += " AND lower(ic.status) = 'online'"
             q += " ORDER BY COALESCE(s.name,''), ic.ip"
@@ -997,9 +976,10 @@ def query_inventory(source: str = "ip", site: str = "", only_online: bool = Fals
         FROM recorder_channels rc
         JOIN recorders r ON r.id = rc.recorder_id
         LEFT JOIN sites s ON s.id = r.site_id
-        WHERE r.source = ? AND (? = '' OR s.name = ? OR lower(trim(COALESCE(rc.local, r.local, ''))) = lower(trim(?)))
+        WHERE r.tenant_slug = ?
+          AND r.source = ? AND (? = '' OR s.name = ? OR lower(trim(COALESCE(rc.local, r.local, ''))) = lower(trim(?)))
         """
-        params2: List[Any] = [src, site, site, site]
+        params2: List[Any] = [tenant, src, site, site, site]
         if only_online:
             q2 += " AND lower(rc.status) = 'online'"
         q2 += " ORDER BY COALESCE(s.name,''), r.host, rc.channel"
@@ -1017,21 +997,31 @@ def assign_site(
     src = str(source or "").strip().lower()
     if src not in ("ip", "dvr", "nvr"):
         raise ValueError("source invalido (use ip|dvr|nvr)")
+    tenant = _current_tenant_slug()
     with _conn() as c:
         site_id = _site_id_for_name(c, site_name)
         updated = 0
         if src == "ip":
             if ip:
-                cur = c.execute("UPDATE ip_cameras SET site_id=?, updated_at=datetime('now') WHERE ip=?", (site_id, ip))
+                cur = c.execute(
+                    "UPDATE ip_cameras SET site_id=?, updated_at=datetime('now') WHERE tenant_slug=? AND ip=?",
+                    (site_id, tenant, ip),
+                )
                 updated = int(cur.rowcount or 0)
             else:
-                cur = c.execute("UPDATE ip_cameras SET site_id=?, updated_at=datetime('now')", (site_id,))
+                cur = c.execute(
+                    "UPDATE ip_cameras SET site_id=?, updated_at=datetime('now') WHERE tenant_slug=?",
+                    (site_id, tenant),
+                )
                 updated = int(cur.rowcount or 0)
             return {"ok": True, "source": src, "site": site_name, "updated_rows": updated}
 
         if not host:
             raise ValueError("host obrigatorio para dvr/nvr")
-        cur = c.execute("UPDATE recorders SET site_id=?, updated_at=datetime('now') WHERE source=? AND host=?", (site_id, src, host))
+        cur = c.execute(
+            "UPDATE recorders SET site_id=?, updated_at=datetime('now') WHERE tenant_slug=? AND source=? AND host=?",
+            (site_id, tenant, src, host),
+        )
         updated = int(cur.rowcount or 0)
         if channel is not None and int(channel) > 0:
             cur2 = c.execute(
@@ -1041,10 +1031,10 @@ def assign_site(
                 WHERE id IN (
                   SELECT r.id FROM recorders r
                   JOIN recorder_channels rc ON rc.recorder_id=r.id
-                  WHERE r.source=? AND r.host=? AND rc.channel=?
+                  WHERE r.tenant_slug=? AND r.source=? AND r.host=? AND rc.channel=?
                 )
                 """,
-                (site_id, src, host, int(channel)),
+                (site_id, tenant, src, host, int(channel)),
             )
             updated = int(cur2.rowcount or 0)
         return {"ok": True, "source": src, "site": site_name, "updated_rows": updated}
@@ -1052,6 +1042,7 @@ def assign_site(
 
 def upsert_ip_inventory_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     init_db()
+    tenant = _current_tenant_slug()
     seen = 0
     with _conn() as c:
         for r in rows or []:
@@ -1064,9 +1055,9 @@ def upsert_ip_inventory_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             c.execute(
                 """
                 INSERT INTO ip_cameras(
-                  site_id, ip, host, http_port, title, local, status, mac, fabricante, modelo, snapshot_url, imgbb_url, raw_json, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(ip) DO UPDATE SET
+                  tenant_slug, site_id, ip, host, http_port, title, local, status, mac, fabricante, modelo, snapshot_url, imgbb_url, raw_json, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(tenant_slug, ip) DO UPDATE SET
                   site_id=excluded.site_id,
                   host=excluded.host,
                   http_port=excluded.http_port,
@@ -1082,6 +1073,7 @@ def upsert_ip_inventory_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                   updated_at=datetime('now')
                 """,
                 (
+                    tenant,
                     site_id,
                     ip,
                     str(r.get("host") or ip),
@@ -1106,6 +1098,7 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
     if src not in ("dvr", "nvr"):
         raise ValueError("source invalido para recorder (use dvr|nvr)")
     init_db()
+    tenant = _current_tenant_slug()
     rec_seen = 0
     ch_seen = 0
     with _conn() as c:
@@ -1119,9 +1112,9 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
             site_id = _site_id_for_name(c, _site_name_from_row(r))
             c.execute(
                 """
-                INSERT INTO recorders(site_id, source, host, http_port, mac, modelo, fabricante, local, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(source, host, http_port) DO UPDATE SET
+                INSERT INTO recorders(tenant_slug, site_id, source, host, http_port, mac, modelo, fabricante, local, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(tenant_slug, source, host, http_port) DO UPDATE SET
                   site_id=excluded.site_id,
                   mac=excluded.mac,
                   modelo=excluded.modelo,
@@ -1130,6 +1123,7 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
                   updated_at=datetime('now')
                 """,
                 (
+                    tenant,
                     site_id,
                     src,
                     host,
@@ -1141,8 +1135,8 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
                 ),
             )
             rec = c.execute(
-                "SELECT id FROM recorders WHERE source=? AND host=? AND http_port=?",
-                (src, host, http_port),
+                "SELECT id FROM recorders WHERE tenant_slug=? AND source=? AND host=? AND http_port=?",
+                (tenant, src, host, http_port),
             ).fetchone()
             if not rec:
                 continue
@@ -1155,9 +1149,10 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
             c.execute(
                 """
                 INSERT INTO recorder_channels(
-                  recorder_id, channel, title, status, local, camera_ip, camera_mac, camera_model, snapshot_url, imgbb_url, raw_json, updated_at
-                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                  tenant_slug, recorder_id, channel, title, status, local, camera_ip, camera_mac, camera_model, snapshot_url, imgbb_url, raw_json, updated_at
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(recorder_id, channel) DO UPDATE SET
+                  tenant_slug=excluded.tenant_slug,
                   title=excluded.title,
                   status=excluded.status,
                   local=excluded.local,
@@ -1170,6 +1165,7 @@ def upsert_recorder_inventory_rows(source: str, rows: List[Dict[str, Any]]) -> D
                   updated_at=datetime('now')
                 """,
                 (
+                    tenant,
                     recorder_id,
                     channel,
                     str(r.get("title") or ""),
@@ -1192,17 +1188,18 @@ def clear_inventory_source(source: str) -> Dict[str, Any]:
     if src not in ("ip", "dvr", "nvr"):
         raise ValueError("source invalido (use ip|dvr|nvr)")
     init_db()
+    tenant = _current_tenant_slug()
     with _conn() as c:
         if src == "ip":
-            n = int(c.execute("DELETE FROM ip_cameras").rowcount or 0)
+            n = int(c.execute("DELETE FROM ip_cameras WHERE tenant_slug=?", (tenant,)).rowcount or 0)
             return {"ok": True, "source": src, "deleted": n}
         rec_ids = [
             int(r["id"])
-            for r in c.execute("SELECT id FROM recorders WHERE source=?", (src,)).fetchall()
+            for r in c.execute("SELECT id FROM recorders WHERE tenant_slug=? AND source=?", (tenant, src)).fetchall()
         ]
         if rec_ids:
             c.execute("DELETE FROM recorder_channels WHERE recorder_id IN ({})".format(",".join(["?"] * len(rec_ids))), rec_ids)
-        nrec = int(c.execute("DELETE FROM recorders WHERE source=?", (src,)).rowcount or 0)
+        nrec = int(c.execute("DELETE FROM recorders WHERE tenant_slug=? AND source=?", (tenant, src)).rowcount or 0)
         return {"ok": True, "source": src, "deleted_recorders": nrec}
 
 
@@ -1221,6 +1218,7 @@ def legacy_rows_from_db(source: str = "ip", site: str = "") -> List[Dict[str, An
     if src not in ("ip", "dvr", "nvr"):
         src = "ip"
     want_site = str(site or "").strip()
+    tenant = _current_tenant_slug()
     if _db_backend() == "sqlite" and not SIGHTOPS_DB_PATH.exists():
         return []
     with _conn() as c:
@@ -1229,10 +1227,11 @@ def legacy_rows_from_db(source: str = "ip", site: str = "") -> List[Dict[str, An
             SELECT ic.raw_json, COALESCE(s.name, '') AS site_name
             FROM ip_cameras ic
             LEFT JOIN sites s ON s.id = ic.site_id
-            WHERE (? = '' OR s.name = ? OR lower(trim(ic.local)) = lower(trim(?)))
+            WHERE ic.tenant_slug = ?
+              AND (? = '' OR s.name = ? OR lower(trim(ic.local)) = lower(trim(?)))
             ORDER BY ic.ip
             """
-            rows = c.execute(q, (want_site, want_site, want_site)).fetchall()
+            rows = c.execute(q, (tenant, want_site, want_site, want_site)).fetchall()
             out: List[Dict[str, Any]] = []
             for r in rows:
                 raw = str(r["raw_json"] or "").strip()
@@ -1255,10 +1254,11 @@ def legacy_rows_from_db(source: str = "ip", site: str = "") -> List[Dict[str, An
         FROM recorder_channels rc
         JOIN recorders r ON r.id = rc.recorder_id
         LEFT JOIN sites s ON s.id = r.site_id
-        WHERE r.source = ? AND (? = '' OR s.name = ? OR lower(trim(COALESCE(rc.local, r.local, ''))) = lower(trim(?)))
+        WHERE r.tenant_slug = ?
+          AND r.source = ? AND (? = '' OR s.name = ? OR lower(trim(COALESCE(rc.local, r.local, ''))) = lower(trim(?)))
         ORDER BY r.host, rc.channel
         """
-        rows2 = c.execute(q2, (src, want_site, want_site, want_site)).fetchall()
+        rows2 = c.execute(q2, (tenant, src, want_site, want_site, want_site)).fetchall()
         out2: List[Dict[str, Any]] = []
         for r in rows2:
             raw = str(r["raw_json"] or "").strip()
@@ -1280,6 +1280,7 @@ def legacy_rows_from_db(source: str = "ip", site: str = "") -> List[Dict[str, An
 def decorate_legacy_rows(source: str, rows: List[Dict[str, Any]], site: str = "") -> List[Dict[str, Any]]:
     src = str(source or "ip").strip().lower()
     want_site = str(site or "").strip().lower()
+    tenant = _current_tenant_slug()
     if not rows:
         return []
     if _db_backend() == "sqlite" and not SIGHTOPS_DB_PATH.exists():
@@ -1292,7 +1293,10 @@ def decorate_legacy_rows(source: str, rows: List[Dict[str, Any]], site: str = ""
                 SELECT ic.ip, COALESCE(s.name, '') AS site_name
                 FROM ip_cameras ic
                 LEFT JOIN sites s ON s.id = ic.site_id
+                WHERE ic.tenant_slug = ?
                 """
+                ,
+                (tenant,),
             ).fetchall()
             site_map = {str(r["ip"]): str(r["site_name"] or "") for r in mrows}
             for r in rows:
@@ -1315,9 +1319,9 @@ def decorate_legacy_rows(source: str, rows: List[Dict[str, Any]], site: str = ""
             FROM recorders r
             LEFT JOIN recorder_channels rc ON rc.recorder_id = r.id
             LEFT JOIN sites s ON s.id = r.site_id
-            WHERE r.source = ?
+            WHERE r.tenant_slug = ? AND r.source = ?
             """,
-            (src,),
+            (tenant, src),
         ).fetchall()
         site_map2 = {}
         for mr in mrows2:

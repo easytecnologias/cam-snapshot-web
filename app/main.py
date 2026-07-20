@@ -5,16 +5,17 @@ import contextlib
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.observability import RequestContextMiddleware, configure_logging
 from app.core.paths import SAIDA_DIR, DATA_DIR, ensure_dirs
-from app.core.security import ApiAuthMiddleware
+from app.core.security import AUTH_COOKIE_NAME, ApiAuthMiddleware
 from app.core.settings import get_settings
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
+from app.services.auth_store import get_user_by_token
 from app.services.auth_store import init_auth_db
 from app.services.db_store import init_db
 from app.services.maintenance_ping_service import maintenance_ping_hub
@@ -48,6 +49,19 @@ settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger("app.zabbix_status_sync")
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        if str(request.url.scheme or "").lower() == "https":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
+        return response
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -56,6 +70,7 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.enable_docs else None,
 )
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(ApiAuthMiddleware, settings=settings)
 
 allowed_origins = [item.strip() for item in settings.allowed_origins.split(",") if item.strip()]
@@ -208,8 +223,46 @@ def chrome_devtools_manifest() -> JSONResponse:
 
 # Static
 (DATA_DIR / "nvr_ai").mkdir(parents=True, exist_ok=True)
-app.mount("/saida", StaticFiles(directory=str(SAIDA_DIR)), name="saida")
-app.mount("/data/nvr_ai", StaticFiles(directory=str(DATA_DIR / "nvr_ai")), name="nvr_ai")
+
+
+def _request_token(request: Request) -> str:
+    raw = str(request.headers.get("authorization") or "").strip()
+    scheme, _, token = raw.partition(" ")
+    if scheme.lower() == "bearer" and token.strip():
+        return token.strip()
+    return str(request.cookies.get(AUTH_COOKIE_NAME) or "").strip()
+
+
+def _media_context(request: Request) -> tuple[bool, str]:
+    """(autorizado, tenant_slug) do dono da sessao.
+
+    Rotas de midia ficam fora de /api/, entao o ApiAuthMiddleware nao roda e o
+    contextvar de tenant nao esta populado -- o slug tem que sair do proprio
+    usuario, nunca de env global.
+    """
+    if not settings.auth_enabled:
+        return True, ""
+    token = _request_token(request)
+    if not token:
+        return False, ""
+    user = get_user_by_token(token)
+    if not user:
+        return False, ""
+    return True, str(user.get("tenant_slug") or "").strip().lower()
+
+
+# /saida e /data/nvr_ai NAO sao servidos por HTTP de proposito.
+#
+# Eram dois mounts estaticos de pasta inteira, sem escopo de tenant: qualquer
+# usuario logado de qualquer cliente conseguia ler arquivo de outro sabendo o
+# nome. Nada do produto consumia essas rotas -- o frontend nao as chama, e os
+# clipes de IA sao servidos por /api/playback/files/, que passa pelo middleware
+# de auth. SAIDA_DIR ainda guarda artefato operacional (inventario, dump de MAC
+# da OLT, CSV) e continua acessivel pelas APIs proprias de cada recurso.
+#
+# Se um dia for preciso servir frame/clipe da busca de IA, criar um endpoint
+# /api/... que resolva o arquivo dentro do tenant do usuario -- nunca reabrir um
+# mount de pasta.
 
 # Snapshots: URL estavel /data/snapshot/<arquivo> com fallback entre pastas.
 (DATA_DIR / "snapshot").mkdir(parents=True, exist_ok=True)
@@ -217,11 +270,15 @@ app.mount("/data/nvr_ai", StaticFiles(directory=str(DATA_DIR / "nvr_ai")), name=
 
 
 @app.get("/data/snapshot/{filename:path}", include_in_schema=False)
-def data_snapshot_file(filename: str) -> Response:
+def data_snapshot_file(filename: str, request: Request) -> Response:
     from pathlib import Path
 
+    authorized, tenant_slug = _media_context(request)
+    if not authorized:
+        return JSONResponse(status_code=401, content={"detail": "autenticacao obrigatoria"})
     name = Path(filename).name
     candidates = [
+        tenant_snapshot_dir("ip", tenant_slug) / name,
         DATA_DIR / "snapshot" / name,
         SAIDA_DIR / "snapshot" / name,
         SAIDA_DIR / "snapshot_manual" / name,
@@ -236,19 +293,17 @@ def data_snapshot_file(filename: str) -> Response:
 
 
 @app.get("/data/dvr_snapshot/{filename:path}", include_in_schema=False)
-def data_dvr_snapshot_file(filename: str) -> Response:
+def data_dvr_snapshot_file(filename: str, request: Request) -> Response:
     from pathlib import Path
 
+    authorized, tenant_slug = _media_context(request)
+    if not authorized:
+        return JSONResponse(status_code=401, content={"detail": "autenticacao obrigatoria"})
     name = Path(filename).name
-    candidates = [DATA_DIR / "dvr_snapshot" / name]
-    tenants_root = DATA_DIR / "tenants"
-    try:
-        if tenants_root.exists():
-            for tenant_dir in tenants_root.iterdir():
-                if tenant_dir.is_dir():
-                    candidates.append(tenant_snapshot_dir("dvr", tenant_dir.name) / name)
-    except Exception:
-        pass
+    candidates = [
+        tenant_snapshot_dir("dvr", tenant_slug) / name,
+        DATA_DIR / "dvr_snapshot" / name,
+    ]
     for p in candidates:
         try:
             if p.exists() and p.is_file():
@@ -259,19 +314,17 @@ def data_dvr_snapshot_file(filename: str) -> Response:
 
 
 @app.get("/data/nvr_snapshot/{filename:path}", include_in_schema=False)
-def data_nvr_snapshot_file(filename: str) -> Response:
+def data_nvr_snapshot_file(filename: str, request: Request) -> Response:
     from pathlib import Path
 
+    authorized, tenant_slug = _media_context(request)
+    if not authorized:
+        return JSONResponse(status_code=401, content={"detail": "autenticacao obrigatoria"})
     name = Path(filename).name
-    candidates = [DATA_DIR / "nvr_snapshot" / name]
-    tenants_root = DATA_DIR / "tenants"
-    try:
-        if tenants_root.exists():
-            for tenant_dir in tenants_root.iterdir():
-                if tenant_dir.is_dir():
-                    candidates.append(tenant_snapshot_dir("nvr", tenant_dir.name) / name)
-    except Exception:
-        pass
+    candidates = [
+        tenant_snapshot_dir("nvr", tenant_slug) / name,
+        DATA_DIR / "nvr_snapshot" / name,
+    ]
     for p in candidates:
         try:
             if p.exists() and p.is_file():

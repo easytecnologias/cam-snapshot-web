@@ -234,6 +234,17 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
     def norm_ip(i: Any) -> str:
         return str(i or "").strip()
 
+    def norm_site(row: dict[str, Any]) -> str:
+        return str(row.get("site") or row.get("site_name") or row.get("local") or "").strip().lower()
+
+    def is_remote(row: dict[str, Any]) -> bool:
+        return bool(str(row.get("remote_connector_id") or row.get("connector_id") or "").strip())
+
+    def is_placeholder_title(row: dict[str, Any], value: Any) -> bool:
+        title = str(value or "").strip()
+        ip = norm_ip(row.get("ip") or row.get("IP") or row.get("host"))
+        return not title or bool(ip and title == ip)
+
     merged: list[dict[str, Any]] = [dict(r) for r in (old_rows or [])]
 
     def find_match(nr: dict[str, Any]) -> int | None:
@@ -242,13 +253,19 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
             if inventory_row_key(r) == nkey:
                 return i
 
-        # Linhas remotas nunca devem casar somente por IP/MAC, pois redes privadas
-        # se repetem entre clientes.
-        if str(nr.get("remote_connector_id") or nr.get("connector_id") or "").strip():
-            return None
-
         nip = norm_ip(nr.get("ip") or nr.get("IP"))
         nmac = norm_mac(nr.get("mac") or nr.get("MAC"))
+        nsite = norm_site(nr)
+
+        # Linhas remotas nunca casam somente por IP/MAC: redes privadas se repetem
+        # entre clientes e sites. O unico match aceito e site+IP, que ja identifica
+        # o local; sem site, a linha e sempre nova.
+        if is_remote(nr):
+            if nip and nsite:
+                for i, r in enumerate(merged):
+                    if norm_site(r) == nsite and norm_ip(r.get("ip") or r.get("IP")) == nip:
+                        return i
+            return None
 
         # 1) IP+MAC
         for i, r in enumerate(merged):
@@ -274,7 +291,20 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
             merged.append(dict(nr))
         else:
             # novos valores sobrescrevem e mantem extras antigos
-            merged[j].update({k: v for k, v in nr.items() if v is not None})
+            for k, v in nr.items():
+                if v is None:
+                    continue
+                s = str(v or "").strip()
+                if not s:
+                    continue
+                if k in {"status", "health", "remote", "remote_connector_id", "remote_connector_name", "site", "site_name", "local"}:
+                    merged[j][k] = v
+                    continue
+                if k in {"titulo", "title"} and is_placeholder_title(nr, v) and not is_placeholder_title(merged[j], merged[j].get("titulo") or merged[j].get("title")):
+                    continue
+                if is_remote(nr) and str(merged[j].get(k) or "").strip() and k not in {"snapshot_url", "imgbb_url", "imgbb_thumb_url"}:
+                    continue
+                merged[j][k] = v
             if str(nr.get("status") or "").strip().lower() == "online":
                 merged[j].pop("error", None)
 
@@ -463,6 +493,8 @@ def _upload_imgbb_for_inventory(
         uploads = upload_to_imgbb(uniq_files, api_key=api_key, name_prefix="cam", name_map=name_map)
     except Exception as e:
         return rows, 0, str(e)
+    if not uploads:
+        return rows, 0, "ImgBB nao retornou URL para os snapshots enviados."
 
     by_file: dict[str, dict[str, Any]] = {}
     for u in uploads or []:
@@ -498,7 +530,10 @@ def _upload_imgbb_for_inventory(
         if cam_changed:
             changed += 1
 
-    return rows, changed, ""
+    err = ""
+    if changed < len(uniq_files):
+        err = f"{changed}/{len(uniq_files)} snapshots receberam URL do ImgBB."
+    return rows, changed, err
 
 
 def _cleanup_misplaced_dvr_snapshots() -> int:

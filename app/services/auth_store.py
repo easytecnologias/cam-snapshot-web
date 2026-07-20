@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from app.core.migrations import apply_migrations
 from app.core.paths import DATA_DIR
 
 try:
@@ -164,101 +165,13 @@ def _execute_on(c: Any, backend: str, query: str, params: tuple[Any, ...] = ()) 
     c.execute(_sql_for_backend(backend, query), params)
 
 
-_AUTH_SCHEMA_SQLITE = """
-CREATE TABLE IF NOT EXISTS tenants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slug TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    username TEXT NOT NULL UNIQUE,
-    full_name TEXT DEFAULT '',
-    email TEXT DEFAULT '',
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'viewer',
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS auth_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL UNIQUE,
-    label TEXT DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT NOT NULL,
-    revoked_at TEXT DEFAULT NULL,
-    last_seen_at TEXT DEFAULT NULL
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id INTEGER REFERENCES tenants(id) ON DELETE SET NULL,
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action TEXT NOT NULL,
-    resource_type TEXT DEFAULT '',
-    resource_id TEXT DEFAULT '',
-    detail_json TEXT DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-"""
 
 
-_AUTH_SCHEMA_POSTGRES = """
-CREATE TABLE IF NOT EXISTS tenants (
-    id BIGSERIAL PRIMARY KEY,
-    slug TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id BIGSERIAL PRIMARY KEY,
-    tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    username TEXT NOT NULL UNIQUE,
-    full_name TEXT DEFAULT '',
-    email TEXT DEFAULT '',
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'viewer',
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS auth_tokens (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL UNIQUE,
-    label TEXT DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TEXT NOT NULL,
-    revoked_at TEXT DEFAULT NULL,
-    last_seen_at TEXT DEFAULT NULL
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-    id BIGSERIAL PRIMARY KEY,
-    tenant_id BIGINT REFERENCES tenants(id) ON DELETE SET NULL,
-    user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    action TEXT NOT NULL,
-    resource_type TEXT DEFAULT '',
-    resource_id TEXT DEFAULT '',
-    detail_json TEXT DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-"""
 
 
 def init_auth_db() -> Dict[str, Any]:
     with _conn() as c:
-        _init_auth_db_on_connection(c, _auth_backend())
+        status = _init_auth_db_on_connection(c, _auth_backend())
         tenant_count = int((_fetchone(c, "SELECT COUNT(1) AS n FROM tenants") or {}).get("n") or 0)
         user_count = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
     return {
@@ -266,19 +179,23 @@ def init_auth_db() -> Dict[str, Any]:
         "backend": _auth_backend(),
         "tenants": tenant_count,
         "users": user_count,
+        "schema_version": status.get("current_version"),
+        "migrations_applied": status.get("applied_now"),
+        "migrations_adopted": status.get("adopted"),
         "db_path": _sqlite_auth_path() if _auth_backend() == "sqlite" else "",
         "database_url": _redact_url_secret(_postgres_auth_url()) if _auth_backend() == "postgres" else "",
     }
 
 
-def _init_auth_db_on_connection(c: Any, backend: str) -> None:
-    if str(backend or "sqlite").strip().lower() == "postgres":
-        for stmt in [x.strip() for x in _AUTH_SCHEMA_POSTGRES.split(";") if x.strip()]:
-            c.execute(stmt)
-        _ensure_default_bootstrap_user(c)
-        return
-    c.executescript(_AUTH_SCHEMA_SQLITE)
+def _init_auth_db_on_connection(c: Any, backend: str) -> Dict[str, Any]:
+    status = apply_migrations(
+        c,
+        backend=backend,
+        component="auth",
+        adopt_probe_tables=("tenants", "users"),
+    )
     _ensure_default_bootstrap_user(c)
+    return status
 
 
 def _backend_meta(backend: str) -> Dict[str, str]:
@@ -402,13 +319,22 @@ def _slugify(text: str) -> str:
     return s.strip("-") or "default"
 
 
-def _pbkdf2(password: str, salt: bytes, rounds: int = 120_000) -> bytes:
+def _password_hash_rounds() -> int:
+    raw = str(os.getenv("AUTH_PASSWORD_HASH_ROUNDS", "310000")).strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 310000
+    return max(120000, min(value, 1000000))
+
+
+def _pbkdf2(password: str, salt: bytes, rounds: int = 310_000) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
 
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    rounds = 120_000
+    rounds = _password_hash_rounds()
     derived = _pbkdf2(password, salt, rounds=rounds)
     return f"pbkdf2_sha256${rounds}${base64.b64encode(salt).decode()}${base64.b64encode(derived).decode()}"
 
@@ -446,10 +372,116 @@ def _ensure_tenant(c: Any, slug: str, name: str) -> int:
     return int(row["id"]) if row else 0
 
 
+def list_tenants(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Lista clientes SaaS.
+
+    Owner enxerga todos os clientes para operacao/admin. Admin comum fica
+    restrito ao proprio tenant para evitar vazamento entre clientes.
+    """
+    init_auth_db()
+    actor_role = str(actor.get("role") or "").strip().lower()
+    with _conn() as c:
+        if actor_role == "owner":
+            return _fetchall(
+                c,
+                """
+                SELECT t.id, t.slug, t.name, t.active, t.created_at,
+                       COUNT(u.id) AS users
+                FROM tenants t
+                LEFT JOIN users u ON u.tenant_id = t.id
+                GROUP BY t.id, t.slug, t.name, t.active, t.created_at
+                ORDER BY t.name
+                """,
+            )
+        return _fetchall(
+            c,
+            """
+            SELECT t.id, t.slug, t.name, t.active, t.created_at,
+                   COUNT(u.id) AS users
+            FROM tenants t
+            LEFT JOIN users u ON u.tenant_id = t.id
+            WHERE t.id=?
+            GROUP BY t.id, t.slug, t.name, t.active, t.created_at
+            """,
+            (int(actor["tenant_id"]),),
+        )
+
+
+def create_tenant(
+    actor: Dict[str, Any],
+    slug: str,
+    name: str,
+    owner_username: str = "",
+    owner_password: str = "",
+    owner_full_name: str = "",
+    owner_email: str = "",
+) -> Dict[str, Any]:
+    """Cria um cliente SaaS e opcionalmente o primeiro owner dele."""
+    if str(actor.get("role") or "").strip().lower() != "owner":
+        raise ValueError("somente owner pode criar clientes")
+    s = _slugify(slug or name)
+    n = str(name or slug or "").strip()
+    if not n:
+        raise ValueError("nome do cliente obrigatorio")
+    owner_user = str(owner_username or "").strip()
+    if bool(owner_user) != bool(str(owner_password or "").strip()):
+        raise ValueError("usuario e senha do owner devem ser informados juntos")
+    if owner_user and len(str(owner_password or "")) < 8:
+        raise ValueError("senha do owner deve ter ao menos 8 caracteres")
+
+    init_auth_db()
+    with _conn() as c:
+        existing = _fetchone(c, "SELECT id FROM tenants WHERE slug=?", (s,))
+        if existing:
+            raise ValueError("cliente ja existe")
+        tenant_id = _ensure_tenant(c, s, n)
+        created_user: Dict[str, Any] | None = None
+        if owner_user:
+            if _fetchone(c, "SELECT id FROM users WHERE username=?", (owner_user,)):
+                raise ValueError("username ja existe")
+            _execute(
+                c,
+                """
+                INSERT INTO users(tenant_id, username, full_name, email, password_hash, role, active, updated_at)
+                VALUES(?, ?, ?, ?, ?, 'owner', 1, ?)
+                """,
+                (
+                    tenant_id,
+                    owner_user,
+                    str(owner_full_name or "").strip(),
+                    str(owner_email or "").strip(),
+                    hash_password(str(owner_password or "")),
+                    _utc_text(_utc_now()),
+                ),
+            )
+            created_user = _fetchone(
+                c,
+                """
+                SELECT id, username, full_name, email, role, active
+                FROM users
+                WHERE tenant_id=? AND username=?
+                """,
+                (tenant_id, owner_user),
+            )
+        _audit(
+            c,
+            action="tenant.create",
+            tenant_id=tenant_id,
+            user_id=int(actor["id"]),
+            resource_type="tenant",
+            resource_id=s,
+        )
+        tenant = _fetchone(c, "SELECT id, slug, name, active, created_at FROM tenants WHERE id=?", (tenant_id,))
+    return {"tenant": tenant or {}, "owner_user": created_user or None}
+
+
 def _ensure_default_bootstrap_user(c: Any) -> None:
     existing = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
     if existing > 0:
         _disable_default_bootstrap_users_when_real_admin_exists(c)
+        return
+    app_env = str(os.getenv("APP_ENV", "development")).strip().lower()
+    if app_env == "production" and not str(os.getenv("AUTH_DEFAULT_ADMIN_PASSWORD") or "").strip():
         return
     username = _default_bootstrap_username()
     password = _default_bootstrap_password()

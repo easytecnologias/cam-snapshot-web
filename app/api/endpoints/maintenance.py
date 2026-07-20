@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import re
+import ipaddress
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -139,6 +140,37 @@ def _persist_ip_change(old_ip: str, new_ip: str) -> None:
         save_inventory_json(rows)
 
 
+def _valid_ipv4(value: str) -> bool:
+    try:
+        ipaddress.IPv4Address(_as_str(value))
+        return True
+    except Exception:
+        return False
+
+
+def _valid_netmask(mask: str) -> bool:
+    try:
+        ipaddress.IPv4Network(f"0.0.0.0/{_as_str(mask)}")
+        return True
+    except Exception:
+        return False
+
+
+def _camera_network_guard(new_ip: str, mask: str, gateway: str) -> str:
+    if not _valid_ipv4(new_ip):
+        return "new_ip invalido"
+    if not _valid_netmask(mask):
+        return "mascara invalida"
+    if not _valid_ipv4(gateway):
+        return "gateway invalido"
+
+    addr = ipaddress.IPv4Address(new_ip)
+    cameras_net = ipaddress.IPv4Network("10.10.8.0/22")
+    if addr in cameras_net and (mask != "255.255.252.0" or gateway != "10.10.10.1"):
+        return "rede 10.10.8.0/22 exige mascara 255.255.252.0 e gateway 10.10.10.1"
+    return ""
+
+
 def _change_ip_one(
     ip: str,
     new_ip: str,
@@ -158,12 +190,15 @@ def _change_ip_one(
         return {"ok": False, "ip": ip, "new_ip": new_ip, "error": "ip e new_ip sao obrigatorios"}
     if not user or not password:
         return {"ok": False, "ip": ip, "new_ip": new_ip, "error": "user e pass sao obrigatorios"}
+    if not _as_str(mask) or not _as_str(gateway):
+        return {"ok": False, "ip": ip, "new_ip": new_ip, "error": "mascara e gateway sao obrigatorios"}
+    guard = _camera_network_guard(new_ip, _as_str(mask), _as_str(gateway))
+    if guard:
+        return {"ok": False, "ip": ip, "new_ip": new_ip, "error": guard}
 
     params = [f"Network.eth0.IPAddress={quote(new_ip)}"]
-    if _as_str(mask):
-        params.append(f"Network.eth0.SubnetMask={quote(_as_str(mask))}")
-    if _as_str(gateway):
-        params.append(f"Network.eth0.DefaultGateway={quote(_as_str(gateway))}")
+    params.append(f"Network.eth0.SubnetMask={quote(_as_str(mask))}")
+    params.append(f"Network.eth0.DefaultGateway={quote(_as_str(gateway))}")
     if _as_str(dns1):
         params.append(f"Network.eth0.DnsServers[0]={quote(_as_str(dns1))}")
     if _as_str(dns2):
@@ -874,14 +909,30 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
 
 
 @router.post("/maintenance/stream_register/{ip}")
-def maintenance_stream_register(ip: str, user: str = "admin", password: str = "", subtype: int = 1):
+def maintenance_stream_register(
+    ip: str,
+    user: str = "admin",
+    password: str = "",
+    subtype: int = 1,
+    vendor: str = "",
+    model: str = "",
+):
     """Registra câmera no go2rtc e retorna o nome do stream para WebRTC."""
     from fastapi.responses import JSONResponse
     import requests as _req
+    from urllib.parse import quote
 
     st = 0 if subtype == 0 else 1
     stream_name = f"cam_{ip.replace('.', '_')}_{st}"
-    rtsp_url = f"rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype={st}"
+    user_q = quote(str(user or "admin"), safe="")
+    pass_q = quote(str(password or ""), safe="")
+    hint = f"{vendor or ''} {model or ''}".lower()
+    if "hikvision" in hint or "ds-2" in hint or "ipc-" in hint:
+        channel = "101" if st == 0 else "102"
+        rtsp_path = f"/Streaming/Channels/{channel}"
+    else:
+        rtsp_path = f"/cam/realmonitor?channel=1&subtype={st}"
+    rtsp_url = f"rtsp://{user_q}:{pass_q}@{ip}:554{rtsp_path}"
     # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
     source_url = f"ffmpeg:{rtsp_url}#video=h264#audio=opus"
 
@@ -1002,21 +1053,6 @@ def maintenance_batch_video_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": fail_n == 0, "message": f"Qualidade de vídeo: {ok_n} ok, {fail_n} falhas.", "results": results}
 
 
-def _change_ip_one(ip: str, user: str, password: str,
-                   new_ip: str, mask: str = "255.255.255.0", gateway: str = "") -> Dict[str, Any]:
-    if not gateway:
-        parts = new_ip.rsplit(".", 1)
-        gateway = parts[0] + ".1"
-    path = (
-        f"/cgi-bin/configManager.cgi?action=setConfig"
-        f"&Network.eth0.IPAddress={new_ip}"
-        f"&Network.eth0.SubnetMask={mask}"
-        f"&Network.eth0.DefaultGateway={gateway}"
-    )
-    ok, txt = _cam_get(ip, user, password, path, timeout=8)
-    return {"ip": ip, "new_ip": new_ip, "ok": ok, "msg": txt.strip() if ok else txt}
-
-
 @router.post("/maintenance/batch/network_config")
 def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     targets  = payload.get("targets", [])   # [{old_ip, new_ip}]
@@ -1032,9 +1068,18 @@ def maintenance_batch_network_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     for t in targets:
         old_ip = _as_str(t.get("old_ip", ""))
         new_ip = _as_str(t.get("new_ip", "")) or old_ip
-        use_mask    = mask or "255.255.255.0"
+        use_mask    = mask
         use_gateway = gateway
-        r = _change_ip_one(old_ip, user, password, new_ip, use_mask, use_gateway)
+        r = _change_ip_one(
+            ip=old_ip,
+            new_ip=new_ip,
+            mask=use_mask,
+            gateway=use_gateway,
+            dns1="",
+            dns2="",
+            user=user,
+            password=password,
+        )
         results.append(r)
 
     ok_n   = sum(1 for r in results if r.get("ok"))
@@ -1050,7 +1095,7 @@ def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
     delta      = int(payload.get("delta", 1))
     user       = _as_str(payload.get("user", "admin"))
     password   = _as_str(payload.get("pass", ""))
-    mask       = _as_str(payload.get("mask", "255.255.255.0"))
+    mask       = _as_str(payload.get("mask", ""))
     gateway    = _as_str(payload.get("gateway", ""))
 
     if not prefix or start < 1 or end > 254 or start > end or delta == 0:
@@ -1068,7 +1113,16 @@ def maintenance_batch_shift_ips(payload: Dict[str, Any]) -> Dict[str, Any]:
         if new_oct < 1 or new_oct > 254:
             results.append({"ip": old_ip, "new_ip": new_ip, "ok": False, "msg": "Octet fora do intervalo (1–254)"})
             continue
-        r = _change_ip_one(old_ip, user, password, new_ip, mask, gateway)
+        r = _change_ip_one(
+            ip=old_ip,
+            new_ip=new_ip,
+            mask=mask,
+            gateway=gateway,
+            dns1="",
+            dns2="",
+            user=user,
+            password=password,
+        )
         results.append(r)
 
     ok_n   = sum(1 for r in results if r.get("ok"))
