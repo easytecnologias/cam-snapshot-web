@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+  bindPlanningUi();
   lucide.createIcons();
   initNavGroups();
   hydrateResponsiveTables();

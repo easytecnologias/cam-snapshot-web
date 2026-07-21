@@ -194,6 +194,7 @@ const VIEW_META = {
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
   'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
+  planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
@@ -225,6 +226,7 @@ const VIEW_ID_MAP = {
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
   'net-operate':    'viewNetOperate',
+  planning:         'viewPlanning',
   'deploy-olt':     'viewDeployOlt',
   'deploy-onu':     'viewDeployOnu',
   'deploy-recorder':'viewDeployRecorder',
@@ -288,6 +290,7 @@ function loadView(view) {
     case 'switch':      loadSwitch();       break;
     case 'kmz':         loadKmz();          break;
     case 'net-operate': loadNetOperate();   break;
+    case 'planning':    loadPlanning();     break;
     case 'deploy-olt':  loadDeployOlt();    break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;

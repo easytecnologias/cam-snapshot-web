@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=102">
+  <link rel="stylesheet" href="styles.css?v=103">
 </head>
 <body>
 
@@ -57,6 +57,7 @@
 
         <!-- Implantacao -->
         <div class="nav-section-label">Implantacao</div>
+        <button class="nav-item" data-view="planning"><i data-lucide="drafting-compass"></i><span>Projetos</span></button>
         <button class="nav-item" data-view="deploy-olt"><i data-lucide="radio-tower"></i><span>OLT</span></button>
         <button class="nav-item" data-view="deploy-onu"><i data-lucide="wifi"></i><span>ONU</span></button>
         <button class="nav-item" data-view="deploy-recorder"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
@@ -2016,6 +2017,84 @@
               <button class="secondary-action" id="btnClearNetToolLog" type="button"><i data-lucide="eraser"></i> Limpar</button>
             </div>
             <div id="netToolLog" class="network-tool-terminal">Nenhum teste executado ainda.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: PROJETOS / PLANEJAMENTO --- -->
+      <section class="workspace hidden planning-view" id="viewPlanning">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Planejamento</p>
+            <h1>Projetos de CFTV</h1>
+            <p>Desenhe o parque antes da instalacao. Itens planejados nao entram no inventario nem no monitoramento.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnPlanningRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            <button class="primary-action" id="btnPlanningNew"><i data-lucide="plus"></i> Novo projeto</button>
+          </div>
+        </div>
+
+        <div class="planning-layout">
+          <aside class="panel planning-projects-panel">
+            <div class="panel-header">
+              <div><h2>Projetos</h2><p id="planningProjectCount">Nenhum projeto.</p></div>
+            </div>
+            <div class="planning-project-list" id="planningProjectList"></div>
+          </aside>
+
+          <div class="planning-main">
+            <div class="panel planning-empty" id="planningEmpty">
+              <i data-lucide="drafting-compass"></i>
+              <h2>Comece criando um projeto</h2>
+              <p>Depois adicione sites, importe o KMZ e gere cameras por faixa de IP ou CSV.</p>
+              <button class="primary-action" type="button" onclick="openPlanningProjectModal(true)"><i data-lucide="plus"></i> Criar projeto</button>
+            </div>
+
+            <div class="planning-detail hidden" id="planningDetail">
+              <div class="panel planning-summary">
+                <div class="planning-summary-head">
+                  <div><span class="planning-status" id="planningStatus">Rascunho</span><h2 id="planningTitle">Projeto</h2><p id="planningSubtitle"></p></div>
+                  <div class="planning-actions">
+                    <button class="secondary-action" id="btnPlanningEdit"><i data-lucide="pencil"></i> Editar</button>
+                    <button class="secondary-action" id="btnPlanningSite"><i data-lucide="map-pin-plus"></i> Site</button>
+                    <button class="secondary-action" id="btnPlanningKmz"><i data-lucide="map"></i> Importar KMZ</button>
+                    <button class="icon-button danger" id="btnPlanningDelete" aria-label="Excluir projeto"><i data-lucide="trash-2"></i></button>
+                  </div>
+                </div>
+                <div class="planning-kpis">
+                  <div><span>Sites</span><strong id="planningSitesKpi">0</strong></div>
+                  <div><span>Cameras</span><strong id="planningCamerasKpi">0</strong></div>
+                  <div><span>ONUs / ONTs</span><strong id="planningOnusKpi">0</strong></div>
+                  <div><span>Total planejado</span><strong id="planningDevicesKpi">0</strong></div>
+                </div>
+              </div>
+
+              <div class="planning-work-grid">
+                <div class="panel planning-devices-panel">
+                  <div class="panel-header planning-devices-head">
+                    <div><h2>Equipamentos planejados</h2><p>Revise IP, modelo, site e vinculo antes da implantacao.</p></div>
+                    <div class="planning-actions">
+                      <button class="secondary-action" id="btnPlanningCsv"><i data-lucide="file-spreadsheet"></i> Importar CSV</button>
+                      <button class="secondary-action" id="btnPlanningAdd"><i data-lucide="plus"></i> Adicionar</button>
+                      <button class="primary-action" id="btnPlanningGenerate"><i data-lucide="list-plus"></i> Gerar em lote</button>
+                    </div>
+                  </div>
+                  <div class="planning-filters">
+                    <div class="search-wrap"><i data-lucide="search"></i><input id="planningSearch" placeholder="Buscar nome, IP, modelo ou site"></div>
+                    <select id="planningTypeFilter"><option value="">Todos os tipos</option><option value="camera">Cameras</option><option value="onu">ONUs</option><option value="olt">OLTs</option><option value="switch">Switches</option><option value="recorder">Gravadores</option></select>
+                    <select id="planningSiteFilter"><option value="">Todos os sites</option></select>
+                  </div>
+                  <div class="planning-device-list" id="planningDeviceList"></div>
+                </div>
+
+                <div class="panel planning-map-panel">
+                  <div class="panel-header"><div><h2>Mapa do projeto</h2><p id="planningMapHint">Importe um KMZ ou informe coordenadas.</p></div></div>
+                  <div id="planningMap"></div>
+                  <div class="planning-map-legend"><span><i class="dot camera"></i> Camera</span><span><i class="dot onu"></i> ONU</span><span><i class="dot infra"></i> Infraestrutura</span></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -4181,6 +4260,7 @@
   <script src="js/deployOlt.js?v=155"></script>
   <script src="js/connectors.js?v=144"></script>
   <script src="js/monitoring.js?v=8"></script>
+  <script src="js/planning.js?v=1"></script>
   <script src="js/helpers.js?v=141"></script>
   <script src="js/bootstrap.js?v=152"></script>
 </body>

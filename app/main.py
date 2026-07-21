@@ -47,6 +47,7 @@ from app.api.endpoints import (
     network_tools_router,
     deployments_router,
     monitoring_router,
+    planning_router,
 )
 
 ensure_dirs()
@@ -110,6 +111,7 @@ app.include_router(connectors_router)
 app.include_router(network_tools_router)
 app.include_router(deployments_router)
 app.include_router(monitoring_router)
+app.include_router(planning_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
