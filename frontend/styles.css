@@ -5440,10 +5440,12 @@ body.cam-live-lock {
 }
 /* ── PROJETOS / PLANEJAMENTO ── */
 .planning-view { min-width: 0; }
-.planning-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+.planning-layout { display: grid; grid-template-columns: 238px minmax(0, 1fr); gap: 16px; align-items: start; }
+.planning-view .panel { margin-bottom: 0; }
 .planning-projects-panel { position: sticky; top: 84px; min-width: 0; overflow: hidden; }
-.planning-project-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 260px); padding: 12px; overflow-y: auto; }
-.planning-project-card { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface); text-align: left; }
+.planning-projects-panel .panel-header { padding: 14px 16px; }
+.planning-project-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 240px); padding: 10px; overflow-y: auto; }
+.planning-project-card { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 4px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--text); background: var(--surface); text-align: left; }
 .planning-project-card:hover { border-color: #9dd8c4; background: var(--surface-soft); }
 .planning-project-card.active { border-color: #48b391; box-shadow: inset 3px 0 var(--primary); background: var(--primary-soft); }
 .planning-project-card-top { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
@@ -5456,26 +5458,29 @@ body.cam-live-lock {
 .planning-empty h2 { margin: 0 0 6px; }
 .planning-empty p { max-width: 430px; margin: 0 0 18px; color: var(--muted); }
 .planning-detail { display: flex; flex-direction: column; gap: 16px; }
-.planning-summary { padding: 20px; }
+.planning-summary { padding: 16px 18px; }
 .planning-summary-head { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.planning-summary-head h2 { margin: 5px 0 3px; font-size: 21px; }
+.planning-summary-head h2 { margin: 5px 0 2px; font-size: 20px; }
 .planning-summary-head p { margin: 0; color: var(--muted); }
 .planning-status { display: inline-flex; padding: 4px 8px; border-radius: 999px; color: var(--primary); background: var(--primary-soft); font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .planning-status[data-status="draft"] { color: #52616a; background: #edf1f3; }
 .planning-status[data-status="approved"] { color: var(--blue); background: var(--blue-soft); }
 .planning-status[data-status="deploying"] { color: var(--amber); background: var(--amber-soft); }
 .planning-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
-.planning-actions button { min-height: 40px; }
-.planning-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
-.planning-kpis > div { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+.planning-actions button { min-height: 38px; }
+.planning-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.planning-kpis > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .planning-kpis span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-.planning-kpis strong { font-size: 24px; }
-.planning-work-grid { display: grid; grid-template-columns: minmax(540px, 1.35fr) minmax(350px, .85fr); gap: 16px; align-items: stretch; }
-.planning-devices-panel, .planning-map-panel { display: flex; min-height: 590px; flex-direction: column; overflow: hidden; }
+.planning-kpis strong { font-size: 22px; }
+.planning-work-grid { display: grid; grid-template-columns: minmax(560px, 1.45fr) minmax(380px, .9fr); gap: 16px; align-items: stretch; }
+.planning-devices-panel, .planning-map-panel { display: flex; min-height: 540px; flex-direction: column; overflow: hidden; }
 .planning-devices-head { align-items: center; }
-.planning-filters { display: grid; grid-template-columns: minmax(220px, 1fr) 160px 170px; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-.planning-filters .search-wrap { min-width: 0; }
+.planning-filters { display: grid; grid-template-columns: minmax(250px, 1fr) 160px 170px; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.planning-filters .search-wrap { position: relative; display: block; min-width: 0; height: 42px; }
+.planning-filters .search-wrap svg { position: absolute; top: 50%; left: 12px; z-index: 1; width: 17px; height: 17px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .planning-filters input, .planning-filters select { width: 100%; min-width: 0; height: 42px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface); }
+.planning-filters input { padding: 0 12px 0 38px; }
+.planning-filters select { padding: 0 34px 0 12px; }
 .planning-device-list { flex: 1; min-height: 0; max-height: 580px; overflow-y: auto; }
 .planning-device-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .planning-device-row:last-child { border-bottom: 0; }
@@ -5492,7 +5497,7 @@ body.cam-live-lock {
 .planning-device-parent { color: var(--muted); font-size: 12px; }
 .planning-row-actions { display: flex; align-items: center; gap: 4px; padding-right: 10px; }
 .planning-list-empty { display: flex; min-height: 150px; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 24px; color: var(--muted); text-align: center; }
-.planning-map-panel #planningMap { flex: 1; min-height: 500px; z-index: 0; background: #e9eef1; }
+.planning-map-panel #planningMap { flex: 1; min-height: 450px; z-index: 0; background: #e9eef1; }
 .planning-map-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .planning-map-legend span { display: flex; align-items: center; gap: 6px; }
 .planning-map-legend .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); }
@@ -5521,7 +5526,7 @@ body.cam-live-lock {
 .planning-csv-example code { display: block; overflow-x: auto; padding: 10px; border-radius: 6px; color: #dce7eb; background: var(--sidebar); white-space: nowrap; }
 
 @media (max-width: 1280px) {
-  .planning-layout { grid-template-columns: 240px minmax(0, 1fr); }
+  .planning-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .planning-work-grid { grid-template-columns: 1fr; }
   .planning-map-panel { min-height: 480px; }
   .planning-device-focus { grid-template-columns: 42px minmax(150px, 1.4fr) 108px minmax(120px, 1fr); }
