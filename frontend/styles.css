@@ -5472,8 +5472,13 @@ body.cam-live-lock {
 .planning-kpis > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .planning-kpis span { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .planning-kpis strong { font-size: 22px; }
-.planning-work-grid { display: grid; grid-template-columns: minmax(560px, 1.45fr) minmax(380px, .9fr); gap: 16px; align-items: stretch; }
+.planning-work-grid { display: grid; grid-template-columns: minmax(560px, 1.45fr) minmax(380px, .9fr); gap: 16px; align-items: start; }
 .planning-devices-panel, .planning-map-panel { display: flex; min-height: 540px; flex-direction: column; overflow: hidden; }
+.planning-devices-panel .panel-header, .planning-map-panel .panel-header { padding: 14px 16px; }
+.planning-devices-panel.is-empty { min-height: 0; }
+.planning-devices-panel.is-empty .planning-filters { display: none; }
+.planning-devices-panel.is-empty .planning-device-list { flex: none; }
+.planning-devices-panel.is-empty .planning-list-empty { min-height: 112px; padding: 20px 16px; }
 .planning-devices-head { align-items: center; }
 .planning-filters { display: grid; grid-template-columns: minmax(250px, 1fr) 160px 170px; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .planning-filters .search-wrap { position: relative; display: block; min-width: 0; height: 42px; }
@@ -5496,7 +5501,7 @@ body.cam-live-lock {
 .planning-device-ip { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; white-space: nowrap; }
 .planning-device-parent { color: var(--muted); font-size: 12px; }
 .planning-row-actions { display: flex; align-items: center; gap: 4px; padding-right: 10px; }
-.planning-list-empty { display: flex; min-height: 150px; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 24px; color: var(--muted); text-align: center; }
+.planning-list-empty { display: flex; min-height: 132px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 20px; color: var(--muted); text-align: center; }
 .planning-map-panel #planningMap { flex: 1; min-height: 450px; z-index: 0; background: #e9eef1; }
 .planning-map-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .planning-map-legend span { display: flex; align-items: center; gap: 6px; }

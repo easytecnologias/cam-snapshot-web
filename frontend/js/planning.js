@@ -124,6 +124,7 @@ function renderPlanningDevices() {
   const box = document.getElementById('planningDeviceList');
   if (!box) return;
   const rows = filteredPlanningDevices();
+  box.closest('.planning-devices-panel')?.classList.toggle('is-empty', rows.length === 0);
   if (!rows.length) {
     box.innerHTML = '<div class="planning-list-empty"><strong>Nenhum equipamento encontrado.</strong><span>Adicione manualmente, importe um CSV ou gere cameras em lote.</span></div>';
     return;
