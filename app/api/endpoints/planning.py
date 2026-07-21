@@ -23,6 +23,12 @@ def projects_list() -> Dict[str, Any]:
     return {"ok": True, "count": len(items), "items": items}
 
 
+@router.get("/catalog")
+def equipment_catalog() -> Dict[str, Any]:
+    items = planning_service.list_equipment_catalog()
+    return {"ok": True, "count": len(items), "items": items}
+
+
 @router.post("/projects")
 def projects_create(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:

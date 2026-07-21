@@ -63,6 +63,9 @@ def main() -> None:
         check(len(detail.get("sites") or []) == 2, "site do CSV nao foi criado")
         check(len(detail.get("devices") or []) == 6, "total de equipamentos planejados incorreto")
         check(planning_service.list_projects()[0]["cameras_count"] == 4, "contador de cameras duplicou pelos sites")
+        catalog = planning_service.list_equipment_catalog()
+        check(any(row["device_type"] == "camera" and row["manufacturer"] == "Intelbras" and row["model"] == "VIP 3230 B" for row in catalog), "catalogo nao trouxe modelo usado no projeto")
+        check(any(row["device_type"] == "olt" and row["model"] == "8820i" for row in catalog), "catalogo conhecido nao trouxe modelo de OLT")
     finally:
         reset_current_tenant_slug(token)
 

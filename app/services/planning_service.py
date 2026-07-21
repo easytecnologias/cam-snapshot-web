@@ -13,6 +13,43 @@ from app.services.db_store import _conn, _current_tenant_slug
 PROJECT_STATUSES = {"draft", "planned", "approved", "deploying", "completed"}
 DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "recorder", "box", "pole", "other"}
 
+KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
+    "camera": {
+        "Intelbras": ["VIP 1130 B G2", "VIP 1230 B G2", "VIP 3220 B", "VIP 3230 B", "VIP 3240 Z G2", "VIP 5230 SD"],
+        "Hikvision": ["DS-2CD1023G0-I", "DS-2CD1123G0E-I", "DS-2CD2143G2-I"],
+        "Dahua": ["IPC-HFW1230S", "IPC-HDW1230T", "IPC-HFW2431S-S2"],
+        "Giga Security": ["GS0045", "GS0052"],
+    },
+    "onu": {
+        "Intelbras": ["R1", "R1v2", "110Gi", "121W"],
+        "FiberHome": ["AN5506-01-A", "AN5506-02-B", "HG6143D"],
+        "Huawei": ["EG8010H", "EG8120L", "HG8245H"],
+        "ZTE": ["F601", "F660", "F670L"],
+    },
+    "ont": {
+        "Intelbras": ["110Gi", "121W"],
+        "Huawei": ["EG8120L", "HG8245H"],
+        "ZTE": ["F660", "F670L"],
+    },
+    "olt": {
+        "Intelbras": ["8820i", "4840E"],
+        "FiberHome": ["AN5516-01", "AN5516-04"],
+        "Huawei": ["MA5608T", "MA5800-X7"],
+        "ZTE": ["C320", "C600"],
+    },
+    "switch": {
+        "Intelbras": ["S1026F-P", "S2328G-B", "SG 2404 PoE L2+"],
+        "MikroTik": ["CRS112-8P-4S-IN", "CRS328-24P-4S+RM"],
+        "Ubiquiti": ["USW-24-POE", "USW-Pro-24-POE"],
+        "TP-Link": ["TL-SG2428P", "TL-SG3428XMP"],
+    },
+    "recorder": {
+        "Intelbras": ["NVD 1232", "NVD 1432", "NVD 3116 P", "MHDX 1216", "MHDX 1232"],
+        "Hikvision": ["DS-7616NI-K2", "DS-7732NI-K4"],
+        "Dahua": ["NVR4216-4KS2", "NVR4232-4KS2"],
+    },
+}
+
 
 def _project_row(row: Any) -> Dict[str, Any]:
     item = dict(row)
@@ -50,6 +87,39 @@ def list_projects() -> List[Dict[str, Any]]:
             (tenant,),
         ).fetchall()
     return [_project_row(row) for row in rows]
+
+
+def list_equipment_catalog() -> List[Dict[str, str]]:
+    """Une sugestoes conhecidas com fabricante/modelo ja usados pelo tenant."""
+    tenant = _current_tenant_slug()
+    values: set[tuple[str, str, str, str]] = set()
+    for device_type, manufacturers in KNOWN_CATALOG.items():
+        for manufacturer, models in manufacturers.items():
+            for model in models:
+                values.add((device_type, manufacturer, model, "known"))
+
+    with _conn() as c:
+        queries = (
+            ("SELECT device_type, manufacturer, model FROM planning_devices WHERE tenant_slug=?", (tenant,), "project"),
+            ("SELECT 'camera' AS device_type, fabricante AS manufacturer, modelo AS model FROM ip_cameras WHERE tenant_slug=?", (tenant,), "inventory"),
+            ("SELECT 'olt' AS device_type, vendor AS manufacturer, model FROM olts WHERE tenant_slug=?", (tenant,), "inventory"),
+            ("SELECT 'recorder' AS device_type, fabricante AS manufacturer, modelo AS model FROM recorders WHERE tenant_slug=?", (tenant,), "inventory"),
+        )
+        for query, params, source in queries:
+            try:
+                for row in c.execute(query, params).fetchall():
+                    item = dict(row)
+                    device_type = str(item.get("device_type") or "other").strip().lower()
+                    manufacturer = str(item.get("manufacturer") or "").strip()
+                    model = str(item.get("model") or "").strip()
+                    if manufacturer or model:
+                        values.add((device_type, manufacturer, model, source))
+            except Exception:
+                continue
+    return [
+        {"device_type": dtype, "manufacturer": manufacturer, "model": model, "source": source}
+        for dtype, manufacturer, model, source in sorted(values, key=lambda value: (value[0], value[1].lower(), value[2].lower()))
+    ]
 
 
 def get_project(project_id: int) -> Dict[str, Any] | None:

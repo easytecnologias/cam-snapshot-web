@@ -4,6 +4,7 @@ let _planningCurrent = null;
 let _planningMap = null;
 let _planningMapLayers = null;
 let _planningMarkers = {};
+let _planningCatalog = null;
 
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
@@ -235,18 +236,43 @@ function planningParentOptions(selected = '', selfId = '') {
   return '<option value="">Sem equipamento pai</option>' + (_planningCurrent?.devices || []).filter(item => Number(item.id) !== Number(selfId) && ['olt','onu','ont','switch','recorder','box','pole'].includes(item.device_type)).map(item => `<option value="${Number(item.id)}" ${String(selected) === String(item.id) ? 'selected' : ''}>${planningEscape(item.name)} (${planningEscape(PLANNING_TYPES[item.device_type])})</option>`).join('');
 }
 
-function openPlanningDeviceModal(deviceId = 0) {
+async function loadPlanningCatalog() {
+  if (_planningCatalog) return _planningCatalog;
+  const data = await apiJson('/api/planning/catalog', { forceRefresh: true, cacheTtl: 0 });
+  _planningCatalog = data?.items || [];
+  return _planningCatalog;
+}
+
+function planningCatalogDatalists(item = {}) {
+  return `<datalist id="planningManufacturerOptions"></datalist><datalist id="planningModelOptions"></datalist>
+    <div class="planning-catalog-hint full"><i data-lucide="list-plus"></i><span>Escolha uma sugestao ou digite um fabricante/modelo novo. Ao salvar, o novo valor passa a fazer parte das sugestoes deste cliente.</span></div>`;
+}
+
+function refreshPlanningCatalogLists(root) {
+  const type = root.querySelector('#planDeviceType')?.value || 'camera';
+  const manufacturer = root.querySelector('#planDeviceManufacturer')?.value.trim().toLowerCase() || '';
+  const relevant = (_planningCatalog || []).filter(item => item.device_type === type || (type === 'ont' && item.device_type === 'onu'));
+  const manufacturers = [...new Set(relevant.map(item => item.manufacturer).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const models = [...new Set(relevant.filter(item => !manufacturer || !item.manufacturer || item.manufacturer.toLowerCase() === manufacturer).map(item => item.model).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const manufacturerList = root.querySelector('#planningManufacturerOptions');
+  const modelList = root.querySelector('#planningModelOptions');
+  if (manufacturerList) manufacturerList.innerHTML = manufacturers.map(value => `<option value="${planningEscape(value)}"></option>`).join('');
+  if (modelList) modelList.innerHTML = models.map(value => `<option value="${planningEscape(value)}"></option>`).join('');
+}
+
+async function openPlanningDeviceModal(deviceId = 0) {
   if (!_planningCurrent) return;
+  await loadPlanningCatalog();
   const item = (_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'camera' };
-  planningModal({
+  const modal = planningModal({
     title: item.id ? 'Editar equipamento planejado' : 'Adicionar equipamento', wide: true,
     body: `<div class="planning-form-grid">
       <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
-      ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'placeholder="Intelbras"')}
-      ${planningField('Modelo', 'planDeviceModel', item.model, 'placeholder="VIP 3230 B"')}
+      ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
+      ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
       <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.parent_id, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"')}
@@ -254,15 +280,20 @@ function openPlanningDeviceModal(deviceId = 0) {
       ${planningField('Longitude', 'planDeviceLon', item.longitude ?? '', 'placeholder="-36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
       <label class="planning-field full"><span>Observacoes</span><textarea id="planDeviceNotes" rows="3">${planningEscape(item.notes || '')}</textarea></label>
+      ${planningCatalogDatalists(item)}
     </div>`,
     onSave: async root => {
       const payload = planningDevicePayload(root);
       if (!payload.name) throw new Error('Informe o nome do equipamento.');
       const path = `/api/planning/projects/${_planningCurrent.id}/devices${item.id ? `/${item.id}` : ''}`;
       await planningRequest(path, { method: item.id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+      _planningCatalog = null;
       closePlanningModal(); showToast(item.id ? 'Equipamento atualizado.' : 'Equipamento adicionado.'); await selectPlanningProject(_planningCurrent.id);
     },
   });
+  refreshPlanningCatalogLists(modal);
+  modal.querySelector('#planDeviceType')?.addEventListener('change', () => refreshPlanningCatalogLists(modal));
+  modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
 function planningDevicePayload(root) {
@@ -298,6 +329,7 @@ function openPlanningGenerateModal() {
       const value = id => root.querySelector(`#${id}`).value.trim();
       const payload = { device_type: value('planGenType'), site_id: value('planGenSite') || null, start_ip: value('planGenIp'), count: Number(value('planGenCount')), first_number: Number(value('planGenFirst')), digits: Number(value('planGenDigits')), name_template: value('planGenTemplate'), parent_id: value('planGenParent') || null, manufacturer: value('planGenManufacturer'), model: value('planGenModel'), reference_image_url: value('planGenImage'), pon: value('planGenPon'), status: 'planned' };
       const data = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/generate`, { method: 'POST', body: JSON.stringify(payload) });
+      _planningCatalog = null;
       closePlanningModal(); showToast(`${data.count} equipamento(s) gerado(s).`); await selectPlanningProject(_planningCurrent.id);
     },
   });
@@ -318,6 +350,7 @@ function openPlanningCsvModal() {
       const form = new FormData(); form.append('file', file);
       form.append('defaults_json', JSON.stringify({ device_type: root.querySelector('#planCsvType').value, site_id: root.querySelector('#planCsvSite').value || null, status: 'planned' }));
       const data = await planningMultipart(`/api/planning/projects/${_planningCurrent.id}/import-csv`, form);
+      _planningCatalog = null;
       closePlanningModal(); showToast(`${data.imported} item(ns) importado(s)${data.errors?.length ? `; ${data.errors.length} linha(s) com erro` : ''}.`, !!data.errors?.length); await selectPlanningProject(_planningCurrent.id);
     },
   });
@@ -358,6 +391,7 @@ function openPlanningKmzModal() {
         if (plannedPoints.length) {
           const bulk = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/devices/bulk`, { method: 'POST', body: JSON.stringify({ items: plannedPoints }) });
           created = Number(bulk.count || 0);
+          _planningCatalog = null;
         }
       }
       closePlanningModal(); showToast(`Mapa importado${created ? ` e ${created} camera(s) criada(s)` : ''}.`); await loadPlanning(true);
