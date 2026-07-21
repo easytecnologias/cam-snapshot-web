@@ -304,6 +304,12 @@ def build_dashboard_summary() -> Dict[str, Any]:
     if windows_without_ssd:
         alerts.append({"level": "info", "label": "Computadores Windows sem SSD detectado", "count": windows_without_ssd})
 
+    try:
+        from app.services.monitoring_service import monitoring_summary
+        monitoring = monitoring_summary()
+    except Exception:
+        monitoring = {"ok": False, "types": {}, "events": []}
+
     return {
         "ok": True,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -356,4 +362,5 @@ def build_dashboard_summary() -> Dict[str, Any]:
         "site_summary": _site_summary(ip_rows),
         "alerts": alerts,
         "recent_activity": _recent_activity(),
+        "monitoring": monitoring,
     }

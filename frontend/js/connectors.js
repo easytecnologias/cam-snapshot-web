@@ -68,6 +68,7 @@ function connectorDetectedLans(row) {
 }
 
 async function loadConnectors() {
+  closeConnectorActionMenu();
   const data = await apiJson('/api/connectors');
   const rows = data?.connectors || [];
   _connectors = rows;
@@ -83,19 +84,15 @@ async function loadConnectors() {
   } else {
     tbody.innerHTML = rows.map(row => `
       <tr>
-        <td class="connector-name-cell" title="${esc(row.name || row.id)}"><strong>${esc(row.name || row.id)}</strong><br><span class="monospace text-muted" title="${esc(row.id || '')}">${esc(row.id || '')}</span></td>
+        <td class="connector-name-cell" title="${esc(row.name || row.id)}"><strong>${esc(row.name || row.id)}</strong></td>
         <td class="connector-text-cell" title="${esc(row.client || '-')}">${esc(row.client || '-')}</td>
         <td class="connector-text-cell" title="${esc(row.site || '-')}">${esc(row.site || '-')}</td>
         <td class="connector-status-cell">${statusBadge(row.status)}</td>
-        <td class="connector-host-cell" title="${esc(`${connectorHostLabel(row.host)} ${connectorInventoryLabel(row) || ''}`.trim())}">${esc(connectorHostLabel(row.host))}${connectorInventoryLabel(row) ? `<br><span class="text-muted">${esc(connectorInventoryLabel(row))}</span>` : ''}</td>
+        <td class="connector-host-cell" title="${esc(`${connectorHostLabel(row.host)} ${connectorInventoryLabel(row) || ''}`.trim())}"><strong class="connector-host-name">${esc(connectorHostLabel(row.host))}</strong>${connectorInventoryLabel(row) ? `<span class="connector-host-stats">${esc(connectorInventoryLabel(row))}</span>` : ''}</td>
         <td class="connector-ip-cell monospace" title="${esc(row.remote_ip || '-')}">${esc(row.remote_ip || '-')}</td>
         <td class="connector-date-cell" title="${esc(formatDateTimeShort(row.last_seen))}">${esc(formatDateTimeShort(row.last_seen))}</td>
         <td class="connector-actions-cell">
-          <div class="connector-actions-wrap">
-            <button class="connector-row-action" data-conn-download="${esc(row.id)}" title="Baixar script"><i data-lucide="download"></i></button>
-            <button class="connector-row-action" data-conn-vpn="${esc(row.id)}" title="VPN"><i data-lucide="shield"></i></button>
-            <button class="connector-row-action danger" data-conn-delete="${esc(row.id)}" title="Apagar"><i data-lucide="trash-2"></i></button>
-          </div>
+          <button type="button" class="connector-action-trigger" data-conn-menu="${esc(row.id)}" title="Abrir acoes" aria-label="Abrir acoes"><i data-lucide="ellipsis"></i></button>
         </td>
       </tr>`).join('');
   }
@@ -125,6 +122,70 @@ async function downloadConnectorVpn(connectorId) {
   const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
   const endpointDefault = `${publicUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '').replace(/\/.*$/, '')}:51820`;
   openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
+}
+
+function resetConnectorCreateForm() {
+  ['connName', 'connClient', 'connSite'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const type = document.getElementById('connType');
+  if (type) type.value = 'routeros';
+  document.getElementById('connCreatedBox')?.classList.add('hidden');
+}
+
+function openConnectorCreateModal() {
+  const modal = document.getElementById('modalConnectorCreate');
+  const body = document.getElementById('connectorCreateModalBody');
+  const card = document.getElementById('connectorCreateCard');
+  if (!modal || !body || !card) return;
+  resetConnectorCreateForm();
+  body.appendChild(card);
+  modal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  setTimeout(() => document.getElementById('connName')?.focus(), 0);
+  lucide.createIcons();
+}
+
+function closeConnectorCreateModal() {
+  const modal = document.getElementById('modalConnectorCreate');
+  const parking = document.querySelector('#viewConnectors .connectors-layout');
+  const card = document.getElementById('connectorCreateCard');
+  modal?.classList.add('hidden');
+  if (parking && card) parking.prepend(card);
+  document.body.classList.remove('modal-open');
+}
+
+function closeConnectorActionMenu() {
+  document.getElementById('connectorFloatingMenu')?.remove();
+}
+
+function openConnectorActionMenu(event, connectorId, trigger) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeConnectorActionMenu();
+  const menu = document.createElement('div');
+  menu.id = 'connectorFloatingMenu';
+  menu.className = 'connector-floating-menu';
+  menu.innerHTML = `
+    <button type="button" data-action="download"><i data-lucide="download"></i><span>Baixar script</span></button>
+    <button type="button" data-action="vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
+    <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>`;
+  document.body.appendChild(menu);
+  const rect = trigger.getBoundingClientRect();
+  const menuWidth = 210;
+  const menuHeight = 140;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth))}px`;
+  menu.style.top = `${rect.bottom + menuHeight + 8 <= window.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - menuHeight - 6)}px`;
+  menu.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const action = ev.target.closest('button')?.dataset.action;
+    closeConnectorActionMenu();
+    if (action === 'download') downloadConnectorAgent(connectorId);
+    if (action === 'vpn') downloadConnectorVpn(connectorId);
+    if (action === 'delete') deleteConnector(connectorId);
+  });
+  lucide.createIcons();
 }
 
 function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.80:51820') {
@@ -345,7 +406,7 @@ async function loadConnectorJobs(connectorId) {
   }).join('');
 }
 
-//  Modal ImgBB settings 
+// Modal ImgBB settings
 async function openImgbbModal() {
   const data = await apiJson('/api/settings/imgbb');
   document.getElementById('imgbbApiKey').value = data?.api_key || data?.key || '';
@@ -355,7 +416,7 @@ async function openImgbbModal() {
   lucide.createIcons();
 }
 
-//  Modal editar cameras (multiplas) 
+// Modal editar cameras (multiplas)
 function openEditCamModal(cams, opts = {}) {
   const count = cams.length;
   document.getElementById('modalEditCamTitle').textContent =
@@ -727,4 +788,4 @@ function _runWsScan(payload) {
     appendLog(log, completed ? ' Concluido ' : ' Encerrado ', completed ? 'ok' : 'info');
   };
 }
-
+

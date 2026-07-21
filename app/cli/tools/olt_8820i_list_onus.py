@@ -45,7 +45,7 @@ def parse_onu_status(output: str, pon: int) -> List[Dict]:
     # Exemplo de linha típica (ajuste se necessário):
     # 1   8B3E3755  Active  OK   -20.52 dBm  -18.83 dBm  0.758  7:22:52:22
     rgx = re.compile(
-        r"^\s*(\d+)\s+([0-9A-Fa-f]+)\s+(\S+)\s+(\S+)\s+(-?\d+\.\d+)?\s*dBm\s+(-?\d+\.\d+)?\s*dBm\s+([\d\.]+)\s+([\d:]+)"
+        r"^\s*(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+([\d\.]+)\s+([\d:]+)"
     )
 
     for linha in linhas:

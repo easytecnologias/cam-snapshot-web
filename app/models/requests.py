@@ -72,15 +72,17 @@ class OltRegistryRequest(BaseModel):
     username: str = ""
     password: str = ""
     site_id: int | None = None
+    site: str = ""
     connector_id: str = ""
     notes: str = ""
     active: bool = True
 
 
 class OltCollectMacsRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     pon: str = "all"
     olt_name: str | None = None
     olt_model: str | None = None
@@ -103,9 +105,10 @@ class SwitchCollectMacsRequest(BaseModel):
 
 
 class OltDiscoverOnusRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     pon: str = "all"
     connector_id: str = ""
     remote_connector_id: str = ""
@@ -119,9 +122,10 @@ class OnuServiceEntry(BaseModel):
 
 
 class OltAddOnuRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     pon: int
     serno_id: int
     onu_model: str = ""
@@ -143,9 +147,10 @@ class OltAddOnuRequest(BaseModel):
 
 
 class OltFindOnuRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     serial: str
     connector_id: str = ""
     remote_connector_id: str = ""
@@ -154,9 +159,10 @@ class OltFindOnuRequest(BaseModel):
 
 
 class OltDeleteOnuRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     pon: int
     onu: int
     serial: str = ""
@@ -168,9 +174,10 @@ class OltDeleteOnuRequest(BaseModel):
 
 
 class OltOnuSignalRequest(BaseModel):
-    olt_ip: str
-    user: str
-    password: str
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
     pon: int = 0
     onu: int = 0
     serial: str = ""

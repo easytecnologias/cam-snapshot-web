@@ -16,7 +16,7 @@ function renderSnapCamGrid(cams) {
           <input type="checkbox" class="chk-snap-cam" value="${esc(c.ip)}" style="accent-color:var(--primary);width:15px;height:15px">
         </label>
         ${temFoto
-          ? `<img src="${imgSrc}" alt="${esc(c.ip)}" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#1a1a2e" onerror="this.style.opacity='.3'">`
+          ? `<img src="${imgSrc}" alt="${esc(c.ip)}" loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#1a1a2e" onerror="this.style.opacity='.3'">`
           : `<div style="width:100%;aspect-ratio:16/9;background:#e9ecef;display:flex;align-items:center;justify-content:center;color:#aaa"><svg width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'><rect x='2' y='2' width='20' height='20' rx='2'/><circle cx='12' cy='10' r='3'/><path d='m2 20 4-4 4 4 4-8 4 8'/></svg></div>`
         }
         <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 10px;background:linear-gradient(transparent,rgba(0,0,0,.7));color:white;font-size:11px;display:flex;justify-content:space-between">
@@ -106,7 +106,7 @@ function renderCarrossel() {
       border:2px solid ${i === _carIdx ? 'var(--primary)' : 'transparent'};
       opacity:${i === _carIdx ? '1' : '0.5'};transition:all .15s">
       ${cam.snapshot_url
-        ? `<img src="${API_BASE}${esc(cam.snapshot_url)}" style="width:100%;height:100%;object-fit:cover">`
+        ? `<img src="${API_BASE}${esc(cam.snapshot_url)}" loading="lazy" decoding="async" style="width:100%;height:100%;object-fit:cover">`
         : `<div style="width:100%;height:100%;background:#2d3748;display:grid;place-items:center"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='#718096' stroke-width='2'><rect x='2' y='2' width='20' height='20' rx='2'/></svg></div>`}
     </div>`).join('');
 }
@@ -186,7 +186,7 @@ function renderSnapGravGrid(rows) {
         </label>
         <div style="position:absolute;top:8px;right:8px;z-index:2">${badge}</div>
         ${temFoto
-          ? `<img src="${imgSrc}" alt="CH${r.channel}" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#1a1a2e" onerror="this.style.opacity='.3'">`
+          ? `<img src="${imgSrc}" alt="CH${r.channel}" loading="lazy" decoding="async" style="width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#1a1a2e" onerror="this.style.opacity='.3'">`
           : `<div style="width:100%;aspect-ratio:16/9;background:#e9ecef;display:flex;align-items:center;justify-content:center;color:#aaa"><svg width='40' height='40' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5'><rect x='2' y='2' width='20' height='20' rx='2'/><circle cx='12' cy='10' r='3'/><path d='m2 20 4-4 4 4 4-8 4 8'/></svg></div>`}
         <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 10px;background:linear-gradient(transparent,rgba(0,0,0,.7));color:white;font-size:11px;display:flex;justify-content:space-between">
           <span class="monospace">${esc(r.host)} CH${r.channel}</span>
@@ -223,7 +223,7 @@ async function loadSnapNvr() {
   }
   grid.innerHTML = nvrs.map(n => `
     <div class="snap-card">
-      <img src="${API_BASE}/data/nvr_snapshot/${esc(n.snapshot_file || '')}" alt="${esc(n.ip)}"
+      <img src="${API_BASE}/data/nvr_snapshot/${esc(n.snapshot_file || '')}" alt="${esc(n.ip)}" loading="lazy" decoding="async"
            onerror="this.style.background='#e9ecef';this.removeAttribute('src')">
       <div class="snap-card-body">
         <div class="snap-card-ip">${esc(n.ip)}</div>

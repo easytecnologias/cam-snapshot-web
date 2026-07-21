@@ -166,9 +166,7 @@ const VIEW_META = {
   'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
-  'net-devices':   { title: 'Redes - Dispositivos', sub: 'Dispositivos monitorados' },
-  'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
-  'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
+  'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
   'deploy-new':    { title: 'Implantacao - CFTV', sub: 'Assistente de campo' },
@@ -178,8 +176,6 @@ const VIEW_META = {
   'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
   'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
   connectors:      { title: 'Conectores',       sub: 'MikroTik RouterOS dos clientes' },
-  tools:           { title: 'Ferramentas',       sub: '' },
-  backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },
   settings:        { title: 'Configuracoes',     sub: '' },
 };
 
@@ -197,8 +193,6 @@ const VIEW_ID_MAP = {
   'mnt-nvr':        'viewMntNvr',
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
-  'net-devices':    'viewNetDevices',
-  'net-learn':      'viewNetLearn',
   'net-operate':    'viewNetOperate',
   'deploy-onu':     'viewDeployOnu',
   'deploy-recorder':'viewDeployRecorder',
@@ -209,8 +203,6 @@ const VIEW_ID_MAP = {
   'script-grafana': 'viewScriptGrafana',
   'script-zabbix':  'viewScriptZabbix',
   connectors:       'viewConnectors',
-  tools:            'viewTools',
-  backup:           'viewBackup',
   settings:         'viewSettings',
 };
 
@@ -262,9 +254,6 @@ function loadView(view) {
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;
     case 'kmz':         loadKmz();          break;
-    case 'backup':      loadBackup();       break;
-    case 'net-devices': loadNetDevices();   break;
-    case 'net-learn':   loadStaticView();   break;
     case 'net-operate': loadNetOperate();   break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;
@@ -272,10 +261,8 @@ function loadView(view) {
     case 'connectors':  loadConnectors();   break;
     case 'script-grafana': loadScriptGrafana(); break;
     case 'script-zabbix':  loadScriptZabbix();  break;
-    case 'tools':
     case 'settings':
-      if (view === 'settings') loadSettings();
-      else loadStaticView();
+      loadSettings();
       break;
     default:
       loadStaticView();
@@ -2778,7 +2765,7 @@ async function _loadRecForMode(type, mode) {
   const data = await apiJson(endpoint);
   const sourceRows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === mode);
   const rows = await enrichRecRowsForMode(sourceRows, mode);
-  if (recModeHasRealData(rows, mode)) {
+  if (sourceRows.length) {
     store[mode] = rows;
     _recSessionSave(type, mode, rows);
     return rows;
@@ -2786,6 +2773,23 @@ async function _loadRecForMode(type, mode) {
   store[mode] = [];
   try { sessionStorage.removeItem(`so_${type}_${mode}`); } catch {}
   return [];
+}
+
+async function _loadRecAllModesForType(type) {
+  const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
+  const data = await apiJson(endpoint);
+  const allRows = data?.inventory || [];
+  const store = type === 'dvr' ? _invDvr : _invNvr;
+  for (const mode of ['basico', 'olt', 'switch']) {
+    const sourceRows = allRows.filter(row => recRowInventoryMode(row) === mode);
+    const rows = mode === 'basico' ? sourceRows : await enrichRecRowsForMode(sourceRows, mode);
+    store[mode] = rows;
+    if (rows.length) _recSessionSave(type, mode, rows);
+    else {
+      try { sessionStorage.removeItem(`so_${type}_${mode}`); } catch {}
+    }
+  }
+  return allRows;
 }
 function _nvrSessionClear() {
   ['nvr','dvr'].forEach(type => {
@@ -3064,13 +3068,11 @@ function setRecType(type) {
 
 async function loadInvNvr() {
   _recSessionLoad();
-  const desired = _invNvrView || 'olt';
-  const store = _currentRecStore();
-  if (!store[desired]?.length) {
-    await _loadRecForMode(_recType, desired);
-  }
-  if (!store[desired]?.length && !store.basico?.length) {
-    await _loadRecForMode(_recType, 'basico');
+  const loaded = await _loadRecAllModesForType(_recType);
+  if (!loaded.length) {
+    const fallbackType = _recType === 'nvr' ? 'dvr' : 'nvr';
+    const fallbackRows = await _loadRecAllModesForType(fallbackType);
+    if (fallbackRows.length) setRecType(fallbackType);
   }
   updateNvrTabs();
   populateNvrFilters();
@@ -5681,40 +5683,6 @@ async function loadSwitch() {
       <td>${esc(r.camera_name || r.camera || '')}</td>
     </tr>`).join('');
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
-}
-
-//  Backup 
-async function loadBackup() {
-  const data = await apiJson('/api/backup/status');
-  const el = document.getElementById('backupStatus');
-  if (!data) { el.textContent = 'Nao foi possivel carregar o status.'; return; }
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div><strong>Tamanho do banco:</strong> ${esc(data.db_size || '')}</div>
-      <div><strong>Cameras:</strong> ${esc(String(data.camera_count ?? ''))}</div>
-      <div><strong>DVRs:</strong> ${esc(String(data.dvr_count ?? ''))}</div>
-      <div><strong>NVRs:</strong> ${esc(String(data.nvr_count ?? ''))}</div>
-      <div><strong>Ultimo backup:</strong> ${esc(data.last_backup || 'Nunca')}</div>
-    </div>`;
-}
-
-//  Rede 
-async function loadNetDevices() {
-  const data = await apiJson('/api/network/devices');
-  const devices = data?.devices || data || [];
-  const tbody = document.getElementById('netDevicesTable');
-  if (!devices.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhum dispositivo cadastrado.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = devices.map(d => `
-    <tr>
-      <td><strong>${esc(d.name || d.hostname || '')}</strong></td>
-      <td class="monospace">${esc(d.ip || '')}</td>
-      <td class="text-muted">${esc(d.type || '')}</td>
-      <td>${statusBadge(d.status)}</td>
-      <td></td>
-    </tr>`).join('');
 }
 
 function netToolSetLog(html, status = '') {
@@ -8883,25 +8851,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('menuBtn').addEventListener('click', openSidebar);
   document.getElementById('mobileBackdrop').addEventListener('click', closeSidebar);
 
-  // Varredura
-  document.getElementById('btnScan').addEventListener('click', openScanModal);
+  // Dashboard e varredura contextual
+  document.getElementById('btnDashboardRefresh')?.addEventListener('click', async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
+    lucide.createIcons();
+    try {
+      await refreshDashboardLiveCameraStatus();
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="refresh-cw"></i> Atualizar';
+      lucide.createIcons();
+    }
+  });
   document.getElementById('closeScanModal').addEventListener('click', closeScanModal);
   document.getElementById('cancelScan').addEventListener('click', closeScanModal);
   document.getElementById('startScan').addEventListener('click', startScan);
   document.getElementById('scanOrigin')?.addEventListener('change', updateScanOriginUi);
   document.getElementById('scanLocal')?.addEventListener('change', () => refreshScanConnectors().finally(updateScanOriginUi));
   document.getElementById('scanConnector')?.addEventListener('change', updateScanOriginUi);
-
-  // Refresh topbar
-  document.getElementById('btnRefreshTopbar').addEventListener('click', async () => {
-    if (_currentView === 'dashboard') {
-      await refreshDashboardLiveCameraStatus();
-      return;
-    }
-    if (_currentView === 'inv-olt') _camSessionClear();
-    if (_currentView === 'inv-nvr') _nvrSessionClear();
-    loadView(_currentView);
-  });
 
   // Conectores SaaS
   document.getElementById('btnConnectorRefresh')?.addEventListener('click', loadConnectors);
@@ -9549,7 +9518,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('wpBtnPrepare')?.addEventListener('click', () => winPanelAction('prepare'));
   document.getElementById('wpBtnPdf')?.addEventListener('click', () => winPanelAction('pdf'));
   document.getElementById('wpBtnRefresh')?.addEventListener('click', () => winPanelAction('refresh'));
-  document.getElementById('searchNetDevices')?.addEventListener('input', () => filterTable('searchNetDevices', 'netDevicesTable'));
 
   // Carrossel
   document.getElementById('carClose')?.addEventListener('click', closeCarrossel);
@@ -9986,11 +9954,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('confirmRecAction')?.addEventListener('click', runRecAction);
   document.getElementById('recActionPass')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') runRecAction();
-  });
-
-  // Export backup
-  document.getElementById('btnExportBackup')?.addEventListener('click', () => {
-    window.open(`${API_BASE}/api/backup/export`, '_blank');
   });
 
   // Botao Ferramentas KMZ

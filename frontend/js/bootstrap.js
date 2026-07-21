@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // do resto da tela, em vez de mais 4 linhas soltas neste arquivo -- que ja
   // tem 1.600 linhas de fiacao e foi o motivo de dividir o app.js.
   bindDeployOlt();
+  bindMonitoring();
 
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
@@ -55,6 +56,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnSettingsRefresh')?.addEventListener('click', loadSettings);
   document.getElementById('btnCreateTenant')?.addEventListener('click', createTenantFromSettings);
   document.getElementById('btnCreateUser')?.addEventListener('click', createUserFromSettings);
+  document.getElementById('btnTelegramSave')?.addEventListener('click', () => saveTelegramSettings().catch(error => showToast(error.message, true)));
+  document.getElementById('btnTelegramTest')?.addEventListener('click', () => testTelegramSettings().catch(error => showToast(error.message, true)));
+  document.querySelectorAll('[data-settings-tab]').forEach(button => {
+    button.addEventListener('click', () => activateSettingsTab(button.dataset.settingsTab));
+  });
 
   // Profile dropdown
   document.getElementById('profileMenu').addEventListener('click', (e) => {
@@ -69,8 +75,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('menuBtn').addEventListener('click', openSidebar);
   document.getElementById('mobileBackdrop').addEventListener('click', closeSidebar);
 
-  // Varredura
-  document.getElementById('btnScan').addEventListener('click', openScanModal);
+  // Dashboard e varredura contextual
+  document.getElementById('btnDashboardRefresh')?.addEventListener('click', async (event) => {
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
+    lucide.createIcons();
+    try {
+      await refreshDashboardLiveCameraStatus();
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="refresh-cw"></i> Atualizar';
+      lucide.createIcons();
+    }
+  });
   document.getElementById('closeScanModal').addEventListener('click', closeScanModal);
   document.getElementById('cancelScan').addEventListener('click', closeScanModal);
   document.getElementById('startScan').addEventListener('click', startScan);
@@ -78,19 +96,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scanLocal')?.addEventListener('change', () => refreshScanConnectors().finally(updateScanOriginUi));
   document.getElementById('scanConnector')?.addEventListener('change', updateScanOriginUi);
 
-  // Refresh topbar
-  document.getElementById('btnRefreshTopbar').addEventListener('click', async () => {
-    if (_currentView === 'dashboard') {
-      await refreshDashboardLiveCameraStatus();
-      return;
-    }
-    if (_currentView === 'inv-olt') _camSessionClear();
-    if (_currentView === 'inv-nvr') _nvrSessionClear();
-    loadView(_currentView);
-  });
-
   // Conectores SaaS
   document.getElementById('btnConnectorRefresh')?.addEventListener('click', loadConnectors);
+  document.getElementById('btnConnectorNew')?.addEventListener('click', openConnectorCreateModal);
+  document.getElementById('btnConnectorModalClose')?.addEventListener('click', closeConnectorCreateModal);
+  document.getElementById('btnConnectorModalCancel')?.addEventListener('click', closeConnectorCreateModal);
   document.getElementById('btnCreateConnector')?.addEventListener('click', createConnectorFromForm);
   document.getElementById('btnDownloadCreatedAgent')?.addEventListener('click', () => downloadConnectorAgent(_lastCreatedConnectorId));
   document.getElementById('btnSendPingJob')?.addEventListener('click', sendConnectorPingJob);
@@ -101,13 +111,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('confirmConnectorVpnModal')?.addEventListener('click', submitConnectorVpnModal);
   document.querySelectorAll('input[name="connectorVpnLanMode"]').forEach(el => el.addEventListener('change', updateConnectorVpnLanMode));
   document.getElementById('connectorsTable')?.addEventListener('click', (e) => {
-    const download = e.target.closest('[data-conn-download]');
-    const vpn = e.target.closest('[data-conn-vpn]');
-    const remove = e.target.closest('[data-conn-delete]');
-    if (download) downloadConnectorAgent(download.dataset.connDownload);
-    if (vpn) downloadConnectorVpn(vpn.dataset.connVpn);
-    if (remove) deleteConnector(remove.dataset.connDelete);
+    const trigger = e.target.closest('[data-conn-menu]');
+    if (trigger) openConnectorActionMenu(e, trigger.dataset.connMenu, trigger);
   });
+  document.addEventListener('click', closeConnectorActionMenu);
+  window.addEventListener('resize', closeConnectorActionMenu);
+  window.addEventListener('scroll', closeConnectorActionMenu, true);
 
   // Ferramentas de rede
   document.getElementById('netToolForm')?.addEventListener('submit', runNetTool);
@@ -122,6 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnOnuAddVlanRow')?.addEventListener('click', onuAddVlanRow);
   document.getElementById('btnOnuQuery')?.addEventListener('click', onuQuery);
   document.getElementById('btnOnuDelete')?.addEventListener('click', onuDelete);
+  document.getElementById('btnOnuClear')?.addEventListener('click', onuClear);
+  document.getElementById('btnOnuHistoryRefresh')?.addEventListener('click', loadOnuHistory);
   document.getElementById('confirmOnuDelete')?.addEventListener('click', onuConfirmDelete);
   document.getElementById('cancelOnuDelete')?.addEventListener('click', closeOnuDeleteModal);
   document.getElementById('closeOnuDeleteModalBtn')?.addEventListener('click', closeOnuDeleteModal);
@@ -133,6 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('deployStandaloneRecorderConnector')?.addEventListener('change', () => {
     _deployStandaloneRecorderProbe = null;
     deployStandaloneRecorderRenderProbe(null);
+    deployStandaloneRecorderRenderOltsForOrigin();
+    deployStandaloneRecorderApplyOlt();
     deployStandaloneRecorderRenderConnectorStatus();
   });
   document.getElementById('btnDeployStandaloneRecorderLogin')?.addEventListener('click', deployStandaloneRecorderLogin);
@@ -203,12 +216,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('deployRecorderChannelGrid')?.classList.add('hidden');
   });
   document.getElementById('deployConnector')?.addEventListener('change', () => {
+    deployRenderOltContextForOrigin();
+    deployApplyOltContext();
     deployApplyOriginFields();
     deployRenderConnectorStatus();
     deployRenderSummary();
     deployUpdateStepLocks({ autoAdvance: true });
     deployLoadAvailableRecorders();
   });
+  document.getElementById('deployStandaloneRecorderOlt')?.addEventListener('change', deployStandaloneRecorderApplyOlt);
+  document.getElementById('deployOltContext')?.addEventListener('change', deployApplyOltContext);
   document.getElementById('deploySite')?.addEventListener('input', () => {
     deployRenderSummary();
     deployUpdateStepLocks({ autoAdvance: true });
@@ -735,7 +752,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('wpBtnPrepare')?.addEventListener('click', () => winPanelAction('prepare'));
   document.getElementById('wpBtnPdf')?.addEventListener('click', () => winPanelAction('pdf'));
   document.getElementById('wpBtnRefresh')?.addEventListener('click', () => winPanelAction('refresh'));
-  document.getElementById('searchNetDevices')?.addEventListener('input', () => filterTable('searchNetDevices', 'netDevicesTable'));
 
   // Carrossel
   document.getElementById('carClose')?.addEventListener('click', closeCarrossel);
@@ -1172,11 +1188,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('confirmRecAction')?.addEventListener('click', runRecAction);
   document.getElementById('recActionPass')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') runRecAction();
-  });
-
-  // Export backup
-  document.getElementById('btnExportBackup')?.addEventListener('click', () => {
-    window.open(`${API_BASE}/api/backup/export`, '_blank');
   });
 
   // Botao Ferramentas KMZ

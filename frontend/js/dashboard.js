@@ -4,15 +4,18 @@ function _drawerFilterBar(statusFilters, activeStatusKey, sites, activeSite, onS
     statusFilters.map(f =>
       `<button class="drawer-filter-btn${f.key === activeStatusKey ? ' active' : ''}" data-filter="${f.key}">${f.label}${f.count != null ? ` (${f.count})` : ''}</button>`
     ).join('') + `</div>`;
-  const siteHtml = sites.length > 1
-    ? `<hr class="drawer-filter-sep"><div class="drawer-filter-row">` +
-      [`<button class="drawer-filter-btn${!activeSite ? ' active' : ''}" data-site="">Todos os sites</button>`,
-       ...sites.map(s => `<button class="drawer-filter-btn${s === activeSite ? ' active' : ''}" data-site="${esc(s)}">${esc(s)}</button>`)
-      ].join('') + `</div>`
+  const siteHtml = sites.length
+    ? `<div class="drawer-site-filter">
+        <label for="dashDrawerSiteSelect"><i data-lucide="map-pin"></i><span>Site</span></label>
+        <select id="dashDrawerSiteSelect" class="drawer-site-select">
+          <option value="">Todos os sites</option>
+          ${sites.map(s => `<option value="${esc(s)}"${s === activeSite ? ' selected' : ''}>${esc(s)}</option>`).join('')}
+        </select>
+      </div>`
     : '';
   el.innerHTML = statusHtml + siteHtml;
   el.querySelectorAll('.drawer-filter-btn[data-filter]').forEach(btn => btn.addEventListener('click', () => onStatusSelect(btn.dataset.filter)));
-  el.querySelectorAll('.drawer-filter-btn[data-site]').forEach(btn => btn.addEventListener('click', () => onSiteSelect(btn.dataset.site || null)));
+  el.querySelector('#dashDrawerSiteSelect')?.addEventListener('change', event => onSiteSelect(event.target.value || null));
 }
 
 function _drawerRenderRows(html) {
@@ -41,9 +44,12 @@ async function openDashDrawerIp(filterKey, activeSite) {
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
   const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error'].includes((r.status||'').toLowerCase());
   const noSnap    = r => !r.snapshot_url && !r.imgbb_url;
+  const rowSite   = r => String(r.local || r.site || r.site_name || '').trim();
 
-  const sites = [...new Set(rows.map(r => r.local || '').filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
-  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length, no_snap: rows.filter(noSnap).length };
+  const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
+  if (activeSite && !sites.includes(activeSite)) activeSite = null;
+  const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
+  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length, no_snap: siteRows.filter(noSnap).length };
 
   _drawerFilterBar(
     [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online },
@@ -53,11 +59,10 @@ async function openDashDrawerIp(filterKey, activeSite) {
     s => openDashDrawerIp(filterKey, s)
   );
 
-  let filtered = rows;
+  let filtered = siteRows;
   if (filterKey === 'online')  filtered = filtered.filter(isOnline);
   if (filterKey === 'offline') filtered = filtered.filter(isOffline);
   if (filterKey === 'no_snap') filtered = filtered.filter(noSnap);
-  if (activeSite) filtered = filtered.filter(r => (r.local||'') === activeSite);
 
   filtered.sort((a, b) => (a.titulo || a.ip || '').localeCompare(b.titulo || b.ip || '', 'pt', { numeric: true }));
   _drawerRenderRows(filtered.map(r => {
@@ -67,7 +72,7 @@ async function openDashDrawerIp(filterKey, activeSite) {
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">${esc(r.titulo || r.ip || '')}</div>
-        <div class="drawer-item-sub">${esc(r.ip)}  ${esc(r.local || '')}  ${esc(r.modelo || r.model || '')}</div>
+        <div class="drawer-item-sub">${esc(r.ip)}  ${esc(rowSite(r))}  ${esc(r.modelo || r.model || '')}</div>
       </div>
       ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
       <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
@@ -105,9 +110,12 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
   const rows = _dashDrawerData[source];
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
   const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss'].includes((r.status||'').toLowerCase());
+  const rowSite   = r => String(r.local || r.site || r.site_name || '').trim();
 
-  const sites = [...new Set(rows.map(r => r.local || '').filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
-  const counts = { all: rows.length, online: rows.filter(isOnline).length, offline: rows.filter(isOffline).length };
+  const sites = [...new Set(rows.map(rowSite).filter(Boolean))].sort((a,b) => a.localeCompare(b,'pt'));
+  if (activeSite && !sites.includes(activeSite)) activeSite = null;
+  const siteRows = activeSite ? rows.filter(r => rowSite(r) === activeSite) : rows;
+  const counts = { all: siteRows.length, online: siteRows.filter(isOnline).length, offline: siteRows.filter(isOffline).length };
 
   _drawerFilterBar(
     [{ key:'all', label:'Todos', count:counts.all }, { key:'online', label:' Online', count:counts.online }, { key:'offline', label:' Offline', count:counts.offline }],
@@ -116,10 +124,9 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
     s => openDashDrawerRecorder(source, filterKey, s)
   );
 
-  let filtered = rows;
+  let filtered = siteRows;
   if (filterKey === 'online')  filtered = filtered.filter(isOnline);
   if (filterKey === 'offline') filtered = filtered.filter(isOffline);
-  if (activeSite) filtered = filtered.filter(r => (r.local||'') === activeSite);
 
   filtered.sort((a, b) => {
     const hostCmp = (a.host||a.ip||'').localeCompare(b.host||b.ip||'', 'pt');
@@ -131,7 +138,7 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
         <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')}  ${esc(r.title || r.titulo || '')}</div>
-        <div class="drawer-item-sub">${esc(r.host||r.ip||'')}  ${esc(r.local||'')}</div>
+        <div class="drawer-item-sub">${esc(r.host||r.ip||'')}  ${esc(rowSite(r))}</div>
       </div>
       ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
       <i data-lucide="chevron-right" style="width:13px;height:13px;color:var(--muted);flex-shrink:0"></i>
@@ -185,12 +192,21 @@ function _dashPct(part, total) {
   return Math.max(0, Math.min(100, Math.round((_dashNum(part) / t) * 100)));
 }
 
+function _dashAttentionTotal(monitoring) {
+  return Object.values(monitoring || {}).reduce((sum, item) => (
+    sum + _dashNum(item?.down ?? item?.offline) + _dashNum(item?.unstable) + _dashNum(item?.unknown)
+  ), 0);
+}
+
 function _dashPriorityAction(action) {
   if (action === 'ip_offline') return openDashDrawerIp('offline');
   if (action === 'no_snapshot') return openDashDrawerIp('no_snap');
   if (action === 'dvr_offline') return openDashDrawerRecorder('dvr', 'offline');
   if (action === 'nvr_offline') return openDashDrawerRecorder('nvr', 'offline');
   if (action === 'windows_offline') return openDashDrawerWindows('offline');
+  if (action === 'onu_attention' && typeof openMonitoringDrawer === 'function') return openMonitoringDrawer('onu', 'all');
+  if (action === 'olt_attention' && typeof openMonitoringDrawer === 'function') return openMonitoringDrawer('olt', 'all');
+  if (action === 'connector_attention' && typeof openMonitoringDrawer === 'function') return openMonitoringDrawer('connector', 'all');
   if (action === 'map') return navigateTo('kmz');
   return null;
 }
@@ -201,20 +217,25 @@ function renderDashboardPriorities(data) {
   const dvr = inv.dvr || {};
   const nvr = inv.nvr || {};
   const win = inv.windows || {};
+  const monitoring = data.monitoring?.types || {};
+  const attentionCount = (status) => _dashNum(status?.down ?? status?.offline) + _dashNum(status?.unstable) + _dashNum(status?.unknown);
   const priorities = [
     { label: 'Cameras offline', sub: 'Abrir cameras com falha', count: _dashNum(ip.offline), icon: 'alert-circle', level: 'danger', action: 'ip_offline' },
+    { label: 'ONUs em atencao', sub: 'Down, instaveis ou nao verificadas', count: attentionCount(monitoring.onu), icon: 'wifi-off', level: 'danger', action: 'onu_attention' },
+    { label: 'OLTs em atencao', sub: 'Conexao down ou ainda nao verificada', count: attentionCount(monitoring.olt), icon: 'radio-tower', level: 'danger', action: 'olt_attention' },
+    { label: 'Conectores em atencao', sub: 'Conectores offline ou sem verificacao', count: attentionCount(monitoring.connector), icon: 'plug-zap', level: 'danger', action: 'connector_attention' },
     { label: 'Sem snapshot', sub: 'Cameras sem imagem recente', count: _dashNum(ip.missing_snapshot), icon: 'image-off', level: 'warning', action: 'no_snapshot' },
     { label: 'Sem local', sub: 'Itens sem site/local definido', count: _dashNum(ip.missing_local) + _dashNum(dvr.missing_local) + _dashNum(nvr.missing_local), icon: 'map-pin-off', level: 'info', action: 'map' },
     { label: 'Gravadores offline', sub: 'DVR/NVR com erro ou sem resposta', count: _dashNum(dvr.offline) + _dashNum(nvr.offline), icon: 'hard-drive', level: 'danger', action: 'dvr_offline' },
     { label: 'Windows offline', sub: 'Computadores sem resposta', count: _dashNum(win.offline), icon: 'monitor-x', level: 'info', action: 'windows_offline' },
-  ].filter(item => item.count > 0).slice(0, 5);
+  ].filter(item => item.count > 0).slice(0, 6);
 
   const el = document.getElementById('dashPriorityList');
   if (!el) return;
   if (!priorities.length) {
     el.innerHTML = `<div class="dash-priority-item" style="cursor:default">
       <span class="dash-priority-icon info"><i data-lucide="check-circle-2"></i></span>
-      <span><span class="dash-priority-title">Sem pendencias criticas</span><span class="dash-priority-sub">O painel nao encontrou alertas principais agora.</span></span>
+      <span class="dash-priority-copy"><span class="dash-priority-title">Sem pendencias criticas</span><span class="dash-priority-sub">O painel nao encontrou alertas principais agora.</span></span>
       <span class="dash-priority-count">OK</span>
     </div>`;
     return;
@@ -222,7 +243,7 @@ function renderDashboardPriorities(data) {
   el.innerHTML = priorities.map(item => `
     <div class="dash-priority-item" data-priority-action="${esc(item.action)}">
       <span class="dash-priority-icon ${item.level === 'warning' ? 'warning' : item.level === 'info' ? 'info' : ''}"><i data-lucide="${item.icon}"></i></span>
-      <span><span class="dash-priority-title">${esc(item.label)}</span><span class="dash-priority-sub">${esc(item.sub)}</span></span>
+      <span class="dash-priority-copy"><span class="dash-priority-title">${esc(item.label)}</span><span class="dash-priority-sub">${esc(item.sub)}</span></span>
       <span class="dash-priority-count">${item.count}</span>
     </div>
   `).join('');
@@ -236,25 +257,49 @@ function renderDashboardHealth(data) {
   const ip = inv.ip || {};
   const dvr = inv.dvr || {};
   const nvr = inv.nvr || {};
-  const totals = data.totals || {};
+  const monitoring = data.monitoring?.types || {};
   const recTotal = _dashNum(dvr.total) + _dashNum(nvr.total);
   const recOnline = _dashNum(dvr.online) + _dashNum(nvr.online);
+  const availability = (status) => {
+    const total = _dashNum(status?.total);
+    const online = _dashNum(status?.up ?? status?.online);
+    return { total, online, pct: total ? _dashPct(online, total) : null };
+  };
+  const cameras = availability(ip);
+  const onus = availability(monitoring.onu);
+  const olts = availability(monitoring.olt);
+  const connectors = availability(monitoring.connector);
+  const recorders = { total: recTotal, online: recOnline, pct: recTotal ? _dashPct(recOnline, recTotal) : null };
+  const pending = _dashAttentionTotal(monitoring);
+  const monitoredTotal = Object.values(monitoring).reduce((sum, item) => sum + _dashNum(item?.total), 0);
   const health = [
-    { label: 'Disponibilidade IP', value: `${_dashPct(ip.online, ip.total)}%`, sub: `${_dashNum(ip.online)} online de ${_dashNum(ip.total)}`, pct: _dashPct(ip.online, ip.total) },
-    { label: 'Cobertura snapshot', value: `${_dashPct(_dashNum(ip.total) - _dashNum(ip.missing_snapshot), ip.total)}%`, sub: `${_dashNum(ip.missing_snapshot)} sem snapshot`, pct: _dashPct(_dashNum(ip.total) - _dashNum(ip.missing_snapshot), ip.total) },
-    { label: 'Gravadores', value: `${_dashPct(recOnline, recTotal)}%`, sub: `${recOnline} canais online de ${recTotal}`, pct: _dashPct(recOnline, recTotal) },
-    { label: 'Pendencias', value: _dashNum(totals.offline), sub: 'itens offline ou com erro', pct: 100 - _dashPct(totals.offline, totals.items) },
+    { label: 'Cameras IP', value: cameras.pct == null ? '--' : `${cameras.pct}%`, sub: cameras.total ? `${cameras.online} online de ${cameras.total}` : 'nenhuma cadastrada', pct: cameras.pct, action: 'cameras' },
+    { label: 'ONUs / ONTs', value: onus.pct == null ? '--' : `${onus.pct}%`, sub: onus.total ? `${onus.online} up de ${onus.total}` : 'nenhuma monitorada', pct: onus.pct, action: 'onus' },
+    { label: 'OLTs', value: olts.pct == null ? '--' : `${olts.pct}%`, sub: olts.total ? `${olts.online} up de ${olts.total}` : 'nenhuma cadastrada', pct: olts.pct, action: 'olts' },
+    { label: 'Conectores', value: connectors.pct == null ? '--' : `${connectors.pct}%`, sub: connectors.total ? `${connectors.online} online de ${connectors.total}` : 'nenhum cadastrado', pct: connectors.pct, action: 'connectors' },
+    { label: 'Gravadores', value: recorders.pct == null ? '--' : `${recorders.pct}%`, sub: recorders.total ? `${recorders.online} canais online de ${recorders.total}` : 'nenhum canal cadastrado', pct: recorders.pct, action: 'recorders' },
+    { label: 'Pendencias', value: pending, sub: 'equipamentos exigem verificacao', pct: pending ? Math.max(8, 100 - _dashPct(pending, monitoredTotal)) : 100, action: 'attention', state: pending ? 'warning' : 'healthy' },
   ];
   const el = document.getElementById('dashHealthGrid');
   if (!el) return;
   el.innerHTML = health.map(item => `
-    <div class="dash-health-card">
+    <button type="button" class="dash-health-card ${item.state || (item.pct == null ? 'neutral' : item.pct >= 95 ? 'healthy' : item.pct >= 75 ? 'warning' : 'critical')}" data-health-action="${item.action}">
       <div class="dash-health-label">${esc(item.label)}</div>
       <div class="dash-health-value">${esc(item.value)}</div>
       <div class="dash-health-sub">${esc(item.sub)}</div>
-      <div class="dash-meter"><span style="width:${item.pct}%"></span></div>
-    </div>
+      <div class="dash-meter"><span style="width:${item.pct ?? 0}%"></span></div>
+      <i data-lucide="chevron-right" class="dash-health-arrow"></i>
+    </button>
   `).join('');
+  el.querySelectorAll('[data-health-action]').forEach(card => card.addEventListener('click', () => {
+    const action = card.dataset.healthAction;
+    if (action === 'cameras') openDashDrawerIp('all');
+    if (action === 'onus' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('onu', 'all');
+    if (action === 'olts' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('olt', 'all');
+    if (action === 'connectors' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('connector', 'all');
+    if (action === 'recorders') openDashDrawerRecorder('dvr', 'all');
+    if (action === 'attention' && typeof openMonitoringAttentionDrawer === 'function') openMonitoringAttentionDrawer();
+  }));
 }
 
 function renderDashboardSiteSummary(data) {
@@ -299,6 +344,7 @@ async function loadDashboard() {
   const nvr = inv.nvr || {};
   const win = inv.windows || {};
   const tot = data.totals || {};
+  const monitoring = data.monitoring?.types || {};
 
   // KPIs
   const ipOnline = ip.online ?? '';
@@ -308,13 +354,39 @@ async function loadDashboard() {
 
   const dvrRec = dvr.recorders ?? 0;
   const nvrRec = nvr.recorders ?? 0;
-  setText('mDvrNvr',      `${dvrRec} DVR  ${nvrRec} NVR`);
+  setText('mDvrNvr',      dvrRec + nvrRec);
   const dvrCh  = dvr.total ?? 0;
   const nvrCh  = nvr.total ?? 0;
-  setText('mDvrNvrCanais', (dvrCh || nvrCh) ? `${dvrCh + nvrCh} canais` : '');
+  setText('mDvrNvrCanais', `${dvrRec} DVR · ${nvrRec} NVR · ${dvrCh + nvrCh} canais`);
 
-  setText('mSnapshots', tot.snapshots ?? '');
   setText('mSites',     tot.sites     ?? '');
+
+  const onuStatus = monitoring.onu || {};
+  const onuUp = _dashNum(onuStatus.up ?? onuStatus.online);
+  const onuTotal = _dashNum(onuStatus.total);
+  setText('mOnusOnline', onuUp);
+  setText('mOnusTotal', onuTotal ? `de ${onuTotal} monitoradas` : 'nenhuma monitorada');
+
+  const setMonitoringKpi = (key, onlineId, totalId) => {
+    const item = monitoring[key] || {};
+    const up = _dashNum(item.up ?? item.online);
+    const total = _dashNum(item.total);
+    setText(onlineId, up);
+    setText(totalId, total ? `de ${total} monitorados` : 'nenhum monitorado');
+  };
+  const oltKpi = monitoring.olt || {};
+  const oltTotal = _dashNum(oltKpi.total);
+  const oltUp = _dashNum(oltKpi.up ?? oltKpi.online);
+  const oltAttention = _dashNum(oltKpi.down) + _dashNum(oltKpi.unstable) + _dashNum(oltKpi.unknown);
+  setText('mOltsOnline', oltTotal);
+  setText('mOltsTotal', oltTotal ? `${oltUp} online · ${oltAttention} em atencao` : 'nenhuma cadastrada');
+  setMonitoringKpi('connector', 'mConnectorsOnline', 'mConnectorsTotal');
+  setMonitoringKpi('windows', 'mComputersOnline', 'mComputersTotal');
+
+  const attentionTotal = _dashAttentionTotal(monitoring);
+  setText('mAttention', attentionTotal);
+  setText('mAttentionSub', attentionTotal === 1 ? 'equipamento exige verificação' : 'equipamentos exigem verificação');
+  setText('dashLastUpdated', `Atualizado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`);
 
   // Alertas  clicaveis
   const alerts = data.alerts || [];
@@ -336,10 +408,10 @@ async function loadDashboard() {
       const actionKey  = alertActionMap[a.label];
       const clickable  = actionKey ? `data-dash-alert="${actionKey}" style="cursor:pointer"` : '';
       const hint       = actionKey ? `<i data-lucide="chevron-right" style="width:13px;height:13px;color:${color};flex-shrink:0"></i>` : '';
-      return `<div ${clickable} style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:var(--surface);border-left:3px solid ${color};transition:background .15s" onmouseenter="if(this.dataset.dashAlert)this.style.background='var(--hover)'" onmouseleave="this.style.background='var(--surface)'">
-        <i data-lucide="${icon}" style="width:15px;height:15px;color:${color};flex-shrink:0"></i>
-        <span style="flex:1;font-size:13px">${esc(a.label)}</span>
-        <span style="font-size:13px;font-weight:700;color:${color}">${a.count}</span>
+      return `<div ${clickable} class="dash-alert-item ${esc(a.level || 'info')}" style="--alert-color:${color}">
+        <span class="dash-alert-icon"><i data-lucide="${icon}"></i></span>
+        <span class="dash-alert-label">${esc(a.label)}</span>
+        <strong>${a.count}</strong>
         ${hint}
       </div>`;
     }).join('');
@@ -355,6 +427,9 @@ async function loadDashboard() {
   // Status por tipo  clicaveis
   const statusGrid = document.getElementById('dashStatusGrid');
   const statusTypes = [
+    { label: 'Conectores', icon: 'plug',        s: monitoring.connector || {}, type: 'monitoring' },
+    { label: 'OLTs',       icon: 'radio-tower', s: monitoring.olt || {},       type: 'monitoring' },
+    { label: 'ONUs/ONTs',  icon: 'wifi',        s: monitoring.onu || {},       type: 'monitoring' },
     { label: 'Cameras IP',  icon: 'camera',     s: ip,  type: 'ip'      },
     { label: 'DVR canais',  icon: 'hard-drive',  s: dvr, type: 'dvr'     },
     { label: 'NVR canais',  icon: 'hard-drive',  s: nvr, type: 'nvr'     },
@@ -362,8 +437,8 @@ async function loadDashboard() {
   ];
   statusGrid.innerHTML = statusTypes.map(t => {
     const total   = t.s.total   ?? 0;
-    const online  = t.s.online  ?? 0;
-    const offline = t.s.offline ?? 0;
+    const online  = t.s.online  ?? t.s.up ?? 0;
+    const offline = t.s.offline ?? t.s.down ?? 0;
     const pct     = total > 0 ? Math.round((online / total) * 100) : null;
     const barColor = pct === null ? 'var(--muted)' : pct >= 80 ? 'var(--primary)' : pct >= 50 ? '#fd7e14' : '#fa5252';
     return `<div class="dash-status-row clickable" data-type="${t.type}" title="Ver detalhes">
@@ -406,28 +481,14 @@ async function loadDashboard() {
   }
   lucide.createIcons();
 
-  // Sites
+  // Sites usados pelo card e pelo filtro lateral, sem repetir um painel no rodape.
   const sites = data.sites || [];
-  const sitesPanel = document.getElementById('dashSitesPanel');
-  if (sites.length) {
-    setText('dashSitesCount', `${sites.length} localidade${sites.length !== 1 ? 's' : ''} no inventario`);
-    document.getElementById('dashSitesList').innerHTML = sites.map(s =>
-      `<span style="padding:4px 10px;border-radius:20px;background:var(--surface);border:1px solid var(--border);font-size:12px">${esc(s)}</span>`
-    ).join('');
-    renderDashboardSiteSummary(data);
-    sitesPanel.style.display = '';
-  } else {
-    renderDashboardSiteSummary(data);
-    sitesPanel.style.display = 'none';
-  }
 
   // Click handlers: KPI cards
   const kpiCamerasIp = document.getElementById('kpiCamerasIp');
   if (kpiCamerasIp) kpiCamerasIp.onclick = () => openDashDrawerIp('all');
   const kpiGravadores = document.getElementById('kpiGravadores');
   if (kpiGravadores) kpiGravadores.onclick = () => openDashDrawerRecorder('dvr', 'all');
-  const kpiSnapshots = document.getElementById('kpiSnapshots');
-  if (kpiSnapshots) kpiSnapshots.onclick = () => openDashDrawerIp('no_snap');
   const kpiSites = document.getElementById('kpiSites');
   if (kpiSites) kpiSites.onclick = () => {
     _openDashDrawer('Sites', 'Sites monitorados');
@@ -435,6 +496,19 @@ async function loadDashboard() {
     _drawerRenderRows(sites.length
       ? sites.map(s => `<div class="drawer-item"><i data-lucide="map-pin" style="width:14px;height:14px;color:var(--primary)"></i><div class="drawer-item-main"><div class="drawer-item-title">${esc(s)}</div></div></div>`).join('')
       : '');
+  };
+  const kpiOnus = document.getElementById('kpiOnus');
+  if (kpiOnus) kpiOnus.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('onu', 'all') : navigateTo('monitoring');
+  const kpiOlts = document.getElementById('kpiOlts');
+  if (kpiOlts) kpiOlts.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('olt', 'all') : navigateTo('monitoring');
+  const kpiConnectors = document.getElementById('kpiConnectors');
+  if (kpiConnectors) kpiConnectors.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('connector', 'all') : navigateTo('monitoring');
+  const kpiComputers = document.getElementById('kpiComputers');
+  if (kpiComputers) kpiComputers.onclick = () => openDashDrawerWindows('all');
+  const kpiAttention = document.getElementById('kpiAttention');
+  if (kpiAttention) kpiAttention.onclick = () => {
+    if (typeof openMonitoringAttentionDrawer === 'function') openMonitoringAttentionDrawer();
+    else navigateTo('monitoring');
   };
 
   // Click handlers: status rows (adicionados via dataset)
@@ -445,6 +519,7 @@ async function loadDashboard() {
       if (type === 'dvr')     openDashDrawerRecorder('dvr', 'all');
       if (type === 'nvr')     openDashDrawerRecorder('nvr', 'all');
       if (type === 'windows') openDashDrawerWindows('all');
+      if (type === 'monitoring') navigateTo('monitoring');
     });
   });
 
@@ -463,7 +538,7 @@ async function loadDashboard() {
   lucide.createIcons();
 }
 
-//  Inventario Cameras IP 
+// Inventario Cameras IP
 const _invCam   = { basico: [], olt: [], switch: [] };
 let _invOltView   = (() => {
   try { return sessionStorage.getItem('so_cam_view') || 'olt'; } catch { return 'olt'; }
@@ -491,4 +566,4 @@ function _camSessionClear() {
     _invCam[m] = [];
   });
 }
-
+

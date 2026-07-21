@@ -17,8 +17,8 @@ from .auth import router as auth_router
 from .system import router as system_router
 from .dashboard import router as dashboard_router
 from .windows import router as windows_router
-from .backup import router as backup_router
 from .playback import router as playback_router
 from .connectors import router as connectors_router
 from .network_tools import router as network_tools_router
 from .deployments import router as deployments_router
+from .monitoring import router as monitoring_router

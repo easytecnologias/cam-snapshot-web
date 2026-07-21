@@ -22,15 +22,10 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
 
     SAIDA_DIR.mkdir(parents=True, exist_ok=True)
 
-    inventory = load_inventory_json(mode=inventory_mode)
-    if not inventory:
-        return {
-            "ok": False,
-            "success": False,
-            "message": "Inventário JSON não existe ou está vazio. Faça um scan primeiro.",
-            "stderr": "inventory vazio",
-            "inventory": [],
-        }
+    # Tambem identifica a primeira camera de um inventario durante a
+    # Implantacao. Lista vazia e valida; a camera consultada vira o primeiro
+    # registro sem exigir uma varredura anterior.
+    inventory = load_inventory_json(mode=inventory_mode) or []
 
     tmp_json = SAIDA_DIR / f"rescan_{ip.replace('.', '_')}.tmp.json"
     script = TOOLS_DIR / "inventory_dry.py"
@@ -110,7 +105,7 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
 
     # dedup final
     try:
-        dedup_cam_inventory()
+        dedup_cam_inventory(mode=inventory_mode)
     except Exception as e:
         print(f"[dedup][erro][rescan-single-ip] {e}", flush=True)
 
@@ -130,7 +125,7 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
                         break
                 save_inventory_json(inventory2, mode=inventory_mode)
                 try:
-                    dedup_cam_inventory()
+                    dedup_cam_inventory(mode=inventory_mode)
                 except Exception as e:
                     print(f"[dedup][erro][rescan-single-ip][snapshot] {e}", flush=True)
                 inventory2 = load_inventory_json(mode=inventory_mode)

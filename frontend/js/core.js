@@ -1,22 +1,39 @@
-﻿/* 
+﻿/*
    SightOps  Frontend SPA
     */
 
 // O login nao pode depender do CDN de icones. Se o Lucide falhar, a UI segue viva.
 window.lucide = window.lucide || { createIcons() {} };
 
-//  Estado global 
+//  Estado global
 let _token = null;
 let _currentView = 'dashboard';
 let _scanWs = null;
 let _camAuthAction = null;
 
-//  Helpers HTTP 
+// Cache curto, somente em memoria e por sessao autenticada. Evita repetir
+// respostas grandes ao alternar entre telas sem guardar dados entre usuarios.
+const _apiJsonCache = new Map();
+const API_JSON_CACHE_TTL_MS = 30000;
+
+function clearApiJsonCache(match = '') {
+  if (!match) {
+    _apiJsonCache.clear();
+    return;
+  }
+  for (const key of _apiJsonCache.keys()) {
+    if (key.includes(match)) _apiJsonCache.delete(key);
+  }
+}
+
+//  Helpers HTTP
 async function api(path, opts = {}) {
   const { skipLogout, ...fetchOpts } = opts;
   const headers = { 'Content-Type': 'application/json', ...(fetchOpts.headers || {}) };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
   const res = await fetch(`${API_BASE}${path}`, { credentials: 'same-origin', ...fetchOpts, headers });
+  const method = String(fetchOpts.method || 'GET').toUpperCase();
+  if (res.ok && !['GET', 'HEAD'].includes(method)) clearApiJsonCache();
   if (res.status === 401 && !skipLogout) {
     _token = null;
     try { localStorage.removeItem('so_token'); } catch {}
@@ -27,9 +44,19 @@ async function api(path, opts = {}) {
 }
 
 async function apiJson(path, opts = {}) {
-  const res = await api(path, opts);
+  const { cacheTtl = API_JSON_CACHE_TTL_MS, forceRefresh = false, ...requestOpts } = opts;
+  const method = String(requestOpts.method || 'GET').toUpperCase();
+  const canCache = method === 'GET' && cacheTtl > 0;
+  const cacheKey = `${_token || 'anonymous'}:${path}`;
+  const now = Date.now();
+  const cached = _apiJsonCache.get(cacheKey);
+  if (canCache && !forceRefresh && cached && cached.expiresAt > now) return cached.data;
+
+  const res = await api(path, requestOpts);
   if (!res || !res.ok) return null;
-  return res.json();
+  const data = await res.json();
+  if (canCache) _apiJsonCache.set(cacheKey, { data, expiresAt: now + cacheTtl });
+  return data;
 }
 
 async function jsonOrReadableError(res, fallback = 'Erro na requisicao.') {
@@ -48,7 +75,7 @@ async function jsonOrReadableError(res, fallback = 'Erro na requisicao.') {
   return data;
 }
 
-//  Confirmacao customizada 
+//  Confirmacao customizada
 function showConfirm({ eyebrow = 'Confirmar', title = 'Tem certeza?', msg, label = 'Confirmar', danger = true } = {}) {
   return new Promise(resolve => {
     document.getElementById('confirmEyebrow').textContent = eyebrow;
@@ -73,7 +100,7 @@ function showConfirm({ eyebrow = 'Confirmar', title = 'Tem certeza?', msg, label
   });
 }
 
-//  Toast 
+//  Toast
 let _toastTimer;
 function showToast(msg, isError = false) {
   const el = document.getElementById('toast');
@@ -96,7 +123,7 @@ window.addEventListener('unhandledrejection', (event) => {
   if (_token) showToast(reason?.message || 'Acao falhou na interface.', true);
 });
 
-//  Auth 
+//  Auth
 async function login(user, pass) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
@@ -134,7 +161,7 @@ async function loadProfile() {
   document.getElementById('profileAvatar').textContent = name[0].toUpperCase();
 }
 
-//  Telas 
+//  Telas
 function showLoginScreen() {
   document.getElementById('loginScreen').removeAttribute('hidden');
   document.getElementById('appShell').setAttribute('hidden', '');
@@ -151,7 +178,7 @@ function showApp() {
   lucide.createIcons();
 }
 
-//  Navegacao 
+//  Navegacao
 const VIEW_META = {
   dashboard:       { title: 'Dashboard',        sub: 'Visao geral do parque' },
   'inv-olt':       { title: 'Cameras IP', sub: 'Varredura, filtros e casamento OLT/Switch' },
@@ -166,9 +193,7 @@ const VIEW_META = {
   'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
-  'net-devices':   { title: 'Redes - Dispositivos', sub: 'Dispositivos monitorados' },
-  'net-learn':     { title: 'Redes - Aprendizado', sub: '' },
-  'net-operate':   { title: 'Redes - Operacoes',  sub: '' },
+  'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
   'deploy-onu':    { title: 'Implantacao - ONU', sub: 'Provisionamento em campo' },
   'deploy-recorder': { title: 'Implantacao - Gravadores', sub: 'Cadastro de DVR/NVR' },
@@ -179,6 +204,7 @@ const VIEW_META = {
   'script-grafana':{ title: 'Scripts  Grafana', sub: '' },
   'script-zabbix': { title: 'Scripts  Zabbix',  sub: '' },
   connectors:      { title: 'Conectores',       sub: 'MikroTik RouterOS dos clientes' },
+  monitoring:      { title: 'Monitoramento',     sub: 'Saude dos equipamentos e alertas' },
   tools:           { title: 'Ferramentas',       sub: '' },
   backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },
   settings:        { title: 'Configuracoes',     sub: '' },
@@ -198,8 +224,6 @@ const VIEW_ID_MAP = {
   'mnt-nvr':        'viewMntNvr',
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
-  'net-devices':    'viewNetDevices',
-  'net-learn':      'viewNetLearn',
   'net-operate':    'viewNetOperate',
   'deploy-olt':     'viewDeployOlt',
   'deploy-onu':     'viewDeployOnu',
@@ -211,8 +235,7 @@ const VIEW_ID_MAP = {
   'script-grafana': 'viewScriptGrafana',
   'script-zabbix':  'viewScriptZabbix',
   connectors:       'viewConnectors',
-  tools:            'viewTools',
-  backup:           'viewBackup',
+  monitoring:       'viewMonitoring',
   settings:         'viewSettings',
 };
 
@@ -264,21 +287,17 @@ function loadView(view) {
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;
     case 'kmz':         loadKmz();          break;
-    case 'backup':      loadBackup();       break;
-    case 'net-devices': loadNetDevices();   break;
-    case 'net-learn':   loadStaticView();   break;
     case 'net-operate': loadNetOperate();   break;
     case 'deploy-olt':  loadDeployOlt();    break;
     case 'deploy-onu':  loadDeployOnu();    break;
     case 'deploy-recorder': loadDeployRecorder(); break;
     case 'deploy-new':  loadDeployNew();    break;
     case 'connectors':  loadConnectors();   break;
+    case 'monitoring':  loadMonitoring();   break;
     case 'script-grafana': loadScriptGrafana(); break;
     case 'script-zabbix':  loadScriptZabbix();  break;
-    case 'tools':
     case 'settings':
-      if (view === 'settings') loadSettings();
-      else loadStaticView();
+      loadSettings();
       break;
     default:
       loadStaticView();
@@ -318,28 +337,58 @@ function loadStaticView() {
   lucide.createIcons();
 }
 
+function activateSettingsTab(tab = 'overview') {
+  const available = [...document.querySelectorAll('[data-settings-panel]')].map(panel => panel.dataset.settingsPanel);
+  if (!available.includes(tab)) tab = 'overview';
+  document.querySelectorAll('[data-settings-tab]').forEach(button => {
+    const active = button.dataset.settingsTab === tab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-current', active ? 'page' : 'false');
+  });
+  document.querySelectorAll('[data-settings-panel]').forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.settingsPanel === tab);
+  });
+  sessionStorage.setItem('sightops.settings.tab', tab);
+  scheduleResponsiveHydration(document.getElementById('viewSettings'));
+  lucide.createIcons();
+}
+
 async function loadSettings() {
-  const [me, tenants, users, authStatus, dbStatus] = await Promise.all([
+  const [me, tenants, users, authStatus, dbStatus, telegram] = await Promise.all([
     apiJson('/api/auth/me'),
     apiJson('/api/auth/tenants'),
     apiJson('/api/auth/users'),
     apiJson('/api/auth/status'),
     apiJson('/api/db/status'),
+    apiJson('/api/monitoring/telegram', { forceRefresh: true }),
   ]);
   const currentUser = me?.user || {};
   const tenantRows = tenants?.tenants || [];
   const userRows = users?.users || [];
+
+  const overview = document.getElementById('settingsOverviewStatus');
+  if (overview) {
+    const telegramState = telegram?.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Não configurado';
+    overview.innerHTML = [
+      ['Cliente atual', currentUser.tenant_name || currentUser.tenant_slug || '-'],
+      ['Seu perfil', currentUser.role || '-'],
+      ['Clientes SaaS', tenantRows.length],
+      ['Usuários do cliente', userRows.length],
+      ['Notificações', telegramState],
+      ['Banco principal', dbStatus?.backend || '-'],
+    ].map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
+  }
 
   setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
   const tenantsBody = document.getElementById('settingsTenantsBody');
   if (tenantsBody) {
     tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => `
       <tr>
-        <td><strong>${esc(t.name || '')}</strong></td>
-        <td><span class="monospace">${esc(t.slug || '')}</span></td>
-        <td>${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
-        <td>${esc(t.users ?? 0)}</td>
-        <td><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
+        <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
+        <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
+        <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
+        <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
       </tr>
     `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado.</td></tr>';
   }
@@ -349,11 +398,11 @@ async function loadSettings() {
   if (usersBody) {
     usersBody.innerHTML = userRows.length ? userRows.map(u => `
       <tr>
-        <td><strong>${esc(u.username || '')}</strong></td>
-        <td>${esc(u.full_name || '-')}</td>
-        <td><span class="badge badge-gray">${esc(u.role || '')}</span></td>
-        <td>${Number(u.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
-        <td>${esc(u.tenant_name || u.tenant_slug || '')}</td>
+        <td class="settings-cell-truncate" title="${esc(u.username || '')}"><strong>${esc(u.username || '')}</strong></td>
+        <td class="settings-cell-truncate" title="${esc(u.full_name || '-')}">${esc(u.full_name || '-')}</td>
+        <td class="settings-cell-center"><span class="badge badge-gray">${esc(u.role || '')}</span></td>
+        <td class="settings-cell-center">${Number(u.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td class="settings-cell-truncate" title="${esc(u.tenant_name || u.tenant_slug || '')}">${esc(u.tenant_name || u.tenant_slug || '')}</td>
       </tr>
     `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum usuario cadastrado.</td></tr>';
   }
@@ -373,9 +422,43 @@ async function loadSettings() {
       ['Legacy open', authStatus?.legacy_open ? 'sim' : 'nao'],
     ].map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
   }
+  if (telegram) {
+    document.getElementById('telegramChatId').value = telegram.chat_id || '';
+    document.getElementById('telegramWarnRx').value = telegram.warn_rx ?? -27;
+    document.getElementById('telegramCriticalRx').value = telegram.critical_rx ?? -29;
+    document.getElementById('telegramEnabled').checked = !!telegram.enabled;
+    document.getElementById('telegramRecovery').checked = !!telegram.notify_recovery;
+    const status = document.getElementById('telegramConfigStatus');
+    status.textContent = telegram.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Nao configurado';
+    status.className = `badge ${telegram.configured ? 'badge-green' : 'badge-gray'}`;
+  }
 
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
+  activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
   lucide.createIcons();
+}
+
+async function saveTelegramSettings() {
+  const payload = {
+    bot_token: document.getElementById('telegramBotToken')?.value || '',
+    chat_id: document.getElementById('telegramChatId')?.value.trim() || '',
+    warn_rx: Number(document.getElementById('telegramWarnRx')?.value || -27),
+    critical_rx: Number(document.getElementById('telegramCriticalRx')?.value || -29),
+    enabled: !!document.getElementById('telegramEnabled')?.checked,
+    notify_recovery: !!document.getElementById('telegramRecovery')?.checked,
+  };
+  const res = await api('/api/monitoring/telegram', { method: 'PUT', body: JSON.stringify(payload) });
+  const data = await jsonOrReadableError(res, 'Nao foi possivel salvar o Telegram.');
+  document.getElementById('telegramBotToken').value = '';
+  showToast(data.configured ? 'Telegram configurado.' : 'Configuracao salva; informe token e chat.');
+  await loadSettings();
+}
+
+async function testTelegramSettings() {
+  await saveTelegramSettings();
+  const res = await api('/api/monitoring/telegram/test', { method: 'POST' });
+  await jsonOrReadableError(res, 'Nao foi possivel enviar a mensagem de teste.');
+  showToast('Mensagem de teste enviada ao Telegram.');
 }
 
 async function createTenantFromSettings() {
@@ -444,7 +527,7 @@ function loadScriptZabbix() {
   lucide.createIcons();
 }
 
-//  Sidebar mobile 
+//  Sidebar mobile
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('mobileBackdrop').classList.add('open');
@@ -454,8 +537,8 @@ function closeSidebar() {
   document.getElementById('mobileBackdrop').classList.remove('open');
 }
 
-//  Dashboard 
-//  Dashboard Drawer 
+//  Dashboard
+//  Dashboard Drawer
 let _dashDrawerData = null;
 
 function _openDashDrawer(eyebrow, title) {
@@ -505,4 +588,4 @@ function _drawerStatusDot(status) {
   const color = online ? 'var(--primary)' : offline ? 'var(--danger)' : 'var(--muted)';
   return `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>`;
 }
-
+

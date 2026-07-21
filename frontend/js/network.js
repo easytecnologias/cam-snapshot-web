@@ -169,40 +169,6 @@ async function loadSwitch() {
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
 }
 
-//  Backup 
-async function loadBackup() {
-  const data = await apiJson('/api/backup/status');
-  const el = document.getElementById('backupStatus');
-  if (!data) { el.textContent = 'Nao foi possivel carregar o status.'; return; }
-  el.innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div><strong>Tamanho do banco:</strong> ${esc(data.db_size || '')}</div>
-      <div><strong>Cameras:</strong> ${esc(String(data.camera_count ?? ''))}</div>
-      <div><strong>DVRs:</strong> ${esc(String(data.dvr_count ?? ''))}</div>
-      <div><strong>NVRs:</strong> ${esc(String(data.nvr_count ?? ''))}</div>
-      <div><strong>Ultimo backup:</strong> ${esc(data.last_backup || 'Nunca')}</div>
-    </div>`;
-}
-
-//  Rede 
-async function loadNetDevices() {
-  const data = await apiJson('/api/network/devices');
-  const devices = data?.devices || data || [];
-  const tbody = document.getElementById('netDevicesTable');
-  if (!devices.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhum dispositivo cadastrado.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = devices.map(d => `
-    <tr>
-      <td><strong>${esc(d.name || d.hostname || '')}</strong></td>
-      <td class="monospace">${esc(d.ip || '')}</td>
-      <td class="text-muted">${esc(d.type || '')}</td>
-      <td>${statusBadge(d.status)}</td>
-      <td></td>
-    </tr>`).join('');
-}
-
 function netToolSetLog(html, status = '') {
   const log = document.getElementById('netToolLog');
   const statusEl = document.getElementById('netToolStatus');
@@ -391,6 +357,7 @@ function deploymentSetPreferredInventoryMode(value) {
 function deployPayload() {
   return {
     id: _deployCurrentId || '',
+    olt_id: Number(document.getElementById('deployOltContext')?.value || 0) || null,
     connector_id: deploySelectedConnectorId(),
     site: document.getElementById('deploySite')?.value.trim() || '',
     camera_mac: document.getElementById('deployCameraMac')?.value.trim() || '',
@@ -506,4 +473,4 @@ function deployRenderConnectorStatus() {
   box.classList.toggle('error', !online || !vpnReady);
   box.innerHTML = `<b style="color:${online && vpnReady ? 'var(--primary)' : 'var(--danger)'}">${online ? '● Online' : '○ Offline'}</b> -- ${esc(deployConnectorLabel(conn))} - ${vpnReady ? 'VPN pronta' : 'sem VPN configurada'} - Ultimo sinal: ${lastSeen} - ${counts || 'sem inventario recebido ainda'}`;
 }
-
+

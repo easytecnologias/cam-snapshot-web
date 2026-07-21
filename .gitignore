@@ -53,6 +53,7 @@ saida/
 # Archives and deploy bundles
 *.tar
 *.tar.gz
+*.tgz
 *.zip
 
 # Tool caches

@@ -44,7 +44,7 @@ with TestClient(m.app) as c:
     r = c.post("/api/olt/registry", json={
         "name": "OLT Centro", "host": "10.0.0.10",
         "vendor": "Fiberhome", "model": "8820i",
-        "username": "admin", "password": SENHA,
+        "username": "admin", "password": SENHA, "site": "Centro",
     })
     check(r.status_code == 200, f"criar falhou: {r.status_code} {r.text[:200]}")
     corpo = r.text
@@ -52,6 +52,15 @@ with TestClient(m.app) as c:
     item = r.json()["item"]
     olt_id = item["id"]
     print(f"criada: id={olt_id} vendor={item['vendor']} model={item['model']} has_password={item['has_password']}")
+
+    # repetir a mesma identidade deve atualizar, nao tentar duplicar
+    r = c.post("/api/olt/registry", json={
+        "name": "OLT Centro atualizada", "host": "10.0.0.10", "site": "Centro",
+        "vendor": "Fiberhome", "model": "8820i", "username": "admin",
+    })
+    check(r.status_code == 200, f"salvar identidade repetida falhou: {r.status_code} {r.text[:200]}")
+    check(r.json()["item"]["id"] == olt_id, "identidade repetida criou outra OLT")
+    check(r.json()["item"]["has_password"] is True, "upsert sem senha apagou a credencial")
 
     # listar
     r = c.get("/api/olt/registry")
@@ -69,6 +78,7 @@ with TestClient(m.app) as c:
     check(r.status_code == 200, f"editar falhou: {r.status_code} {r.text[:200]}")
     check(r.json()["item"]["has_password"] is True, "editar sem senha apagou a senha")
     check(r.json()["item"]["name"] == "OLT Centro II", "nome nao foi atualizado")
+    check(r.json()["item"]["site"] == "Centro", "editar sem site apagou o vinculo do site")
 
     # validacao
     r = c.post("/api/olt/registry", json={"name": "", "host": "1.2.3.4"})

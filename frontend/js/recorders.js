@@ -25,7 +25,7 @@ async function loadInvDvr() {
   lucide.createIcons();
 }
 
-//  Inventario NVR 
+// Inventario NVR
 // Gravadores  NVR e DVR com dados por modo
 const _invNvr   = { basico: [], olt: [], switch: [] };
 const _invDvr   = { basico: [], olt: [], switch: [] };
@@ -88,7 +88,10 @@ async function _loadRecForMode(type, mode) {
   const data = await apiJson(endpoint);
   const sourceRows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === mode);
   const rows = await enrichRecRowsForMode(sourceRows, mode);
-  if (recModeHasRealData(rows, mode)) {
+  // O modo gravado no canal e a fonte de verdade. Dados complementares de
+  // OLT/Switch podem estar temporariamente indisponiveis e nao devem fazer o
+  // inventario inteiro desaparecer enquanto os snapshots continuam visiveis.
+  if (sourceRows.length) {
     store[mode] = rows;
     _recSessionSave(type, mode, rows);
     return rows;
@@ -96,6 +99,23 @@ async function _loadRecForMode(type, mode) {
   store[mode] = [];
   try { sessionStorage.removeItem(`so_${type}_${mode}`); } catch {}
   return [];
+}
+
+async function _loadRecAllModesForType(type) {
+  const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
+  const data = await apiJson(endpoint);
+  const allRows = data?.inventory || [];
+  const store = type === 'dvr' ? _invDvr : _invNvr;
+  for (const mode of ['basico', 'olt', 'switch']) {
+    const sourceRows = allRows.filter(row => recRowInventoryMode(row) === mode);
+    const rows = mode === 'basico' ? sourceRows : await enrichRecRowsForMode(sourceRows, mode);
+    store[mode] = rows;
+    if (rows.length) _recSessionSave(type, mode, rows);
+    else {
+      try { sessionStorage.removeItem(`so_${type}_${mode}`); } catch {}
+    }
+  }
+  return allRows;
 }
 function _nvrSessionClear() {
   ['nvr','dvr'].forEach(type => {
@@ -324,7 +344,7 @@ async function enrichRecRowsForMode(rows, mode) {
   const camMode = mode === 'switch' ? 'switch' : 'olt';
   const [camData, oltData] = await Promise.all([
     apiJson(`/api/cameras?mode=${encodeURIComponent(camMode)}`),
-    mode === 'olt' ? apiJson('/api/olt/rows') : Promise.resolve(null),
+    mode === 'olt' ? apiJson('/api/olt/rows?compact=true') : Promise.resolve(null),
   ]);
   const camByIp = {};
   (camData?.cameras || []).forEach(c => { if (c.ip) camByIp[c.ip] = c; });
@@ -374,13 +394,13 @@ function setRecType(type) {
 
 async function loadInvNvr() {
   _recSessionLoad();
-  const desired = _invNvrView || 'olt';
-  const store = _currentRecStore();
-  if (!store[desired]?.length) {
-    await _loadRecForMode(_recType, desired);
-  }
-  if (!store[desired]?.length && !store.basico?.length) {
-    await _loadRecForMode(_recType, 'basico');
+  // Carrega e distribui todos os modos. Assim uma base somente OLT/Switch nao
+  // fica invisivel por a tela ter iniciado na aba Basico.
+  const loaded = await _loadRecAllModesForType(_recType);
+  if (!loaded.length) {
+    const fallbackType = _recType === 'nvr' ? 'dvr' : 'nvr';
+    const fallbackRows = await _loadRecAllModesForType(fallbackType);
+    if (fallbackRows.length) setRecType(fallbackType);
   }
   updateNvrTabs();
   populateNvrFilters();
@@ -512,7 +532,7 @@ function renderNvrTable(rows) {
   lucide.createIcons();
 }
 
-//  Inventario Windows 
+// Inventario Windows
 function recEndpointBase() {
   return _recActive?._type === 'dvr' ? '/api/dvr' : '/api/nvr';
 }
@@ -832,4 +852,4 @@ let _winFilteredRows = [];
 let _winSelected = new Set();
 let _winEditingKey = '';
 let _winActive = null;
-
+

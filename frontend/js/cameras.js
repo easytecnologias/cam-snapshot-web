@@ -140,7 +140,7 @@ function _imgbbClear() {
   try { sessionStorage.removeItem('so_imgbb'); } catch {}
 }
 
-//  Mapa de cameras (Leaflet) 
+//  Mapa de cameras (Leaflet)
 let _map            = null;
 let _mapFeatures    = [];
 let _mapLayers      = [];
@@ -888,7 +888,7 @@ async function _loadCamForMode(mode) {
   const [camData, swData, oltData] = await Promise.all([
     apiJson(`/api/cameras?mode=${encodeURIComponent(inventoryMode)}&_=${Date.now()}`),
     mode === 'switch' ? apiJson('/api/switch/rows') : Promise.resolve(null),
-    mode === 'olt'    ? apiJson('/api/olt/rows')    : Promise.resolve(null),
+    mode === 'olt'    ? apiJson(`/api/olt/rows?compact=true&_=${Date.now()}`) : Promise.resolve(null),
   ]);
 
   let cameras = camData?.cameras || (Array.isArray(camData) ? camData : []);
@@ -912,10 +912,15 @@ async function _loadCamForMode(mode) {
     cameras = cameras.map(c => {
       const olt = oltByMac[(c.mac||'').toLowerCase()] || {};
       return { ...c,
-        pon:        c.pon        || olt.pon        || '',
-        onu_id:     c.onu_id     || olt.onu_id     || '',
-        onu_name:   c.onu_name   || olt.onu_name   || '',
-        onu_serial: c.onu_serial || olt.onu_serial || '',
+        pon:        olt.pon        || c.pon        || '',
+        onu_id:     olt.onu_id     || c.onu_id     || '',
+        onu_name:   olt.onu_name   || c.onu_name   || '',
+        onu_serial: olt.onu_serial || c.onu_serial || '',
+        onu_oper_status: olt.oper_status || c.onu_oper_status || '',
+        onu_omci_status: olt.omci_status || c.onu_omci_status || '',
+        onu_rx: olt.onu_rx || c.onu_rx || '',
+        olt_rx: olt.olt_rx || c.olt_rx || '',
+        onu_telemetry_updated_at: olt.telemetry_updated_at || c.onu_telemetry_updated_at || '',
       };
     });
   }
@@ -1136,7 +1141,21 @@ function invStatusBadge(status) {
   return `<span style="color:var(--muted);font-size:12px">${esc(status)}</span>`;
 }
 
-//  Painel lateral da camera 
+function cameraOnuHealth(cam = {}) {
+  if (!cam.pon || !cam.onu_id) {
+    return { state: 'unlinked', label: 'Nao associada', detail: 'Camera sem PON/ONU associada' };
+  }
+  const oper = String(cam.onu_oper_status || '').trim().toLowerCase();
+  const omci = String(cam.onu_omci_status || '').trim().toLowerCase();
+  const up = ['active', 'online', 'up'].includes(oper);
+  const down = ['inactive', 'offline', 'down', 'los', 'dying-gasp', 'dying_gasp'].includes(oper);
+  const signal = cam.onu_rx ? `ONU RX ${cam.onu_rx}` : '';
+  if (up) return { state: 'up', label: 'ONU online', detail: [cam.onu_oper_status, omci ? `OMCI ${cam.onu_omci_status}` : '', signal].filter(Boolean).join(' - ') };
+  if (down) return { state: 'down', label: 'ONU offline', detail: [cam.onu_oper_status, signal].filter(Boolean).join(' - ') };
+  return { state: 'unknown', label: 'ONU nao verificada', detail: 'Atualize os estados no Monitoramento' };
+}
+
+//  Painel lateral da camera
 function openCamPanel(cam) {
   _invOltActive = cam;
   stopPing();
@@ -1158,6 +1177,13 @@ function openCamPanel(cam) {
   setText('cpLocal',  cam.local  || '');
   setText('cpPonOnu', [cam.pon, cam.onu_id].filter(Boolean).join(' / ') || '');
   setText('cpSerial', cam.onu_serial || '');
+  const onuHealth = cameraOnuHealth(cam);
+  const onuStatus = document.getElementById('cpOnuStatus');
+  if (onuStatus) {
+    onuStatus.className = `cam-onu-status ${onuHealth.state}`;
+    onuStatus.innerHTML = `<span class="cam-onu-status-dot"></span><span>${esc(onuHealth.label)}</span>`;
+    onuStatus.title = onuHealth.detail;
+  }
 
   // Snapshot
   const img = document.getElementById('cpSnapshot');
@@ -1190,7 +1216,7 @@ function closeCamPanel() {
   document.querySelectorAll('.inv-olt-row').forEach(tr => tr.classList.remove('row-selected'));
 }
 
-//  Ping Terminal 
+//  Ping Terminal
 let _pingIp    = null;
 let _pingCount = 0;
 let _pingOk    = 0;
@@ -1508,7 +1534,7 @@ async function startCamPanelLive() {
   }
 }
 
-//  Acoes do painel 
+//  Acoes do painel
 function openCamAuthAction(action) {
   if (!_invOltActive) return;
   const cam = _invOltActive;
@@ -1688,4 +1714,4 @@ async function camAction(action) {
   }
 }
 
-//  Inventario DVR 
+//  Inventario DVR

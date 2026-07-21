@@ -7,6 +7,7 @@ from contextlib import redirect_stderr
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple
 import io
+import time
 
 from fastapi import HTTPException
 
@@ -20,7 +21,7 @@ from app.models.requests import (
     OltFindOnuRequest,
     OltOnuSignalRequest,
 )
-from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i
+from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu_telemetry_8820i
 from app.cli.tools.olt_4840e_collect_macs import collect_macs_4840e
 from app.cli.tools.olt_8820i_add_onu import (
     OnuAddError,
@@ -32,7 +33,7 @@ from app.cli.tools.olt_8820i_add_onu import (
     profile_for_model,
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
-from app.services.inventory_json import load_inventory_json
+from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.connector_service import get_connector, list_connectors
 
 logger = logging.getLogger("cam-snapshot")
@@ -95,6 +96,72 @@ def _norm_onu_serial(value: Any) -> str:
     return re.sub(r"^(VSOL|HWTC|ZTEG|ALCL|FHTT)", "", raw)
 
 
+def _full_onu_serial(serial: Any, vendor: Any = "") -> str:
+    serial_text = _norm_text(serial).upper()
+    vendor_text = re.sub(r"[^A-Z0-9]", "", _norm_text(vendor).upper())
+    if serial_text and len(serial_text) == 8 and len(vendor_text) == 4 and not serial_text.startswith(vendor_text):
+        return f"{vendor_text}{serial_text}"
+    return serial_text
+
+
+def _sync_camera_inventory_from_olt_rows(
+    olt_rows: list[dict[str, Any]],
+    clear_macs: set[str] | None = None,
+) -> dict[str, int]:
+    """Sincroniza a topologia OLT das cameras pelo MAC sem alterar dados da camera."""
+    cameras = load_inventory_json(mode="olt") or []
+    by_scope_mac: dict[tuple[str, str], dict[str, Any]] = {}
+    by_mac: dict[str, list[dict[str, Any]]] = {}
+    for row in olt_rows:
+        mac = _norm_mac(row.get("cpe_mac") or row.get("mac") or row.get("MAC"))
+        if not mac:
+            continue
+        connector_id = _norm_text(row.get("connector_id") or row.get("remote_connector_id"))
+        by_scope_mac[(connector_id, mac)] = row
+        by_mac.setdefault(mac, []).append(row)
+
+    topology_fields = {
+        "pon": ("pon", "PON"),
+        "onu_id": ("onu_id", "onu", "ONU", "ONU_ID"),
+        "onu_name": ("onu_name", "ONU_NAME"),
+        "onu_serial": ("onu_serial", "serial", "SERIAL", "ONU_SERIAL"),
+        "onu_model": ("onu_model", "model", "ONU_MODEL"),
+        "olt_ip": ("olt_ip", "OLT_IP"),
+        "olt_name": ("olt_name", "OLT_NAME"),
+        "vlan": ("vlan", "VLAN"),
+    }
+    changed = 0
+    cleared = 0
+    normalized_clear = {_norm_mac(mac) for mac in (clear_macs or set()) if _norm_mac(mac)}
+    for camera in cameras:
+        mac = _norm_mac(camera.get("mac") or camera.get("MAC"))
+        if not mac:
+            continue
+        connector_id = _norm_text(camera.get("connector_id") or camera.get("remote_connector_id"))
+        match = by_scope_mac.get((connector_id, mac))
+        if match is None and len(by_mac.get(mac, [])) == 1:
+            match = by_mac[mac][0]
+        camera_changed = False
+        if match is not None:
+            for target, source_keys in topology_fields.items():
+                value = next((_norm_text(match.get(key)) for key in source_keys if _norm_text(match.get(key))), "")
+                if _norm_text(camera.get(target)) != value:
+                    camera[target] = value
+                    camera_changed = True
+        elif mac in normalized_clear:
+            for target in topology_fields:
+                if _norm_text(camera.get(target)):
+                    camera[target] = ""
+                    camera_changed = True
+            if camera_changed:
+                cleared += 1
+        if camera_changed:
+            changed += 1
+    if changed:
+        save_inventory_json(cameras, mode="olt")
+    return {"updated_cameras": changed, "cleared_cameras": cleared}
+
+
 def _req_connector_id(req: Any) -> str:
     return _norm_text(getattr(req, "remote_connector_id", "") or getattr(req, "connector_id", ""))
 
@@ -111,7 +178,12 @@ def _same_connector_scope(row: dict[str, Any], req: Any) -> bool:
     connector_id = _req_connector_id(req)
     if not connector_id:
         return True
-    return _row_connector_id(row) == connector_id
+    # Coletas antigas nao registravam o conector. Como o estado ja esta
+    # isolado por tenant e o chamador tambem compara OLT/PON/ONU, permita que
+    # essas linhas legadas recebam telemetria e sejam migradas para o conector
+    # cadastrado. Um conector diferente e conhecido continua bloqueado.
+    row_connector_id = _row_connector_id(row)
+    return not row_connector_id or row_connector_id == connector_id
 
 
 def _same_onu_position(row: dict[str, Any], olt_ip: str, pon: int, onu: int) -> bool:
@@ -168,7 +240,7 @@ def _upsert_onu_inventory(req: OltAddOnuRequest, result: dict[str, Any]) -> dict
     inferred_site, inferred_olt_name = _infer_olt_inventory_scope(existing_rows, req.olt_ip)
     site = _norm_text(req.site) or inferred_site
     olt_name = _norm_text(req.olt_name) or inferred_olt_name
-    serial = _norm_text(req.serial).upper()
+    serial = _full_onu_serial(req.serial, req.vendor)
     model = " ".join(x for x in [_norm_text(req.vendor), _norm_text(req.onu_model)] if x).strip()
     description = _norm_text(req.description)
     connector_id = _req_connector_id(req)
@@ -219,6 +291,7 @@ def _remove_onu_inventory(req: OltDeleteOnuRequest) -> dict[str, Any]:
             return True
         return bool(serial and _norm_text(row.get("onu_serial")).upper() == serial)
 
+    removed_rows = [r for r in existing_rows if _matches(r)]
     kept = [r for r in existing_rows if not _matches(r)]
     removed = len(existing_rows) - len(kept)
     out_obj = {
@@ -227,7 +300,65 @@ def _remove_onu_inventory(req: OltDeleteOnuRequest) -> dict[str, Any]:
         "cpes": kept,
     }
     save_olt_cpe_state(out_obj)
-    return {"ok": True, "removed": removed, "remaining": len(kept)}
+    camera_sync = _sync_camera_inventory_from_olt_rows(
+        kept,
+        clear_macs={_norm_text(row.get("cpe_mac") or row.get("mac")) for row in removed_rows},
+    )
+    return {"ok": True, "removed": removed, "remaining": len(kept), **camera_sync}
+
+
+def _sync_authorized_onu_devices(
+    req: OltAddOnuRequest,
+    result: dict[str, Any],
+    attempts: int = 3,
+) -> dict[str, Any]:
+    """Consulta a ONU recem-autorizada e grava os MACs aprendidos no inventario."""
+    pon = int(result.get("pon") or req.pon or 0)
+    onu = int(result.get("slot") or result.get("onu") or 0)
+    if not pon or not onu:
+        return {"ok": False, "updated": False, "reason": "sem posicao da ONU"}
+
+    signal_req = OltOnuSignalRequest(
+        olt_id=req.olt_id,
+        olt_ip=req.olt_ip,
+        user=req.user,
+        password=req.password,
+        pon=pon,
+        onu=onu,
+        serial=req.serial,
+        site=req.site,
+        olt_name=req.olt_name,
+        connector_id=req.connector_id,
+        remote_connector_id=req.remote_connector_id,
+        connector_name=req.connector_name,
+        timeout=max(12.0, float(req.timeout or 0)),
+    )
+    last_result: dict[str, Any] = {}
+    for attempt in range(max(1, attempts)):
+        if attempt:
+            time.sleep(2.0 * attempt)
+        try:
+            signal = _onu_signal_8820i(
+                olt_ip=signal_req.olt_ip,
+                user=signal_req.user,
+                password=signal_req.password,
+                pon=pon,
+                onu=onu,
+                serial=signal_req.serial,
+                timeout=signal_req.timeout,
+            )
+            if not signal.get("ok"):
+                last_result = {"ok": False, "updated": False, "reason": signal.get("error") or "consulta sem resposta"}
+                continue
+            _enrich_signal_macs_with_ips(signal)
+            last_result = _sync_onu_signal_inventory(signal_req, signal)
+            last_result["attempt"] = attempt + 1
+            if int(last_result.get("macs") or 0) > 0:
+                return last_result
+        except Exception as exc:
+            last_result = {"ok": False, "updated": False, "reason": str(exc), "attempt": attempt + 1}
+            logger.warning("ONU autorizada, mas a tentativa %s de sincronizar MACs falhou: %s", attempt + 1, exc)
+    return last_result or {"ok": True, "updated": False, "macs": 0, "reason": "ONU ainda sem MAC aprendido"}
 
 
 def _vlan_from_interface(value: Any) -> str:
@@ -320,6 +451,13 @@ def _sync_onu_signal_inventory(req: OltOnuSignalRequest, result: dict[str, Any])
         inferred_site = _norm_text(matching_rows[0].get("site") or matching_rows[0].get("SITE") or matching_rows[0].get("local")) or inferred_site
         inferred_olt_name = _norm_text(matching_rows[0].get("olt_name") or matching_rows[0].get("OLT") or matching_rows[0].get("olt")) or inferred_olt_name
 
+    serial_candidates = [
+        _norm_text(result.get("serial")),
+        _norm_text(req.serial),
+        *[_norm_text(row.get("onu_serial") or row.get("serial")) for row in matching_rows],
+    ]
+    serial = max((value.upper() for value in serial_candidates if value), key=len, default="")
+
     base_vlan = ""
     base_onu_name = f"gpon {pon} onu {onu}"
     for row in matching_rows:
@@ -345,7 +483,7 @@ def _sync_onu_signal_inventory(req: OltOnuSignalRequest, result: dict[str, Any])
             "pon": pon,
             "onu_id": onu,
             "onu_name": base_onu_name,
-            "onu_serial": _norm_onu_serial(serial),
+            "onu_serial": serial,
             "onu_model": _norm_text(result.get("model")),
             "profile": _norm_text(result.get("profile")),
             "oper_status": _norm_text(result.get("oper_status")),
@@ -374,7 +512,8 @@ def _sync_onu_signal_inventory(req: OltOnuSignalRequest, result: dict[str, Any])
         "cpes": _dedup_cpes_by_key(kept + new_rows),
     }
     save_olt_cpe_state(out_obj)
-    return {"ok": True, "updated": True, "macs": len([r for r in new_rows if r.get("cpe_mac")]), "rows": len(new_rows), "count": len(out_obj["cpes"])}
+    camera_sync = _sync_camera_inventory_from_olt_rows(out_obj["cpes"])
+    return {"ok": True, "updated": True, "macs": len([r for r in new_rows if r.get("cpe_mac")]), "rows": len(new_rows), "count": len(out_obj["cpes"]), **camera_sync}
 
 
 def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
@@ -441,6 +580,11 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                 if connector and not site:
                     site = str(connector.get("site") or connector.get("client") or "").strip()
                 new_cpes: list[dict[str, Any]] = []
+                old_by_mac = {
+                    _norm_mac(item.get("cpe_mac") or item.get("mac")): item
+                    for item in existing_cpes
+                    if isinstance(item, dict) and _norm_mac(item.get("cpe_mac") or item.get("mac"))
+                }
                 for r in list(rows or []):
                     if not isinstance(r, dict):
                         continue
@@ -448,6 +592,11 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                     rr["site"] = site
                     rr["olt_ip"] = req.olt_ip
                     rr["olt_model"] = req.olt_model or "8820i"
+                    old = old_by_mac.get(_norm_mac(rr.get("cpe_mac") or rr.get("mac"))) or {}
+                    old_serial = _norm_text(old.get("onu_serial") or old.get("serial"))
+                    new_serial = _norm_text(rr.get("onu_serial") or rr.get("serial"))
+                    if len(old_serial) > len(new_serial):
+                        rr["onu_serial"] = old_serial
                     if connector_id:
                         rr["remote_connector_id"] = connector_id
                         rr["connector_id"] = connector_id
@@ -482,6 +631,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                 }
 
                 save_olt_cpe_state(out_obj)
+                camera_sync = _sync_camera_inventory_from_olt_rows(all_cpes)
                 if json_path is not None and not json_path.exists():
                     json_path = None
         except Exception as e:
@@ -496,7 +646,113 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
             "count_all": len(list(all_cpes or [])),
             "json_path": str(json_path) if json_path else None,
             "cli_log": cli_log,
+            "camera_sync": camera_sync,
         }
+
+
+def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
+    """Atualiza status/sinal das ONUs preservando MACs e demais dados do inventario."""
+    connector = _validate_olt_network_context(req)
+    model = _norm_text(req.olt_model or "8820i").lower()
+    if model not in {"8820i", "intelbras_8820i"}:
+        raise HTTPException(422, "Telemetria leve disponivel para Intelbras 8820i.")
+    try:
+        telemetry = collect_onu_telemetry_8820i(
+            olt_ip=req.olt_ip,
+            user=req.user,
+            password=req.password,
+            pon=req.pon or "all",
+            timeout=12.0,
+        )
+    except Exception as exc:
+        logger.exception("Erro ao coletar telemetria da OLT %s", req.olt_ip)
+        raise HTTPException(500, f"Erro ao coletar telemetria da OLT: {exc}") from exc
+
+    obj = load_olt_cpe_state() or {}
+    existing = [row for row in list(obj.get("cpes") or obj.get("rows") or []) if isinstance(row, dict)]
+    connector_id = _req_connector_id(req)
+    connector_name = _req_connector_name(req) or _norm_text((connector or {}).get("name"))
+    site, inferred_name = _infer_olt_inventory_scope(existing, req.olt_ip)
+    site = _norm_text(req.site) or site or _norm_text((connector or {}).get("site"))
+    olt_name = _norm_text(req.olt_name) or inferred_name
+    now = datetime.now(timezone.utc).isoformat()
+    updated_positions: set[tuple[int, int]] = set()
+    with_signal = 0
+
+    for item in telemetry:
+        pon_id = int(item.get("pon") or 0)
+        onu_id = int(item.get("onu_id") or 0)
+        if not pon_id or not onu_id:
+            continue
+        matches = [
+            row for row in existing
+            if _same_onu_position(row, req.olt_ip, pon_id, onu_id) and _same_connector_scope(row, req)
+        ]
+        values = {
+            "onu_serial": _norm_text(item.get("serial")),
+            "oper_status": _norm_text(item.get("oper_status")),
+            "omci_status": _norm_text(item.get("omci_status")),
+            "olt_rx": _norm_text(item.get("rx_olt")),
+            "onu_rx": _norm_text(item.get("rx_onu")),
+            "distance_km": _norm_text(item.get("distance_km")),
+            # A telemetria periodica nao e uma acao recente do tecnico. Manter
+            # esse horario separado evita reordenar o historico de implantacao.
+            "telemetry_updated_at": now,
+        }
+        if values["olt_rx"] or values["onu_rx"]:
+            with_signal += 1
+        if matches:
+            for row in matches:
+                row_values = dict(values)
+                current_serial = _norm_text(row.get("onu_serial") or row.get("serial"))
+                if len(current_serial) > len(row_values["onu_serial"]):
+                    row_values["onu_serial"] = current_serial
+                row.update(row_values)
+                if connector_id and not _row_connector_id(row):
+                    row.update({
+                        "remote_connector_id": connector_id,
+                        "connector_id": connector_id,
+                        "remote_connector_name": connector_name,
+                        "remote": True,
+                    })
+        else:
+            row = {
+                "site": site,
+                "olt_ip": _norm_text(req.olt_ip),
+                "olt_name": olt_name,
+                "olt_model": req.olt_model or "8820i",
+                "pon": pon_id,
+                "onu_id": onu_id,
+                "onu_name": _norm_text(item.get("name")) or f"gpon {pon_id} onu {onu_id}",
+                "cpe_mac": "",
+                "source": "olt-telemetry",
+                **values,
+            }
+            if connector_id:
+                row.update({
+                    "remote_connector_id": connector_id,
+                    "connector_id": connector_id,
+                    "remote_connector_name": connector_name,
+                    "remote": True,
+                })
+            existing.append(row)
+        updated_positions.add((pon_id, onu_id))
+
+    out_obj = {
+        **{key: value for key, value in obj.items() if key not in ("cpes", "rows")},
+        "olt": obj.get("olt") if isinstance(obj.get("olt"), dict) else {},
+        "cpes": _dedup_cpes_by_key(existing),
+    }
+    save_olt_cpe_state(out_obj)
+    camera_sync = _sync_camera_inventory_from_olt_rows(out_obj["cpes"])
+    return {
+        "ok": True,
+        "olt_id": getattr(req, "olt_id", None),
+        "onus": len(updated_positions),
+        "with_signal": with_signal,
+        "rows": len(out_obj["cpes"]),
+        "camera_sync": camera_sync,
+    }
 
 
 def clear_macs(site: str = "") -> Dict[str, Any]:
@@ -634,6 +890,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
             )
             if result.get("ok"):
                 result["inventory"] = _upsert_onu_inventory(req, result)
+                result["device_sync"] = _sync_authorized_onu_devices(req, result)
             return result
         except OnuAddError as e:
             return {

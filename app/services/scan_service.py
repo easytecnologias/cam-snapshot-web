@@ -121,9 +121,7 @@ def _enrich_inventory_with_olt(rows: List[Dict[str, Any]], olt_json_path: Path) 
 
         cam_changed = False
         for k, v in updates.items():
-            if not v:
-                continue
-            if str(cam.get(k) or "").strip() == "":
+            if str(cam.get(k) or "").strip() != v:
                 cam[k] = v
                 cam_changed = True
         if cam_changed:

@@ -310,11 +310,55 @@ async function loadDeploySites() {
   list.innerHTML = _deploySites.map(site => `<option value="${esc(site)}"></option>`).join('');
 }
 
+let _deployOltRows = [];
+
+function deployOltMatchesOrigin(row, originValue) {
+  const rowConnector = String(row?.connector_id || '').trim();
+  if (originValue === DEPLOY_LOCAL_ORIGIN || originValue === '__local__') return !rowConnector;
+  return !!originValue && rowConnector === String(originValue);
+}
+
+function deployOltOptionsForOrigin(originValue) {
+  return _deployOltRows.filter(row => deployOltMatchesOrigin(row, originValue));
+}
+
+function deployLoadOltContextOptions(data) {
+  const select = document.getElementById('deployOltContext');
+  if (!select) return;
+  _deployOltRows = (Array.isArray(data?.items) ? data.items : []).filter(row => row?.active);
+  deployRenderOltContextForOrigin();
+}
+
+function deployRenderOltContextForOrigin() {
+  const select = document.getElementById('deployOltContext');
+  if (!select) return;
+  const origin = document.getElementById('deployConnector')?.value || '';
+  const rows = deployOltOptionsForOrigin(origin);
+  select.disabled = !origin;
+  select.innerHTML = !origin
+    ? '<option value="">Escolha primeiro o conector</option>'
+    : '<option value="">Sem OLT vinculada / informar manualmente</option>'
+      + rows.map(row => `<option value="${esc(row.id)}">${esc(row.name)} - ${esc(row.site || 'sem site')} - ${esc(row.host)}</option>`).join('');
+}
+
+function deployApplyOltContext() {
+  const id = document.getElementById('deployOltContext')?.value || '';
+  const olt = _deployOltRows.find(row => String(row.id) === String(id));
+  if (!olt) return;
+  const site = document.getElementById('deploySite');
+  if (site) site.value = olt.site || '';
+  deployRenderConnectorStatus();
+  deployRenderSummary();
+  deployUpdateStepLocks({ autoAdvance: true });
+  deployLoadAvailableRecorders();
+}
+
 async function loadDeployNew() {
   const sel = document.getElementById('deployConnector');
   if (!sel) return;
-  const [data] = await Promise.all([
+  const [data, oltData] = await Promise.all([
     apiJson('/api/connectors'),
+    apiJson('/api/olt/registry'),
     loadDeploySites(),
   ]);
   _deployConnectors = (Array.isArray(data?.connectors) ? data.connectors : [])
@@ -330,6 +374,7 @@ async function loadDeployNew() {
     .join('');
   sel.innerHTML = `<option value="">Escolha a origem de acesso</option><option value="${DEPLOY_LOCAL_ORIGIN}">Local / VPN do servidor</option>${connectorOptions}`;
   sel.value = '';
+  deployLoadOltContextOptions(oltData);
   deploymentApplyPreferredInventoryMode();
   deployApplyOriginFields();
   deploySetResult('Aguardando consulta no conector.');
@@ -351,6 +396,7 @@ let _deployRecorderSelectedChannel = 0;
 function deployStandaloneRecorderPayload() {
   const channels = Number(document.getElementById('deployStandaloneRecorderChannelTotal')?.value || 32);
   return {
+    olt_id: Number(document.getElementById('deployStandaloneRecorderOlt')?.value || 0) || null,
     connector_id: deployStandaloneRecorderSelectedConnectorId(),
     inventory_mode: document.getElementById('deployStandaloneRecorderInventoryMode')?.value || 'basic',
     recorder_type: document.getElementById('deployStandaloneRecorderType')?.value || 'nvr',
@@ -438,6 +484,36 @@ async function deployStandaloneRecorderLoadConnectors() {
   }).join('');
   select.value = '';
   deployStandaloneRecorderRenderConnectorStatus();
+}
+
+async function deployStandaloneRecorderLoadOlts() {
+  const select = document.getElementById('deployStandaloneRecorderOlt');
+  if (!select) return;
+  const data = await apiJson('/api/olt/registry');
+  const rows = (Array.isArray(data?.items) ? data.items : []).filter(row => row?.active);
+  _deployOltRows = rows;
+  deployStandaloneRecorderRenderOltsForOrigin();
+}
+
+function deployStandaloneRecorderRenderOltsForOrigin() {
+  const select = document.getElementById('deployStandaloneRecorderOlt');
+  if (!select) return;
+  const origin = deployStandaloneRecorderConnectorValue();
+  const rows = deployOltOptionsForOrigin(origin);
+  select.disabled = !origin;
+  select.innerHTML = !origin
+    ? '<option value="">Escolha primeiro o conector</option>'
+    : '<option value="">Sem OLT vinculada / informar manualmente</option>'
+      + rows.map(row => `<option value="${esc(row.id)}">${esc(row.name)} - ${esc(row.site || 'sem site')} - ${esc(row.host)}</option>`).join('');
+}
+
+function deployStandaloneRecorderApplyOlt() {
+  const id = document.getElementById('deployStandaloneRecorderOlt')?.value || '';
+  const olt = _deployOltRows.find(row => String(row.id) === String(id));
+  if (!olt) return;
+  const site = document.getElementById('deployStandaloneRecorderSite');
+  if (site) site.value = olt.site || '';
+  deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
 }
 
 function deployStandaloneRecorderChannelsFromProbe(data = null) {
@@ -668,7 +744,8 @@ async function loadDeployRecorderSites() {
 
 async function loadDeployRecorder() {
   deploymentApplyPreferredInventoryMode();
-  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors()]);
+  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts()]);
+  deployStandaloneRecorderRenderOltsForOrigin();
   deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
   deployStandaloneRecorderSelectConfigTab(
     document.querySelector('.recorder-config-tab.active')?.dataset.recorderConfigTab || 'overview'
@@ -823,6 +900,10 @@ function deployStandaloneRecorderClear() {
   if (user) user.value = 'admin';
   const connector = document.getElementById('deployStandaloneRecorderConnector');
   if (connector) connector.value = '';
+  const olt = document.getElementById('deployStandaloneRecorderOlt');
+  if (olt) olt.value = '';
+  deployStandaloneRecorderRenderOltsForOrigin();
+  deploymentApplyPreferredInventoryMode();
   deployStandaloneRecorderRenderConnectorStatus();
   deployStandaloneRecorderRenderProbe(null);
   deployStandaloneRecorderSetResult('Entre no gravador para validar modelo, serial e canais.');
@@ -1050,6 +1131,59 @@ async function refreshOnuConnectors() {
   }
 }
 
+let _onuRegistryRows = [];
+
+async function refreshOnuRegistry() {
+  const sel = document.getElementById('onuOltRegistry');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/olt/registry');
+    _onuRegistryRows = (Array.isArray(data?.items) ? data.items : []).filter(row => row?.active);
+  } catch {
+    _onuRegistryRows = [];
+  }
+  onuRenderRegistryForOrigin();
+}
+
+function onuRenderRegistryForOrigin() {
+  const sel = document.getElementById('onuOltRegistry');
+  if (!sel) return;
+  const origin = document.getElementById('onuConnector')?.value || '';
+  const rows = _onuRegistryRows.filter(row => deployOltMatchesOrigin(row, origin));
+  sel.disabled = !onuConnectorGateOk();
+  sel.innerHTML = !origin ? '<option value="">Escolha primeiro o conector</option>'
+    : '<option value="">Escolha uma OLT cadastrada</option>'
+    + rows.map(row => {
+      const access = row.connector_id ? 'conector' : 'acesso direto';
+      return `<option value="${esc(row.id)}">${esc(row.name)} - ${esc(row.site || 'sem site')} - ${esc(row.host)} (${access})</option>`;
+    }).join('')
+    + (origin === '__local__' ? '<option value="__manual__">Acesso manual / instalacao local</option>' : '');
+}
+
+function onuApplyRegisteredOlt() {
+  const value = document.getElementById('onuOltRegistry')?.value || '';
+  const row = _onuRegistryRows.find(item => String(item.id) === String(value));
+  const manual = value === '__manual__';
+  const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
+  if (row) {
+    setValue('onuOltIp', row.host);
+    setValue('onuOltUser', row.username || 'admin');
+    setValue('onuOltPassword', '');
+  } else if (!manual) {
+    setValue('onuOltIp', '');
+    setValue('onuOltUser', '');
+    setValue('onuOltPassword', '');
+  }
+  ['onuOltIp', 'onuOltUser', 'onuOltPassword'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!row;
+  });
+  const password = document.getElementById('onuOltPassword');
+  if (password) password.placeholder = row ? 'Credencial salva no servidor' : 'Senha';
+  updateOnuConnectorStatus();
+  onuUpdateStepsLock();
+}
+
 function updateOnuConnectorStatus() {
   const status = document.getElementById('onuConnectorStatus');
   const connectorId = document.getElementById('onuConnector')?.value || '';
@@ -1086,10 +1220,14 @@ function onuConnectorGateOk() {
 
 function onuUpdateConnectorGate() {
   const unlocked = onuConnectorGateOk();
+  const registered = /^\d+$/.test(document.getElementById('onuOltRegistry')?.value || '');
   document.querySelectorAll('[data-onu-needs-connector="1"]').forEach(el => {
-    el.disabled = !unlocked;
+    const registeredCredential = registered && ['onuOltIp', 'onuOltUser', 'onuOltPassword'].includes(el.id);
+    el.disabled = !unlocked || registeredCredential;
     el.classList.toggle('is-disabled', !unlocked);
   });
+  const registry = document.getElementById('onuOltRegistry');
+  if (registry) registry.disabled = !unlocked;
   onuUpdateStepsLock();
 }
 
@@ -1133,7 +1271,9 @@ function bindAccordionExclusive(containerSelector) {
 function loadDeployOnu() {
   deploymentApplyPreferredInventoryMode();
   populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
-  refreshOnuConnectors().finally(() => {
+  Promise.all([refreshOnuConnectors(), refreshOnuRegistry()]).finally(() => {
+    onuRenderRegistryForOrigin();
+    onuApplyRegisteredOlt();
     updateOnuConnectorStatus();
     onuUpdateConnectorGate();
   });
@@ -1153,11 +1293,22 @@ function loadDeployOnu() {
   if (connectorEl && !connectorEl.dataset.onuConnectorBound) {
     connectorEl.dataset.onuConnectorBound = '1';
     connectorEl.addEventListener('change', () => {
+      onuRenderRegistryForOrigin();
+      onuApplyRegisteredOlt();
       updateOnuConnectorStatus();
       onuUpdateConnectorGate();
     });
   }
+  const registryEl = document.getElementById('onuOltRegistry');
+  if (registryEl && !registryEl.dataset.onuRegistryBound) {
+    registryEl.dataset.onuRegistryBound = '1';
+    registryEl.addEventListener('change', () => {
+      onuApplyRegisteredOlt();
+      loadOnuHistory();
+    });
+  }
   onuUpdateTerminalUI();
+  loadOnuHistory();
   lucide.createIcons();
 }
 
@@ -1172,10 +1323,12 @@ function onuLockedStepIds() {
 }
 
 function onuUpdateStepsLock() {
+  const registryValue = document.getElementById('onuOltRegistry')?.value || '';
+  const registered = /^\d+$/.test(registryValue);
   const ip = document.getElementById('onuOltIp')?.value.trim();
   const pass = document.getElementById('onuOltPassword')?.value;
   const connectorOk = onuConnectorGateOk();
-  const locked = !connectorOk || !ip || !pass;
+  const locked = !connectorOk || (registered ? !ip : (!ip || !pass));
   onuLockedStepIds().forEach(id => {
     const details = document.getElementById(id);
     if (!details) return;
@@ -1244,6 +1397,8 @@ function onuUpdateTerminalUI() {
 }
 
 function onuOltPayload() {
+  const registryValue = document.getElementById('onuOltRegistry')?.value || '';
+  const registered = _onuRegistryRows.find(item => String(item.id) === String(registryValue));
   const oltIp = document.getElementById('onuOltIp')?.value.trim() || '';
   const ctx = onuInferOltContext(oltIp);
   const selectedOrigin = document.getElementById('onuConnector')?.value || '';
@@ -1252,13 +1407,14 @@ function onuOltPayload() {
   const connector = connectorId ? _connectorById(connectorId) : null;
   const site = connector ? (connector.site || connector.client || ctx.site || '') : ctx.site;
   return {
+    olt_id: registered ? Number(registered.id) : null,
     access_mode: localMode ? 'local' : 'connector',
     olt_ip: oltIp,
     user: document.getElementById('onuOltUser')?.value.trim() || 'admin',
     password: document.getElementById('onuOltPassword')?.value || '',
     pon: document.getElementById('onuOltPon')?.value.trim() || 'all',
-    site,
-    olt_name: ctx.olt_name,
+    site: registered?.site || site,
+    olt_name: registered?.name || ctx.olt_name,
     connector_id: connectorId,
     remote_connector_id: connectorId,
     connector_name: connector ? (connector.name || connector.client || '') : '',
@@ -1284,10 +1440,96 @@ function onuMacLine(m) {
   return `<li><code>${esc(m?.mac || '')}</code>${ip} - ${esc(m?.interface || '')}</li>`;
 }
 
+function onuHistoryDate(value) {
+  if (!value) return 'data nao informada';
+  try { return new Date(value).toLocaleString('pt-BR'); } catch { return String(value); }
+}
+
+async function loadOnuHistory() {
+  const box = document.getElementById('onuHistory');
+  if (!box) return;
+  const selectedRegistryId = document.getElementById('onuOltRegistry')?.value || '';
+  const selectedOlt = _onuRegistryRows.find(item => String(item.id) === String(selectedRegistryId));
+  const manualMode = selectedRegistryId === '__manual__';
+  const manualIp = manualMode ? (document.getElementById('onuOltIp')?.value.trim() || '') : '';
+  if (!selectedOlt && !manualIp) {
+    box.innerHTML = '<div class="deployment-history-empty">Escolha uma OLT para ver o historico dela.</div>';
+    return;
+  }
+  box.innerHTML = '<div class="deployment-history-empty">Atualizando historico...</div>';
+  try {
+    const data = await apiJson('/api/olt/rows');
+    const selectedIp = String(selectedOlt?.host || manualIp).trim();
+    const selectedConnector = String(selectedOlt?.connector_id || '').trim();
+    const rows = (Array.isArray(data?.rows) ? data.rows : []).filter(row => {
+      if (String(row.olt_ip || '').trim() !== selectedIp) return false;
+      if (!selectedConnector) return true;
+      const rowConnector = String(row.remote_connector_id || row.connector_id || '').trim();
+      return !rowConnector || rowConnector === selectedConnector;
+    });
+    const byOnu = new Map();
+    rows.forEach(row => {
+      const pon = String(row.pon || row.PON || '').trim();
+      const onu = String(row.onu_id || row.onu || row.ONU || '').trim();
+      if (!pon || !onu) return;
+      const connector = String(row.remote_connector_id || row.connector_id || '').trim();
+      const key = [connector, row.site || '', row.olt_ip || '', pon, onu].join('|');
+      const previous = byOnu.get(key);
+      const currentTime = Date.parse(row.updated_at || row.created_at || '') || 0;
+      const previousTime = Date.parse(previous?.updated_at || previous?.created_at || '') || 0;
+      if (!previous || currentTime >= previousTime) byOnu.set(key, row);
+    });
+    const recent = [...byOnu.values()].sort((a, b) =>
+      (Date.parse(b.updated_at || b.created_at || '') || 0) - (Date.parse(a.updated_at || a.created_at || '') || 0)
+    ).slice(0, 12);
+    if (!recent.length) {
+      box.innerHTML = '<div class="deployment-history-empty">Nenhuma ONU desta OLT no inventario ainda.</div>';
+      return;
+    }
+    box.innerHTML = recent.map(row => {
+      const pon = row.pon || row.PON || '-';
+      const onu = row.onu_id || row.onu || row.ONU || '-';
+      const olt = row.olt_name || row.olt || row.olt_ip || 'OLT';
+      const serial = row.onu_serial || row.serial || 'sem serial';
+      const model = row.onu_model || row.model || '';
+      const status = row.oper_status || row.status || 'inventariado';
+      return `<div class="deployment-history-item">
+        <b>${esc(olt)} - PON ${esc(pon)} / ONU ${esc(onu)}</b>
+        <span>${esc(serial)}${model ? ` - ${esc(model)}` : ''}</span>
+        <small>${esc(row.site || 'sem site')} - ${esc(status)} - ${esc(onuHistoryDate(row.updated_at || row.created_at))}</small>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    box.innerHTML = `<div class="deployment-history-empty">Falha ao carregar: ${esc(err?.message || err)}</div>`;
+  }
+}
+
+function onuClear() {
+  _onuSelectedDiscovered = null;
+  _onuDeleteTarget = null;
+  document.querySelectorAll('#viewDeployOnu .onu-accordion input').forEach(input => { input.value = ''; });
+  document.querySelectorAll('#viewDeployOnu .onu-accordion select').forEach(select => { select.selectedIndex = 0; });
+  document.querySelectorAll('#onuAddServiceRows .onu-service-row').forEach((row, index) => { if (index > 0) row.remove(); });
+  const connector = document.getElementById('onuConnector');
+  if (connector) connector.value = '';
+  onuRenderRegistryForOrigin();
+  onuApplyRegisteredOlt();
+  deploymentApplyPreferredInventoryMode();
+  onuUpdateTerminalUI();
+  onuSetResult('onuDiscoverResult', 'Informe IP/PON/usuario/senha da OLT e clique em Descobrir.');
+  onuSetResult('onuAddResult', 'Nenhuma ONU autorizada ainda nesta sessao.');
+  onuSetResult('onuQueryResult', 'Informe a posicao (PON + numero) ou o serial e clique em Consultar.');
+  onuSetResult('onuDeleteResult', 'Nenhuma exclusao realizada nesta sessao.');
+  updateOnuConnectorStatus();
+  onuUpdateConnectorGate();
+  onuAccordionOpen('onuStepConn');
+  showToast('Campos da implantacao ONU limpos. O historico foi mantido.');
+}
+
 async function onuDiscover() {
   const olt = onuOltPayload();
   if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
-  if (!olt.password) { showToast('Informe a senha da OLT.', true); return; }
+  if (!olt.olt_id && !olt.password) { showToast('Informe a senha da OLT.', true); return; }
   if (!onuConnectorReady(olt)) return;
   onuSetResult('onuDiscoverResult', 'Consultando OLT (pode levar alguns segundos)...');
   const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
@@ -1327,8 +1569,10 @@ async function onuDiscover() {
       };
       const sernoEl = document.getElementById('onuAddSernoId');
       const modelEl = document.getElementById('onuAddModel');
+      const queryPonEl = document.getElementById('onuQueryPon');
       if (sernoEl) sernoEl.value = el.dataset.serno;
       if (modelEl) modelEl.value = `${el.dataset.vendor} ${el.dataset.model}`;
+      if (queryPonEl) queryPonEl.value = el.dataset.pon || '';
       showToast(`ONU ${el.dataset.serial} selecionada (PON ${el.dataset.pon}).`);
       onuAccordionOpen('onuStepAdd');
     });
@@ -1337,7 +1581,7 @@ async function onuDiscover() {
 
 async function onuAdd() {
   const olt = onuOltPayload();
-  if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const sernoId = Number(document.getElementById('onuAddSernoId')?.value.trim() || '0');
   if (!sernoId) { showToast('Descubra e selecione uma ONU primeiro (ou digite o serno_id).', true); return; }
@@ -1363,6 +1607,7 @@ async function onuAdd() {
   if (!services.length) { showToast('Informe pelo menos uma VLAN.', true); return; }
 
   const payload = {
+    olt_id: olt.olt_id || null,
     olt_ip: olt.olt_ip,
     user: olt.user,
     password: olt.password,
@@ -1396,25 +1641,35 @@ async function onuAdd() {
     return;
   }
   _oltInventoryRows = null;
-  const invMsg = data.inventory?.updated ? ' Inventario OLT atualizado.' : ' Inventario OLT nao foi alterado.';
+  const syncedMacs = Number(data.device_sync?.macs || 0);
+  const invMsg = syncedMacs > 0
+    ? ` Inventario atualizado com ${syncedMacs} dispositivo${syncedMacs !== 1 ? 's' : ''} encontrado${syncedMacs !== 1 ? 's' : ''} atras da ONU.`
+    : (data.inventory?.updated ? ' ONU adicionada ao inventario; nenhum dispositivo foi aprendido ainda.' : ' Inventario OLT nao foi alterado.');
   onuSetResult('onuAddResult', `ONU autorizada na PON ${esc(data.pon)}, posicao ${esc(data.slot)}.${esc(invMsg)}`);
-  showToast(`ONU autorizada: PON ${data.pon} / posicao ${data.slot}. Inventario atualizado.`);
+  showToast(syncedMacs > 0
+    ? `ONU autorizada e ${syncedMacs} dispositivo${syncedMacs !== 1 ? 's' : ''} sincronizado${syncedMacs !== 1 ? 's' : ''}.`
+    : 'ONU autorizada. Ainda nao havia MAC aprendido; use Consultar sinal / MACs para atualizar.');
   const targetEl = document.getElementById('onuTargetNum');
   if (targetEl) targetEl.value = data.slot;
+  const queryPonEl = document.getElementById('onuQueryPon');
+  if (queryPonEl) queryPonEl.value = String(data.pon || pon || '');
+  loadOnuHistory();
   onuAccordionOpen('onuStepQuery');
 }
 
 async function onuQuery() {
   const olt = onuOltPayload();
-  if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const onuNum = Number(document.getElementById('onuTargetNum')?.value.trim() || '0');
   const serial = document.getElementById('onuQuerySerial')?.value.trim() || '';
   if (!onuNum && !serial) { showToast('Informe o numero da ONU ou o serial.', true); return; }
-  const ponNum = onuOltPonNumber(olt);
-  if (onuNum && !ponNum) { showToast('Escolha uma PON especifica (nao "Todas") pra consultar por posicao, ou use o serial.', true); return; }
+  const queryPon = Number(document.getElementById('onuQueryPon')?.value || 0);
+  const ponNum = queryPon || onuOltPonNumber(olt);
+  if (onuNum && !ponNum) { showToast('Informe a PON para consultar pelo numero da ONU, ou use o serial.', true); return; }
 
   const payload = {
+    olt_id: olt.olt_id || null,
     olt_ip: olt.olt_ip,
     user: olt.user,
     password: olt.password,
@@ -1437,6 +1692,9 @@ async function onuQuery() {
 
   const targetEl = document.getElementById('onuTargetNum');
   if (targetEl) targetEl.value = data.onu;
+  const queryPonEl = document.getElementById('onuQueryPon');
+  if (queryPonEl && data.pon) queryPonEl.value = String(data.pon);
+  loadOnuHistory();
 
   const macsHtml = (data.macs || []).length
     ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(onuMacLine).join('')}</ul>`
@@ -1462,7 +1720,7 @@ function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.clas
 
 async function onuDelete() {
   const olt = onuOltPayload();
-  if (!olt.olt_ip || !olt.password) { showToast('Informe IP e senha da OLT.', true); return; }
+  if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const ponNum = Number(document.getElementById('onuDeletePon')?.value.trim() || '0');
   if (!ponNum) { showToast('Escolha a PON da ONU a excluir.', true); return; }
@@ -1476,7 +1734,7 @@ async function onuDelete() {
   if (panoramaEl) panoramaEl.innerHTML = 'Consultando dados da ONU na OLT...';
   openOnuDeleteModal();
 
-  const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   const data = await res?.json().catch(() => ({}));
   if (confirmBtn) confirmBtn.disabled = false;
   if (!panoramaEl) return;
@@ -1506,7 +1764,7 @@ async function onuConfirmDelete() {
   if (confirmBtn) confirmBtn.disabled = true;
   if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo, aguarde)...</p>');
 
-  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   const data = await res?.json().catch(() => ({}));
   closeOnuDeleteModal();
   _onuDeleteTarget = null;
@@ -1519,6 +1777,7 @@ async function onuConfirmDelete() {
   const invMsg = removed > 0 ? ` Removida do inventario OLT (${removed} registro${removed !== 1 ? 's' : ''}).` : ' Nenhum registro correspondente no inventario OLT.';
   onuSetResult('onuDeleteResult', `ONU excluida da PON ${esc(data.pon)} / posicao ${esc(data.onu)}.${esc(invMsg)}`);
   showToast(removed > 0 ? 'ONU excluida e removida do inventario.' : 'ONU excluida; nao havia registro no inventario.');
+  loadOnuHistory();
 }
 
 
@@ -1541,14 +1800,18 @@ async function deployLookupMac() {
   const first = matches[0];
   if (first.mac && !document.getElementById('deployCameraMac')?.value) document.getElementById('deployCameraMac').value = first.mac;
   deploySetResult(matches.slice(0, 5).map(m => `
-    <div class="deploy-match deploy-cam-pick" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" style="cursor:pointer">
+    <div class="deploy-match deploy-cam-pick" data-ip="${esc(m.ip || '')}" data-mac="${esc(m.mac || '')}" role="button" tabindex="0" aria-label="Selecionar IP ${esc(m.ip || '')}">
       <b>${esc(m.ip || '-')}</b>
       <span>${esc(m.mac || '-')}</span>
-      <small>${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''} - clique para selecionar</small>
+      <small><span class="deploy-pick-source">${esc(m.source || '-')} ${m.host ? `- ${esc(m.host)}` : ''}</span><strong class="deploy-pick-action">Clique para selecionar</strong></small>
     </div>
   `).join(''));
   document.querySelectorAll('#deployLookupResult .deploy-cam-pick').forEach(el => {
-    el.addEventListener('click', () => {
+    const selectMatch = () => {
+      document.querySelectorAll('#deployLookupResult .deploy-cam-pick').forEach(row => row.classList.remove('selected'));
+      el.classList.add('selected');
+      const action = el.querySelector('.deploy-pick-action');
+      if (action) action.textContent = 'Selecionado';
       // So guarda o IP encontrado no Mikrotik pra usar na conexao de "puxar
       // dados" -- o campo visivel "IP da camera" so preenche com o que vier
       // da propria camera (pull), nao com o achado aqui no MAC/ARP.
@@ -1563,6 +1826,13 @@ async function deployLookupMac() {
       } else {
         const box = document.getElementById('deployPullCameraResult');
         if (box) box.innerHTML = `IP ${esc(el.dataset.ip || '')} selecionado (via Mikrotik). Preencha usuario/senha da camera e clique em "Puxar dados da camera" pra confirmar.`;
+      }
+    };
+    el.addEventListener('click', selectMatch);
+    el.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        selectMatch();
       }
     });
   });
@@ -1874,6 +2144,7 @@ function deployClear() {
   document.getElementById('deployForm')?.reset();
   const connEl = document.getElementById('deployConnector');
   if (connEl) connEl.value = '';
+  deployRenderOltContextForOrigin();
   deployApplyOriginFields();
   deploySetResult('Aguardando consulta no conector.');
   deployRenderConnectorStatus();

@@ -340,11 +340,11 @@ def normalize_row(row: Any) -> Dict[str, Any]:
     return _normalize_row(row)
 
 
-def dedup_cam_inventory() -> List[Dict[str, Any]]:
+def dedup_cam_inventory(mode: str = "olt") -> List[Dict[str, Any]]:
     """Dedup do cam-inventory.json (compat legado).
     Regrava o JSON já normalizado e sem duplicatas.
     """
-    rows = load_inventory_json()
+    rows = load_inventory_json(mode=mode)
     rows2 = _normalize_inventory_rows(rows)
-    save_inventory_json(rows2)
+    save_inventory_json(rows2, mode=mode)
     return rows2

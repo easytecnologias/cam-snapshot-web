@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=68">
+  <link rel="stylesheet" href="styles.css?v=102">
 </head>
 <body>
 
@@ -91,22 +91,14 @@
         <div class="nav-section-label">Manutencao</div>
         <button class="nav-item" data-view="mnt-cam"><i data-lucide="camera"></i><span>Cameras IP</span></button>
         <button class="nav-item" data-view="mnt-nvr"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+        <button class="nav-item" data-view="monitoring"><i data-lucide="activity"></i><span>Monitoramento</span></button>
+        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
 
         <!-- Analise -->
         <div class="nav-section-label">Analise</div>
         <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
 
-        <!-- Redes -->
-        <div class="nav-section-label">Redes</div>
-        <button class="nav-item" data-view="net-devices"><i data-lucide="router"></i><span>Dispositivos</span></button>
-        <button class="nav-item" data-view="net-learn"><i data-lucide="brain"></i><span>Aprendizado</span></button>
-        <button class="nav-item" data-view="net-operate"><i data-lucide="zap"></i><span>Operacoes</span></button>
-
-        <!-- Ferramentas -->
-        <div class="nav-section-label">Ferramentas</div>
-        <button class="nav-item" data-view="backup"><i data-lucide="archive"></i><span>Backup</span></button>
-        <button class="nav-item" data-view="tools"><i data-lucide="terminal"></i><span>Ferramentas</span></button>
       </div>
 
       <div class="sidebar-footer">
@@ -129,14 +121,10 @@
           <button class="icon-button mobile-menu" id="menuBtn" aria-label="Abrir menu"><i data-lucide="menu"></i></button>
           <div class="topbar-context" id="topbarContext">
             <strong>Dashboard</strong>
-            <span>Vis-o geral do parque</span>
+            <span>Visão geral do parque</span>
           </div>
         </div>
         <div class="topbar-actions">
-          <button class="secondary-action" id="btnScan">
-            <i data-lucide="scan-search"></i> Varredura
-          </button>
-          <button class="icon-button" id="btnRefreshTopbar" title="Atualizar"><i data-lucide="refresh-cw"></i></button>
           <div class="profile" id="profileMenu">
             <div class="avatar" id="profileAvatar">?</div>
             <div><strong id="profileName">-</strong><span id="profileRole">-</span></div>
@@ -149,14 +137,20 @@
       </header>
 
       <!-- --- VIEW: DASHBOARD --- -->
-      <section class="workspace" id="viewDashboard">
+      <section class="workspace dashboard-workspace" id="viewDashboard">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Vis-o geral</p>
+            <p class="eyebrow">Central operacional</p>
             <h1>Dashboard</h1>
-            <p>Resumo do parque de cameras e status dos servi-os.</p>
+            <p>Acompanhe a disponibilidade, os alertas e a cobertura de todo o parque.</p>
           </div>
-          <div class="live-indicator"><span></span>Atualizacao ao vivo</div>
+          <div class="page-heading-actions">
+            <div class="dashboard-live-wrap">
+              <div class="live-indicator"><span></span>Atualização automática</div>
+              <small id="dashLastUpdated">Aguardando dados</small>
+            </div>
+            <button class="secondary-action" id="btnDashboardRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
         </div>
 
         <!-- KPIs -->
@@ -171,40 +165,62 @@
             <div><span>Gravadores</span><strong id="mDvrNvr">-</strong><small id="mDvrNvrCanais"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
-          <article class="dash-kpi-card" id="kpiSnapshots" data-dash-type="snapshots" title="Ver snapshots">
-            <div class="metric-icon purple"><i data-lucide="image"></i></div>
-            <div><span>Snapshots</span><strong id="mSnapshots">-</strong></div>
+          <article class="dash-kpi-card" id="kpiOnus" data-dash-type="onu" title="Ver monitoramento das ONUs">
+            <div class="metric-icon cyan"><i data-lucide="wifi"></i></div>
+            <div><span>ONUs / ONTs</span><strong id="mOnusOnline">-</strong><small id="mOnusTotal"></small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
+          </article>
+          <article class="dash-kpi-card" id="kpiOlts" data-dash-type="olt" title="Ver estado das OLTs">
+            <div class="metric-icon purple"><i data-lucide="radio-tower"></i></div>
+            <div><span>OLTs</span><strong id="mOltsOnline">-</strong><small id="mOltsTotal"></small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
+          </article>
+          <article class="dash-kpi-card" id="kpiConnectors" data-dash-type="connector" title="Ver conectores MikroTik">
+            <div class="metric-icon green"><i data-lucide="plug"></i></div>
+            <div><span>Conectores</span><strong id="mConnectorsOnline">-</strong><small id="mConnectorsTotal"></small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
+          </article>
+          <article class="dash-kpi-card" id="kpiComputers" data-dash-type="windows" title="Ver computadores monitorados">
+            <div class="metric-icon blue"><i data-lucide="monitor"></i></div>
+            <div><span>Computadores</span><strong id="mComputersOnline">-</strong><small id="mComputersTotal"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
           <article class="dash-kpi-card" id="kpiSites" data-dash-type="sites" title="Ver sites">
             <div class="metric-icon amber"><i data-lucide="map-pin"></i></div>
-            <div><span>Sites</span><strong id="mSites">-</strong></div>
+            <div><span>Sites</span><strong id="mSites">-</strong><small>locais cadastrados</small></div>
+            <i data-lucide="chevron-right" class="kpi-arrow"></i>
+          </article>
+          <article class="dash-kpi-card attention" id="kpiAttention" data-dash-type="attention" title="Ver equipamentos que precisam de atenção">
+            <div class="metric-icon red"><i data-lucide="triangle-alert"></i></div>
+            <div><span>Precisam de atenção</span><strong id="mAttention">-</strong><small id="mAttentionSub">offline, instáveis ou sem verificação</small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
         </div>
 
         <!-- Alertas -->
-        <div id="dashAlerts" style="display:none;margin-bottom:16px">
-          <div id="dashAlertsList" style="display:flex;flex-direction:column;gap:6px"></div>
+        <div id="dashAlerts" class="dash-alerts-panel" style="display:none">
+          <div class="dash-alerts-heading"><span><i data-lucide="bell-ring"></i> Alertas do parque</span><small>Clique para investigar</small></div>
+          <div id="dashAlertsList" class="dash-alerts-list"></div>
         </div>
 
+        <div class="dash-section-label"><span>Acessos rápidos</span><small>Abra as áreas mais usadas</small></div>
         <div class="dash-action-bar">
           <button class="dash-action-btn" data-dash-nav="inv-olt"><i data-lucide="camera"></i><span>Cameras</span></button>
           <button class="dash-action-btn" data-dash-nav="inv-nvr"><i data-lucide="hard-drive"></i><span>Gravadores</span></button>
           <button class="dash-action-btn" data-dash-nav="kmz"><i data-lucide="map"></i><span>Mapa</span></button>
-          <button class="dash-action-btn" data-dash-nav="script-zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
+          <button class="dash-action-btn" data-dash-nav="monitoring"><i data-lucide="activity"></i><span>Monitoramento</span></button>
           <button class="dash-action-btn" data-dash-nav="connectors"><i data-lucide="plug"></i><span>Conectores</span></button>
         </div>
 
         <div class="dash-insights-grid">
           <div class="panel dash-panel" style="margin:0">
-            <div class="panel-header"><div><h2>Prioridades</h2><p>O que precisa de atencao agora</p></div></div>
+            <div class="panel-header"><div><h2>Prioridades</h2><p>O que precisa de atenção agora</p></div><i data-lucide="list-checks" class="dash-panel-header-icon"></i></div>
             <div class="dash-priority-list" id="dashPriorityList">
               <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
           </div>
           <div class="panel dash-panel" style="margin:0">
-            <div class="panel-header"><div><h2>Saude operacional</h2><p>Disponibilidade e cobertura do parque</p></div></div>
+            <div class="panel-header"><div><h2>Saúde operacional</h2><p>Câmeras, rede óptica e infraestrutura</p></div><i data-lucide="heart-pulse" class="dash-panel-header-icon"></i></div>
             <div class="dash-health-grid" id="dashHealthGrid">
               <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
@@ -216,7 +232,7 @@
 
           <!-- Status por tipo -->
           <div class="panel" style="margin:0">
-            <div class="panel-header"><div><h2>Status por tipo</h2><p>Online / Offline por categoria</p></div></div>
+            <div class="panel-header"><div><h2>Status por tipo</h2><p>Online e offline por categoria</p></div><i data-lucide="layers-3" class="dash-panel-header-icon"></i></div>
             <div id="dashStatusGrid" style="display:flex;flex-direction:column;gap:0">
               <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
@@ -224,7 +240,7 @@
 
           <!-- Atividade recente -->
           <div class="panel" style="margin:0">
-            <div class="panel-header"><div><h2>Atividade recente</h2><p>Ultima atualizacao de cada invent-rio</p></div></div>
+            <div class="panel-header"><div><h2>Atividade recente</h2><p>Última atualização de cada inventário</p></div><i data-lucide="history" class="dash-panel-header-icon"></i></div>
             <div id="dashActivity" style="display:flex;flex-direction:column;gap:0">
               <div class="dash-status-row skeleton-row"><span>Carregando-</span></div>
             </div>
@@ -232,12 +248,6 @@
 
         </div>
 
-        <!-- Sites -->
-        <div class="panel" id="dashSitesPanel" style="display:none">
-          <div class="panel-header"><div><h2>Sites monitorados</h2><p id="dashSitesCount"></p></div></div>
-          <div id="dashSitesList" style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 8px"></div>
-          <div class="dash-site-grid" id="dashSiteSummary"></div>
-        </div>
       </section>
 
       <!-- --- VIEW: INVENT-RIO OLT --- -->
@@ -248,7 +258,9 @@
             <h1>Cameras IP</h1>
             <p>Varredura, filtros e casamento com informa--es da OLT e Switch.</p>
           </div>
-          <button class="primary-action" id="btnScanOlt"><i data-lucide="scan-search"></i> Varrer</button>
+          <div class="page-heading-actions">
+            <button class="primary-action" id="btnScanOlt"><i data-lucide="scan-search"></i> Varredura</button>
+          </div>
         </div>
 
         <!-- Resumo -->
@@ -368,6 +380,7 @@
               <div class="cam-info-row"><span>Modelo</span><span id="cpModelo">-</span></div>
               <div class="cam-info-row"><span>Local</span><span id="cpLocal">-</span></div>
               <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">-</span></div>
+              <div class="cam-info-row cam-onu-health-row"><span>Estado da ONU</span><span id="cpOnuStatus" class="cam-onu-status unknown"><span class="cam-onu-status-dot"></span><span>Nao verificada</span></span></div>
               <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">-</span></div>
             </div>
             <div class="cam-snapshot-wrap" id="cpSnapshotWrap" title="Clique para ver a câmera ao vivo">
@@ -476,9 +489,9 @@
             <h1>Gravadores</h1>
             <p>Canais dos gravadores NVR com cameras associadas.</p>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="secondary-action" id="btnNvrClear"><i data-lucide="trash-2"></i> Apagar</button>
-            <button class="primary-action" id="btnScanNvr"><i data-lucide="scan-search"></i> Varrer</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action danger-action" id="btnNvrClear"><i data-lucide="trash-2"></i> Apagar</button>
+            <button class="primary-action" id="btnScanNvr"><i data-lucide="scan-search"></i> Varredura</button>
           </div>
         </div>
 
@@ -645,7 +658,7 @@
             <button class="secondary-action" id="btnWinAgent"><i data-lucide="download"></i> Agente</button>
             <button class="secondary-action" id="btnWinPhotos"><i data-lucide="image-plus"></i> Fotos</button>
             <button class="secondary-action" id="btnWinPdf"><i data-lucide="file-text"></i> PDF</button>
-            <button class="primary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varrer</button>
+            <button class="primary-action" id="btnScanWindows"><i data-lucide="scan-search"></i> Varredura</button>
           </div>
         </div>
 
@@ -792,7 +805,7 @@
             <h1>Cameras IP</h1>
             <p>Fotos capturadas das cameras do invent-rio.</p>
           </div>
-          <div style="display:flex;gap:8px">
+          <div class="page-heading-actions">
             <button class="secondary-action" id="btnSnapCamSelected"><i data-lucide="camera"></i> Capturar selecionadas</button>
             <button class="primary-action" id="btnSnapCamAll"><i data-lucide="refresh-cw"></i> Atualizar todas</button>
           </div>
@@ -838,7 +851,7 @@
             <h1>Gravadores</h1>
             <p>Fotos capturadas dos canais DVR e NVR.</p>
           </div>
-          <div style="display:flex;gap:8px">
+          <div class="page-heading-actions">
             <button class="secondary-action" id="btnSnapGravSelected"><i data-lucide="camera"></i> Capturar selecionados</button>
             <button class="primary-action" id="btnSnapGravAll"><i data-lucide="refresh-cw"></i> Atualizar todos</button>
           </div>
@@ -1157,6 +1170,20 @@
         </div>
       </section>
 
+      <section class="workspace hidden" id="viewMonitoring">
+        <div class="page-heading">
+          <div><p class="eyebrow">MANUTENCAO</p><h1>Monitoramento</h1><p>Estado consolidado dos equipamentos do cliente atual.</p></div>
+          <button class="primary-action" id="btnMonitoringRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar estados</button>
+        </div>
+        <div class="monitoring-kpis" id="monitoringKpis"></div>
+        <div class="panel">
+          <div class="panel-header"><div><h2>Equipamentos que precisam de atencao</h2><p id="monitoringSummaryText">Carregando...</p></div></div>
+          <div class="filters monitoring-filters"><label class="search-box"><i data-lucide="search"></i><input id="monitoringSearch" placeholder="Buscar equipamento, site ou tipo"></label><select class="filter-select" id="monitoringSite"><option value="">Todos os sites</option></select><select class="filter-select" id="monitoringType"><option value="">Todos os tipos</option><option value="connector">Conectores</option><option value="olt">OLTs</option><option value="onu">ONUs</option><option value="camera">Cameras</option><option value="nvr">NVRs</option><option value="dvr">DVRs</option><option value="windows">Computadores</option></select><select class="filter-select" id="monitoringStatus"><option value="">Todos os estados</option><option value="down">Down</option><option value="unstable">Instavel</option><option value="unknown">Nao verificado</option><option value="up">Up</option><option value="maintenance">Em manutencao</option></select></div>
+          <div class="table-wrap monitoring-table-wrap"><table class="data-table monitoring-table"><colgroup><col class="col-type"><col class="col-device"><col class="col-site"><col class="col-state"><col class="col-checked"><col class="col-detail"></colgroup><thead><tr><th>TIPO</th><th>EQUIPAMENTO</th><th>SITE</th><th>ESTADO</th><th>ULTIMA VERIFICACAO</th><th>DETALHES</th></tr></thead><tbody id="monitoringRows"></tbody></table></div>
+          <div class="table-footer"><span id="monitoringFooter">0 equipamentos</span></div>
+        </div>
+      </section>
+
       <!-- --- VIEW: REPRODUCAO DVR --- -->
       <section class="workspace hidden" id="viewPlayback">
         <div class="page-heading">
@@ -1331,59 +1358,25 @@
         </div>
       </section>
 
-      <!-- --- VIEW: REDE DISPOSITIVOS --- -->
-      <section class="workspace hidden" id="viewNetDevices">
-        <div class="page-heading">
-          <div>
-            <p class="eyebrow">Rede</p>
-            <h1>Dispositivos</h1>
-            <p>Dispositivos de rede monitorados.</p>
-          </div>
-          <button class="primary-action" id="btnAddNetDevice"><i data-lucide="plus"></i> Adicionar</button>
-        </div>
-        <div class="panel">
-          <div class="filters">
-            <label class="search-box" style="flex:1">
-              <i data-lucide="search"></i>
-              <input id="searchNetDevices" placeholder="Buscar hostname ou IP-">
-            </label>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Dispositivo</th>
-                  <th>IP</th>
-                  <th>Tipo</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="netDevicesTable">
-                <tr class="empty-row"><td colspan="5">Carregando-</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
       <!-- --- VIEW: OLT --- -->
       <section class="workspace hidden" id="viewOlt">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Infraestrutura</p>
+            <p class="eyebrow">Inventario</p>
             <h1>OLT - MACs por ONU</h1>
             <p>Sa-da do bridge show mac gpon - CPEs conectadas nas ONUs.</p>
           </div>
-          <div style="display:flex;gap:8px">
-            <button class="secondary-action" id="btnOltClearTable"><i data-lucide="trash-2"></i> Apagar</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action danger-action" id="btnOltClearTable"><i data-lucide="trash-2"></i> Apagar</button>
             <button class="primary-action" id="btnOltCollect"><i data-lucide="radio"></i> Coletar MACs</button>
           </div>
         </div>
 
         <!-- Resumo -->
         <div class="inv-summary">
-          <span>Total: <strong id="oltTotal">-</strong></span>
+          <span>ONUs/ONTs: <strong id="oltOnuTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>Dispositivos: <strong id="oltDeviceTotal">-</strong></span>
           <span class="inv-sum-sep">-</span>
           <span>Sites: <strong id="oltSiteCount">-</strong></span>
           <span class="inv-sum-sep">-</span>
@@ -1432,11 +1425,13 @@
       <section class="workspace hidden" id="viewSwitch">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Infraestrutura</p>
+            <p class="eyebrow">Inventario</p>
             <h1>Switch</h1>
             <p>Coleta de MACs dos switches gerenci-veis.</p>
           </div>
-          <button class="primary-action" id="btnScanSwitch"><i data-lucide="scan-search"></i> Coletar MACs</button>
+          <div class="page-heading-actions">
+            <button class="primary-action" id="btnScanSwitch"><i data-lucide="scan-search"></i> Coletar MACs</button>
+          </div>
         </div>
         <div class="panel">
           <div class="table-wrap">
@@ -1699,16 +1694,6 @@
         </div>
       </section>
 
-      <!-- --- VIEW: FERRAMENTAS --- -->
-      <section class="workspace hidden" id="viewTools">
-        <div class="page-heading">
-          <div><p class="eyebrow">Ferramentas</p><h1>Ferramentas</h1><p>Utilit-rios de diagn-stico e configuracao.</p></div>
-        </div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">
-          Em constru--o.
-        </div>
-      </section>
-
       <!-- --- VIEW: CONECTORES --- -->
       <section class="workspace hidden" id="viewConnectors">
         <div class="page-heading">
@@ -1717,14 +1702,14 @@
             <h1>Conectores</h1>
             <p>MikroTik RouterOS dos clientes para coletar dados locais e executar tarefas remotas.</p>
           </div>
-          <button class="primary-action" id="btnConnectorRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnConnectorRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            <button class="primary-action" id="btnConnectorNew" type="button"><i data-lucide="plus"></i> Novo conector</button>
+          </div>
         </div>
 
         <div class="connectors-layout">
-          <div class="panel connector-card">
-            <div class="panel-header">
-              <div><h2>Novo conector</h2><p>Gere um token e baixe o script RouterOS para o cliente.</p></div>
-            </div>
+          <div class="panel connector-card" id="connectorCreateCard">
             <div class="connector-form">
               <label>Tipo
                 <select id="connType">
@@ -1743,9 +1728,6 @@
               <label>URL pública do SightOps
                 <input id="connPublicUrl" placeholder="http://201.182.184.80:18080" value="http://201.182.184.80:18080">
               </label>
-              <button class="primary-action" id="btnCreateConnector" style="width:100%;justify-content:center">
-                <i data-lucide="plus"></i> Criar conector
-              </button>
             </div>
             <div class="connector-token-box hidden" id="connCreatedBox">
               <strong>Conector criado</strong>
@@ -1762,6 +1744,11 @@
             </div>
             <div class="table-wrap connectors-table-wrap">
               <table class="data-table connector-table">
+                <colgroup>
+                  <col class="conn-col-name"><col class="conn-col-client"><col class="conn-col-site">
+                  <col class="conn-col-status"><col class="conn-col-host"><col class="conn-col-ip">
+                  <col class="conn-col-seen"><col class="conn-col-actions">
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Conector</th>
@@ -1796,31 +1783,42 @@
         </div>
       </section>
 
-      <!-- --- VIEW: BACKUP --- -->
-      <section class="workspace hidden" id="viewBackup">
-        <div class="page-heading">
-          <div><p class="eyebrow">Sistema</p><h1>Backup</h1><p>Exportacao e importacao do banco de dados.</p></div>
-          <div style="display:flex;gap:8px">
-            <button class="secondary-action" id="btnImportBackup"><i data-lucide="upload"></i> Importar</button>
-            <button class="primary-action" id="btnExportBackup"><i data-lucide="download"></i> Exportar</button>
+      <div id="modalConnectorCreate" class="modal-backdrop hidden" onclick="if(event.target===this)closeConnectorCreateModal()">
+        <div class="modal connector-create-modal">
+          <div class="modal-header">
+            <div><p class="eyebrow">SaaS</p><h2>Novo conector</h2><p>Gere o acesso e baixe o script RouterOS para instalar no cliente.</p></div>
+            <button class="icon-button" id="btnConnectorModalClose" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body" id="connectorCreateModalBody"></div>
+          <div class="modal-actions connector-create-modal-actions">
+            <button class="secondary-action" id="btnConnectorModalCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+            <button class="primary-action" id="btnCreateConnector" type="button"><i data-lucide="plus"></i> Criar conector</button>
           </div>
         </div>
-        <div class="panel">
-          <div class="panel-header">
-            <div><h2>Status do banco</h2></div>
-          </div>
-          <div id="backupStatus" style="padding:20px;color:var(--muted);font-size:13px">Carregando-</div>
-        </div>
-      </section>
+      </div>
 
       <!-- --- VIEW: CONFIGURA--ES --- -->
       <section class="workspace hidden" id="viewSettings">
         <div class="page-heading">
-          <div><p class="eyebrow">Sistema</p><h1>Configuracoes</h1><p>Clientes SaaS, usuarios, banco de dados e parametros gerais.</p></div>
+          <div><p class="eyebrow">Administração</p><h1>Configurações</h1><p>Organização, acessos, notificações e infraestrutura da plataforma.</p></div>
           <button class="secondary-action" id="btnSettingsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
-        <div class="settings-saas-grid">
-          <div class="panel">
+        <div class="settings-console">
+          <aside class="settings-navigation" aria-label="Áreas de configuração">
+            <div class="settings-navigation-head"><span>Console administrativo</span><small>Gerencie o ambiente atual</small></div>
+            <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small>Resumo da conta</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="tenants"><i data-lucide="building-2"></i><span><strong>Clientes</strong><small>Organizações SaaS</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Perfis e permissões</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small>Alertas operacionais</small></span><i data-lucide="chevron-right"></i></button>
+            <button type="button" class="settings-nav-item" data-settings-tab="platform"><i data-lucide="shield-check"></i><span><strong>Plataforma e segurança</strong><small>Banco e autenticação</small></span><i data-lucide="chevron-right"></i></button>
+          </aside>
+          <div class="settings-saas-grid">
+          <div class="panel settings-wide-panel settings-area active" data-settings-panel="overview">
+            <div class="panel-header"><div><h2>Visão geral da conta</h2><p>Estado administrativo do cliente e da plataforma.</p></div><span class="badge badge-green">Ambiente ativo</span></div>
+            <div class="settings-status-grid settings-overview-grid" id="settingsOverviewStatus"></div>
+            <div class="settings-overview-help"><i data-lucide="info"></i><span>Use o menu ao lado para administrar cada área sem misturar configurações operacionais e de plataforma.</span></div>
+          </div>
+          <div class="panel settings-area settings-admin-form-panel" data-settings-panel="tenants">
             <div class="panel-header">
               <div><h2>Novo cliente</h2><p>Crie um tenant independente para operacao SaaS.</p></div>
             </div>
@@ -1849,7 +1847,7 @@
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel settings-area settings-admin-form-panel" data-settings-panel="users">
             <div class="panel-header">
               <div><h2>Novo usuario</h2><p>Usuarios sao criados dentro do cliente logado.</p></div>
             </div>
@@ -1868,10 +1866,10 @@
                 <div class="form-group">
                   <label for="newUserRole">Perfil</label>
                   <select id="newUserRole">
-                    <option value="viewer">Viewer</option>
-                    <option value="operator">Operator</option>
-                    <option value="admin">Admin</option>
-                    <option value="owner">Owner</option>
+                    <option value="viewer">Visualizador</option>
+                    <option value="operator">Operador</option>
+                    <option value="admin">Administrador</option>
+                    <option value="owner">Proprietário</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -1883,35 +1881,63 @@
             </div>
           </div>
 
-          <div class="panel settings-wide-panel">
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="tenants">
             <div class="panel-header">
               <div><h2>Clientes</h2><p id="settingsTenantsSummary">Carregando clientes.</p></div>
             </div>
-            <div class="table-wrap">
-              <table class="data-table settings-table">
+            <div class="table-wrap settings-table-wrap">
+              <table class="data-table settings-table settings-tenants-table">
+                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"></colgroup>
                 <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th></tr></thead>
                 <tbody id="settingsTenantsBody"></tbody>
               </table>
             </div>
           </div>
 
-          <div class="panel settings-wide-panel">
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="users">
             <div class="panel-header">
               <div><h2>Usuarios</h2><p id="settingsUsersSummary">Carregando usuarios.</p></div>
             </div>
-            <div class="table-wrap">
-              <table class="data-table settings-table">
+            <div class="table-wrap settings-table-wrap">
+              <table class="data-table settings-table settings-users-table">
+                <colgroup><col class="settings-col-user"><col class="settings-col-name"><col class="settings-col-role"><col class="settings-col-status"><col class="settings-col-tenant"></colgroup>
                 <thead><tr><th>Usuario</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Cliente</th></tr></thead>
                 <tbody id="settingsUsersBody"></tbody>
               </table>
             </div>
           </div>
 
-          <div class="panel settings-wide-panel">
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="platform">
             <div class="panel-header">
-              <div><h2>Banco e autenticacao</h2><p>Estado atual dos storages do SaaS.</p></div>
+              <div><h2>Plataforma e segurança</h2><p>Banco, autenticação, sessões e isolamento do SaaS.</p></div>
             </div>
             <div class="settings-status-grid" id="settingsStorageStatus"></div>
+            <div class="settings-security-note"><i data-lucide="shield-check"></i><div><strong>Segurança por tenant</strong><span>O isolamento e as permissões são aplicados pelo backend em todas as operações administrativas.</span></div></div>
+          </div>
+          <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
+            <div class="panel-header">
+              <div><h2>Notificacoes pelo Telegram</h2><p>Alertas de queda, recuperacao e degradacao do sinal optico por cliente.</p></div>
+              <span class="badge badge-gray" id="telegramConfigStatus">Nao configurado</span>
+            </div>
+            <div class="settings-form telegram-settings-form">
+              <div class="form-row">
+                <div class="form-group"><label for="telegramBotToken">Token do bot</label><input id="telegramBotToken" type="password" placeholder="Deixe vazio para manter o atual"></div>
+                <div class="form-group"><label for="telegramChatId">Chat ID / grupo</label><input id="telegramChatId" placeholder="Ex: -1001234567890"></div>
+              </div>
+              <div class="form-row">
+                <div class="form-group"><label for="telegramWarnRx">Alerta ONU RX (dBm)</label><input id="telegramWarnRx" type="number" step="0.1" value="-27"></div>
+                <div class="form-group"><label for="telegramCriticalRx">Critico ONU RX (dBm)</label><input id="telegramCriticalRx" type="number" step="0.1" value="-29"></div>
+              </div>
+              <div class="telegram-options-row">
+                <label><input id="telegramEnabled" type="checkbox"> Notificacoes ativas</label>
+                <label><input id="telegramRecovery" type="checkbox" checked> Avisar recuperacao</label>
+              </div>
+              <div class="page-heading-actions telegram-actions">
+                <button class="secondary-action" id="btnTelegramTest" type="button"><i data-lucide="send"></i> Enviar teste</button>
+                <button class="primary-action" id="btnTelegramSave" type="button"><i data-lucide="save"></i> Salvar Telegram</button>
+              </div>
+            </div>
+          </div>
           </div>
         </div>
       </section>
@@ -1921,14 +1947,10 @@
         <div class="page-heading"><div><p class="eyebrow">Inventario</p><h1>Cameras via Switch</h1><p>Cameras descobertas via varredura no switch gerenciavel.</p></div></div>
         <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
       </section>
-      <section class="workspace hidden" id="viewNetLearn">
-        <div class="page-heading"><div><p class="eyebrow">Rede</p><h1>Aprendizado</h1></div></div>
-        <div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Em constru--o.</div>
-      </section>
       <section class="workspace hidden" id="viewNetOperate">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Redes</p>
+            <p class="eyebrow">Manutencao</p>
             <h1>Ferramentas de rede</h1>
             <p>Testes pontuais para analise: ping, portas, HTTP, DNS, rota e coleta pelo MikroTik.</p>
           </div>
@@ -2006,14 +2028,14 @@
             <h1>OLT</h1>
             <p>Cadastro das OLTs da operacao. Uma vez cadastrada, ela aparece como opcao nas telas de ONU e CFTV -- sem redigitar IP e senha a cada acao.</p>
           </div>
-          <button class="primary-action" id="btnOltRegRefresh"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnOltRegClear"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
+            <button class="primary-action" id="btnOltRegNew"><i data-lucide="plus"></i> Nova OLT</button>
+          </div>
         </div>
 
         <div class="connectors-layout">
-          <div class="panel connector-card">
-            <div class="panel-header">
-              <div><h2 id="oltRegFormTitle">Nova OLT</h2><p>A senha e guardada cifrada e nunca volta para a tela.</p></div>
-            </div>
+          <div class="panel connector-card" id="oltRegFormCard">
             <div class="connector-form">
               <input type="hidden" id="oltRegId" value="">
               <label>Nome
@@ -2022,24 +2044,24 @@
               <label>IP / Host
                 <input id="oltRegHost" placeholder="10.0.0.10" autocomplete="off">
               </label>
+              <label>Site / local
+                <input id="oltRegSite" list="oltRegSiteList" placeholder="Digite ou escolha o site" autocomplete="off">
+                <datalist id="oltRegSiteList"></datalist>
+              </label>
               <label>Fabricante
-                <input id="oltRegVendor" list="oltRegVendorList" placeholder="Fiberhome" autocomplete="off">
-                <datalist id="oltRegVendorList">
-                  <option value="Fiberhome"></option>
-                  <option value="Huawei"></option>
-                  <option value="ZTE"></option>
-                  <option value="Parks"></option>
-                </datalist>
+                <select id="oltRegVendor">
+                  <option value="">Escolha o fabricante</option>
+                  <option value="Intelbras">Intelbras</option>
+                  <option value="FiberHome">FiberHome</option>
+                  <option value="Huawei">Huawei</option>
+                  <option value="ZTE">ZTE</option>
+                  <option value="Parks">Parks</option>
+                </select>
               </label>
               <label>Modelo
-                <input id="oltRegModel" list="oltRegModelList" placeholder="8820i" autocomplete="off">
-                <!-- 8820i e 4840e sao os dois modelos que o backend sabe operar
-                     hoje (ver app/services/olt_service.py). O campo e livre pra
-                     permitir cadastrar equipamento antes do suporte existir. -->
-                <datalist id="oltRegModelList">
-                  <option value="8820i"></option>
-                  <option value="4840e"></option>
-                </datalist>
+                <select id="oltRegModel" disabled>
+                  <option value="">Escolha primeiro o fabricante</option>
+                </select>
               </label>
               <label>Usuario
                 <input id="oltRegUsername" placeholder="admin" autocomplete="off">
@@ -2057,12 +2079,9 @@
               </label>
               <label class="olt-reg-check">
                 <input type="checkbox" id="oltRegActive" checked>
-                <span>Ativa</span>
+                <span>OLT ativa</span>
               </label>
-              <div class="olt-reg-actions">
-                <button class="primary-action" id="btnOltRegSave"><i data-lucide="check"></i> Salvar</button>
-                <button class="secondary-action hidden" id="btnOltRegCancel"><i data-lucide="x"></i> Cancelar</button>
-              </div>
+              <div class="deploy-status-box" id="oltRegStatus">Preencha os dados e escolha Salvar ou Salvar e sincronizar. O teste de conexao fica nas acoes da OLT cadastrada.</div>
             </div>
           </div>
 
@@ -2075,21 +2094,41 @@
               </label>
             </div>
             <div class="table-wrap">
-              <table class="data-table">
+              <table class="data-table olt-reg-table">
+                <colgroup>
+                  <col class="olt-col-name"><col class="olt-col-host"><col class="olt-col-site">
+                  <col class="olt-col-model"><col class="olt-col-connector"><col class="olt-col-password">
+                  <col class="olt-col-status"><col class="olt-col-connection"><col class="olt-col-actions">
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>Nome</th><th>IP / Host</th><th>Fabricante</th><th>Modelo</th>
-                    <th>Usuario</th><th>Senha</th><th>Situacao</th><th style="text-align:right">Acoes</th>
+                    <th>Nome</th><th>IP / Host</th><th>Site</th><th>Fabricante / Modelo</th>
+                    <th>Conector</th><th>Senha</th><th>Situacao</th><th>Conexao</th><th>Acoes</th>
                   </tr>
                 </thead>
                 <tbody id="oltRegRows">
-                  <tr><td colspan="8">Carregando...</td></tr>
+                  <tr><td colspan="9">Carregando...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
       </section>
+
+      <div id="modalOltRegistry" class="modal-backdrop hidden" onclick="if(event.target===this)oltRegCloseModal()">
+        <div class="modal olt-reg-modal">
+          <div class="modal-header">
+            <div><p class="eyebrow">Implantacao</p><h2 id="oltRegFormTitle">Nova OLT</h2><p>A senha e guardada cifrada e nunca volta para a tela.</p></div>
+            <button class="icon-button" id="btnOltRegModalClose" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body" id="oltRegModalBody"></div>
+          <div class="modal-actions olt-reg-modal-actions">
+            <button class="secondary-action" id="btnOltRegCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+            <button class="secondary-action" id="btnOltRegSave" type="button"><i data-lucide="check"></i> Salvar</button>
+            <button class="primary-action" id="btnOltRegSaveSync" type="button"><i data-lucide="refresh-cw"></i> Salvar e sincronizar</button>
+          </div>
+        </div>
+      </div>
 
       <!-- --- VIEW: IMPLANTACAO - ONU --- -->
       <section class="workspace hidden" id="viewDeployOnu">
@@ -2098,6 +2137,9 @@
             <p class="eyebrow">Implantacao</p>
             <h1>ONU</h1>
             <p>Provisionamento de ONU/ONT em campo: descobrir, autorizar, consultar sinal/MACs e excluir na OLT.</p>
+          </div>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnOnuClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
           </div>
         </div>
 
@@ -2114,6 +2156,14 @@
                     <select id="onuConnector" class="filter-select" style="width:100%">
                       <option value="">Escolha a origem de acesso</option>
                       <option value="__local__">Local / VPN do servidor</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="onuOltRegistry">OLT cadastrada</label>
+                    <select id="onuOltRegistry" class="filter-select" style="width:100%" disabled>
+                      <option value="">Escolha primeiro o conector</option>
                     </select>
                   </div>
                 </div>
@@ -2241,7 +2291,17 @@
             <details class="onu-step" name="onuAccordion" id="onuStepQuery">
               <summary><span class="onu-step-title">3. Consultar sinal e MACs</span></summary>
               <div class="onu-step-body">
-                <div class="form-row">
+                <div class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
+                  <div class="form-group">
+                    <label for="onuQueryPon">PON</label>
+                    <select id="onuQueryPon">
+                      <option value="">Escolha</option>
+                      <option value="1">PON 1</option><option value="2">PON 2</option>
+                      <option value="3">PON 3</option><option value="4">PON 4</option>
+                      <option value="5">PON 5</option><option value="6">PON 6</option>
+                      <option value="7">PON 7</option><option value="8">PON 8</option>
+                    </select>
+                  </div>
                   <div class="form-group">
                     <label for="onuTargetNum">Numero da ONU (posicao)</label>
                     <input id="onuTargetNum" type="number" placeholder="Ex: 4">
@@ -2291,6 +2351,13 @@
               </div>
             </details>
           </div>
+          <aside class="panel deployment-side-panel onu-history-panel">
+            <div class="panel-header deployment-history-header">
+              <div><h2>Historico recente</h2><p>Ultimas ONUs atualizadas na OLT selecionada.</p></div>
+              <button class="icon-button" id="btnOnuHistoryRefresh" type="button" title="Atualizar historico" aria-label="Atualizar historico"><i data-lucide="refresh-cw"></i></button>
+            </div>
+            <div id="onuHistory" class="deployment-history">Carregando...</div>
+          </aside>
         </div>
       </section>
 
@@ -2302,7 +2369,9 @@
             <h1>Gravadores</h1>
             <p>Configure DVR/NVR, valide acesso e grave os canais no inventario.</p>
           </div>
-          <button class="secondary-action" id="btnDeployStandaloneRecorderClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnDeployStandaloneRecorderClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
+          </div>
         </div>
 
         <div class="deployment-grid recorder-deploy-grid">
@@ -2318,6 +2387,14 @@
                     <select id="deployStandaloneRecorderConnector" class="filter-select" style="width:100%">
                       <option value="">Escolha a origem de acesso</option>
                       <option value="__local__">Local / VPN do servidor</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="deployStandaloneRecorderOlt">OLT cadastrada</label>
+                    <select id="deployStandaloneRecorderOlt" class="filter-select" style="width:100%" disabled>
+                      <option value="">Escolha primeiro o conector</option>
                     </select>
                   </div>
                 </div>
@@ -2518,7 +2595,9 @@
             <h1>CFTV</h1>
             <p>Fluxo guiado para ativar ONU/ONT, localizar camera na rede e registrar no inventario.</p>
           </div>
-          <button class="secondary-action" id="btnDeployClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar</button>
+          <div class="page-heading-actions">
+            <button class="secondary-action" id="btnDeployClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
+          </div>
         </div>
 
         <div class="deployment-grid">
@@ -2538,6 +2617,14 @@
                       <select id="deployConnector" class="filter-select" style="width:100%">
                         <option value="">Escolha a origem de acesso</option>
                         <option value="__local__">Local / VPN do servidor</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-row" style="grid-template-columns:1fr">
+                    <div class="form-group">
+                      <label for="deployOltContext">OLT cadastrada</label>
+                      <select id="deployOltContext" class="filter-select" style="width:100%" disabled>
+                        <option value="">Escolha primeiro o conector</option>
                       </select>
                     </div>
                   </div>
@@ -4081,19 +4168,20 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=141"></script>
-  <script src="js/dashboard.js?v=141"></script>
-  <script src="js/cameras.js?v=141"></script>
-  <script src="js/recorders.js?v=141"></script>
+  <script src="js/core.js?v=148"></script>
+  <script src="js/dashboard.js?v=150"></script>
+  <script src="js/cameras.js?v=144"></script>
+  <script src="js/recorders.js?v=143"></script>
   <script src="js/windows.js?v=141"></script>
-  <script src="js/snapshots.js?v=141"></script>
+  <script src="js/snapshots.js?v=142"></script>
   <script src="js/maintenance.js?v=141"></script>
-  <script src="js/analysis.js?v=141"></script>
-  <script src="js/network.js?v=141"></script>
-  <script src="js/deploy.js?v=141"></script>
-  <script src="js/deployOlt.js?v=141"></script>
-  <script src="js/connectors.js?v=141"></script>
+  <script src="js/analysis.js?v=142"></script>
+  <script src="js/network.js?v=143"></script>
+  <script src="js/deploy.js?v=150"></script>
+  <script src="js/deployOlt.js?v=155"></script>
+  <script src="js/connectors.js?v=144"></script>
+  <script src="js/monitoring.js?v=8"></script>
   <script src="js/helpers.js?v=141"></script>
-  <script src="js/bootstrap.js?v=141"></script>
+  <script src="js/bootstrap.js?v=152"></script>
 </body>
 </html>

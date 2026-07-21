@@ -19,7 +19,12 @@ from app.services.auth_store import get_user_by_token
 from app.services.auth_store import init_auth_db
 from app.services.db_store import init_db
 from app.services.maintenance_ping_service import maintenance_ping_hub
+from app.services.monitoring_service import list_monitoring_tenants, refresh_from_inventory
+from app.services.zabbix_monitoring_service import sync_monitoring_to_zabbix
+from app.services.telegram_notification_service import process_monitoring_notifications
 from app.api.endpoints.maintenance import scripts_zabbix_status_sync
+from app.api.endpoints.olt import api_olt_registry_telemetry
+from app.services.olt_registry import list_olts
 from app.api.endpoints import (
     auth_router,
     cameras_router,
@@ -37,11 +42,11 @@ from app.api.endpoints import (
     database_router,
     dashboard_router,
     windows_router,
-    backup_router,
     playback_router,
     connectors_router,
     network_tools_router,
     deployments_router,
+    monitoring_router,
 )
 
 ensure_dirs()
@@ -100,17 +105,21 @@ app.include_router(ia_router)
 app.include_router(database_router)
 app.include_router(dashboard_router)
 app.include_router(windows_router)
-app.include_router(backup_router)
 app.include_router(playback_router)
 app.include_router(connectors_router)
 app.include_router(network_tools_router)
 app.include_router(deployments_router)
+app.include_router(monitoring_router)
 
 # Estado compartilhado (ex.: credencial do ultimo SCAN)
 app.state.last_scan_auth = {"user": None, "pass": None}
 app.state.settings = settings
 app.state.zabbix_status_task = None
 app.state.zabbix_status_last = {}
+app.state.monitoring_refresh_task = None
+app.state.monitoring_refresh_last = {}
+app.state.olt_telemetry_task = None
+app.state.olt_telemetry_last = {}
 
 
 def _zabbix_status_interval_s() -> int:
@@ -169,6 +178,72 @@ async def _zabbix_status_sync_loop() -> None:
         await asyncio.sleep(interval)
 
 
+def _monitoring_refresh_interval_s() -> int:
+    try:
+        return max(60, min(int(os.getenv("SIGHTOPS_MONITORING_REFRESH_INTERVAL", "120")), 3600))
+    except Exception:
+        return 120
+
+
+def _refresh_monitoring_tenant(tenant_slug: str) -> dict:
+    token = set_current_tenant_slug(tenant_slug)
+    try:
+        result = refresh_from_inventory()
+        result["zabbix"] = sync_monitoring_to_zabbix()
+        result["telegram"] = process_monitoring_notifications()
+        return result
+    finally:
+        reset_current_tenant_slug(token)
+
+
+async def _monitoring_refresh_loop() -> None:
+    interval = _monitoring_refresh_interval_s()
+    await asyncio.sleep(20)
+    while True:
+        results: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                results[tenant_slug] = await asyncio.to_thread(_refresh_monitoring_tenant, tenant_slug)
+            app.state.monitoring_refresh_last = {"ok": True, "interval_s": interval, "tenants": results}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.monitoring_refresh_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("monitoring inventory refresh failed")
+        await asyncio.sleep(interval)
+
+
+async def _olt_telemetry_loop() -> None:
+    try:
+        interval = max(300, min(int(os.getenv("SIGHTOPS_OLT_TELEMETRY_INTERVAL", "600")), 3600))
+    except Exception:
+        interval = 600
+    await asyncio.sleep(60)
+    while True:
+        results: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                token = set_current_tenant_slug(tenant_slug)
+                try:
+                    olts = await asyncio.to_thread(list_olts, False)
+                    tenant_results = []
+                    for olt in olts:
+                        try:
+                            tenant_results.append(await asyncio.to_thread(api_olt_registry_telemetry, int(olt["id"])))
+                        except Exception as exc:
+                            tenant_results.append({"ok": False, "olt_id": olt.get("id"), "error": str(exc)})
+                    results[tenant_slug] = tenant_results
+                finally:
+                    reset_current_tenant_slug(token)
+            app.state.olt_telemetry_last = {"ok": True, "interval_s": interval, "tenants": results}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.olt_telemetry_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("OLT telemetry loop failed")
+        await asyncio.sleep(interval)
+
+
 @app.get("/api/scripts/zabbix/status-sync/auto")
 def zabbix_status_sync_auto_state() -> JSONResponse:
     task = getattr(app.state, "zabbix_status_task", None)
@@ -191,15 +266,20 @@ async def startup_events() -> None:
         _zabbix_status_sync_loop(),
         name="zabbix-status-sync-loop",
     )
+    app.state.monitoring_refresh_task = asyncio.create_task(
+        _monitoring_refresh_loop(), name="monitoring-refresh-loop"
+    )
+    app.state.olt_telemetry_task = asyncio.create_task(_olt_telemetry_loop(), name="olt-telemetry-loop")
 
 
 @app.on_event("shutdown")
 async def shutdown_events() -> None:
-    task = getattr(app.state, "zabbix_status_task", None)
-    if task:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+    for task_name in ("zabbix_status_task", "monitoring_refresh_task", "olt_telemetry_task"):
+        task = getattr(app.state, task_name, None)
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
     await maintenance_ping_hub.stop()
 
 

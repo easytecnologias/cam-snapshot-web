@@ -349,15 +349,18 @@ async function iaNvrRunSearch(e) {
 //  OLT 
 let _oltRows   = [];
 let _oltCamMap = {}; // serial|mac  camera
+let _oltOnuMonitoringRows = [];
 let _oltWs     = null;
 
 async function loadOlt() {
-  const [oltData, camData] = await Promise.all([
+  const [oltData, camData, onuMonitoringData] = await Promise.all([
     apiJson('/api/olt/rows'),
     apiJson('/api/cameras'),
+    apiJson('/api/monitoring/entities?entity_type=onu&limit=2000').catch(() => ({ entities: [] })),
   ]);
 
   _oltRows = oltData?.rows || (Array.isArray(oltData) ? oltData : []);
+  _oltOnuMonitoringRows = Array.isArray(onuMonitoringData?.entities) ? onuMonitoringData.entities : [];
 
   // Monta indice de cameras por serial e por mac
   const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
@@ -386,16 +389,35 @@ function populateOltMacSiteFilter() {
     selOlt.innerHTML = '<option value="">Todas as OLTs</option>' +
       olts.map(o => `<option${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
   }
-  // Resumo
-  setText('oltTotal',     _oltRows.length);
-  setText('oltSiteCount', sites.length);
-  setText('oltCount',     olts.length);
 }
 
 function renderOltTable(rows) {
   const tbody = document.getElementById('oltTableBody');
   if (!tbody) return;
-  setText('oltTableFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
+  const siteFilter = String(document.getElementById('oltFilterSite')?.value || '').trim();
+  const query = String(document.getElementById('oltSearch')?.value || '').trim();
+  const onuKeys = new Set();
+  const deviceKeys = new Set();
+  rows.forEach(r => {
+    const oltKey = String(r.olt_ip || r.olt_name || '').trim().toLowerCase();
+    const pon = String(r.pon ?? '').trim();
+    const onuId = String(r.onu_id ?? '').trim();
+    const serial = String(r.onu_serial || '').trim().toUpperCase();
+    const onuKey = oltKey && pon && onuId ? `${oltKey}|${pon}|${onuId}` : serial ? `${oltKey}|serial|${serial}` : '';
+    if (onuKey) onuKeys.add(onuKey);
+    const mac = String(r.cpe_mac || '').trim().toLowerCase();
+    if (mac) deviceKeys.add(mac);
+  });
+  const monitoredOnus = _oltOnuMonitoringRows.filter(row => !siteFilter || String(row.site || '').trim() === siteFilter);
+  const onuTotal = query ? onuKeys.size : (monitoredOnus.length || onuKeys.size);
+  const deviceTotal = deviceKeys.size;
+  const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
+  const olts = new Set(rows.map(r => String(r.olt_ip || r.olt_name || '').trim()).filter(Boolean));
+  setText('oltOnuTotal', onuTotal);
+  setText('oltDeviceTotal', deviceTotal);
+  setText('oltSiteCount', sites.size);
+  setText('oltCount', olts.size);
+  setText('oltTableFooter', `${onuTotal} ONU${onuTotal !== 1 ? 's' : ''} · ${deviceTotal} dispositivo${deviceTotal !== 1 ? 's' : ''}`);
   if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhum dado. Execute a coleta.</td></tr>';
     return;

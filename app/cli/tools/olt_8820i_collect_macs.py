@@ -110,7 +110,7 @@ def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
     # Formato observado no legado:
     # 1  8B3E3755  Active  OK  -20.52 dBm  -18.83 dBm  0.758  7:22:52:22
     full_re = re.compile(
-        r"^\s*(\d+)\s+([0-9A-Fa-f]+)\s+(\S+)\s+(\S+)\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+([\d\.]+)\s+([\d:]+)",
+        r"^\s*(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+(-?\d+(?:\.\d+)?)?\s*dBm\s+([\d\.]+)\s+([\d:]+)",
         re.IGNORECASE,
     )
 
@@ -192,6 +192,42 @@ def parse_onu_status(output: str, pon: int | None = None) -> List[Dict]:
         )
 
     return onus
+
+
+def collect_onu_telemetry_8820i(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "all",
+    timeout: float = 12.0,
+) -> List[Dict]:
+    """Coleta status e sinal de todas as ONUs sem executar a coleta pesada de MACs."""
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        olt_ip,
+        username=user,
+        password=password,
+        look_for_keys=False,
+        allow_agent=False,
+        timeout=timeout,
+        banner_timeout=timeout,
+        auth_timeout=timeout,
+    )
+    try:
+        chan = open_shell(client)
+        if str(pon).strip().lower() == "all":
+            pons = range(1, 9)
+        else:
+            pons = [int(pon)]
+
+        rows: List[Dict] = []
+        for pon_id in pons:
+            output = cli_run(chan, f"onu status gpon {pon_id}", timeout=10.0)
+            rows.extend(parse_onu_status(output, pon_id))
+        return rows
+    finally:
+        client.close()
 
 def _first_number_after(labels: List[str], output: str) -> str:
     for label in labels:
