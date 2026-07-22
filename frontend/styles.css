@@ -5546,9 +5546,30 @@ body.cam-live-lock {
 .planning-capacity-card.danger { border-color: #f2b0b0; background: #fff2f2; color: #a92121; }
 .planning-capacity-card.danger strong { color: #d22b2b; }
 @media (max-width: 720px) { .planning-cto-fields { grid-template-columns: 1fr; } .planning-wizard-section > .planning-form-grid { padding: 12px; } }
-.planning-info, .planning-csv-example { display: flex; gap: 10px; margin-top: 16px; padding: 12px 14px; border: 1px solid #a9dfcd; border-radius: 8px; color: #075b43; background: var(--primary-soft); }
-.planning-csv-example { flex-direction: column; border-color: var(--border); color: var(--text); background: var(--surface-soft); }
-.planning-csv-example code { display: block; overflow-x: auto; padding: 10px; border-radius: 6px; color: #dce7eb; background: var(--sidebar); white-space: nowrap; }
+.planning-info { display: flex; gap: 10px; margin-top: 16px; padding: 12px 14px; border: 1px solid #a9dfcd; border-radius: 8px; color: #075b43; background: var(--primary-soft); }
+.planning-csv-import { display: grid; gap: 14px; }
+.planning-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.planning-upload-zone { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; min-height: 92px; align-items: center; gap: 14px; padding: 16px 18px; border: 1.5px dashed #aebdc5; border-radius: 10px; background: #f8fafb; cursor: pointer; transition: .16s ease; }
+.planning-upload-zone:hover, .planning-upload-zone.dragging { border-color: var(--primary); background: #f1fbf7; }
+.planning-upload-zone.has-file { border-style: solid; border-color: #74c7a9; background: #effaf6; }
+.planning-upload-icon { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 10px; color: var(--primary); background: var(--primary-soft); }
+.planning-upload-icon svg { width: 23px; height: 23px; }
+.planning-upload-copy { display: grid; min-width: 0; gap: 4px; }
+.planning-upload-copy strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.planning-upload-copy small { color: var(--muted); font-size: 12px; }
+.planning-upload-action { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.planning-csv-defaults { padding: 14px 16px 16px; border: 1px solid var(--border); border-radius: 10px; }
+.planning-csv-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.planning-csv-section-head > div { display: grid; gap: 2px; }
+.planning-csv-section-head strong { font-size: 14px; }.planning-csv-section-head small { color: var(--muted); font-size: 11px; }
+.planning-csv-section-head > span { padding: 3px 8px; border-radius: 999px; color: #5b6870; background: #eef2f4; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.planning-csv-columns { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.planning-csv-columns summary { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; cursor: pointer; }
+.planning-csv-columns summary > span { display: flex; align-items: center; gap: 9px; }.planning-csv-columns summary svg { width: 17px; color: var(--muted); }.planning-csv-columns summary small { color: var(--muted); }
+.planning-column-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 14px 14px; border-top: 1px solid var(--border); background: #f8fafb; }
+.planning-column-chips code { padding: 5px 8px; border: 1px solid #d8e1e5; border-radius: 6px; color: #34444c; background: #fff; font-size: 11px; }
+.planning-csv-note { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border: 1px solid #b7decf; border-radius: 8px; color: #17684f; background: #f0fbf7; font-size: 12px; line-height: 1.45; }
+.planning-csv-note svg { width: 18px; height: 18px; flex: none; }
 
 @media (max-width: 1280px) {
   .planning-layout { grid-template-columns: 220px minmax(0, 1fr); }
@@ -5578,6 +5599,9 @@ body.cam-live-lock {
 }
 
 @media (max-width: 520px) {
+  .planning-upload-zone { grid-template-columns: 42px minmax(0, 1fr); padding: 14px; }
+  .planning-upload-action { grid-column: 1 / -1; text-align: center; }
+  .planning-csv-columns summary small { display: none; }
   .planning-kpis { grid-template-columns: 1fr 1fr; }
   .planning-filters { grid-template-columns: 1fr; }
   .planning-filters .search-wrap { grid-column: auto; }

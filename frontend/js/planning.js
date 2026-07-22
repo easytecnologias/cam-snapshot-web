@@ -421,13 +421,29 @@ async function openPlanningBoxModal() {
 
 function openPlanningCsvModal() {
   if (!_planningCurrent) return;
-  planningModal({
+  const columns = ['tipo', 'nome', 'ip', 'site', 'fabricante', 'modelo', 'equipamento_pai', 'pon', 'onu', 'latitude', 'longitude', 'imagem', 'metadata', 'observacoes'];
+  const modal = planningModal({
     title: 'Importar equipamentos por CSV', wide: true, primary: 'Importar CSV',
-    body: `<div class="planning-form-grid">
-      <label class="planning-field full"><span>Arquivo CSV</span><input id="planCsvFile" type="file" accept=".csv,text/csv"></label>
-      <label class="planning-field"><span>Tipo padrao</span><select id="planCsvType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label>
-      <label class="planning-field"><span>Site padrao</span><select id="planCsvSite">${planningSiteOptions()}</select></label>
-    </div><div class="planning-csv-example"><strong>Colunas aceitas</strong><code>tipo;nome;ip;site;fabricante;modelo;equipamento_pai;pon;onu;latitude;longitude;imagem;metadata;observacoes</code><span>O minimo obrigatorio e a coluna <b>nome</b>. O equipamento pai pode aparecer depois do filho no arquivo; a hierarquia e resolvida automaticamente.</span></div>`,
+    body: `<div class="planning-csv-import">
+      <input class="planning-file-input" id="planCsvFile" type="file" accept=".csv,text/csv">
+      <label class="planning-upload-zone" for="planCsvFile">
+        <span class="planning-upload-icon"><i data-lucide="file-up"></i></span>
+        <span class="planning-upload-copy"><strong class="planning-upload-title">Escolha o arquivo CSV</strong><small class="planning-upload-meta">Clique para selecionar ou arraste o arquivo para esta area</small></span>
+        <span class="planning-upload-action">Selecionar arquivo</span>
+      </label>
+      <section class="planning-csv-defaults">
+        <div class="planning-csv-section-head"><div><strong>Valores de apoio</strong><small>Usados somente quando uma linha do CSV nao informar tipo ou site.</small></div><span>Opcional</span></div>
+        <div class="planning-form-grid">
+          <label class="planning-field"><span>Tipo padrao</span><select id="planCsvType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label>
+          <label class="planning-field"><span>Site padrao</span><select id="planCsvSite">${planningSiteOptions()}</select></label>
+        </div>
+      </section>
+      <details class="planning-csv-columns">
+        <summary><span><i data-lucide="columns-3"></i><strong>Estrutura aceita pelo importador</strong></span><small>${columns.length} colunas disponiveis</small></summary>
+        <div class="planning-column-chips">${columns.map(column => `<code>${column}</code>`).join('')}</div>
+      </details>
+      <div class="planning-csv-note"><i data-lucide="git-branch"></i><span>Apenas <strong>nome</strong> e obrigatorio. A hierarquia e montada por <strong>equipamento_pai</strong>, mesmo quando o pai aparece depois no arquivo.</span></div>
+    </div>`,
     onSave: async root => {
       const file = root.querySelector('#planCsvFile').files[0];
       if (!file) throw new Error('Escolha um arquivo CSV.');
@@ -437,6 +453,26 @@ function openPlanningCsvModal() {
       _planningCatalog = null;
       closePlanningModal(); showToast(`${data.imported} item(ns) importado(s)${data.errors?.length ? `; ${data.errors.length} linha(s) com erro` : ''}.`, !!data.errors?.length); await selectPlanningProject(_planningCurrent.id);
     },
+  });
+  const input = modal.querySelector('#planCsvFile');
+  const zone = modal.querySelector('.planning-upload-zone');
+  const save = modal.querySelector('[data-save]');
+  save.disabled = true;
+  const showFile = file => {
+    if (!file) return;
+    zone.classList.add('has-file');
+    zone.querySelector('.planning-upload-title').textContent = file.name;
+    zone.querySelector('.planning-upload-meta').textContent = `${Math.max(1, Math.round(file.size / 1024))} KB · pronto para importar`;
+    zone.querySelector('.planning-upload-action').textContent = 'Trocar arquivo';
+    save.disabled = false;
+  };
+  input.addEventListener('change', () => showFile(input.files[0]));
+  ['dragenter', 'dragover'].forEach(name => zone.addEventListener(name, event => { event.preventDefault(); zone.classList.add('dragging'); }));
+  ['dragleave', 'drop'].forEach(name => zone.addEventListener(name, event => { event.preventDefault(); zone.classList.remove('dragging'); }));
+  zone.addEventListener('drop', event => {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; showFile(file);
   });
 }
 
