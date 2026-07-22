@@ -8,7 +8,7 @@ let _planningCatalog = null;
 
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
-  recorder: 'Gravador', box: 'Caixa', pole: 'Poste', other: 'Outro',
+  injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa hermetica', pole: 'Poste', other: 'Outro',
 };
 const PLANNING_STATUS = {
   draft: 'Rascunho', planned: 'Planejado', approved: 'Aprovado',
@@ -130,25 +130,34 @@ function renderPlanningDevices() {
     box.innerHTML = '<div class="planning-list-empty"><strong>Nenhum equipamento encontrado.</strong><span>Adicione manualmente, importe um CSV ou gere cameras em lote.</span></div>';
     return;
   }
-  box.innerHTML = rows.map(item => `
+  const allDevices = _planningCurrent?.devices || [];
+  box.innerHTML = rows.map(item => {
+    const metadata = item.metadata || {};
+    const childCount = allDevices.filter(child => Number(child.parent_id) === Number(item.id)).length;
+    const relation = ['switch', 'injector'].includes(item.device_type) && metadata.port_capacity
+      ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
+      : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
+      : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
+    return `
     <article class="planning-device-row" data-device-id="${Number(item.id)}">
       <button class="planning-device-focus" onclick="focusPlanningDevice(${Number(item.id)})" title="Mostrar no mapa">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
         <span class="planning-device-ip">${planningEscape(item.ip || 'IP a definir')}</span>
         <span class="planning-device-model"><strong>${planningEscape(item.model || 'Modelo a definir')}</strong><small>${planningEscape(item.manufacturer || 'Fabricante nao informado')}</small></span>
-        <span class="planning-device-parent">${planningEscape(item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'))}</span>
+        <span class="planning-device-parent">${planningEscape(relation)}</span>
       </button>
       <div class="planning-row-actions">
         <button class="icon-button" onclick="openPlanningDeviceModal(${Number(item.id)})" aria-label="Editar"><i data-lucide="pencil"></i></button>
         <button class="icon-button danger" onclick="deletePlanningDevice(${Number(item.id)})" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
       </div>
-    </article>`).join('');
+    </article>`;
+  }).join('');
   lucide.createIcons();
 }
 
 function planningDeviceIcon(type) {
-  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', recorder: 'hard-drive', box: 'package', pole: 'utility-pole' })[type] || 'box';
+  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole' })[type] || 'box';
 }
 
 function planningModal({ eyebrow = 'Planejamento', title, body, primary = 'Salvar', onSave, wide = false }) {
@@ -283,7 +292,7 @@ async function openPlanningDeviceModal(deviceId = 0) {
       ${planningCatalogDatalists(item)}
     </div>`,
     onSave: async root => {
-      const payload = planningDevicePayload(root);
+      const payload = planningDevicePayload(root, item.metadata || {});
       if (!payload.name) throw new Error('Informe o nome do equipamento.');
       const path = `/api/planning/projects/${_planningCurrent.id}/devices${item.id ? `/${item.id}` : ''}`;
       await planningRequest(path, { method: item.id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
@@ -296,14 +305,14 @@ async function openPlanningDeviceModal(deviceId = 0) {
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
-function planningDevicePayload(root) {
+function planningDevicePayload(root, metadata = {}) {
   const value = id => root.querySelector(`#${id}`)?.value?.trim() || '';
   return {
     device_type: value('planDeviceType'), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
     parent_id: value('planDeviceParent') || null, pon: value('planDevicePon'), onu_position: value('planDeviceOnu'),
     latitude: value('planDeviceLat') || null, longitude: value('planDeviceLon') || null,
-    reference_image_url: value('planDeviceImage'), notes: value('planDeviceNotes'), status: 'planned',
+    reference_image_url: value('planDeviceImage'), notes: value('planDeviceNotes'), metadata, status: 'planned',
   };
 }
 
@@ -333,6 +342,81 @@ function openPlanningGenerateModal() {
       closePlanningModal(); showToast(`${data.count} equipamento(s) gerado(s).`); await selectPlanningProject(_planningCurrent.id);
     },
   });
+}
+
+async function openPlanningBoxModal() {
+  if (!_planningCurrent) return;
+  await loadPlanningCatalog();
+  const modal = planningModal({
+    eyebrow: 'Projeto GPON', title: 'Montar caixa hermetica', wide: true, primary: 'Criar caixa e equipamentos',
+    body: `<div class="planning-box-wizard">
+      <section class="planning-wizard-section"><div class="planning-wizard-heading"><span>1</span><div><strong>Caixa e localizacao</strong><small>Todos os equipamentos e cameras nascem neste ponto.</small></div></div><div class="planning-form-grid">
+        ${planningField('Nome da caixa', 'planBoxName', '', 'placeholder="CX-01 - ENTRADA"')}
+        <label class="planning-field"><span>Site/local</span><select id="planBoxSite">${planningSiteOptions()}</select></label>
+        ${planningField('Latitude', 'planBoxLat', '', 'placeholder="-9.750000"')}${planningField('Longitude', 'planBoxLon', '', 'placeholder="-36.660000"')}
+      </div></section>
+      <section class="planning-wizard-section"><div class="planning-wizard-heading"><span>2</span><div><strong>Rede optica dentro da caixa</strong><small>Uma ONU por padrao; adicione mais quando o projeto exigir.</small></div></div><div class="planning-form-grid">
+        <label class="planning-field"><span>Terminal optico</span><select id="planBoxOnuType"><option value="onu">ONU</option><option value="ont">ONT</option></select></label>
+        ${planningField('Quantidade', 'planBoxOnuCount', '1', 'type="number" min="1" max="4"')}
+        ${planningField('Fabricante ONU/ONT', 'planBoxOnuManufacturer', '', 'list="planningBoxOnuManufacturers" placeholder="Escolha ou digite"')}
+        ${planningField('Modelo ONU/ONT', 'planBoxOnuModel', '', 'list="planningBoxOnuModels" placeholder="Escolha ou digite"')}
+        ${planningField('PON', 'planBoxPon', '', 'placeholder="1"')}${planningField('Posicao ONU', 'planBoxOnuPosition', '', 'placeholder="4"')}
+        <label class="planning-check full"><input id="planBoxCto" type="checkbox"><span><strong>Incluir CTO nesta caixa</strong><small>Opcional. Tambem pode ser adicionada ou editada depois.</small></span></label>
+        <div class="planning-cto-fields full hidden" id="planningCtoFields">${planningField('Nome da CTO', 'planBoxCtoName', '', 'placeholder="CTO-01"')}${planningField('Modelo/capacidade', 'planBoxCtoModel', '', 'list="planningBoxCtoModels" placeholder="CTO 1x8 ou CTO 1x16"')}</div>
+      </div></section>
+      <section class="planning-wizard-section"><div class="planning-wizard-heading"><span>3</span><div><strong>Alimentacao das cameras</strong><small>Use switch PoE ou injetor PoE quando nao houver switch.</small></div></div><div class="planning-form-grid">
+        <label class="planning-field"><span>Equipamento</span><select id="planBoxDistributionType"><option value="switch">Switch PoE</option><option value="injector">Injetor PoE</option></select></label>
+        ${planningField('Quantidade', 'planBoxDistributionCount', '1', 'type="number" min="1" max="4"')}
+        ${planningField('Fabricante', 'planBoxDistributionManufacturer', '', 'list="planningBoxDistributionManufacturers" placeholder="Escolha ou digite"')}
+        ${planningField('Modelo', 'planBoxDistributionModel', '', 'list="planningBoxDistributionModels" placeholder="Escolha ou digite"')}
+        <label class="planning-field"><span>Portas por equipamento</span><select id="planBoxPorts"><option value="1">1 porta</option><option value="5" selected>5 portas</option><option value="8">8 portas</option><option value="16">16 portas</option><option value="24">24 portas</option></select></label>
+        <div class="planning-capacity-card"><span>Capacidade da caixa</span><strong id="planBoxCapacity">5 cameras</strong><small id="planBoxAvailability">5 portas livres</small></div>
+      </div></section>
+      <section class="planning-wizard-section"><div class="planning-wizard-heading"><span>4</span><div><strong>Cameras que saem da caixa</strong><small>As coordenadas sao herdadas da caixa e podem ser alteradas individualmente.</small></div></div><div class="planning-form-grid">
+        ${planningField('Quantidade de cameras', 'planBoxCameraCount', '5', 'type="number" min="0" max="100"')}
+        ${planningField('IP inicial', 'planBoxCameraIp', '', 'placeholder="10.10.20.1"')}
+        ${planningField('Numero inicial', 'planBoxCameraFirst', '1', 'type="number" min="0"')}
+        ${planningField('Padrao dos nomes', 'planBoxCameraTemplate', '{number} - CAMERA', 'placeholder="{number} - CAMERA"')}
+        ${planningField('Fabricante das cameras', 'planBoxCameraManufacturer', '', 'list="planningBoxCameraManufacturers" placeholder="Escolha ou digite"')}
+        ${planningField('Modelo das cameras', 'planBoxCameraModel', '', 'list="planningBoxCameraModels" placeholder="Escolha ou digite"')}
+      </div></section>
+      <datalist id="planningBoxOnuManufacturers"></datalist><datalist id="planningBoxOnuModels"></datalist><datalist id="planningBoxCtoModels"></datalist>
+      <datalist id="planningBoxDistributionManufacturers"></datalist><datalist id="planningBoxDistributionModels"></datalist><datalist id="planningBoxCameraManufacturers"></datalist><datalist id="planningBoxCameraModels"></datalist>
+    </div>`,
+    onSave: async root => {
+      const value = id => root.querySelector(`#${id}`)?.value?.trim() || '';
+      const payload = {
+        box_name: value('planBoxName'), site_id: value('planBoxSite') || null, latitude: value('planBoxLat') || null, longitude: value('planBoxLon') || null,
+        onu_type: value('planBoxOnuType'), onu_count: Number(value('planBoxOnuCount')), onu_manufacturer: value('planBoxOnuManufacturer'), onu_model: value('planBoxOnuModel'), pon: value('planBoxPon'), onu_position: value('planBoxOnuPosition'),
+        include_cto: root.querySelector('#planBoxCto').checked, cto_name: value('planBoxCtoName'), cto_model: value('planBoxCtoModel'),
+        distribution_type: value('planBoxDistributionType'), distribution_count: Number(value('planBoxDistributionCount')), distribution_manufacturer: value('planBoxDistributionManufacturer'), distribution_model: value('planBoxDistributionModel'), port_capacity: Number(value('planBoxPorts')),
+        camera_count: Number(value('planBoxCameraCount')), camera_start_ip: value('planBoxCameraIp'), camera_first_number: Number(value('planBoxCameraFirst')), camera_name_template: value('planBoxCameraTemplate'), camera_manufacturer: value('planBoxCameraManufacturer'), camera_model: value('planBoxCameraModel'),
+      };
+      if (!payload.box_name) throw new Error('Informe o nome da caixa hermetica.');
+      const data = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/assemble-gpon-box`, { method: 'POST', body: JSON.stringify(payload) });
+      _planningCatalog = null; closePlanningModal(); showToast(`Caixa montada com ${data.count - 1} equipamento(s).`); await selectPlanningProject(_planningCurrent.id);
+    },
+  });
+  const catalogFor = type => (_planningCatalog || []).filter(item => item.device_type === type || (type === 'ont' && item.device_type === 'onu'));
+  const fill = (listId, values) => { const list = modal.querySelector(`#${listId}`); if (list) list.innerHTML = [...new Set(values.filter(Boolean))].sort().map(value => `<option value="${planningEscape(value)}"></option>`).join(''); };
+  const refreshCatalog = (type, manufacturerId, manufacturerListId, modelListId) => {
+    const rows = catalogFor(type); const manufacturer = modal.querySelector(`#${manufacturerId}`)?.value.trim().toLowerCase() || '';
+    fill(manufacturerListId, rows.map(item => item.manufacturer)); fill(modelListId, rows.filter(item => !manufacturer || item.manufacturer.toLowerCase() === manufacturer).map(item => item.model));
+  };
+  const refreshCapacity = () => {
+    const capacity = Number(modal.querySelector('#planBoxDistributionCount').value || 0) * Number(modal.querySelector('#planBoxPorts').value || 0);
+    const used = Number(modal.querySelector('#planBoxCameraCount').value || 0); modal.querySelector('#planBoxCapacity').textContent = `${capacity} camera${capacity === 1 ? '' : 's'}`;
+    const free = capacity - used; modal.querySelector('#planBoxAvailability').textContent = free < 0 ? `${Math.abs(free)} acima da capacidade` : `${free} porta${free === 1 ? '' : 's'} livre${free === 1 ? '' : 's'}`;
+    modal.querySelector('.planning-capacity-card').classList.toggle('danger', used > capacity);
+  };
+  const refreshDistribution = () => refreshCatalog(modal.querySelector('#planBoxDistributionType').value, 'planBoxDistributionManufacturer', 'planningBoxDistributionManufacturers', 'planningBoxDistributionModels');
+  const refreshOnu = () => refreshCatalog(modal.querySelector('#planBoxOnuType').value, 'planBoxOnuManufacturer', 'planningBoxOnuManufacturers', 'planningBoxOnuModels');
+  refreshOnu(); refreshDistribution(); refreshCatalog('camera', 'planBoxCameraManufacturer', 'planningBoxCameraManufacturers', 'planningBoxCameraModels'); fill('planningBoxCtoModels', catalogFor('cto').map(item => item.model)); refreshCapacity();
+  ['planBoxOnuType','planBoxOnuManufacturer'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshOnu));
+  ['planBoxDistributionType','planBoxDistributionManufacturer'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshDistribution));
+  modal.querySelector('#planBoxCameraManufacturer')?.addEventListener('input', () => refreshCatalog('camera', 'planBoxCameraManufacturer', 'planningBoxCameraManufacturers', 'planningBoxCameraModels'));
+  ['planBoxDistributionCount','planBoxPorts','planBoxCameraCount'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshCapacity));
+  modal.querySelector('#planBoxCto')?.addEventListener('change', event => modal.querySelector('#planningCtoFields').classList.toggle('hidden', !event.target.checked));
 }
 
 function openPlanningCsvModal() {
@@ -467,6 +551,7 @@ function bindPlanningUi() {
   on('btnPlanningKmz', 'click', openPlanningKmzModal);
   on('btnPlanningDelete', 'click', deletePlanningProject);
   on('btnPlanningAdd', 'click', () => openPlanningDeviceModal());
+  on('btnPlanningBox', 'click', openPlanningBoxModal);
   on('btnPlanningGenerate', 'click', openPlanningGenerateModal);
   on('btnPlanningCsv', 'click', openPlanningCsvModal);
   on('planningSearch', 'input', renderPlanningDevices);

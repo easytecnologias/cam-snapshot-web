@@ -5528,6 +5528,22 @@ body.cam-live-lock {
 .planning-check small { color: var(--muted); }
 .planning-catalog-hint { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid #b7decf; border-radius: 8px; color: #17684f; background: #f0fbf7; font-size: 11px; font-weight: 500; line-height: 1.45; }
 .planning-catalog-hint svg { width: 17px; height: 17px; margin-top: 1px; flex: none; }
+.planning-box-action { border-color: #90d5bd; color: #087a58; }
+.planning-box-wizard { display: grid; gap: 14px; }
+.planning-wizard-section { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.planning-wizard-heading { display: flex; align-items: center; gap: 11px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: #f8fafb; }
+.planning-wizard-heading > span { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: #07865f; color: #fff; font-weight: 700; }
+.planning-wizard-heading div { display: grid; gap: 2px; }
+.planning-wizard-heading strong { font-size: 15px; }
+.planning-wizard-heading small { color: var(--muted); }
+.planning-wizard-section > .planning-form-grid { padding: 16px; }
+.planning-cto-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 14px; border: 1px dashed #9fcebe; border-radius: 8px; background: #f4fbf8; }
+.planning-capacity-card { display: grid; align-content: center; gap: 2px; min-height: 70px; padding: 10px 14px; border: 1px solid #a7dcc9; border-radius: 8px; background: #effaf6; color: #17634e; }
+.planning-capacity-card span, .planning-capacity-card small { font-size: 12px; }
+.planning-capacity-card strong { color: #087a58; font-size: 20px; }
+.planning-capacity-card.danger { border-color: #f2b0b0; background: #fff2f2; color: #a92121; }
+.planning-capacity-card.danger strong { color: #d22b2b; }
+@media (max-width: 720px) { .planning-cto-fields { grid-template-columns: 1fr; } .planning-wizard-section > .planning-form-grid { padding: 12px; } }
 .planning-info, .planning-csv-example { display: flex; gap: 10px; margin-top: 16px; padding: 12px 14px; border: 1px solid #a9dfcd; border-radius: 8px; color: #075b43; background: var(--primary-soft); }
 .planning-csv-example { flex-direction: column; border-color: var(--border); color: var(--text); background: var(--surface-soft); }
 .planning-csv-example code { display: block; overflow-x: auto; padding: 10px; border-radius: 6px; color: #dce7eb; background: var(--sidebar); white-space: nowrap; }

@@ -66,6 +66,17 @@ def main() -> None:
         catalog = planning_service.list_equipment_catalog()
         check(any(row["device_type"] == "camera" and row["manufacturer"] == "Intelbras" and row["model"] == "VIP 3230 B" for row in catalog), "catalogo nao trouxe modelo usado no projeto")
         check(any(row["device_type"] == "olt" and row["model"] == "8820i" for row in catalog), "catalogo conhecido nao trouxe modelo de OLT")
+        assembled = planning_service.assemble_gpon_box(project["id"], {
+            "box_name": "CX-01", "site_id": site["id"], "latitude": -9.75, "longitude": -36.66,
+            "onu_count": 1, "onu_manufacturer": "Intelbras", "onu_model": "R1v2", "pon": "2", "onu_position": "7",
+            "include_cto": True, "cto_model": "CTO 1x8", "distribution_type": "switch", "distribution_count": 1,
+            "port_capacity": 8, "camera_count": 5, "camera_start_ip": "10.20.30.1", "camera_name_template": "{number} - CAIXA",
+        })
+        check(len(assembled["items"]) == 9, "montagem da caixa GPON criou quantidade incorreta")
+        check(len(assembled["cameras"]) == 5 and assembled["cameras"][0]["ip"] == "10.20.30.1", "cameras da caixa nao foram geradas")
+        assembled_detail = planning_service.get_project(project["id"]) or {}
+        switch = next(row for row in assembled_detail["devices"] if row["device_type"] == "switch" and row["name"].startswith("CX-01"))
+        check(switch["metadata"].get("port_capacity") == 8, "capacidade do switch nao foi preservada")
     finally:
         reset_current_tenant_slug(token)
 

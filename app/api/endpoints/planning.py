@@ -116,6 +116,15 @@ def projects_generate(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any
         raise _handle_error(exc) from exc
 
 
+@router.post("/projects/{project_id}/assemble-gpon-box")
+def projects_assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        result = planning_service.assemble_gpon_box(project_id, payload)
+        return {"ok": True, "count": len(result["items"]), **result}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/projects/{project_id}/import-csv")
 async def projects_import_csv(
     project_id: int,

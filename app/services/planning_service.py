@@ -11,7 +11,7 @@ from app.services.db_store import _conn, _current_tenant_slug
 
 
 PROJECT_STATUSES = {"draft", "planned", "approved", "deploying", "completed"}
-DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "recorder", "box", "pole", "other"}
+DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "other"}
 
 KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     "camera": {
@@ -42,6 +42,14 @@ KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
         "MikroTik": ["CRS112-8P-4S-IN", "CRS328-24P-4S+RM"],
         "Ubiquiti": ["USW-24-POE", "USW-Pro-24-POE"],
         "TP-Link": ["TL-SG2428P", "TL-SG3428XMP"],
+    },
+    "injector": {
+        "Intelbras": ["Injetor PoE 15 W", "Injetor PoE 30 W"],
+        "Ubiquiti": ["POE-24-12W", "U-POE-AF", "U-POE-AT"],
+        "TP-Link": ["TL-POE150S", "TL-POE160S"],
+    },
+    "cto": {
+        "Generica": ["CTO 1x8", "CTO 1x16"],
     },
     "recorder": {
         "Intelbras": ["NVD 1232", "NVD 1432", "NVD 3116 P", "MHDX 1216", "MHDX 1232"],
@@ -145,6 +153,11 @@ def get_project(project_id: int) -> Dict[str, Any] | None:
             """,
             (int(project_id), tenant),
         ).fetchall()]
+    for device in devices:
+        try:
+            device["metadata"] = json.loads(device.get("metadata_json") or "{}")
+        except (TypeError, ValueError):
+            device["metadata"] = {}
     project["sites"] = sites
     project["devices"] = devices
     return project
@@ -333,6 +346,92 @@ def generate_devices(project_id: int, payload: Dict[str, Any]) -> List[Dict[str,
             item.pop(key, None)
         rows.append(save_device(project_id, item))
     return rows
+
+
+def assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Cria a hierarquia fisica e logica de uma caixa GPON planejada."""
+    box_name = str(payload.get("box_name") or "").strip()
+    if not box_name:
+        raise ValueError("Informe o nome da caixa hermetica")
+    site_id = int(payload["site_id"]) if payload.get("site_id") else None
+    latitude = _optional_float(payload.get("latitude"))
+    longitude = _optional_float(payload.get("longitude"))
+    onu_count = max(1, min(int(payload.get("onu_count") or 1), 4))
+    distribution_count = max(1, min(int(payload.get("distribution_count") or 1), 4))
+    distribution_type = str(payload.get("distribution_type") or "switch").strip().lower()
+    if distribution_type not in {"switch", "injector"}:
+        raise ValueError("Distribuicao deve ser switch ou injetor PoE")
+    port_capacity = max(1, min(int(payload.get("port_capacity") or 5), 48))
+    camera_count = max(0, min(int(payload.get("camera_count") or 0), 100))
+    total_ports = distribution_count * port_capacity
+    if camera_count > total_ports:
+        raise ValueError(f"A caixa possui {total_ports} porta(s), mas recebeu {camera_count} camera(s)")
+
+    start_ip = str(payload.get("camera_start_ip") or "").strip()
+    base_ip = int(ipaddress.ip_address(start_ip)) if start_ip else None
+    first_number = int(payload.get("camera_first_number") or 1)
+    name_template = str(payload.get("camera_name_template") or "{number} - CAMERA").strip()
+    created: List[Dict[str, Any]] = []
+    try:
+        box = save_device(project_id, {
+            "device_type": "box", "name": box_name, "site_id": site_id,
+            "latitude": latitude, "longitude": longitude, "notes": payload.get("box_notes") or "",
+            "metadata": {"assembly": "gpon_box", "member_count": onu_count + distribution_count + camera_count + (1 if payload.get("include_cto") else 0)},
+        })
+        created.append(box)
+
+        onus: List[Dict[str, Any]] = []
+        for index in range(onu_count):
+            onu_type = str(payload.get("onu_type") or "onu").lower()
+            onu = save_device(project_id, {
+                "device_type": onu_type, "name": f"{box_name} - {onu_type.upper()} {index + 1}",
+                "site_id": site_id, "parent_id": box["id"], "manufacturer": payload.get("onu_manufacturer") or "",
+                "model": payload.get("onu_model") or "", "pon": payload.get("pon") or "", "onu_position": payload.get("onu_position") or "",
+                "latitude": latitude, "longitude": longitude, "metadata": {"container_id": box["id"], "role": "optical_terminal"},
+            })
+            created.append(onu)
+            onus.append(onu)
+
+        cto = None
+        if payload.get("include_cto"):
+            cto = save_device(project_id, {
+                "device_type": "cto", "name": str(payload.get("cto_name") or f"{box_name} - CTO").strip(),
+                "site_id": site_id, "parent_id": box["id"], "model": payload.get("cto_model") or "",
+                "latitude": latitude, "longitude": longitude, "metadata": {"container_id": box["id"], "optional": True},
+            })
+            created.append(cto)
+
+        distributors: List[Dict[str, Any]] = []
+        for index in range(distribution_count):
+            label = "SWITCH POE" if distribution_type == "switch" else "INJETOR POE"
+            distributor = save_device(project_id, {
+                "device_type": distribution_type, "name": f"{box_name} - {label} {index + 1}",
+                "site_id": site_id, "parent_id": box["id"], "manufacturer": payload.get("distribution_manufacturer") or "",
+                "model": payload.get("distribution_model") or "", "latitude": latitude, "longitude": longitude,
+                "metadata": {"container_id": box["id"], "uplink_device_id": onus[0]["id"], "port_capacity": port_capacity, "poe": True},
+            })
+            created.append(distributor)
+            distributors.append(distributor)
+
+        cameras: List[Dict[str, Any]] = []
+        for index in range(camera_count):
+            number = str(first_number + index).zfill(2)
+            distributor = distributors[min(index // port_capacity, len(distributors) - 1)]
+            camera = save_device(project_id, {
+                "device_type": "camera", "name": name_template.replace("{number}", number).replace("{n}", str(first_number + index)),
+                "ip": str(ipaddress.ip_address(base_ip + index)) if base_ip is not None else "",
+                "site_id": site_id, "parent_id": distributor["id"], "manufacturer": payload.get("camera_manufacturer") or "",
+                "model": payload.get("camera_model") or "", "latitude": latitude, "longitude": longitude,
+                "reference_image_url": payload.get("camera_image_url") or "",
+                "metadata": {"container_id": box["id"], "power_device_id": distributor["id"], "port_number": (index % port_capacity) + 1, "coordinates_inherited": True},
+            })
+            created.append(camera)
+            cameras.append(camera)
+        return {"box": box, "onus": onus, "cto": cto, "distributors": distributors, "cameras": cameras, "items": created}
+    except Exception:
+        for item in reversed(created):
+            delete_device(project_id, int(item["id"]))
+        raise
 
 
 def import_csv(project_id: int, raw: bytes, defaults: Dict[str, Any]) -> Dict[str, Any]:
