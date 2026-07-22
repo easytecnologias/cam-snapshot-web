@@ -8,7 +8,7 @@ let _planningCatalog = null;
 
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
-  injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa hermetica', pole: 'Poste', other: 'Outro',
+  injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste', other: 'Outro',
 };
 const PLANNING_STATUS = {
   draft: 'Rascunho', planned: 'Planejado', approved: 'Aprovado',
@@ -348,7 +348,7 @@ async function openPlanningBoxModal() {
   if (!_planningCurrent) return;
   await loadPlanningCatalog();
   const modal = planningModal({
-    eyebrow: 'Projeto GPON', title: 'Montar caixa hermetica', wide: true, primary: 'Criar caixa e equipamentos',
+    eyebrow: 'Projeto de CFTV', title: 'Montar caixa de CFTV', wide: true, primary: 'Criar caixa e equipamentos',
     body: `<div class="planning-box-wizard">
       <section class="planning-wizard-section"><div class="planning-wizard-heading"><span>1</span><div><strong>Caixa e localizacao</strong><small>Todos os equipamentos e cameras nascem neste ponto.</small></div></div><div class="planning-form-grid">
         ${planningField('Nome da caixa', 'planBoxName', '', 'placeholder="CX-01 - ENTRADA"')}
@@ -392,7 +392,7 @@ async function openPlanningBoxModal() {
         distribution_type: value('planBoxDistributionType'), distribution_count: Number(value('planBoxDistributionCount')), distribution_manufacturer: value('planBoxDistributionManufacturer'), distribution_model: value('planBoxDistributionModel'), port_capacity: Number(value('planBoxPorts')),
         camera_count: Number(value('planBoxCameraCount')), camera_start_ip: value('planBoxCameraIp'), camera_first_number: Number(value('planBoxCameraFirst')), camera_name_template: value('planBoxCameraTemplate'), camera_manufacturer: value('planBoxCameraManufacturer'), camera_model: value('planBoxCameraModel'),
       };
-      if (!payload.box_name) throw new Error('Informe o nome da caixa hermetica.');
+      if (!payload.box_name) throw new Error('Informe o nome da caixa de CFTV.');
       const data = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/assemble-gpon-box`, { method: 'POST', body: JSON.stringify(payload) });
       _planningCatalog = null; closePlanningModal(); showToast(`Caixa montada com ${data.count - 1} equipamento(s).`); await selectPlanningProject(_planningCurrent.id);
     },

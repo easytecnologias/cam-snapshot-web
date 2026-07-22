@@ -352,7 +352,7 @@ def assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any
     """Cria a hierarquia fisica e logica de uma caixa GPON planejada."""
     box_name = str(payload.get("box_name") or "").strip()
     if not box_name:
-        raise ValueError("Informe o nome da caixa hermetica")
+        raise ValueError("Informe o nome da caixa de CFTV")
     site_id = int(payload["site_id"]) if payload.get("site_id") else None
     latitude = _optional_float(payload.get("latitude"))
     longitude = _optional_float(payload.get("longitude"))
