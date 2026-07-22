@@ -1,0 +1,1168 @@
+<?xml version='1.0' encoding='utf-8'?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Proposta de caixas de CFTV - Telha</name>
+    <description>Estudo automatico com raio de projeto de 80 m. Validar rotas, energia, postes e autorizacoes em campo.</description>
+    <Style id="camera">
+      <IconStyle>
+        <color>ff00a86b</color>
+        <scale>0.8</scale>
+      </IconStyle>
+    </Style>
+    <Style id="box">
+      <IconStyle>
+        <color>ff00a5ff</color>
+        <scale>1.1</scale>
+      </IconStyle>
+    </Style>
+    <Folder>
+      <name>Cameras originais</name>
+      <Placemark>
+        <name>01-C-saida Pov. São Pedro</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.87821783,-10.19080647,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>02-C-rodovia-trevo</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88149960,-10.18536727,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>03-C-rodovia-entrada são pedro</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86503633,-10.18707777,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>04-C-entrada rural-varzea</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86377412,-10.19204047,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>05-C-escola-Pov. São Pedro.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86696937,-10.19047630,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>06-C-posto-saude-Sao Pedro</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86805759,-10.18943302,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>07-C-pc-quadra-pov. São pedro</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86961880,-10.18967758,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>08-C-quadr-escola-povoado-são pedro</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86984504,-10.19049316,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>09-C-saida-vazear-pov. são pedro.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86947348,-10.19402223,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>11-C-Saida/entrada-Varzea-Santiago.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86731942,-10.20579058,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>12-C-entrada-belavista</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88354227,-10.21714722,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>13-C-entrada/saida-varzea-belavista.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.87959438,-10.22064051,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>14-C-rodovia-entrada/saida-pov.belavista</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88507746,-10.21670222,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>15-C-escola-posto-pov.belavista</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88302239,-10.21784225,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>16-C-unidade-publica.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88489603,-10.21150673,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>17-C-campo-telha</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88494934,-10.21048757,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>18-C-prédio publico</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88430678,-10.20959045,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>19-C-praça principal-telha-públlico.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88401880,-10.20881083,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>20-C-entrada-conjunto-piatan</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88166260,-10.20922132,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>21-C-entrada/saida-vazear-piatan</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.87908717,-10.20849407,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>22-C-predio-púbico</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88324475,-10.20879600,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>23-C-prédio-publico</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88412627,-10.20926616,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>24-C-posto-saude-telha</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88292740,-10.20888336,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>25-C-base ambulancia</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88316999,-10.20917804,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>26-C-predio-publico</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88378885,-10.20863479,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>27-C-quadra-telha-se</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88351248,-10.20803759,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>28-C-escola-M-telha</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88346757,-10.20736807,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>29-C-entrada/saida-conju.piatã.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88304348,-10.20700817,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>30-C-praça-coreto</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88437705,-10.20708747,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>31-C-entrada/saida-telha-principal</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88264189,-10.20570785,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>32-C-entrada/vazea.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88731811,-10.20879280,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>33-C-cemiterio/praça</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88518032,-10.20572910,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>34-C-praça-talha</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88369490,-10.20673829,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>35-C-quadra-telha</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88306693,-10.20645925,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>36-C-garagem-prefeitura</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88561151,-10.21525706,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>37-C-publica</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88514375,-10.20907587,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>38-C-entrada-praia-adutora</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.85169624,-10.19230606,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>39-C-adutora-01</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.84937292,-10.18608998,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>40-C-posto-povoado santiago.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.87005493,-10.20629964,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>41-C-entrada Pov. Santiago</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88089476,-10.20076696,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>10-C-entrada-são pedro.</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.86742903,-10.18862598,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>42-C-quadra-bela-vista</name>
+        <description>Ponto original do arquivo recebido.</description>
+        <styleUrl>#camera</styleUrl>
+        <Point>
+          <coordinates>-36.88092234,-10.21870279,0</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Caixas de CFTV propostas</name>
+      <Placemark>
+        <name>CX-01 - CFTV</name>
+        <description>7 camera(s). ONU/ONT + switch PoE 8 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88364116,-10.20872795,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV</name>
+        <description>5 camera(s). ONU/ONT + switch PoE 8 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88369637,-10.20682510,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-03 - CFTV</name>
+        <description>3 camera(s). ONU/ONT + switch PoE 5 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88494464,-10.20976813,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-04 - CFTV</name>
+        <description>2 camera(s). ONU/ONT + switch PoE 5 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88375338,-10.21783602,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-05 - CFTV</name>
+        <description>2 camera(s). ONU/ONT + switch PoE 5 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86815381,-10.18871982,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-06 - CFTV</name>
+        <description>2 camera(s). ONU/ONT + switch PoE 5 portas. Maior distancia reta: 80.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.87030257,-10.18993205,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-07 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.87821783,-10.19080647,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-08 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88149960,-10.18536727,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-09 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86503633,-10.18707777,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-10 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86377412,-10.19204047,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-11 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86696937,-10.19047630,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-12 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86947348,-10.19402223,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-13 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.86731942,-10.20579058,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-14 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.87959438,-10.22064051,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-15 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88507746,-10.21670222,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-16 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88489603,-10.21150673,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-17 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88166260,-10.20922132,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-18 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.87908717,-10.20849407,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-19 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88264189,-10.20570785,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-20 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88731811,-10.20879280,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-21 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88518032,-10.20572910,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-22 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88561151,-10.21525706,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-23 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.85169624,-10.19230606,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-24 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.84937292,-10.18608998,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-25 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.87005493,-10.20629964,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-26 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88089476,-10.20076696,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>CX-27 - CFTV</name>
+        <description>1 camera(s). ONU/ONT + injetor PoE. Maior distancia reta: 0.0 m. Coordenada proposta; ajustar para poste/local acessivel sem ultrapassar o limite de cabo.</description>
+        <styleUrl>#box</styleUrl>
+        <Point>
+          <coordinates>-36.88092234,-10.21870279,0</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Cabos CAT5e estimados</name>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 19-C-praça principal-telha-públlico.</name>
+        <description>Distancia em linha reta: 42.3 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88401880,-10.20881083,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 22-C-predio-púbico</name>
+        <description>Distancia em linha reta: 44.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88324475,-10.20879600,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 23-C-prédio-publico</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88412627,-10.20926616,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 24-C-posto-saude-telha</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88292740,-10.20888336,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 25-C-base ambulancia</name>
+        <description>Distancia em linha reta: 71.9 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88316999,-10.20917804,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 26-C-predio-publico</name>
+        <description>Distancia em linha reta: 19.2 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88378885,-10.20863479,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-01 - CFTV -&gt; 27-C-quadra-telha-se</name>
+        <description>Distancia em linha reta: 78.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88364116,-10.20872795,0 -36.88351248,-10.20803759,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV -&gt; 28-C-escola-M-telha</name>
+        <description>Distancia em linha reta: 65.4 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88369637,-10.20682510,0 -36.88346757,-10.20736807,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV -&gt; 29-C-entrada/saida-conju.piatã.</name>
+        <description>Distancia em linha reta: 74.3 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88369637,-10.20682510,0 -36.88304348,-10.20700817,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV -&gt; 30-C-praça-coreto</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88369637,-10.20682510,0 -36.88437705,-10.20708747,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV -&gt; 34-C-praça-talha</name>
+        <description>Distancia em linha reta: 9.7 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88369637,-10.20682510,0 -36.88369490,-10.20673829,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-02 - CFTV -&gt; 35-C-quadra-telha</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88369637,-10.20682510,0 -36.88306693,-10.20645925,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-03 - CFTV -&gt; 17-C-campo-telha</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88494464,-10.20976813,0 -36.88494934,-10.21048757,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-03 - CFTV -&gt; 18-C-prédio publico</name>
+        <description>Distancia em linha reta: 72.5 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88494464,-10.20976813,0 -36.88430678,-10.20959045,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-03 - CFTV -&gt; 37-C-publica</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88494464,-10.20976813,0 -36.88514375,-10.20907587,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-04 - CFTV -&gt; 12-C-entrada-belavista</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88375338,-10.21783602,0 -36.88354227,-10.21714722,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-04 - CFTV -&gt; 15-C-escola-posto-pov.belavista</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88375338,-10.21783602,0 -36.88302239,-10.21784225,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-05 - CFTV -&gt; 06-C-posto-saude-Sao Pedro</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86815381,-10.18871982,0 -36.86805759,-10.18943302,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-05 - CFTV -&gt; 10-C-entrada-são pedro.</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86815381,-10.18871982,0 -36.86742903,-10.18862598,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-06 - CFTV -&gt; 07-C-pc-quadra-pov. São pedro</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87030257,-10.18993205,0 -36.86961880,-10.18967758,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-06 - CFTV -&gt; 08-C-quadr-escola-povoado-são pedro</name>
+        <description>Distancia em linha reta: 80.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87030257,-10.18993205,0 -36.86984504,-10.19049316,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-07 - CFTV -&gt; 01-C-saida Pov. São Pedro</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87821783,-10.19080647,0 -36.87821783,-10.19080647,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-08 - CFTV -&gt; 02-C-rodovia-trevo</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88149960,-10.18536727,0 -36.88149960,-10.18536727,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-09 - CFTV -&gt; 03-C-rodovia-entrada são pedro</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86503633,-10.18707777,0 -36.86503633,-10.18707777,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-10 - CFTV -&gt; 04-C-entrada rural-varzea</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86377412,-10.19204047,0 -36.86377412,-10.19204047,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-11 - CFTV -&gt; 05-C-escola-Pov. São Pedro.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86696937,-10.19047630,0 -36.86696937,-10.19047630,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-12 - CFTV -&gt; 09-C-saida-vazear-pov. são pedro.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86947348,-10.19402223,0 -36.86947348,-10.19402223,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-13 - CFTV -&gt; 11-C-Saida/entrada-Varzea-Santiago.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.86731942,-10.20579058,0 -36.86731942,-10.20579058,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-14 - CFTV -&gt; 13-C-entrada/saida-varzea-belavista.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87959438,-10.22064051,0 -36.87959438,-10.22064051,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-15 - CFTV -&gt; 14-C-rodovia-entrada/saida-pov.belavista</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88507746,-10.21670222,0 -36.88507746,-10.21670222,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-16 - CFTV -&gt; 16-C-unidade-publica.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88489603,-10.21150673,0 -36.88489603,-10.21150673,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-17 - CFTV -&gt; 20-C-entrada-conjunto-piatan</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88166260,-10.20922132,0 -36.88166260,-10.20922132,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-18 - CFTV -&gt; 21-C-entrada/saida-vazear-piatan</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87908717,-10.20849407,0 -36.87908717,-10.20849407,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-19 - CFTV -&gt; 31-C-entrada/saida-telha-principal</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88264189,-10.20570785,0 -36.88264189,-10.20570785,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-20 - CFTV -&gt; 32-C-entrada/vazea.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88731811,-10.20879280,0 -36.88731811,-10.20879280,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-21 - CFTV -&gt; 33-C-cemiterio/praça</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88518032,-10.20572910,0 -36.88518032,-10.20572910,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-22 - CFTV -&gt; 36-C-garagem-prefeitura</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88561151,-10.21525706,0 -36.88561151,-10.21525706,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-23 - CFTV -&gt; 38-C-entrada-praia-adutora</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.85169624,-10.19230606,0 -36.85169624,-10.19230606,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-24 - CFTV -&gt; 39-C-adutora-01</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.84937292,-10.18608998,0 -36.84937292,-10.18608998,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-25 - CFTV -&gt; 40-C-posto-povoado santiago.</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.87005493,-10.20629964,0 -36.87005493,-10.20629964,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-26 - CFTV -&gt; 41-C-entrada Pov. Santiago</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88089476,-10.20076696,0 -36.88089476,-10.20076696,0</coordinates>
+        </LineString>
+      </Placemark>
+      <Placemark>
+        <name>CX-27 - CFTV -&gt; 42-C-quadra-bela-vista</name>
+        <description>Distancia em linha reta: 0.0 m. Validar o percurso real em campo.</description>
+        <Style>
+          <LineStyle>
+            <color>ff00a86b</color>
+            <width>3</width>
+          </LineStyle>
+        </Style>
+        <LineString>
+          <tessellate>1</tessellate>
+          <coordinates>-36.88092234,-10.21870279,0 -36.88092234,-10.21870279,0</coordinates>
+        </LineString>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>

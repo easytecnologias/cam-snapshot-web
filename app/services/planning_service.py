@@ -448,9 +448,11 @@ def import_csv(project_id: int, raw: bytes, defaults: Dict[str, Any]) -> Dict[st
         "latitude": "latitude", "lat": "latitude", "longitude": "longitude", "lon": "longitude",
         "imagem": "reference_image_url", "foto": "reference_image_url", "observacoes": "notes",
         "observacao": "notes", "ip": "ip", "site": "site", "local": "site",
+        "equipamento_pai": "parent_name", "pai": "parent_name", "ligado_a": "parent_name",
+        "metadata": "metadata_json", "metadados": "metadata_json",
     }
-    imported: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
+    pending: List[Dict[str, Any]] = []
     for line_number, row in enumerate(reader, start=2):
         normalized = dict(defaults)
         for key, value in row.items():
@@ -463,7 +465,47 @@ def import_csv(project_id: int, raw: bytes, defaults: Dict[str, Any]) -> Dict[st
             site_name = str(normalized.pop("site", "") or "").strip()
             if site_name:
                 normalized["site_id"] = save_site(project_id, {"name": site_name}).get("id")
-            imported.append(save_device(project_id, normalized))
+            parent_name = str(normalized.pop("parent_name", "") or "").strip()
+            metadata_json = str(normalized.pop("metadata_json", "") or "").strip()
+            if metadata_json:
+                metadata = json.loads(metadata_json)
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata precisa ser um objeto JSON")
+                normalized["metadata"] = metadata
+            pending.append({"line": line_number, "parent_name": parent_name, "payload": normalized})
         except Exception as exc:
             errors.append({"line": line_number, "error": str(exc)})
+
+    imported: List[Dict[str, Any]] = []
+    detail = get_project(project_id) or {}
+    ids_by_name = {
+        str(item.get("name") or "").strip().casefold(): int(item["id"])
+        for item in detail.get("devices") or [] if str(item.get("name") or "").strip()
+    }
+    while pending:
+        deferred: List[Dict[str, Any]] = []
+        progress = 0
+        for item in pending:
+            parent_name = item["parent_name"]
+            parent_id = ids_by_name.get(parent_name.casefold()) if parent_name else None
+            if parent_name and not parent_id:
+                deferred.append(item)
+                continue
+            try:
+                payload = dict(item["payload"])
+                if parent_id:
+                    payload["parent_id"] = parent_id
+                saved = save_device(project_id, payload)
+                imported.append(saved)
+                ids_by_name[str(saved["name"]).strip().casefold()] = int(saved["id"])
+                progress += 1
+            except Exception as exc:
+                errors.append({"line": item["line"], "error": str(exc)})
+        if not deferred:
+            break
+        if progress == 0:
+            for item in deferred:
+                errors.append({"line": item["line"], "error": f"equipamento pai nao encontrado: {item['parent_name']}"})
+            break
+        pending = deferred
     return {"ok": not errors, "imported": len(imported), "errors": errors, "items": imported}

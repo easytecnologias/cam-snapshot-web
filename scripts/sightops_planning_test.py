@@ -77,6 +77,19 @@ def main() -> None:
         assembled_detail = planning_service.get_project(project["id"]) or {}
         switch = next(row for row in assembled_detail["devices"] if row["device_type"] == "switch" and row["name"].startswith("CX-01"))
         check(switch["metadata"].get("port_capacity") == 8, "capacidade do switch nao foi preservada")
+        hierarchy_csv = planning_service.import_csv(
+            project["id"],
+            ("tipo;nome;site;equipamento_pai;metadata\n"
+             "camera;CAM HIERARQUIA;PORTARIA;SW HIERARQUIA;{}\n"
+             "switch;SW HIERARQUIA;PORTARIA;CX HIERARQUIA;{}\n"
+             "box;CX HIERARQUIA;PORTARIA;;{}\n").encode(),
+            {},
+        )
+        check(hierarchy_csv["imported"] == 3 and not hierarchy_csv["errors"], f"CSV hierarquico falhou: {hierarchy_csv}")
+        hierarchy_detail = planning_service.get_project(project["id"]) or {}
+        hierarchy_by_name = {row["name"]: row for row in hierarchy_detail["devices"]}
+        check(hierarchy_by_name["CAM HIERARQUIA"]["parent_name"] == "SW HIERARQUIA", "camera nao foi ligada ao switch pelo CSV")
+        check(hierarchy_by_name["SW HIERARQUIA"]["parent_name"] == "CX HIERARQUIA", "switch nao foi colocado dentro da caixa pelo CSV")
     finally:
         reset_current_tenant_slug(token)
 

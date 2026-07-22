@@ -427,7 +427,7 @@ function openPlanningCsvModal() {
       <label class="planning-field full"><span>Arquivo CSV</span><input id="planCsvFile" type="file" accept=".csv,text/csv"></label>
       <label class="planning-field"><span>Tipo padrao</span><select id="planCsvType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}">${label}</option>`).join('')}</select></label>
       <label class="planning-field"><span>Site padrao</span><select id="planCsvSite">${planningSiteOptions()}</select></label>
-    </div><div class="planning-csv-example"><strong>Colunas aceitas</strong><code>tipo;nome;ip;site;fabricante;modelo;pon;onu;latitude;longitude;imagem;observacoes</code><span>O minimo obrigatorio e a coluna <b>nome</b>. Site informado no CSV e criado automaticamente.</span></div>`,
+    </div><div class="planning-csv-example"><strong>Colunas aceitas</strong><code>tipo;nome;ip;site;fabricante;modelo;equipamento_pai;pon;onu;latitude;longitude;imagem;metadata;observacoes</code><span>O minimo obrigatorio e a coluna <b>nome</b>. O equipamento pai pode aparecer depois do filho no arquivo; a hierarquia e resolvida automaticamente.</span></div>`,
     onSave: async root => {
       const file = root.querySelector('#planCsvFile').files[0];
       if (!file) throw new Error('Escolha um arquivo CSV.');
