@@ -4,7 +4,12 @@ import csv
 import io
 import ipaddress
 import json
+import struct
 import uuid
+import zipfile
+import zlib
+from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 from typing import Any, Dict, Iterable, List
 
 from app.services.db_store import _conn, _current_tenant_slug
@@ -57,6 +62,54 @@ KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
         "Dahua": ["NVR4216-4KS2", "NVR4232-4KS2"],
     },
 }
+
+
+def _planning_box_icon_png() -> bytes:
+    """Icone PNG autocontido: fundo laranja e desenho branco de caixa."""
+    size = 64
+    pixels = bytearray(size * size * 4)
+
+    def put(x: int, y: int, color: tuple[int, int, int, int]) -> None:
+        if 0 <= x < size and 0 <= y < size:
+            offset = (y * size + x) * 4
+            pixels[offset:offset + 4] = bytes(color)
+
+    orange = (232, 132, 18, 255)
+    white = (255, 255, 255, 255)
+    for y in range(size):
+        for x in range(size):
+            if (x - 32) ** 2 + (y - 32) ** 2 <= 29 ** 2:
+                put(x, y, orange)
+
+    def line(x0: int, y0: int, x1: int, y1: int, width: int = 3) -> None:
+        dx, dy = abs(x1 - x0), -abs(y1 - y0)
+        sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+        error = dx + dy
+        while True:
+            radius = width // 2
+            for yy in range(y0 - radius, y0 + radius + 1):
+                for xx in range(x0 - radius, x0 + radius + 1):
+                    put(xx, yy, white)
+            if x0 == x1 and y0 == y1:
+                break
+            twice = 2 * error
+            if twice >= dy:
+                error += dy
+                x0 += sx
+            if twice <= dx:
+                error += dx
+                y0 += sy
+
+    for start, end in (
+        ((15, 24), (32, 15)), ((32, 15), (49, 24)), ((49, 24), (32, 34)),
+        ((32, 34), (15, 24)), ((15, 24), (15, 43)), ((15, 43), (32, 53)),
+        ((32, 53), (49, 43)), ((49, 43), (49, 24)), ((32, 34), (32, 53)),
+    ):
+        line(*start, *end)
+
+    raw = b"".join(b"\x00" + bytes(pixels[y * size * 4:(y + 1) * size * 4]) for y in range(size))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
 
 
 def _project_row(row: Any) -> Dict[str, Any]:
@@ -451,6 +504,13 @@ def import_csv(project_id: int, raw: bytes, defaults: Dict[str, Any]) -> Dict[st
         "equipamento_pai": "parent_name", "pai": "parent_name", "ligado_a": "parent_name",
         "metadata": "metadata_json", "metadados": "metadata_json",
     }
+    headers = {str(value or "").strip().lower() for value in (reader.fieldnames or [])}
+    if not headers.intersection({"nome", "titulo"}):
+        if {"caixa", "camera"}.issubset(headers) and any("distancia" in value for value in headers):
+            raise ValueError(
+                "Este arquivo e um relatorio de distancias. Importe o CSV principal de equipamentos, sem o sufixo -distancias."
+            )
+        raise ValueError('CSV incompatível: falta a coluna obrigatoria "nome"')
     errors: List[Dict[str, Any]] = []
     pending: List[Dict[str, Any]] = []
     for line_number, row in enumerate(reader, start=2):
@@ -509,3 +569,106 @@ def import_csv(project_id: int, raw: bytes, defaults: Dict[str, Any]) -> Dict[st
             break
         pending = deferred
     return {"ok": not errors, "imported": len(imported), "errors": errors, "items": imported}
+
+
+def export_project_kmz(project_id: int) -> tuple[str, bytes]:
+    """Exporta o projeto planejado como KMZ sem alterar inventario ou equipamentos reais."""
+    project = get_project(project_id)
+    if not project:
+        raise LookupError("Projeto nao encontrado")
+
+    devices = project.get("devices") or []
+    type_labels = {
+        "camera": "Camera", "onu": "ONU", "ont": "ONT", "olt": "OLT", "switch": "Switch",
+        "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador", "box": "Caixa de CFTV",
+        "pole": "Poste", "other": "Outro",
+    }
+    styles = (
+        '<Style id="camera"><IconStyle><scale>0.82</scale><Icon><href>files/icons/cctv-green.png</href></Icon>'
+        '</IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>'
+        '<Style id="box"><IconStyle><scale>0.9</scale>'
+        '<Icon><href>files/icons/cctv-box.png</href></Icon>'
+        '</IconStyle><LabelStyle><scale>0.85</scale></LabelStyle></Style>'
+    )
+    children_by_parent: Dict[int, List[Dict[str, Any]]] = {}
+    for device in devices:
+        if device.get("parent_id"):
+            children_by_parent.setdefault(int(device["parent_id"]), []).append(device)
+
+    def descendants(parent_id: int) -> List[Dict[str, Any]]:
+        found: List[Dict[str, Any]] = []
+        for child in children_by_parent.get(int(parent_id), []):
+            found.append(child)
+            found.extend(descendants(int(child["id"])))
+        return found
+
+    def placemark(item: Dict[str, Any], style: str, extra_details: List[str] | None = None) -> str:
+        lat = item.get("latitude")
+        lon = item.get("longitude")
+        if lat in (None, "") or lon in (None, ""):
+            return ""
+        dtype = str(item.get("device_type") or "other")
+        metadata = item.get("metadata") or {}
+        details = [
+            f"Tipo: {type_labels.get(dtype, dtype)}",
+            f"Site: {item.get('site_name') or 'Nao informado'}",
+            f"IP: {item.get('ip') or 'A definir'}",
+            f"Fabricante/modelo: {' / '.join(filter(None, [item.get('manufacturer'), item.get('model')])) or 'A definir'}",
+            f"Ligado a: {item.get('parent_name') or 'Sem vinculo'}",
+        ]
+        if extra_details:
+            details.extend(extra_details)
+        if metadata.get("distance_to_box_m") is not None:
+            details.append(f"Distancia ate a caixa: {metadata['distance_to_box_m']} m")
+        if item.get("notes"):
+            details.append(f"Observacoes: {item['notes']}")
+        return (
+            "<Placemark>"
+            f"<name>{xml_escape(str(item.get('name') or 'Equipamento'))}</name>"
+            f"<styleUrl>#{style}</styleUrl>"
+            f"<description>{xml_escape(chr(10).join(details))}</description>"
+            f"<Point><coordinates>{float(lon):.7f},{float(lat):.7f},0</coordinates></Point>"
+            "</Placemark>"
+        )
+
+    cameras = [item for item in devices if item.get("device_type") == "camera"]
+    boxes = [item for item in devices if item.get("device_type") == "box"]
+    camera_placemarks = "".join(placemark(item, "camera") for item in cameras)
+    box_placemarks: List[str] = []
+    for box in boxes:
+        members = descendants(int(box["id"]))
+        internal = [item for item in members if item.get("device_type") != "camera"]
+        linked_cameras = [item for item in members if item.get("device_type") == "camera"]
+        extra = ["", f"EQUIPAMENTOS DENTRO DA CAIXA ({len(internal)}):"]
+        extra.extend(
+            f"- {type_labels.get(str(item.get('device_type')), str(item.get('device_type')))}: {item.get('name')}"
+            f" | {' / '.join(filter(None, [item.get('manufacturer'), item.get('model')])) or 'modelo a definir'}"
+            for item in internal
+        )
+        extra.extend(["", f"CAMERAS LIGADAS ({len(linked_cameras)}):"])
+        extra.extend(
+            f"- {item.get('name')} | IP {item.get('ip') or 'a definir'}"
+            f" | {item.get('metadata', {}).get('distance_to_box_m', 'distancia a definir')} m"
+            for item in linked_cameras
+        )
+        box_placemarks.append(placemark(box, "box", extra))
+
+    folders = (
+        '<Folder><name>Cameras</name><open>0</open>' + camera_placemarks + '</Folder>'
+        '<Folder><name>Caixas de CFTV</name><open>1</open>' + ''.join(box_placemarks) + '</Folder>'
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+        f"<name>{xml_escape(str(project.get('name') or 'Projeto de CFTV'))}</name>"
+        f"{styles}{folders}</Document></kml>"
+    ).encode("utf-8")
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("doc.kml", document)
+        camera_icon = Path(__file__).resolve().parent / "camsnapshot" / "assets" / "icons" / "cctv-green.png"
+        if camera_icon.is_file():
+            archive.write(camera_icon, "files/icons/cctv-green.png")
+        archive.writestr("files/icons/cctv-box.png", _planning_box_icon_png())
+    safe_name = "".join(char if char.isascii() and (char.isalnum() or char in "-_") else "-" for char in str(project.get("name") or "projeto-cftv")).strip("-")
+    return f"{safe_name or 'projeto-cftv'}.kmz", output.getvalue()

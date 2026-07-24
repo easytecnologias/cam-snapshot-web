@@ -4,8 +4,10 @@ import json
 from typing import Any, Dict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from app.services import planning_service
+from app.services.planning_pdf_report import generate_project_network_pdf
 
 
 router = APIRouter(prefix="/api/planning", tags=["planning"])
@@ -43,6 +45,40 @@ def projects_get(project_id: int) -> Dict[str, Any]:
     if not item:
         raise HTTPException(404, "Projeto nao encontrado")
     return {"ok": True, "item": item}
+
+
+@router.get("/projects/{project_id}/export-kmz")
+def projects_export_kmz(project_id: int) -> Response:
+    try:
+        filename, content = planning_service.export_project_kmz(project_id)
+        return Response(
+            content=content,
+            media_type="application/vnd.google-earth.kmz",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.get("/projects/{project_id}/network-document.pdf")
+def projects_network_document(project_id: int) -> Response:
+    project = planning_service.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Projeto nao encontrado")
+    try:
+        content = generate_project_network_pdf(project)
+        safe_name = "".join(
+            char if char.isascii() and (char.isalnum() or char in "-_") else "-"
+            for char in str(project.get("name") or "projeto-cftv")
+        ).strip("-")
+        filename = f"{safe_name or 'projeto-cftv'}-documento-rede.pdf"
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
 
 
 @router.put("/projects/{project_id}")
