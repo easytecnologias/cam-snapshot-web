@@ -1,0 +1,15 @@
+[Unit]
+Description=SightOps - sincroniza rotas do WireGuard (wg-sightops) com o cadastro de conectores
+# Roda scripts/sightops_wireguard_sync.py: aplica no wg-sightops e nas rotas do
+# kernel qualquer rede que um conector tenha em client_lans e ainda nao esteja
+# no ar. Existe porque wg-quick so aplica o AllowedIPs uma vez, no boot -- rede
+# cadastrada depois disso fica esquecida ate alguem rodar `wg set` na mao (foi
+# o caso da SIERRA/camera 10.200.0.3, corrigido manualmente em 24/07/2026).
+After=network-online.target wg-quick@wg-sightops.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/sightops/scripts/sightops_wireguard_sync.py
+# So root tem CAP_NET_ADMIN pra mexer no wg-sightops e nas rotas do kernel.
+User=root
