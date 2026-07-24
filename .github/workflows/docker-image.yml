@@ -13,7 +13,35 @@ permissions:
   packages: write
 
 jobs:
+  # Porteiro: compila o Python, valida a sintaxe dos JS e roda a suite de testes
+  # (scripts/check.py). Se qualquer coisa aqui falhar, o build nem comeca -- um
+  # commit que quebre o isolamento entre tenants, o sigilo da senha de OLT ou a
+  # subida da API nao vira imagem. E o mesmo comando que se roda na maquina
+  # antes de commitar, entao o que passa local passa aqui.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # mesma versao do Dockerfile (python:3.11-slim)
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"  # so para o `node --check` da parte de frontend
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Rodar verificacao completa
+        run: python scripts/check.py
+
   build-and-publish:
+    needs: test  # so constroi a imagem se o job de testes passar
     runs-on: ubuntu-latest
 
     steps:
