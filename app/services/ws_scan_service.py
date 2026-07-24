@@ -27,7 +27,7 @@ def _run_scan_in_tenant(req: ScanRequest, tenant_slug: str = "") -> Dict[str, An
         reset_current_tenant_slug(ctx)
 
 
-def _expand_remote_targets(raw: str, limit: int = 256) -> list[str]:
+def _expand_remote_targets(raw: str, limit: int = 1024) -> list[str]:
     out: list[str] = []
     for part in str(raw or "").replace("\n", ",").split(","):
         item = part.strip()
@@ -98,6 +98,70 @@ def _connector_has_tunnel(connector: dict[str, Any] | None) -> bool:
         return True
     wireguard = connector.get("wireguard") if isinstance(connector, dict) else None
     return isinstance(wireguard, dict) and bool(wireguard.get("enabled"))
+
+
+def _pick_probe_targets(alvo: str, sample: int = 3) -> list[str]:
+    """Ate `sample` IPs do inicio da faixa, pra testar a rede sem expandir a
+    faixa inteira (pode ter ate 1024 alvos)."""
+    return _expand_remote_targets(alvo, limit=sample)
+
+
+def _lan_reachable(targets: list[str], port: int = 80, timeout: float = 1.5) -> bool:
+    """Tenta uma conexao TCP rapida num punhado de alvos da rede do cliente.
+
+    Existe porque "conector com VPN" nao significa "servidor consegue falar
+    com a LAN do cliente" -- so significa que a VPN alcanca o MikroTik. Se
+    alguem cadastrar a rede da camera em client_lans e isso for aplicado de
+    verdade (ver scripts/sightops_wireguard_sync.py), o servidor passa a ter
+    rota real e o scan local funciona direto, rapido e com snapshot -- foi
+    assim que funcionou pra Incoforte. Sem essa rota, o scan local marcaria
+    tudo como offline silenciosamente; o caminho seguro nesse caso e perguntar
+    ao MikroTik (via ping_many), que sempre alcanca a propria LAN.
+
+    Em vez de assumir um dos dois casos por regra fixa, testamos: se a rede
+    tem rota de verdade, ate um host desligado responde RST rapido em alguma
+    porta comum -- e ISSO (a resposta, nao a conexao completa) e o sinal de
+    que o caminho existe. Timeout curto (poucos segundos no total) porque o
+    unico custo de errar pra "sem rota" e cair no caminho mais lento, nunca
+    quebrar o scan.
+    """
+    import socket
+
+    for ip in targets:
+        try:
+            with socket.create_connection((ip, port), timeout=timeout):
+                return True
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def _decide_remote_only(
+    *,
+    scan_origin: str,
+    connector_id: str,
+    connector_has_tunnel: bool,
+    inventory_mode: str,
+    remote_only_requested: bool,
+    probe_targets: list[str],
+    probe_fn=_lan_reachable,
+) -> bool:
+    """Decide entre o caminho MikroTik (so ping, sem snapshot) e o caminho
+    local direto (rapido, com snapshot -- o que funcionou pra Incoforte).
+
+    So chama `probe_fn` (I/O real de rede) quando as regras anteriores nao ja
+    decidiram sozinhas -- e por isso da pra testar sem rede nenhuma: injete um
+    probe_fn falso e nenhum socket e aberto.
+    """
+    if scan_origin == "connector" and not connector_has_tunnel:
+        return True
+    if connector_id and remote_only_requested:
+        return True
+    if connector_id and inventory_mode == "olt" and connector_has_tunnel and probe_targets:
+        return not bool(probe_fn(probe_targets))
+    return False
 
 
 def _parse_routeros_ping(result: Any) -> dict[str, bool]:
@@ -321,16 +385,39 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
     connector = _connector_from_payload(payload) if connector_id or scan_origin == "connector" else None
     connector_has_tunnel = _connector_has_tunnel(connector)
-    remote_only = (scan_origin == "connector" and not connector_has_tunnel) or bool(connector_id and payload.get("remote_only"))
+    inventory_mode = str(payload.get("inventory_mode") or "olt").strip().lower() or "olt"
 
     if scan_origin == "connector" and not connector_id:
         await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
         return
 
-    if scan_origin == "connector" and connector_has_tunnel:
-        await _ws_send(ws, {"type": "status", "message": "Executando inventory_scan pela VPN do conector..."})
+    # "Ter VPN" so significa que o servidor alcanca o MikroTik, nao que alcanca
+    # a LAN do cliente atras dele -- isso depende de client_lans estar de fato
+    # aplicado (ver scripts/sightops_wireguard_sync.py). Em vez de assumir,
+    # _decide_remote_only testa a rede na hora (poucos segundos) quando ha
+    # ambiguidade real: se responde, caminho local direto -- rapido, com
+    # snapshot, igual funcionou pra Incoforte; se nao, caminho MikroTik --
+    # mais lento, so descoberta, mas nunca marca tudo como offline por engano.
+    probe_targets = _pick_probe_targets(alvo)
+    if connector_id and inventory_mode == "olt" and connector_has_tunnel and probe_targets:
+        await _ws_send(ws, {"type": "status", "message": "Testando se a rede do cliente responde direto..."})
+    remote_only = await anyio.to_thread.run_sync(
+        lambda: _decide_remote_only(
+            scan_origin=scan_origin,
+            connector_id=connector_id,
+            connector_has_tunnel=connector_has_tunnel,
+            inventory_mode=inventory_mode,
+            remote_only_requested=bool(payload.get("remote_only")),
+            probe_targets=probe_targets,
+        )
+    )
+
+    if remote_only:
+        await _ws_send(ws, {"type": "status", "message": "Executando via conector (MikroTik)..."})
+    elif scan_origin == "connector" and connector_has_tunnel:
+        await _ws_send(ws, {"type": "status", "message": "Rede do cliente respondeu -- executando direto pela VPN..."})
     else:
-        await _ws_send(ws, {"type": "status", "message": "Executando via conector..." if remote_only else "Executando inventory_scan..."})
+        await _ws_send(ws, {"type": "status", "message": "Executando inventory_scan..."})
 
     try:
         # roda em thread para não bloquear o loop e não depender de subprocess async

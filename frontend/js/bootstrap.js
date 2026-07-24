@@ -96,6 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scanOrigin')?.addEventListener('change', updateScanOriginUi);
   document.getElementById('scanLocal')?.addEventListener('change', () => refreshScanConnectors().finally(updateScanOriginUi));
   document.getElementById('scanConnector')?.addEventListener('change', updateScanOriginUi);
+  document.getElementById('scanMode')?.addEventListener('change', updateScanOriginUi);
 
   // Conectores SaaS
   document.getElementById('btnConnectorRefresh')?.addEventListener('click', loadConnectors);

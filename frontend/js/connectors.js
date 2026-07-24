@@ -654,8 +654,12 @@ function updateScanOriginUi() {
   if (connector) connector.disabled = false;
   const status = document.getElementById('scanConnectorStatus');
   if (status) {
+    // Com VPN, o servidor testa na hora se alcanca a rede do cliente direto
+    // (rapido, com snapshot) e so cai pro MikroTik (mais lento, so descoberta)
+    // se a rede nao responder -- nao da pra saber qual vai ser aqui na tela
+    // antes de rodar, entao o texto descreve as duas possibilidades.
     status.innerHTML = context.connectorId
-      ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN ativa: scan real pela rota do cliente.' : ' -- sem VPN: descoberta limitada pelo MikroTik.'}`
+      ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN ativa: tenta scan direto, com MikroTik como reserva se a rede nao responder.' : ' -- sem VPN: descoberta limitada pelo MikroTik.'}`
       : 'Sem conector para este site: usando servidor local.';
   }
   const remote = context.connectorId && !context.hasTunnel;
@@ -730,6 +734,9 @@ function _scanPayloadBase() {
     scan_origin:      origin,
     connector_id:     origin === 'connector' ? connectorId : '',
     remote_connector_id: origin === 'connector' ? connectorId : '',
+    // Sem VPN, so resta o MikroTik -- forcamos aqui. Com VPN, deixamos em
+    // aberto (o backend testa a rede na hora e decide sozinho, ver
+    // _decide_remote_only em app/services/ws_scan_service.py).
     remote_only:      origin === 'connector' && !context.hasTunnel,
     ...(local && { set_local: true, local }),
   };
