@@ -326,6 +326,9 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
             "ZBX_USER": user,
             "ZBX_PASS": password,
             "ZBX_GROUP": group,
+            # Isola por tenant o nome do host no Zabbix -- ver build_host_name
+            # em tools/mk_zabbix_from_inventory.py.
+            "ZBX_TENANT": get_current_tenant_slug() or "default",
             "ZBX_TEMPLATE": template,
             "ZBX_TEMPLATE_DVR": template_dvr,
             "ZBX_DVR_USER": dvr_user,

@@ -1223,6 +1223,11 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         "ZBX_USER": user,
         "ZBX_PASS": password,
         "ZBX_GROUP": group,
+        # Prefixa o nome de todo host no Zabbix pelo tenant -- sem isso, dois
+        # clientes com camera no mesmo IP privado colidem no mesmo host e um
+        # sincronismo sobrescreve os dados do outro (ver build_host_name em
+        # tools/mk_zabbix_from_inventory.py).
+        "ZBX_TENANT": get_current_tenant_slug() or "default",
         "ZBX_TEMPLATE": template,
         "ZBX_TEMPLATE_DVR": template_dvr,
         "ZBX_DVR_USER": dvr_user,

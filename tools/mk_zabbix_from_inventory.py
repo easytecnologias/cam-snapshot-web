@@ -3,6 +3,12 @@ import json, os, re, sys, time, requests
 from typing import Any, Optional, Dict, List
 
 INV_PATH = os.getenv("INV_PATH", "data/cam-inventory.json")
+# Prefixa o nome tecnico de todo host no Zabbix. Sem isso, dois clientes com
+# a mesma camera de IP privado repetido (comum em SaaS -- ver o caso real
+# SIERRA/PERUCABA em 192.168.20.0/24) colidiam no MESMO host "CAM-{ip}": um
+# sincronismo sobrescrevia titulo/local/foto do outro cliente silenciosamente.
+# Bancos ja sao isolados por tenant; o Zabbix precisa da mesma garantia.
+ZBX_TENANT = os.getenv("ZBX_TENANT", "default").strip().lower() or "default"
 ZBX_URL  = os.getenv("ZBX_URL","").strip()
 ZBX_USER = os.getenv("ZBX_USER","").strip()
 ZBX_PASS = os.getenv("ZBX_PASS","").strip()
@@ -46,6 +52,35 @@ def _host_safe(v: str) -> str:
     s = re.sub(r"[^A-Z0-9_.-]+", "-", s)
     s = re.sub(r"-+", "-", s).strip("-")
     return s or "HOST"
+
+
+def build_host_name(tenant: str, row: Dict[str, Any]) -> str:
+    """Nome tecnico do host no Zabbix -- sempre prefixado pelo tenant.
+
+    Duas cameras de clientes diferentes podem ter o mesmo IP (endereco
+    privado, comum em SaaS). Sem o prefixo de tenant, elas colidiam no MESMO
+    host "CAM-{ip}" e cada sincronismo sobrescrevia titulo/local/foto do
+    cliente anterior. Com o prefixo, cada cliente tem seu proprio host mesmo
+    com IP identico -- e sincronizar de novo o MESMO cliente continua
+    atualizando o host dele normalmente (upsert por nome, e o nome agora
+    inclui o tenant), que e o unico caso em que sobrescrever esta certo.
+    """
+    tenant_prefix = _host_safe(tenant or "default")
+    ip = str(row.get("ip") or "").strip()
+    host_key = str(row.get("host_key") or "").strip()
+    source = str(row.get("source") or "").strip().lower()
+    channel = str(row.get("channel") or "").strip()
+    if host_key:
+        return f"{tenant_prefix}-{_host_safe(host_key)}"
+    if source == "dvr" and channel:
+        return f"{tenant_prefix}-DVR-{ip}-CH{channel}"
+    if source == "windows":
+        hostname = str(
+            row.get("hostname") or row.get("host")
+            or row.get("titulo") or row.get("title") or row.get("nome") or ip
+        ).strip()
+        return f"{tenant_prefix}-WIN-{_host_safe(hostname)}"
+    return f"{tenant_prefix}-CAM-{ip}"
 
 
 GROUP_SLUG = _slug_name(ZBX_GROUP)
@@ -739,16 +774,7 @@ def main():
         source = str(c.get("source") or "").strip().lower()
         channel = str(c.get("channel") or "").strip()
         http_port = int(c.get("http_port") or 80)
-        host_key = str(c.get("host_key") or "").strip()
-        if host_key:
-            host = _host_safe(host_key)
-        elif source == "dvr" and channel:
-            host = f"DVR-{ip}-CH{channel}"
-        elif source == "windows":
-            hostname = str(c.get("hostname") or c.get("host") or title or ip).strip()
-            host = f"WIN-{_host_safe(hostname)}"
-        else:
-            host = f"CAM-{ip}"
+        host = build_host_name(ZBX_TENANT, c)
         status_raw = str(c.get("status") or "").strip().lower()
         templateids = [templateid]
         if source == "dvr" and dvr_templateid:
