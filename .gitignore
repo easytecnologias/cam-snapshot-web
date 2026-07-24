@@ -69,3 +69,9 @@ saida/
 _server_backup_*
 _tmp_*
 *~
+
+# Dados de projeto de cliente (KML/KMZ ficam fora do repo)
+/TELHA/*.kml
+
+# Script de sondagem manual do FiberHome (scratch, ninguem importa)
+scripts/_fiberhome_offline_probe.py
