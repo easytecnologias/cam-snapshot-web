@@ -5392,7 +5392,7 @@ body.cam-live-lock {
   scrollbar-gutter: stable;
 }
 .olt-offline-audit-table {
-  min-width: 1180px;
+  width: 100%;
   table-layout: fixed;
 }
 .olt-offline-audit-table thead {
@@ -5408,16 +5408,20 @@ body.cam-live-lock {
   vertical-align: middle;
   white-space: nowrap;
 }
+/* Larguras em % somando 100 -- nunca px com min-width forcado, que causava
+   scroll horizontal e cortava a coluna Acoes. Percentual sempre cabe no modal,
+   em qualquer zoom/resolucao. Colunas identificadoras (Serial, Ultima queda)
+   levam a maior fatia; as descritivas truncam com reticencias + tooltip. */
 .olt-offline-audit-table th:first-child,
-.olt-offline-audit-table td:first-child { width: 42px; text-align: center; }
-.olt-offline-audit-table th:nth-child(2) { width: 120px; }
-.olt-offline-audit-table th:nth-child(3) { width: 190px; }
-.olt-offline-audit-table th:nth-child(4) { width: 145px; }
-.olt-offline-audit-table th:nth-child(5) { width: 150px; }
-.olt-offline-audit-table th:nth-child(6) { width: 180px; }
-.olt-offline-audit-table th:nth-child(7) { width: 125px; }
-.olt-offline-audit-table th:nth-child(8) { width: 135px; }
-.olt-offline-audit-table th:nth-child(9) { width: 76px; text-align: center; }
+.olt-offline-audit-table td:first-child { width: 4%; text-align: center; }
+.olt-offline-audit-table th:nth-child(2) { width: 10%; }
+.olt-offline-audit-table th:nth-child(3) { width: 16%; }
+.olt-offline-audit-table th:nth-child(4) { width: 12%; }
+.olt-offline-audit-table th:nth-child(5) { width: 13%; }
+.olt-offline-audit-table th:nth-child(6) { width: 16%; }
+.olt-offline-audit-table th:nth-child(7) { width: 10%; }
+.olt-offline-audit-table th:nth-child(8) { width: 12%; }
+.olt-offline-audit-table th:nth-child(9) { width: 7%; text-align: center; }
 .olt-offline-audit-table td { overflow: hidden; text-overflow: ellipsis; }
 .olt-offline-audit-table td:nth-child(2) { display: table-cell; }
 .olt-offline-audit-table td:nth-child(2) strong,
