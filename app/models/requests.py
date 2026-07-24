@@ -169,6 +169,24 @@ class OltFindOnuRequest(BaseModel):
     timeout: float = 10.0
 
 
+class OltPurgeOnuItem(BaseModel):
+    pon: int
+    onu: int
+    serial: str = ""
+
+
+class OltPurgeRequest(BaseModel):
+    """Lote de ONUs offline para excluir em fila (uma por vez na OLT).
+
+    Cada item precisa de PON + ONU + serial: o serial e a trava de seguranca --
+    a exclusao so e enviada ao equipamento se ele bater, e itens sem serial sao
+    recusados no enfileiramento.
+    """
+
+    items: list[OltPurgeOnuItem]
+    minimum_days: int = 30
+
+
 class OltDeleteOnuRequest(BaseModel):
     olt_id: int | None = None
     olt_ip: str = ""

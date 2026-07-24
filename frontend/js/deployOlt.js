@@ -431,9 +431,14 @@ async function oltOfflineAuditRun() {
 }
 
 function oltOfflineAuditSelectCandidates() {
+  // Marca/desmarca TODAS as linhas do filtro atual -- nao so as de data
+  // confirmada. Assim "Todas as offline" + marcar-todas seleciona tudo que
+  // esta offline (inclusive as de data suspeita, que o operador quer limpar).
+  // O filtro no topo (Todas / Com idade confirmada / Sem data / Data suspeita)
+  // e quem controla o alcance. A trava de seguranca real (serial obrigatorio)
+  // fica no backend, nao aqui.
   const checked = !!document.getElementById('oltOfflineAuditSelectAll')?.checked;
   _oltOfflineAuditFilteredRows().forEach(row => {
-    if (!row.meets_threshold) return;
     const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
     if (checked) _oltOfflineAuditSelected.add(key);
     else _oltOfflineAuditSelected.delete(key);
@@ -465,54 +470,143 @@ function oltOfflineAuditDownloadCsv() {
   URL.revokeObjectURL(link.href);
 }
 
+// A exclusao NAO roda mais em loop no navegador (a OLT so aceita uma sessao por
+// vez, e as chamadas seguintes falhavam em silencio). Agora manda o lote pro
+// servidor, que enfileira e exclui uma por vez, e a tela acompanha por um card
+// de progresso -- como o Sincronizar inventario.
 async function oltOfflineAuditDelete(keys = null) {
   const wanted = Array.isArray(keys) && keys.length ? keys : [..._oltOfflineAuditSelected];
   const rows = _oltOfflineAuditRows.filter(row =>
     wanted.includes(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`)
   );
   if (!rows.length || !_oltOfflineAuditOlt?.id) return;
-  const description = rows.length === 1
-    ? `PON ${rows[0].pon} / ONU ${rows[0].onu_id} - ${rows[0].onu_serial}${rows[0].vlan_label ? ` - VLAN ${rows[0].vlan_label}` : ''}`
-    : `${rows.length} ONUs selecionadas. A exclusao sera executada uma por vez e nao pode ser desfeita.`;
+
+  const semSerial = rows.filter(r => !String(r.onu_serial || '').trim()).length;
+  const comSerial = rows.filter(r => String(r.onu_serial || '').trim());
+  if (!comSerial.length) {
+    showToast('Nenhuma das ONUs tem serial. Exclusao bloqueada por seguranca.', true);
+    return;
+  }
+
   const ok = await showConfirm({
     eyebrow: 'Equipamento real',
-    title: rows.length === 1 ? 'Excluir esta ONU da FiberHome?' : `Excluir ${rows.length} ONUs da FiberHome?`,
-    msg: description,
-    label: rows.length === 1 ? 'Excluir ONU' : 'Excluir selecionadas',
+    title: comSerial.length === 1 ? 'Excluir esta ONU da FiberHome?' : `Excluir ${comSerial.length} ONUs da FiberHome?`,
+    msg: `A OLT aceita uma exclusao por vez, entao elas entram numa fila e sao removidas em ordem. Nao pode ser desfeito.`
+       + (semSerial ? ` ${semSerial} sem serial serao ignoradas por seguranca.` : ''),
+    label: comSerial.length === 1 ? 'Excluir ONU' : 'Excluir na fila',
   });
   if (!ok) return;
-  const button = document.getElementById('btnOltOfflineAuditDeleteSelected');
-  if (button) {
-    button.disabled = true;
-    button.innerHTML = '<i data-lucide="loader-circle"></i> Excluindo...';
+
+  const items = comSerial.map(r => ({ pon: Number(r.pon), onu: Number(r.onu_id), serial: String(r.onu_serial || '') }));
+  const oltId = Number(_oltOfflineAuditOlt.id);
+  _oltOfflineAuditSetBusy(true);
+  try {
+    await jsonOrReadableError(
+      await api(`/api/olt/registry/${oltId}/purge`, { method: 'POST', body: JSON.stringify({ items }) }),
+      'Nao foi possivel iniciar a fila de exclusao.'
+    );
+  } catch (err) {
+    _oltOfflineAuditSetBusy(false);
+    showToast(`Nao foi possivel iniciar: ${err?.message || err}`, true);
+    return;
   }
-  let removed = 0;
-  const failures = [];
-  for (const row of rows) {
-    try {
-      const data = await apiJson('/api/olt/delete-onu', {
-        method: 'POST',
-        body: JSON.stringify({
-          olt_id: Number(_oltOfflineAuditOlt.id),
-          pon: Number(row.pon),
-          onu: Number(row.onu_id),
-          serial: row.onu_serial || '',
-          site: _oltOfflineAuditOlt.site || '',
-        }),
-      });
-      if (data?.ok === false) throw new Error(data?.error || 'A OLT nao confirmou a exclusao.');
-      const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
-      _oltOfflineAuditSelected.delete(key);
-      _oltOfflineAuditRows = _oltOfflineAuditRows.filter(item =>
-        `${item.slot}:${item.pon}:${item.onu_id}:${item.onu_serial}` !== key
+  await _oltOfflineAuditPollPurge(oltId);
+}
+
+function _oltOfflineAuditSetBusy(busy) {
+  ['btnOltOfflineAuditRun', 'btnOltOfflineAuditDeleteSelected', 'btnOltOfflineAuditCsv', 'oltOfflineAuditSelectAll']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = busy; });
+}
+
+async function _oltOfflineAuditPollPurge(oltId) {
+  const card = document.getElementById('oltOfflineAuditProgress');
+  if (card) card.classList.remove('hidden');
+  const started = Date.now();
+  try {
+    while (Date.now() - started < 60 * 60 * 1000) {
+      const state = await jsonOrReadableError(
+        await api(`/api/olt/registry/${oltId}/purge-status`),
+        'Nao foi possivel acompanhar a fila de exclusao.'
       );
-      removed += 1;
-    } catch (err) {
-      failures.push(`PON ${row.pon}/ONU ${row.onu_id}: ${err?.message || err}`);
+      _oltOfflineAuditRenderProgress(state);
+      _oltOfflineAuditApplyPurgeResults(state);
+      if (state?.status === 'done' || state?.status === 'error' || state?.status === 'idle') break;
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
+  } catch (err) {
+    _oltOfflineAuditRenderProgress({ status: 'error', error: err?.message || String(err) });
+  } finally {
+    _oltOfflineAuditSetBusy(false);
+    _oltOfflineAuditUpdateSelection();
+    lucide.createIcons();
   }
+}
+
+function _oltOfflineAuditRenderProgress(state) {
+  const card = document.getElementById('oltOfflineAuditProgress');
+  if (!card) return;
+  const total = Number(state?.total || 0);
+  const processed = Number(state?.processed || 0);
+  const done = Number(state?.done || 0);
+  const failed = Number(state?.failed || 0);
+  const pending = Math.max(0, total - processed);
+  const pct = total ? Math.round((processed / total) * 100) : (state?.status === 'done' ? 100 : 0);
+  const running = state?.status === 'running';
+  const cur = state?.current;
+
+  let head, sub;
+  if (state?.status === 'error') {
+    head = 'A fila de exclusao falhou';
+    sub = state?.error || 'Erro desconhecido.';
+  } else if (running) {
+    head = `Excluindo ONUs offline... ${processed} de ${total}`;
+    sub = cur ? `Agora: PON ${Number(cur.pon)} / ONU ${Number(cur.onu)} - ${cur.serial || ''}` : 'Preparando a fila...';
+  } else {
+    head = `Fila concluida: ${done} excluida(s), ${failed} falha(s)`;
+    sub = `${total} ONU(s) processada(s).`;
+  }
+  const fails = (state?.results || []).filter(r => r && r.ok === false);
+
+  card.innerHTML = `
+    <div class="olt-purge-head">
+      <div class="olt-purge-title">
+        <strong>${esc(head)}</strong>
+        <span>${esc(sub)}</span>
+      </div>
+      ${running
+        ? '<i data-lucide="loader-circle" class="olt-purge-spin"></i>'
+        : `<button class="ghost-action" type="button" title="Fechar" onclick="document.getElementById('oltOfflineAuditProgress').classList.add('hidden')"><i data-lucide="x"></i></button>`}
+    </div>
+    <div class="olt-purge-bar"><span class="${failed && !running ? 'has-fail' : ''}" style="width:${pct}%"></span></div>
+    <div class="olt-purge-legend">
+      <span class="ok">${done} excluida(s)</span>
+      <span class="fail">${failed} falha(s)</span>
+      <span>${pending} na fila</span>
+    </div>
+    ${fails.length ? `<details class="olt-purge-fails"><summary>Ver ${fails.length} falha(s)</summary>${
+      fails.map(f => `<div>PON ${Number(f.pon)}/ONU ${Number(f.onu)}${f.serial ? ' - ' + esc(f.serial) : ''}: ${esc(f.message || '')}</div>`).join('')
+    }</details>` : ''}
+  `;
+  lucide.createIcons();
+}
+
+// Remove da tabela as ONUs que a fila ja confirmou excluidas, para a lista
+// refletir o estado real da OLT sem precisar reconsultar.
+function _oltOfflineAuditApplyPurgeResults(state) {
+  const oks = (state?.results || []).filter(r => r && r.ok === true);
+  if (!oks.length) return;
+  const okKeys = new Set(oks.map(r => `${Number(r.pon)}:${Number(r.onu)}:${String(r.serial || '')}`));
+  const before = _oltOfflineAuditRows.length;
+  _oltOfflineAuditRows = _oltOfflineAuditRows.filter(row => {
+    const purgeKey = `${Number(row.pon)}:${Number(row.onu_id)}:${String(row.onu_serial || '')}`;
+    if (okKeys.has(purgeKey)) {
+      _oltOfflineAuditSelected.delete(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`);
+      return false;
+    }
+    return true;
+  });
+  if (_oltOfflineAuditRows.length === before) return;
   _oltOfflineAuditRenderRows();
-  _oltOfflineAuditUpdateSelection();
   _oltOfflineAuditRenderSummary({
     offline_total: _oltOfflineAuditRows.length,
     review_total: _oltOfflineAuditRows.filter(row => row.meets_threshold).length,
@@ -520,17 +614,6 @@ async function oltOfflineAuditDelete(keys = null) {
     clock_warning_total: _oltOfflineAuditRows.filter(row => row.clock_warning).length,
     minimum_days: Number(document.getElementById('oltOfflineAuditDays')?.value || 30),
   });
-  if (button) {
-    button.innerHTML = '<i data-lucide="trash-2"></i> Excluir selecionadas';
-    button.disabled = !_oltOfflineAuditSelected.size;
-  }
-  lucide.createIcons();
-  if (removed) showToast(`${removed} ONU(s) excluida(s) da OLT e removida(s) do inventario.`);
-  if (failures.length) {
-    const note = document.getElementById('oltOfflineAuditNote');
-    if (note) note.innerHTML = `<strong>Algumas exclusoes falharam:</strong> ${failures.map(esc).join(' | ')}`;
-    showToast(`${failures.length} exclusao(oes) nao foram concluidas.`, true);
-  }
 }
 
 function _oltRegPayload() {
