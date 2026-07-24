@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import secrets
 import socket
@@ -24,6 +25,7 @@ CONNECTORS_PATH = DATA_DIR / "connectors.json"
 CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
 DEFAULT_WG_ENDPOINT = "201.182.184.80:51820"
 DEFAULT_WG_NETWORK_PREFIX = "10.250.0"
+DEFAULT_WG_SERVER_PUBLIC_KEY = "yR9WCTtf6Yp9ZqWLffqdQmWuBeqEB4WSLrzcztP1xQQ="
 
 _lock = threading.RLock()
 
@@ -171,6 +173,29 @@ def _wg_keypair() -> Dict[str, str]:
         "private_key": base64.b64encode(private_raw).decode("ascii"),
         "public_key": base64.b64encode(public_raw).decode("ascii"),
     }
+
+
+def _wireguard_server_public_key() -> str:
+    return _text(os.getenv("WIREGUARD_SERVER_PUBLIC_KEY") or DEFAULT_WG_SERVER_PUBLIC_KEY)
+
+
+def _next_wireguard_client_address(rows: List[Dict[str, Any]], connector_id: str) -> str:
+    used: set[int] = set()
+    for item in rows:
+        if _text(item.get("id")) == connector_id:
+            continue
+        tunnel = item.get("tunnel") if isinstance(item.get("tunnel"), dict) else {}
+        raw = _text(tunnel.get("client_address")).split("/", 1)[0]
+        try:
+            address = ipaddress.ip_address(raw)
+        except ValueError:
+            continue
+        if address.version == 4 and str(address).startswith(f"{DEFAULT_WG_NETWORK_PREFIX}."):
+            used.add(int(str(address).rsplit(".", 1)[1]))
+    for host in range(2, 255):
+        if host not in used:
+            return f"{DEFAULT_WG_NETWORK_PREFIX}.{host}/32"
+    raise ValueError("nao ha enderecos WireGuard livres para um novo conector")
 
 
 def _load_jobs() -> List[Dict[str, Any]]:
@@ -653,21 +678,24 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
         if not client_lans:
             raise ValueError("informe pelo menos uma rede LAN valida em CIDR, exemplo 192.168.20.0/24")
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
-        if not tunnel.get("server_private_key") or not tunnel.get("server_public_key"):
-            server = _wg_keypair()
-            tunnel["server_private_key"] = server["private_key"]
-            tunnel["server_public_key"] = server["public_key"]
+        # Todos os conectores falam com a mesma interface WireGuard do servidor.
+        # A chave publica precisa ser a da plataforma, nunca um par aleatorio por cliente.
+        tunnel["server_public_key"] = _wireguard_server_public_key()
         if not tunnel.get("client_private_key") or not tunnel.get("client_public_key"):
             client = _wg_keypair()
             tunnel["client_private_key"] = client["private_key"]
             tunnel["client_public_key"] = client["public_key"]
+        requested_client_address = _text(data.get("client_address"))
+        saved_client_address = _text(tunnel.get("client_address"))
         tunnel.update({
             "enabled": True,
             "type": "wireguard",
             "endpoint": endpoint,
             "listen_port": int(_text(data.get("listen_port")) or "51820"),
             "server_address": _text(data.get("server_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.1/24",
-            "client_address": _text(data.get("client_address")) or f"{DEFAULT_WG_NETWORK_PREFIX}.2/32",
+            "client_address": requested_client_address
+            or saved_client_address
+            or _next_wireguard_client_address(rows, cid),
             "client_lans": client_lans,
             "client_lans_mode": "auto" if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__" else "manual",
             "updated_at": _now(),

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=110">
+  <link rel="stylesheet" href="styles.css?v=121">
 </head>
 <body>
 
@@ -353,7 +353,7 @@
               <span id="invOltFooter">0 cameras</span>
               <div style="display:flex;gap:6px;align-items:center">
                 <button class="icon-action" id="btnOltBackup" data-tip="Backup"><i data-lucide="archive"></i></button>
-                <button class="icon-action" id="btnOltPdf" data-tip="Relat-rio PDF"><i data-lucide="file-text"></i></button>
+                <button class="icon-action" id="btnOltPdf" data-tip="Relatório PDF"><i data-lucide="file-text"></i></button>
                 <button class="icon-action" id="btnOltImgbb" data-tip="Atualizar ImgBB"><i data-lucide="image-up"></i></button>
                 <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
                 <button class="icon-action" id="btnOltPingSelected" data-tip="Ping selecionados"><i data-lucide="activity"></i></button>
@@ -2059,6 +2059,9 @@
                     <button class="secondary-action" id="btnPlanningEdit"><i data-lucide="pencil"></i> Editar</button>
                     <button class="secondary-action" id="btnPlanningSite"><i data-lucide="map-pin-plus"></i> Site</button>
                     <button class="secondary-action" id="btnPlanningKmz"><i data-lucide="map"></i> Importar KMZ</button>
+                    <button class="secondary-action" id="btnPlanningExportKmz"><i data-lucide="download"></i> Exportar KMZ</button>
+                    <button class="secondary-action" id="btnPlanningNetworkPdf"><i data-lucide="file-network"></i> Documento de rede</button>
+                    <button class="primary-action" id="btnPlanningProposal"><i data-lucide="file-text"></i> Gerar proposta</button>
                     <button class="icon-button danger" id="btnPlanningDelete" aria-label="Excluir projeto"><i data-lucide="trash-2"></i></button>
                   </div>
                 </div>
@@ -2070,7 +2073,7 @@
                 </div>
               </div>
 
-              <div class="planning-work-grid">
+              <div class="planning-work-grid planning-work-grid-list-only">
                 <div class="panel planning-devices-panel">
                   <div class="panel-header planning-devices-head">
                     <div><h2>Equipamentos planejados</h2><p>Revise IP, modelo, site e vinculo antes da implantacao.</p></div>
@@ -2078,22 +2081,18 @@
                       <button class="secondary-action" id="btnPlanningCsv"><i data-lucide="file-spreadsheet"></i> Importar CSV</button>
                       <button class="secondary-action" id="btnPlanningAdd"><i data-lucide="plus"></i> Adicionar</button>
                       <button class="secondary-action planning-box-action" id="btnPlanningBox"><i data-lucide="package-plus"></i> Montar caixa de CFTV</button>
+                      <button class="secondary-action" id="btnPlanningCables"><i data-lucide="cable"></i> Calcular cabos</button>
                       <button class="primary-action" id="btnPlanningGenerate"><i data-lucide="list-plus"></i> Gerar em lote</button>
                     </div>
                   </div>
                   <div class="planning-filters">
                     <div class="search-wrap"><i data-lucide="search"></i><input id="planningSearch" placeholder="Buscar nome, IP, modelo ou site"></div>
-                    <select id="planningTypeFilter"><option value="">Todos os tipos</option><option value="camera">Cameras</option><option value="onu">ONUs</option><option value="olt">OLTs</option><option value="switch">Switches</option><option value="recorder">Gravadores</option></select>
+                    <select id="planningTypeFilter"><option value="">Todos os tipos</option><option value="box">Caixas de CFTV</option><option value="camera">Cameras</option><option value="onu">ONUs</option><option value="ont">ONTs</option><option value="olt">OLTs</option><option value="switch">Switches</option><option value="injector">Injetores PoE</option><option value="cto">CTOs</option><option value="recorder">Gravadores</option></select>
                     <select id="planningSiteFilter"><option value="">Todos os sites</option></select>
                   </div>
                   <div class="planning-device-list" id="planningDeviceList"></div>
                 </div>
 
-                <div class="panel planning-map-panel">
-                  <div class="panel-header"><div><h2>Mapa do projeto</h2><p id="planningMapHint">Importe um KMZ ou informe coordenadas.</p></div></div>
-                  <div id="planningMap"></div>
-                  <div class="planning-map-legend"><span><i class="dot camera"></i> Camera</span><span><i class="dot onu"></i> ONU</span><span><i class="dot infra"></i> Infraestrutura</span></div>
-                </div>
               </div>
             </div>
           </div>
@@ -2210,6 +2209,70 @@
         </div>
       </div>
 
+      <div id="modalOltOfflineAudit" class="modal-backdrop hidden" onclick="if(event.target===this)oltOfflineAuditClose()">
+        <div class="modal olt-offline-audit-modal">
+          <div class="modal-header">
+            <div>
+              <p class="eyebrow">Auditoria FiberHome</p>
+              <h2 id="oltOfflineAuditTitle">ONUs offline</h2>
+              <p>Revisao somente de leitura. Nenhuma ONU sera excluida nesta tela.</p>
+            </div>
+            <button class="icon-button" id="btnOltOfflineAuditClose" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+          </div>
+          <div class="olt-offline-audit-toolbar">
+            <label>
+              <span>Considerar antiga após</span>
+              <select id="oltOfflineAuditDays">
+                <option value="7">7 dias</option>
+                <option value="15">15 dias</option>
+                <option value="30" selected>30 dias</option>
+                <option value="60">60 dias</option>
+                <option value="90">90 dias</option>
+                <option value="180">180 dias</option>
+              </select>
+            </label>
+            <label class="search-box">
+              <i data-lucide="search"></i>
+              <input id="oltOfflineAuditSearch" placeholder="Buscar PON, ONU, serial ou modelo">
+            </label>
+            <select id="oltOfflineAuditFilter" aria-label="Filtrar auditoria">
+              <option value="all">Todas as offline</option>
+              <option value="review">Com idade confirmada</option>
+              <option value="unknown">Sem data na OLT</option>
+              <option value="clock">Data suspeita</option>
+            </select>
+            <button class="primary-action" id="btnOltOfflineAuditRun" type="button"><i data-lucide="scan-search"></i> Consultar OLT</button>
+          </div>
+          <div class="olt-offline-audit-summary" id="oltOfflineAuditSummary">
+            <div><span>Offline</span><strong>--</strong><small>aguardando consulta</small></div>
+            <div><span>Acima do limite</span><strong>--</strong><small>com data confiavel</small></div>
+            <div><span>Sem historico</span><strong>--</strong><small>a OLT devolveu 0000-00-00</small></div>
+            <div><span>Data suspeita</span><strong>--</strong><small>revisar relogio da OLT</small></div>
+          </div>
+          <div class="olt-offline-audit-note" id="oltOfflineAuditNote">
+            Escolha o periodo e clique em Consultar OLT. ONUs sem data nunca sao marcadas automaticamente.
+          </div>
+          <div class="olt-offline-audit-table-wrap">
+            <table class="data-table olt-offline-audit-table">
+              <thead><tr>
+                <th><input id="oltOfflineAuditSelectAll" type="checkbox" aria-label="Selecionar candidatos confirmados"></th>
+                <th>PON / ONU</th><th>Serial</th><th>Modelo</th><th>VLANs conhecidas</th>
+                <th>Ultima queda</th><th>Tempo offline</th><th>Confianca</th><th>Acoes</th>
+              </tr></thead>
+              <tbody id="oltOfflineAuditRows">
+                <tr><td colspan="9" class="olt-offline-audit-empty">Nenhuma consulta realizada.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="modal-actions olt-offline-audit-actions">
+            <span id="oltOfflineAuditSelection">0 selecionada(s) para revisao</span>
+            <button class="secondary-action" id="btnOltOfflineAuditCsv" type="button" disabled><i data-lucide="download"></i> Baixar lista CSV</button>
+            <button class="secondary-action danger" id="btnOltOfflineAuditDeleteSelected" type="button" disabled><i data-lucide="trash-2"></i> Excluir selecionadas</button>
+            <button class="primary-action" id="btnOltOfflineAuditDone" type="button"><i data-lucide="check"></i> Concluir revisao</button>
+          </div>
+        </div>
+      </div>
+
       <!-- --- VIEW: IMPLANTACAO - ONU --- -->
       <section class="workspace hidden" id="viewDeployOnu">
         <div class="page-heading">
@@ -2321,8 +2384,8 @@
                   <div class="form-group">
                     <label for="onuAddTerminal">Tipo</label>
                     <select id="onuAddTerminal">
-                      <option value="onu">ONU (bridge, saida eth 1, 1 VLAN)</option>
-                      <option value="ont">ONT (roteador, saida router, 1+ VLANs)</option>
+                      <option value="onu">ONU / bridge transparente</option>
+                      <option value="ont">ONT / VEIP (roteador, 1+ VLANs)</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -2338,8 +2401,12 @@
                     <div class="form-group">
                       <label for="onuAddService">Servico</label>
                       <select class="onuAddServiceSel" id="onuAddService">
-                        <option value="downlink">Downlink (internet)</option>
-                        <option value="tls">TLS (transparente)</option>
+                        <option value="downlink">Internet / dados</option>
+                        <option value="iptv">IPTV / multicast</option>
+                        <option value="tls">TLS / transparente</option>
+                        <option value="management">Gerencia</option>
+                        <option value="voice">Voz</option>
+                        <option value="other">Outro servico</option>
                       </select>
                     </div>
                     <div class="form-group">
@@ -2348,8 +2415,8 @@
                     </div>
                   </div>
                 </div>
-                <div class="deploy-inline-button" id="onuAddVlanAddWrap" style="display:none;margin:-6px 0 4px">
-                  <button class="secondary-action" id="btnOnuAddVlanRow" type="button"><i data-lucide="plus"></i> Adicionar outra VLAN</button>
+                <div class="deploy-inline-button" id="onuAddVlanAddWrap" style="margin:-6px 0 4px">
+                  <button class="secondary-action" id="btnOnuAddVlanRow" type="button"><i data-lucide="plus"></i> Adicionar outro servico/VLAN</button>
                 </div>
                 <div class="form-row" style="grid-template-columns:1fr">
                   <div class="form-group">
@@ -4255,14 +4322,14 @@
   <script src="js/windows.js?v=141"></script>
   <script src="js/snapshots.js?v=142"></script>
   <script src="js/maintenance.js?v=141"></script>
-  <script src="js/analysis.js?v=142"></script>
+  <script src="js/analysis.js?v=143"></script>
   <script src="js/network.js?v=143"></script>
   <script src="js/deploy.js?v=150"></script>
-  <script src="js/deployOlt.js?v=155"></script>
+  <script src="js/deployOlt.js?v=158"></script>
   <script src="js/connectors.js?v=144"></script>
   <script src="js/monitoring.js?v=8"></script>
-  <script src="js/planning.js?v=7"></script>
-  <script src="js/helpers.js?v=141"></script>
-  <script src="js/bootstrap.js?v=152"></script>
+  <script src="js/planning.js?v=16"></script>
+  <script src="js/helpers.js?v=142"></script>
+  <script src="js/bootstrap.js?v=153"></script>
 </body>
 </html>

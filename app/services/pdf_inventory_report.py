@@ -525,6 +525,7 @@ def build_inventory_pdf_report(
     include_switch: bool = False,
     module_label: str = "Cameras IP",
     report_color: str = "",
+    include_photos: bool = True,
 ) -> Path:
     rows_list = [dict(r) for r in rows if isinstance(r, dict)]
     rows_list = _sort_inventory_rows(rows_list)
@@ -542,17 +543,18 @@ def build_inventory_pdf_report(
         module_label=module_label,
         report_color=report_color,
     )
-    _draw_photo_pages(
-        rows_list,
-        pages,
-        site_label,
-        company_name=company_name,
-        logo_path=logo_path,
-        include_olt=include_olt,
-        include_switch=include_switch,
-        module_label=module_label,
-        report_color=report_color,
-    )
+    if include_photos:
+        _draw_photo_pages(
+            rows_list,
+            pages,
+            site_label,
+            company_name=company_name,
+            logo_path=logo_path,
+            include_olt=include_olt,
+            include_switch=include_switch,
+            module_label=module_label,
+            report_color=report_color,
+        )
 
     reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)

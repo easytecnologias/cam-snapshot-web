@@ -86,6 +86,7 @@ class OltCollectMacsRequest(BaseModel):
     pon: str = "all"
     olt_name: str | None = None
     olt_model: str | None = None
+    olt_vendor: str | None = None
     site: str | None = None
     scan_origin: str | None = None
     connector_id: str | None = None
@@ -109,6 +110,8 @@ class OltDiscoverOnusRequest(BaseModel):
     olt_ip: str = ""
     user: str = ""
     password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
     pon: str = "all"
     connector_id: str = ""
     remote_connector_id: str = ""
@@ -119,6 +122,10 @@ class OltDiscoverOnusRequest(BaseModel):
 class OnuServiceEntry(BaseModel):
     service: str = "downlink"
     vlan: int
+    name: str = ""
+    delivery: str = "auto"
+    port: int = 0
+    cos: int = 0
 
 
 class OltAddOnuRequest(BaseModel):
@@ -126,6 +133,8 @@ class OltAddOnuRequest(BaseModel):
     olt_ip: str = ""
     user: str = ""
     password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
     pon: int
     serno_id: int
     onu_model: str = ""
@@ -151,6 +160,8 @@ class OltFindOnuRequest(BaseModel):
     olt_ip: str = ""
     user: str = ""
     password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
     serial: str
     connector_id: str = ""
     remote_connector_id: str = ""
@@ -163,6 +174,8 @@ class OltDeleteOnuRequest(BaseModel):
     olt_ip: str = ""
     user: str = ""
     password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
     pon: int
     onu: int
     serial: str = ""
@@ -178,6 +191,8 @@ class OltOnuSignalRequest(BaseModel):
     olt_ip: str = ""
     user: str = ""
     password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
     pon: int = 0
     onu: int = 0
     serial: str = ""

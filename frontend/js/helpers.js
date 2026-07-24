@@ -17,21 +17,28 @@ function appendLog(el, msg, cls = '') {
 //  Download autenticado 
 async function downloadWithAuth(path, filename) {
   showToast('Preparando download');
-  const res = await api(path);
-  if (!res || !res.ok) {
-    const err = await res?.json().catch(() => ({}));
-    showToast(err?.detail || 'Arquivo nao encontrado', true);
-    return;
+  try {
+    const res = await api(path);
+    if (!res || !res.ok) {
+      const err = await res?.json().catch(() => ({}));
+      showToast(err?.detail || 'Arquivo não encontrado', true);
+      return false;
+    }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Relatório gerado. O download foi iniciado.');
+    return true;
+  } catch (error) {
+    showToast(error?.message || 'Não foi possível gerar o relatório.', true);
+    return false;
   }
-  const blob = await res.blob();
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 //  Utilidades 
@@ -81,4 +88,4 @@ function initNavGroups() {
   });
 }
 
-//  Eventos 
+//  Eventos 

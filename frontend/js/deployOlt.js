@@ -12,6 +12,9 @@ const _oltRegTestStates = new Map();
 const _oltRegSyncStates = new Map();
 let _oltRegSyncTimer = null;
 let _oltRegSyncPanelDismissed = false;
+let _oltOfflineAuditOlt = null;
+let _oltOfflineAuditRows = [];
+const _oltOfflineAuditSelected = new Set();
 const OLT_MODELS_BY_VENDOR = {
   Intelbras: ['8820i', '4840E'],
   FiberHome: ['AN5516-04', 'AN5516-06', 'AN6000-15', 'AN6000-17'],
@@ -236,15 +239,20 @@ function oltRegOpenMenu(event, id, trigger) {
   const menu = document.createElement('div');
   menu.id = 'oltRegFloatingMenu';
   menu.className = 'olt-reg-floating-menu';
+  const olt = _oltRegRows.find(item => Number(item.id) === Number(id));
+  const auditAction = String(olt?.vendor || '').toLowerCase() === 'fiberhome'
+    ? '<button type="button" data-action="audit"><i data-lucide="clipboard-check"></i><span>Auditar ONUs offline</span></button>'
+    : '';
   menu.innerHTML = `
     <button type="button" data-action="test"><i data-lucide="plug-zap"></i><span>Testar conexao</span></button>
     <button type="button" data-action="sync"><i data-lucide="refresh-cw"></i><span>Sincronizar inventario</span></button>
+    ${auditAction}
     <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>`;
   document.body.appendChild(menu);
   const rect = trigger.getBoundingClientRect();
   const menuWidth = 220;
-  const menuHeight = 184;
+  const menuHeight = auditAction ? 226 : 184;
   const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
   const top = rect.bottom + menuHeight + 8 <= window.innerHeight
     ? rect.bottom + 6
@@ -257,10 +265,272 @@ function oltRegOpenMenu(event, id, trigger) {
     oltRegCloseMenus();
     if (action === 'test') oltRegTest(id);
     if (action === 'sync') oltRegSync(id);
+    if (action === 'audit') oltOfflineAuditOpen(id);
     if (action === 'edit') oltRegEdit(id);
     if (action === 'delete') oltRegDelete(id);
   });
   lucide.createIcons();
+}
+
+function oltOfflineAuditOpen(id) {
+  const olt = _oltRegRows.find(item => Number(item.id) === Number(id));
+  if (!olt) return;
+  _oltOfflineAuditOlt = olt;
+  _oltOfflineAuditRows = [];
+  _oltOfflineAuditSelected.clear();
+  const modal = document.getElementById('modalOltOfflineAudit');
+  const title = document.getElementById('oltOfflineAuditTitle');
+  const rows = document.getElementById('oltOfflineAuditRows');
+  if (title) title.textContent = `ONUs offline - ${olt.name}`;
+  if (rows) rows.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty">Clique em Consultar OLT para carregar os dados atuais.</td></tr>';
+  _oltOfflineAuditRenderSummary();
+  _oltOfflineAuditUpdateSelection();
+  modal?.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  lucide.createIcons();
+}
+
+function oltOfflineAuditClose() {
+  document.getElementById('modalOltOfflineAudit')?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
+
+function _oltOfflineAuditRenderSummary(data = null) {
+  const box = document.getElementById('oltOfflineAuditSummary');
+  if (!box) return;
+  const values = data
+    ? [
+        [Number(data.offline_total || 0), 'ONUs inativas agora'],
+        [Number(data.review_total || 0), `offline ha ${Number(data.minimum_days || 0)}+ dias`],
+        [Number(data.without_history_total || 0), 'a OLT nao guardou a data'],
+        [Number(data.clock_warning_total || 0), 'data antiga ou relogio incorreto'],
+      ]
+    : [['--', 'aguardando consulta'], ['--', 'com data confiavel'], ['--', 'a OLT devolveu 0000-00-00'], ['--', 'revisar relogio da OLT']];
+  box.innerHTML = ['Offline', 'Acima do limite', 'Sem historico', 'Data suspeita'].map((label, index) =>
+    `<div><span>${label}</span><strong>${values[index][0]}</strong><small>${esc(values[index][1])}</small></div>`
+  ).join('');
+}
+
+function _oltOfflineAuditFilteredRows() {
+  const term = (document.getElementById('oltOfflineAuditSearch')?.value || '').trim().toLowerCase();
+  const filter = document.getElementById('oltOfflineAuditFilter')?.value || 'all';
+  return _oltOfflineAuditRows.filter(row => {
+    if (filter === 'review' && !row.meets_threshold) return false;
+    if (filter === 'unknown' && row.history_available) return false;
+    if (filter === 'clock' && !row.clock_warning) return false;
+    return !term || [row.pon, row.onu_id, row.onu_name, row.onu_serial, row.onu_model, row.vlan_label]
+      .some(value => String(value || '').toLowerCase().includes(term));
+  });
+}
+
+function _oltOfflineAuditRenderRows() {
+  const body = document.getElementById('oltOfflineAuditRows');
+  if (!body) return;
+  const rows = _oltOfflineAuditFilteredRows();
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty">Nenhuma ONU corresponde ao filtro.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(row => {
+    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
+    const age = row.offline_days == null ? 'Nao calculavel' : `${Number(row.offline_days)} dias`;
+    const history = row.last_off_at || 'Nao registrada';
+    const confidence = row.clock_warning
+      ? '<span class="badge badge-amber">Data suspeita</span>'
+      : row.history_available
+        ? (row.meets_threshold ? '<span class="badge badge-green">Confirmada</span>' : '<span class="badge badge-gray">Recente</span>')
+        : '<span class="badge badge-gray">Sem historico</span>';
+    return `<tr class="${row.meets_threshold ? 'is-review-candidate' : ''}">
+      <td><input class="olt-offline-audit-check" type="checkbox" data-key="${esc(key)}" ${_oltOfflineAuditSelected.has(key) ? 'checked' : ''} ${row.meets_threshold ? '' : 'title="Selecao manual: confira esta ONU antes de decidir"'}></td>
+      <td><strong>PON ${Number(row.pon)}</strong><small>ONU ${Number(row.onu_id)}</small></td>
+      <td class="monospace">${esc(row.onu_serial || '--')}</td>
+      <td>${esc(row.onu_model || '--')}</td>
+      <td title="${row.vlan_source === 'inventory_history' ? 'VLAN observada anteriormente no inventario OLT' : 'Nenhuma VLAN conhecida no inventario'}"><strong>${esc(row.vlan_label || '--')}</strong><small>${row.known_devices ? `${Number(row.known_devices)} MAC(s)` : 'sem MAC conhecido'}</small></td>
+      <td>${esc(history)}</td>
+      <td><strong>${esc(age)}</strong></td>
+      <td>${confidence}</td>
+      <td><button class="olt-offline-audit-delete-row" type="button" data-key="${esc(key)}" title="Excluir esta ONU da OLT"><i data-lucide="trash-2"></i></button></td>
+    </tr>`;
+  }).join('');
+  body.querySelectorAll('.olt-offline-audit-check').forEach(check => {
+    check.addEventListener('change', () => {
+      if (check.checked) _oltOfflineAuditSelected.add(check.dataset.key);
+      else _oltOfflineAuditSelected.delete(check.dataset.key);
+      _oltOfflineAuditUpdateSelection();
+    });
+  });
+  body.querySelectorAll('.olt-offline-audit-delete-row').forEach(button => {
+    button.addEventListener('click', () => oltOfflineAuditDelete([button.dataset.key]));
+  });
+  lucide.createIcons();
+}
+
+function _oltOfflineAuditUpdateSelection() {
+  const label = document.getElementById('oltOfflineAuditSelection');
+  const csv = document.getElementById('btnOltOfflineAuditCsv');
+  const remove = document.getElementById('btnOltOfflineAuditDeleteSelected');
+  if (label) label.textContent = `${_oltOfflineAuditSelected.size} selecionada(s) para revisao`;
+  if (csv) csv.disabled = !_oltOfflineAuditRows.length;
+  if (remove) remove.disabled = !_oltOfflineAuditSelected.size;
+}
+
+async function oltOfflineAuditRun() {
+  if (!_oltOfflineAuditOlt?.id) return;
+  const button = document.getElementById('btnOltOfflineAuditRun');
+  const body = document.getElementById('oltOfflineAuditRows');
+  const note = document.getElementById('oltOfflineAuditNote');
+  const days = Number(document.getElementById('oltOfflineAuditDays')?.value || 30);
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i> Consultando...';
+  }
+  if (body) body.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty"><span class="olt-offline-audit-loading"><i data-lucide="loader-circle"></i> Lendo ONUs, VLANs e datas diretamente da OLT...</span></td></tr>';
+  if (note) note.textContent = 'Consulta somente de leitura em andamento. Isso pode levar alguns segundos.';
+  lucide.createIcons();
+  try {
+    const oltId = Number(_oltOfflineAuditOlt.id);
+    const initial = await jsonOrReadableError(
+      await api(`/api/olt/registry/${oltId}/offline-audit?minimum_days=${days}`, { method: 'POST' }),
+      'Nao foi possivel iniciar a auditoria da OLT.'
+    );
+    let state = initial;
+    const started = Date.now();
+    while (state?.status === 'running' && Date.now() - started < 20 * 60 * 1000) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      state = await jsonOrReadableError(
+        await api(`/api/olt/registry/${oltId}/offline-audit-status`),
+        'Nao foi possivel acompanhar a auditoria da OLT.'
+      );
+      const elapsed = Number(state?.elapsed_s || Math.floor((Date.now() - started) / 1000));
+      if (note) note.textContent = `Lendo o historico diretamente da FiberHome... ${elapsed}s. Esta consulta nao altera a OLT.`;
+    }
+    if (state?.status === 'error') throw new Error(state?.error || 'A auditoria da OLT falhou.');
+    if (state?.status !== 'done') throw new Error('A auditoria continua em segundo plano, mas excedeu o tempo de acompanhamento da tela.');
+    const data = state?.result || {};
+    _oltOfflineAuditRows = Array.isArray(data?.rows) ? data.rows : [];
+    _oltOfflineAuditSelected.clear();
+    _oltOfflineAuditRows.filter(row => row.meets_threshold).forEach(row => {
+      _oltOfflineAuditSelected.add(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`);
+    });
+    _oltOfflineAuditRenderSummary(data);
+    _oltOfflineAuditRenderRows();
+    _oltOfflineAuditUpdateSelection();
+    if (note) note.innerHTML = data.without_history_total
+      ? `<strong>Atencao:</strong> ${Number(data.without_history_total)} ONU(s) nao possuem data de queda na FiberHome e exigem verificacao manual. VLANs conhecidas aparecem a partir do historico do inventario.`
+      : 'Todas as ONUs offline retornaram uma data de queda. VLANs conhecidas aparecem a partir do historico do inventario.';
+  } catch (err) {
+    if (body) body.innerHTML = `<tr><td colspan="9" class="olt-offline-audit-empty error">Falha na consulta: ${esc(err?.message || err)}</td></tr>`;
+    if (note) note.textContent = 'A auditoria nao alterou nenhum equipamento.';
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = '<i data-lucide="scan-search"></i> Consultar OLT';
+    }
+    lucide.createIcons();
+  }
+}
+
+function oltOfflineAuditSelectCandidates() {
+  const checked = !!document.getElementById('oltOfflineAuditSelectAll')?.checked;
+  _oltOfflineAuditFilteredRows().forEach(row => {
+    if (!row.meets_threshold) return;
+    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
+    if (checked) _oltOfflineAuditSelected.add(key);
+    else _oltOfflineAuditSelected.delete(key);
+  });
+  _oltOfflineAuditRenderRows();
+  _oltOfflineAuditUpdateSelection();
+}
+
+function oltOfflineAuditDownloadCsv() {
+  if (!_oltOfflineAuditRows.length) return;
+  const selectedOnly = _oltOfflineAuditSelected.size > 0;
+  const rows = _oltOfflineAuditRows.filter(row => {
+    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
+    return !selectedOnly || _oltOfflineAuditSelected.has(key);
+  });
+  const cells = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const header = ['olt', 'site', 'pon', 'onu', 'serial', 'modelo', 'vlans_conhecidas', 'macs_conhecidos', 'ultima_queda', 'ultimo_online', 'dias_offline', 'confianca'];
+  const lines = [header.join(';'), ...rows.map(row => [
+    _oltOfflineAuditOlt?.name, _oltOfflineAuditOlt?.site, row.pon, row.onu_id,
+    row.onu_serial, row.onu_model, row.vlan_label, (row.known_macs || []).join(', '), row.last_off_at, row.last_on_at,
+    row.offline_days == null ? '' : row.offline_days,
+    row.clock_warning ? 'data_suspeita' : row.history_available ? 'confirmada' : 'sem_historico',
+  ].map(cells).join(';'))];
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${String(_oltOfflineAuditOlt?.name || 'OLT').replaceAll(' ', '-')}-onus-offline.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+async function oltOfflineAuditDelete(keys = null) {
+  const wanted = Array.isArray(keys) && keys.length ? keys : [..._oltOfflineAuditSelected];
+  const rows = _oltOfflineAuditRows.filter(row =>
+    wanted.includes(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`)
+  );
+  if (!rows.length || !_oltOfflineAuditOlt?.id) return;
+  const description = rows.length === 1
+    ? `PON ${rows[0].pon} / ONU ${rows[0].onu_id} - ${rows[0].onu_serial}${rows[0].vlan_label ? ` - VLAN ${rows[0].vlan_label}` : ''}`
+    : `${rows.length} ONUs selecionadas. A exclusao sera executada uma por vez e nao pode ser desfeita.`;
+  const ok = await showConfirm({
+    eyebrow: 'Equipamento real',
+    title: rows.length === 1 ? 'Excluir esta ONU da FiberHome?' : `Excluir ${rows.length} ONUs da FiberHome?`,
+    msg: description,
+    label: rows.length === 1 ? 'Excluir ONU' : 'Excluir selecionadas',
+  });
+  if (!ok) return;
+  const button = document.getElementById('btnOltOfflineAuditDeleteSelected');
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle"></i> Excluindo...';
+  }
+  let removed = 0;
+  const failures = [];
+  for (const row of rows) {
+    try {
+      const data = await apiJson('/api/olt/delete-onu', {
+        method: 'POST',
+        body: JSON.stringify({
+          olt_id: Number(_oltOfflineAuditOlt.id),
+          pon: Number(row.pon),
+          onu: Number(row.onu_id),
+          serial: row.onu_serial || '',
+          site: _oltOfflineAuditOlt.site || '',
+        }),
+      });
+      if (data?.ok === false) throw new Error(data?.error || 'A OLT nao confirmou a exclusao.');
+      const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
+      _oltOfflineAuditSelected.delete(key);
+      _oltOfflineAuditRows = _oltOfflineAuditRows.filter(item =>
+        `${item.slot}:${item.pon}:${item.onu_id}:${item.onu_serial}` !== key
+      );
+      removed += 1;
+    } catch (err) {
+      failures.push(`PON ${row.pon}/ONU ${row.onu_id}: ${err?.message || err}`);
+    }
+  }
+  _oltOfflineAuditRenderRows();
+  _oltOfflineAuditUpdateSelection();
+  _oltOfflineAuditRenderSummary({
+    offline_total: _oltOfflineAuditRows.length,
+    review_total: _oltOfflineAuditRows.filter(row => row.meets_threshold).length,
+    without_history_total: _oltOfflineAuditRows.filter(row => !row.history_available).length,
+    clock_warning_total: _oltOfflineAuditRows.filter(row => row.clock_warning).length,
+    minimum_days: Number(document.getElementById('oltOfflineAuditDays')?.value || 30),
+  });
+  if (button) {
+    button.innerHTML = '<i data-lucide="trash-2"></i> Excluir selecionadas';
+    button.disabled = !_oltOfflineAuditSelected.size;
+  }
+  lucide.createIcons();
+  if (removed) showToast(`${removed} ONU(s) excluida(s) da OLT e removida(s) do inventario.`);
+  if (failures.length) {
+    const note = document.getElementById('oltOfflineAuditNote');
+    if (note) note.innerHTML = `<strong>Algumas exclusoes falharam:</strong> ${failures.map(esc).join(' | ')}`;
+    showToast(`${failures.length} exclusao(oes) nao foram concluidas.`, true);
+  }
 }
 
 function _oltRegPayload() {
@@ -366,6 +636,31 @@ function _oltRegSetSyncButtons(busy) {
   lucide.createIcons();
 }
 
+async function _oltRegAwaitSync(oltId, initial) {
+  if (!initial?.accepted || initial?.status !== 'running') return initial;
+  const started = Date.now();
+  while (Date.now() - started < 30 * 60 * 1000) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    const state = await jsonOrReadableError(
+      await api(`/api/olt/registry/${Number(oltId)}/sync-status`),
+      'Nao foi possivel acompanhar a sincronizacao.'
+    );
+    if (state?.status === 'done') return state;
+    if (state?.status === 'error') throw new Error(state?.error || 'A coleta da OLT falhou.');
+    const elapsed = Number(state?.elapsed_s || Math.floor((Date.now() - started) / 1000));
+    _oltRegSetStatus(`Sincronizando a FiberHome em segundo plano... ${elapsed}s. Pode manter esta tela aberta.`);
+  }
+  throw new Error('A sincronizacao continua em segundo plano, mas excedeu o tempo de acompanhamento da tela.');
+}
+
+async function _oltRegRequestSync(oltId) {
+  const initial = await jsonOrReadableError(
+    await api(`/api/olt/registry/${Number(oltId)}/sync`, { method: 'POST' }),
+    'Nao foi possivel iniciar a sincronizacao da OLT.'
+  );
+  return _oltRegAwaitSync(oltId, initial);
+}
+
 function _oltRegValidate(payload) {
   if (!payload.name) { showToast('Informe o nome da OLT.', true); return false; }
   if (!payload.host) { showToast('Informe o IP da OLT.', true); return false; }
@@ -392,10 +687,7 @@ async function _oltRegSave(syncAfter = false) {
       _oltRegSyncProgress(olt, 'loading');
       _oltRegRender();
       _oltRegSetStatus('OLT salva. Consultando ONUs e dispositivos para atualizar o Inventario OLT...');
-      const result = await jsonOrReadableError(
-        await api(`/api/olt/registry/${Number(olt.id)}/sync`, { method: 'POST' }),
-        'Nao foi possivel sincronizar a OLT.'
-      );
+      const result = await _oltRegRequestSync(olt.id);
       _oltRegSetStatus(`Sincronizacao concluida: ${Number(result?.count || 0)} item(ns) lido(s), ${Number(result?.count_all || 0)} no inventario.`, false, true);
       _oltRegSyncStates.set(Number(olt.id), { kind: 'success' });
       _oltRegSyncProgress(olt, 'success', result);
@@ -466,10 +758,7 @@ async function oltRegSync(id) {
   _oltRegRender();
   _oltRegSetStatus('Consultando a OLT e atualizando o inventario...');
   try {
-    const result = await jsonOrReadableError(
-      await api(`/api/olt/registry/${Number(id)}/sync`, { method: 'POST' }),
-      'Nao foi possivel sincronizar a OLT.'
-    );
+    const result = await _oltRegRequestSync(id);
     _oltRegSetStatus(`Sincronizacao concluida: ${Number(result?.count || 0)} item(ns) lido(s), ${Number(result?.count_all || 0)} no inventario.`, false, true);
     _oltRegSyncProgress(olt, 'success', result);
     showToast('Inventario OLT atualizado.');
@@ -516,6 +805,14 @@ function bindDeployOlt() {
   document.getElementById('btnOltRegModalClose')?.addEventListener('click', oltRegCloseModal);
   document.getElementById('btnOltRegClear')?.addEventListener('click', () => { oltRegCloseModal(); oltRegResetForm(); });
   document.getElementById('oltRegSearch')?.addEventListener('input', _oltRegApplyFilter);
+  document.getElementById('btnOltOfflineAuditClose')?.addEventListener('click', oltOfflineAuditClose);
+  document.getElementById('btnOltOfflineAuditDone')?.addEventListener('click', oltOfflineAuditClose);
+  document.getElementById('btnOltOfflineAuditRun')?.addEventListener('click', oltOfflineAuditRun);
+  document.getElementById('btnOltOfflineAuditCsv')?.addEventListener('click', oltOfflineAuditDownloadCsv);
+  document.getElementById('btnOltOfflineAuditDeleteSelected')?.addEventListener('click', () => oltOfflineAuditDelete());
+  document.getElementById('oltOfflineAuditSearch')?.addEventListener('input', _oltOfflineAuditRenderRows);
+  document.getElementById('oltOfflineAuditFilter')?.addEventListener('change', _oltOfflineAuditRenderRows);
+  document.getElementById('oltOfflineAuditSelectAll')?.addEventListener('change', oltOfflineAuditSelectCandidates);
   if (!document.body.dataset.oltActionMenuBound) {
     document.body.dataset.oltActionMenuBound = '1';
     document.addEventListener('click', () => oltRegCloseMenus());

@@ -835,7 +835,12 @@ async def api_inventory_report_pdf(site: str = "", company_name: str = "", repor
     color = _report_color(report_color or rep_cfg.get("report_color") or "")
     report_logo_path = tenant_report_logo_path("inventory") if get_current_tenant_slug() else (DATA_DIR / "input" / "inventory-report-logo.png")
     logo = report_logo_path if report_logo_path.exists() else None
-    pdf_path = build_inventory_pdf_report(
+    # O relatório operacional deve ser rápido e não pode bloquear a API.
+    # A antiga galeria rasterizava centenas de snapshots A4 em memória e podia
+    # consumir mais de 1 GB em inventários grandes. A galeria continua disponível
+    # nos relatórios específicos de gravadores; aqui exportamos a tabela completa.
+    pdf_path = await asyncio.to_thread(
+        build_inventory_pdf_report,
         rows,
         site=site,
         company_name=company,
@@ -844,6 +849,7 @@ async def api_inventory_report_pdf(site: str = "", company_name: str = "", repor
         include_switch=(report_mode == "switch"),
         module_label="Cameras IP Switch" if report_mode == "switch" else "Cameras IP OLT",
         report_color=color,
+        include_photos=False,
     )
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 

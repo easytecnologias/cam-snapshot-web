@@ -1359,8 +1359,12 @@ function onuServiceRowHtml() {
       <div class="form-group">
         <label>Servico</label>
         <select class="onuAddServiceSel">
-          <option value="downlink">Downlink (internet)</option>
-          <option value="tls">TLS (transparente)</option>
+          <option value="downlink">Internet / dados</option>
+          <option value="iptv">IPTV / multicast</option>
+          <option value="tls">TLS / transparente</option>
+          <option value="management">Gerencia</option>
+          <option value="voice">Voz</option>
+          <option value="other">Outro servico</option>
         </select>
       </div>
       <div class="form-group">
@@ -1386,14 +1390,8 @@ function onuAddVlanRow() {
 }
 
 function onuUpdateTerminalUI() {
-  const terminal = document.getElementById('onuAddTerminal')?.value || 'onu';
   const wrap = document.getElementById('onuAddVlanAddWrap');
-  if (wrap) wrap.style.display = terminal === 'ont' ? '' : 'none';
-  if (terminal !== 'ont') {
-    document.querySelectorAll('#onuAddServiceRows .onu-service-row').forEach((row, idx) => {
-      if (idx > 0) row.remove();
-    });
-  }
+  if (wrap) wrap.style.display = '';
 }
 
 function onuOltPayload() {

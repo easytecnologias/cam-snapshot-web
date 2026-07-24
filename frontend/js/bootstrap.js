@@ -379,7 +379,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Rodape inventario OLT
   document.getElementById('btnOltBackup')?.addEventListener('click', () => window.open(`${API_BASE}/api/backup/export`, '_blank'));
-  document.getElementById('btnOltPdf')?.addEventListener('click', () => window.open(`${API_BASE}/api/inventory/report.pdf`, '_blank'));
+  document.getElementById('btnOltPdf')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    const originalTip = button.dataset.tip;
+    button.dataset.tip = 'Gerando relatório...';
+    try {
+      await downloadWithAuth('/api/inventory/report.pdf?mode=olt', 'relatorio-cameras-ip.pdf');
+    } finally {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.dataset.tip = originalTip || 'Relatório PDF';
+    }
+  });
   document.getElementById('btnOltImgbb')?.addEventListener('click', () => {
     const checked = [...document.querySelectorAll('.chk-olt:checked')];
     const ips = checked.map(c => c.value);

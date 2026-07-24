@@ -428,8 +428,12 @@ function renderOltTable(rows) {
       <td style="text-align:center">${esc(String(r.onu_id ?? ''))}</td>
       <td class="text-muted">${esc(r.onu_name || '')}</td>
       <td class="monospace">${esc(r.onu_serial || '')}</td>
-      <td class="monospace">${esc(r.cpe_mac || '')}</td>
-      <td class="text-muted" style="text-align:center">${esc(r.vlan || '')}</td>
+      <td class="monospace">${r.cpe_mac
+        ? esc(r.cpe_mac)
+        : '<span class="text-muted">Nenhum MAC aprendido</span>'}</td>
+      <td class="text-muted" style="text-align:center">${r.vlan
+        ? esc(r.vlan)
+        : (r.vlan_mode === 'untagged' ? 'Sem tag' : '—')}</td>
       <td class="monospace text-muted">${esc(r.olt_ip || '')}</td>
       <td class="text-muted">${esc(r.olt_name || '')}</td>
       <td class="text-muted">${esc(r.site || '')}</td>
