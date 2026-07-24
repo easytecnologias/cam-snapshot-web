@@ -5296,12 +5296,23 @@ body.cam-live-lock {
 .olt-reg-floating-menu button.danger:hover { background: rgba(220, 38, 38, .08); }
 .olt-reg-floating-menu svg { width: 16px; height: 16px; flex: 0 0 auto; }
 .olt-offline-audit-modal {
-  width: min(1180px, calc(100vw - 32px));
+  width: min(1180px, 100%);
   height: min(820px, calc(100vh - 32px));
   max-width: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* O modal e largo (1180px). Centralizado na viewport inteira, a borda esquerda
+   dele caia exatamente sobre o sidebar (226px). Aqui o backdrop ganha um recuo
+   esquerdo do tamanho do sidebar, entao o place-items:center passa a centralizar
+   o modal no espaco a DIREITA do sidebar -- com folga, sem "pegar" nele. O fundo
+   escuro continua cobrindo a tela toda (padding so desloca o conteudo).
+   width:min(1180px,100%) usa 100% desse espaco recuado, entao nunca vaza. */
+#modalOltOfflineAudit { padding-left: calc(226px + 20px); }
+@media (max-width: 768px) {
+  /* sidebar some nesse breakpoint (vira menu), entao volta ao recuo padrao */
+  #modalOltOfflineAudit { padding-left: 20px; }
 }
 .olt-offline-audit-modal .modal-header p:not(.eyebrow) {
   margin: 4px 0 0;
