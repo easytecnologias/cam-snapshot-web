@@ -57,6 +57,23 @@ def _number(value: Any) -> float | None:
         return None
 
 
+def find_orphan_hostids(
+    current_hosts: List[Dict[str, Any]],
+    technical_names: Dict[str, Any],
+    tenant: str,
+    entity_types: Iterable[str],
+) -> List[str]:
+    """Hosts SIGHTOPS.<tenant>.<TIPO>.* que existem no Zabbix mas cuja entidade
+    (ONU/OLT) nao esta mais ativa em `technical_names` -- ficaram orfaos porque
+    o sync so criava hosts, nunca removia os que sumiram do inventario."""
+    prefixes = tuple(f"SIGHTOPS.{tenant}.{entity_type.upper()}." for entity_type in entity_types)
+    return [
+        _text(row.get("hostid"))
+        for row in current_hosts
+        if _text(row.get("host")).startswith(prefixes) and _text(row.get("host")) not in technical_names
+    ]
+
+
 def _ensure_group(url: str, auth: str, name: str, req_id: int) -> str:
     rows = _call(url, "hostgroup.get", {"output": ["groupid"], "filter": {"name": [name]}}, auth, req_id) or []
     if rows:
@@ -78,20 +95,31 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
     entities: List[Dict[str, Any]] = []
     for entity_type in entity_types:
         entities.extend(list_entities(entity_type=entity_type, limit=2000))
-    if not entities:
-        return {"ok": True, "tenant": tenant, "total": 0, "created_hosts": 0, "created_items": 0, "pushed": 0}
 
     auth = _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
-    group_ids = {
-        entity_type: _ensure_group(url, auth, f"SIGHTOPS - {tenant.upper()} - {entity_type.upper()}", 10 + idx * 4)
-        for idx, entity_type in enumerate(entity_types)
-    }
     technical_names = {_host_key(tenant, row): row for row in entities}
     current_hosts = _call(
         url, "host.get",
         {"output": ["hostid", "host", "name"], "search": {"host": f"SIGHTOPS.{tenant}."}, "startSearch": True},
         auth, 30,
     ) or []
+
+    # Remove hosts orfaos mesmo quando `entities` fica vazio (ex: todas as ONUs
+    # de um tenant foram excluidas).
+    orphan_hostids = find_orphan_hostids(current_hosts, technical_names, tenant, entity_types)
+    if orphan_hostids:
+        _call(url, "host.delete", orphan_hostids, auth, 20)
+
+    if not entities:
+        return {
+            "ok": True, "tenant": tenant, "total": 0, "created_hosts": 0, "created_items": 0,
+            "pushed": 0, "removed_hosts": len(orphan_hostids),
+        }
+
+    group_ids = {
+        entity_type: _ensure_group(url, auth, f"SIGHTOPS - {tenant.upper()} - {entity_type.upper()}", 10 + idx * 4)
+        for idx, entity_type in enumerate(entity_types)
+    }
     host_ids = {_text(row.get("host")): _text(row.get("hostid")) for row in current_hosts if _text(row.get("host")) in technical_names}
 
     create_hosts: List[Dict[str, Any]] = []
@@ -191,5 +219,5 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
     return {
         "ok": True, "tenant": tenant, "total": len(entities), "groups": len(group_ids),
         "created_hosts": len(create_hosts), "linked_hosts": len(host_ids),
-        "created_items": len(create_items), "pushed": pushed,
+        "created_items": len(create_items), "pushed": pushed, "removed_hosts": len(orphan_hostids),
     }
