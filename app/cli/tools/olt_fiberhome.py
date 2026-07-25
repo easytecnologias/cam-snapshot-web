@@ -260,7 +260,17 @@ def parse_authorization(output: str) -> list[dict[str, Any]]:
             "onu_id": int(match.group(3)),
             "onu_model": match.group(4),
             "authorization": match.group(5).upper(),
+            # onu_serial fica em upper por compatibilidade (comparacao,
+            # exibicao, chave de historico -- ja usado assim em todo o
+            # sistema). onu_serial_raw preserva a caixa EXATA que a OLT
+            # devolveu -- o proprio padrao do regex ja captura isso certo
+            # ([A-Z0-9]{4}[0-9a-f]{8}: prefixo do fabricante + 8 digitos hex
+            # em minusculo). A whitelist da FiberHome e case-sensitive: um
+            # comando `set whitelist ... action delete` com o serial em upper
+            # quando a whitelist tem em lower falha com "sn is wrong!" --
+            # confirmado com hardware real (PON1/ONU31, HWTCfa9e92ae).
             "onu_serial": match.group(6).upper(),
+            "onu_serial_raw": match.group(6),
             "onu_name": f"gpon {int(match.group(2))} onu {int(match.group(3))}",
         })
     return rows
@@ -916,8 +926,15 @@ def delete_onu_fiberhome(
             if serial and str(current["onu_serial"]).upper() != str(serial).strip().upper():
                 raise RuntimeError("O serial informado nao pertence a PON/ONU selecionada.")
             onu_type = fiberhome_onu_type(str(current["onu_model"]))
+            # A whitelist da FiberHome e case-sensitive. current["onu_serial"]
+            # vem uppercased de parse_authorization (por compatibilidade com
+            # o resto do sistema); onu_serial_raw preserva a caixa original
+            # que a OLT devolveu, que e a que a whitelist realmente tem
+            # gravada -- usar a versao em upper aqui faz a OLT recusar o
+            # comando com "sn is wrong!" mesmo com o ONU certo selecionado.
+            whitelist_serial = current.get("onu_serial_raw") or current["onu_serial"]
             command = (
-                f"set whitelist phy_addr address {current['onu_serial']} password null action delete "
+                f"set whitelist phy_addr address {whitelist_serial} password null action delete "
                 f"slot {slot} link {int(pon)} onu {int(onu)} type {onu_type}"
             )
             output = client.command(command, prompt="Admin\\gpononu#", maximum=25)

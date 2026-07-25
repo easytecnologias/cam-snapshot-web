@@ -45,6 +45,25 @@ class FiberHomeDriverParserTest(unittest.TestCase):
         self.assertEqual([row["onu_id"] for row in authorized], [5, 31])
         self.assertEqual(parse_states("onu 5 is active.\nonu 31 is inactive."), {5: "Active", 31: "Inactive"})
 
+    def test_authorization_preserves_native_serial_case(self) -> None:
+        """Regressao do bug real: excluir PON1/ONU31 (HG260) falhava na OLT
+        com "sn is wrong!" porque o comando de delete usava o serial em
+        upper (HWTCFA9E92AE) enquanto a whitelist da FiberHome, case-
+        sensitive, tem o serial gravado como a OLT devolveu (HWTCfa9e92ae).
+
+        onu_serial continua em upper (usado em todo o sistema pra
+        comparacao/exibicao/historico); onu_serial_raw preserva a caixa
+        exata da OLT e e o que delete_onu_fiberhome usa pra montar o
+        comando de exclusao.
+        """
+        authorized = parse_authorization(
+            "4 1 5 AN5506-01-B1 A FHTT927025d8 ,\n"
+            "--Press any key-- Master 4 1 31 HG260 A HWTCfa9e92ae ,"
+        )
+        onu31 = next(row for row in authorized if row["onu_id"] == 31)
+        self.assertEqual(onu31["onu_serial"], "HWTCFA9E92AE")
+        self.assertEqual(onu31["onu_serial_raw"], "HWTCfa9e92ae")
+
     def test_signal_distance_and_macs(self) -> None:
         signal = parse_signal(
             "SEND POWER : 2.69 (Dbm)\n"
