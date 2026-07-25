@@ -5319,6 +5319,20 @@ body.cam-live-lock {
   color: var(--muted);
   font-size: 13px;
 }
+/* Modal e flex-column de altura FIXA (min(820px, 100vh-32px)) com varias
+   secoes empilhadas antes da tabela. Sem flex-shrink:0, qualquer secao aqui
+   e um alvo em potencial pra ser espremida quando o total nao cabe --
+   virou visivel quando o card de progresso (olt-offline-audit-progress,
+   secao nova) passou a somar altura sem que nada tivesse essa protecao. So
+   a tabela (via table-wrap, com min-height + scroll proprio) deve ceder
+   espaco; toda secao fixa fica de fora da conta do flex-shrink. */
+.olt-offline-audit-modal > .modal-header,
+.olt-offline-audit-toolbar,
+.olt-offline-audit-summary,
+.olt-offline-audit-note,
+.olt-offline-audit-progress {
+  flex-shrink: 0;
+}
 .olt-offline-audit-toolbar {
   display: grid;
   grid-template-columns: 190px minmax(260px, 1fr) 210px 170px;
@@ -5395,7 +5409,11 @@ body.cam-live-lock {
 }
 .olt-offline-audit-table-wrap {
   flex: 1 1 auto;
-  min-height: 220px;
+  /* Menor que antes (era 220px) pra sobrar espaco quando o card de progresso
+     esta visivel -- e a UNICA secao que deve ceder espaco; ela ja rola por
+     dentro (overflow:auto), entao encolher aqui nunca corta linha nem botao,
+     so mostra menos linhas de uma vez. */
+  min-height: 140px;
   margin: 0 18px;
   overflow: auto;
   border: 1px solid var(--border);
