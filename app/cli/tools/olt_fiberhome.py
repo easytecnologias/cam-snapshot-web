@@ -466,6 +466,11 @@ def parse_discovery(output: str) -> dict[str, dict[str, Any]]:
                 "pon": current_pon,
                 "model": match.group(2),
                 "serial": match.group(3).upper(),
+                # A whitelist da FiberHome e case-sensitive na autorizacao (mesmo
+                # motivo do onu_serial_raw em parse_authorization): "serial" fica
+                # uppercase pra exibicao/comparacao, mas o comando "set whitelist
+                # ... action add" precisa da caixa exata que a OLT descobriu no ar.
+                "serial_raw": match.group(3),
                 "vendor": match.group(3)[:4].upper(),
             })
     return result
@@ -799,9 +804,15 @@ def add_onu_fiberhome(
     services: list[dict[str, Any]] | None = None,
     terminal: str = "onu",
     tag_mode: str = "tagged",
+    serial_raw: str = "",
     timeout: float = 15.0,
 ) -> dict[str, Any]:
     serial = str(serial or "").strip()
+    # A whitelist da FiberHome e case-sensitive na autorizacao (mesmo motivo do
+    # onu_serial_raw em delete_onu_fiberhome): usar a caixa exata que a OLT
+    # descobriu (`serial_raw`, vindo de parse_discovery) evita o "[ERR -598]
+    # physical address is error!" que a versao uppercased pode disparar.
+    whitelist_serial = str(serial_raw or "").strip() or serial
     onu_type = fiberhome_onu_type(onu_model)
     if not serial or not onu_type:
         raise ValueError("A autorizacao FiberHome exige serial e modelo da ONU descoberta.")
@@ -861,7 +872,7 @@ def add_onu_fiberhome(
             if free_onu is None:
                 continue
             command = (
-                f"set whitelist phy_addr address {serial} password null action add "
+                f"set whitelist phy_addr address {whitelist_serial} password null action add "
                 f"slot {slot} link {int(pon)} onu {free_onu} type {onu_type}"
             )
             output = client.command(command, prompt="Admin\\gpononu#", maximum=25)

@@ -139,6 +139,7 @@ class OltAddOnuRequest(BaseModel):
     serno_id: int
     onu_model: str = ""
     serial: str = ""
+    serial_raw: str = ""
     vendor: str = ""
     site: str = ""
     olt_name: str = ""

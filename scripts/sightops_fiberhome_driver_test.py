@@ -136,6 +136,26 @@ class FiberHomeDriverParserTest(unittest.TestCase):
             ],
         )
 
+    def test_discovery_preserves_native_serial_case(self) -> None:
+        """Regressao do bug real: autorizar a ONU descoberta HWTC746ebb4c
+        falhava com "[ERR -598] physical address is error!" porque
+        add_onu_fiberhome mandava o serial em upper (HWTC746EBB4C) no
+        comando de whitelist -- a mesma causa-raiz do bug de exclusao
+        (test_authorization_preserves_native_serial_case), so que na
+        descoberta (show unauth_discovery) em vez da autorizacao.
+
+        "serial" continua em upper (exibicao/comparacao); "serial_raw"
+        preserva a caixa exata que a OLT devolveu e e o que
+        add_onu_fiberhome deve usar pra montar o comando de autorizacao.
+        """
+        parsed = parse_discovery(
+            "----- ONU Unauth Table ,SLOT=4 PON=3 ,ITEM=1-----\n"
+            "1     HG260    HWTC746ebb4c ,"
+        )
+        entry = parsed["3"]["discovered"][0]
+        self.assertEqual(entry["serial"], "HWTC746EBB4C")
+        self.assertEqual(entry["serial_raw"], "HWTC746ebb4c")
+
     def test_empty_discovery_keeps_pons(self) -> None:
         parsed = parse_discovery(
             "----- ONU Unauth Table ,SLOT=4 PON=1 ,ITEM=0-----\n"

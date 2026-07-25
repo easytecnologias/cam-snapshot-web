@@ -968,6 +968,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                     services=[entry.model_dump() for entry in req.services],
                     terminal=req.terminal,
                     tag_mode=req.tag_mode,
+                    serial_raw=req.serial_raw,
                     timeout=req.timeout,
                 )
                 if result.get("ok"):

@@ -1550,7 +1550,7 @@ async function onuDiscover() {
     return;
   }
   onuSetResult('onuDiscoverResult', allDiscovered.map(d => `
-    <div class="deploy-match deploy-onu-pick" data-pon="${esc(d.pon)}" data-serno="${esc(d.serno_id)}" data-serial="${esc(d.serial)}" data-model="${esc(d.model)}" data-vendor="${esc(d.vendor)}" style="cursor:pointer">
+    <div class="deploy-match deploy-onu-pick" data-pon="${esc(d.pon)}" data-serno="${esc(d.serno_id)}" data-serial="${esc(d.serial)}" data-serial-raw="${esc(d.serial_raw || d.serial)}" data-model="${esc(d.model)}" data-vendor="${esc(d.vendor)}" style="cursor:pointer">
       <b>${esc(d.serial)}</b>
       <span>PON ${esc(d.pon)} - ${esc(d.vendor)} ${esc(d.model)}</span>
       <small>descoberta ${esc(d.time_discovered || '')} - clique para selecionar</small>
@@ -1562,6 +1562,7 @@ async function onuDiscover() {
         pon: Number(el.dataset.pon),
         serno_id: Number(el.dataset.serno),
         serial: el.dataset.serial,
+        serialRaw: el.dataset.serialRaw || el.dataset.serial,
         model: el.dataset.model,
         vendor: el.dataset.vendor,
       };
@@ -1613,6 +1614,7 @@ async function onuAdd() {
     serno_id: sernoId,
     onu_model: model,
     serial: _onuSelectedDiscovered?.serial || '',
+    serial_raw: _onuSelectedDiscovered?.serialRaw || _onuSelectedDiscovered?.serial || '',
     vendor: _onuSelectedDiscovered?.vendor || '',
     site: olt.site || '',
     olt_name: olt.olt_name || '',
