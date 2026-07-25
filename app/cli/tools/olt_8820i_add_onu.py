@@ -298,6 +298,37 @@ def discover_unauthorized_onus(
         client.close()
 
 
+def resolve_current_serno_id(discovered: List[Dict[str, Any]], serial: str, fallback_serno_id: int) -> int:
+    """Reresolve o serno_id atual pelo serial (estavel) numa lista de
+    descoberta recem-lida ('onu show gpon <pon>').
+
+    A OLT reenumera o serno_id toda vez que a tabela de descoberta e
+    consultada (inclusive por uma consulta concorrente de outra sessao),
+    entao um serno_id capturado na tela minutos antes pode ja ter expirado.
+    Se `serial` bater com uma entrada da lista, usa o serno_id atual dela.
+    Se nao houver `serial` para comparar, cai no `fallback_serno_id` como
+    estava antes. Se nem o serial nem o fallback existirem mais na lista,
+    levanta OnuAddError com uma mensagem acionavel em vez de deixar o erro
+    cru da OLT ("No such ID in discovered ONUs") subir sem contexto.
+    """
+    if not serial:
+        return fallback_serno_id
+    match = next(
+        (d for d in discovered if str(d.get("serial", "")).strip().upper() == serial.strip().upper()),
+        None,
+    )
+    if match:
+        return match["serno_id"]
+    if any(d.get("serno_id") == fallback_serno_id for d in discovered):
+        return fallback_serno_id
+    raise OnuAddError(
+        f"ONU com serial {serial} nao esta mais na lista de descoberta da OLT "
+        "na PON informada (sinal caiu ou o ID expirou). Refaca a descoberta e tente novamente.",
+        "onu show gpon",
+        [],
+    )
+
+
 def add_onu(
     olt_ip: str,
     user: str,
@@ -312,6 +343,7 @@ def add_onu(
     services: Optional[List[Dict[str, Any]]] = None,
     tag_mode: str = "tagged",
     terminal: str = "onu",
+    serial: str = "",
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
     """Autoriza a ONU descoberta (serno_id) numa posicao livre da PON.
@@ -319,6 +351,13 @@ def add_onu(
     Reconfirma a posicao livre bem antes de executar (o serno_id/free_slots
     podem ter mudado desde a descoberta se outro tecnico mexeu na mesma OLT
     nesse meio tempo) -- mesma protecao usada no bot de referencia.
+
+    O `serno_id` e um ID de sessao de descoberta da propria OLT -- ela o
+    reenumera toda vez que roda "onu show gpon <pon>" (inclusive por outra
+    consulta concorrente). Se `serial` for informado, ele e usado para
+    reresolver o serno_id atual na lista de descoberta recem-lida antes de
+    autorizar, em vez de confiar num id capturado minutos antes na tela
+    (que pode ter expirado, causando "No such ID in discovered ONUs").
 
     `services` permite mais de um par servico/VLAN (um "bridge add" por
     entrada) -- so faz sentido em modo ONT/roteador; em modo ONU/bridge
@@ -339,7 +378,12 @@ def add_onu(
                 raise OnuAddError(f"Nenhuma posicao livre na PON {pon}.", "onu show gpon", commands_run)
             chosen_slot = refreshed["free_slots"][0]
 
-        cmd = f"onu set gpon {pon} onu {chosen_slot} id {serno_id} meprof {profile}"
+        try:
+            current_serno_id = resolve_current_serno_id(refreshed["discovered"], serial, serno_id)
+        except OnuAddError as e:
+            raise OnuAddError(str(e), e.failed_command, commands_run) from e
+
+        cmd = f"onu set gpon {pon} onu {chosen_slot} id {current_serno_id} meprof {profile}"
         out = cli_run(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
         if command_failed(out):
