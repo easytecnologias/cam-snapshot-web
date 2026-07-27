@@ -704,11 +704,21 @@ function _connectorIsOnline(row) {
 }
 
 function _connectorHasTunnel(row) {
+  // MikroTik reporta o tunel via tunnel/vpn/wireguard.enabled (populado pelo
+  // agente). O Ruijie nao tem agente reportando status em tempo real -- a
+  // config (.ovpn) salva no cadastro e o sinal disponivel de que o tunel
+  // OpenVPN persistente (gerenciado pelo sightops_ruijie_vpn_sync.py) deve
+  // estar de pe.
+  if (String(row?.type || '').toLowerCase() === 'ruijie') {
+    return Boolean(row?.vpn_config);
+  }
   return Boolean(row?.tunnel?.enabled || row?.vpn?.enabled || row?.wireguard?.enabled);
 }
 
 function _routerConnectors() {
-  return (_connectors || []).filter(c => _connectorNorm(c.type) === 'routeros');
+  // Apesar do nome, hoje cobre qualquer conector que possa servir de origem
+  // de acesso pro scan/implantacao (MikroTik ou Ruijie com VPN).
+  return (_connectors || []).filter(c => ['routeros', 'ruijie'].includes(_connectorNorm(c.type)));
 }
 
 function _connectorMatchesSite(row, site) {
