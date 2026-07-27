@@ -825,9 +825,20 @@ function updateScanOriginUi() {
   });
 }
 
+function _scanModeForCurrentTab() {
+  // #scanMode usa "basic" (en) enquanto a aba de Cameras IP usa "basico" (pt) --
+  // sem esse mapa, a varredura sempre voltava pro modo "OLT" default e salvava
+  // os dispositivos encontrados num inventario diferente do que a aba ativa
+  // mostra, fazendo parecer que a varredura "nao achou nada".
+  const map = { basico: 'basic', olt: 'olt', switch: 'switch' };
+  return map[_invOltView] || 'olt';
+}
+
 function openScanModal() {
   document.getElementById('scanLog').textContent = 'Aguardando inicio';
   document.getElementById('modalScan').classList.remove('hidden');
+  const modeEl = document.getElementById('scanMode');
+  if (modeEl) modeEl.value = _scanModeForCurrentTab();
   refreshScanConnectors().finally(updateScanOriginUi);
 }
 
@@ -845,7 +856,7 @@ function resetScanForm() {
   const user = document.getElementById('scanUsuario');
   if (user) user.value = 'admin';
   const mode = document.getElementById('scanMode');
-  if (mode) mode.value = 'olt';
+  if (mode) mode.value = _scanModeForCurrentTab();
   const origin = document.getElementById('scanOrigin');
   if (origin) origin.value = 'local';
   const connector = document.getElementById('scanConnector');
