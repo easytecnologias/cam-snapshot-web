@@ -210,7 +210,6 @@ async function loadSwitch() {
 
 function populateSwitchFilters() {
   const sites = [...new Set(_switchRows.map(r => r.site).filter(Boolean))].sort();
-  const devices = [...new Set(_switchRows.map(r => r.switch_name || r.switch_ip).filter(Boolean))].sort();
   const selSite = document.getElementById('switchFilterSite');
   const selDevice = document.getElementById('switchFilterDevice');
   if (selSite) {
@@ -219,9 +218,19 @@ function populateSwitchFilters() {
       sites.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
   }
   if (selDevice) {
+    // Chave pelo IP (unico) -- switches com o mesmo modelo/nome (ou sem nome
+    // definido no coletar) ficariam indistinguiveis se a chave fosse so o nome.
+    const byIp = new Map();
+    _switchRows.forEach(r => {
+      const ip = r.switch_ip || '';
+      if (!ip || byIp.has(ip)) return;
+      const label = r.switch_name && r.switch_name !== ip ? `${r.switch_name} (${ip})` : ip;
+      byIp.set(ip, label);
+    });
+    const devices = [...byIp.entries()].sort((a, b) => a[1].localeCompare(b[1]));
     const cur = selDevice.value;
     selDevice.innerHTML = '<option value="">Todos os switches</option>' +
-      devices.map(d => `<option${d === cur ? ' selected' : ''}>${esc(d)}</option>`).join('');
+      devices.map(([ip, label]) => `<option value="${esc(ip)}"${ip === cur ? ' selected' : ''}>${esc(label)}</option>`).join('');
   }
 }
 
@@ -343,10 +352,14 @@ async function switchPortAction(el) {
 function filterSwitchTable() {
   const site = document.getElementById('switchFilterSite')?.value || '';
   const device = document.getElementById('switchFilterDevice')?.value || '';
+  const status = document.getElementById('switchFilterStatus')?.value || '';
   const q = (document.getElementById('switchSearch')?.value || '').toLowerCase();
   const filtered = _switchRows.filter(r => {
     if (site && r.site !== site) return false;
-    if (device && r.switch_name !== device && r.switch_ip !== device) return false;
+    if (device && r.switch_ip !== device) return false;
+    if (status === 'active' && r._synthetic) return false;
+    if (status === 'down' && !(r._synthetic && !r._linkUp)) return false;
+    if (status === 'disabled' && r.admin_enabled !== false) return false;
     if (q) {
       const cam = _switchCamByMac[String(r.mac || '').toLowerCase()];
       return [r.site, r.switch_name, r.switch_ip, r.port, r.mac, r.vlan, r.entry_type, cam?.titulo, cam?.local]

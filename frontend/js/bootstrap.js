@@ -1432,11 +1432,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Filtros Switch
   document.getElementById('switchFilterSite')?.addEventListener('change', filterSwitchTable);
   document.getElementById('switchFilterDevice')?.addEventListener('change', filterSwitchTable);
+  document.getElementById('switchFilterStatus')?.addEventListener('change', filterSwitchTable);
   document.getElementById('switchSearch')?.addEventListener('input', filterSwitchTable);
   document.getElementById('btnSwitchClearFilter')?.addEventListener('click', () => {
     document.getElementById('switchSearch').value = '';
     document.getElementById('switchFilterSite').value = '';
     document.getElementById('switchFilterDevice').value = '';
+    document.getElementById('switchFilterStatus').value = '';
     filterSwitchTable();
   });
   document.getElementById('switchTable')?.addEventListener('click', (ev) => {
