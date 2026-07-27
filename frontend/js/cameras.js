@@ -934,8 +934,8 @@ async function _loadCamForMode(mode) {
 }
 
 function populateCamSiteFilter() {
-  const all   = Object.values(_invCam).flat();
-  const sites = [...new Set(all.map(c => c.local || c.site || c.site_name).filter(Boolean))].sort();
+  const rows  = _invCam[_invOltView] || [];
+  const sites = [...new Set(rows.map(c => c.local || c.site || c.site_name).filter(Boolean))].sort();
   const sel = document.getElementById('filterSiteOlt');
   if (!sel) return;
   const current = sel.value;

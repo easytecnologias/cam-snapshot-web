@@ -575,6 +575,35 @@ function openEditCamModal(cams, opts = {}) {
 
   const s = 'width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box';
 
+  // As colunas extras dependem de onde a camera foi descoberta -- PON/ONU so
+  // fazem sentido pra quem veio de OLT; quem veio de Switch precisa ver/editar
+  // switch/porta/VLAN, nao campos de OLT vazios e sem uso.
+  const mode = _invOltView || 'olt';
+  const extraCols = mode === 'switch'
+    ? [
+        { label: 'Switch',    field: 'switch_name', width: '12%', placeholder: 'Nome do switch' },
+        { label: 'Switch IP', field: 'switch_ip',    width: '11%', placeholder: '', mono: true },
+        { label: 'Porta',     field: 'switch_port',  width: '6%',  placeholder: '', center: true },
+        { label: 'VLAN',      field: 'switch_vlan',  width: '5%',  placeholder: '', center: true },
+      ]
+    : [
+        { label: 'PON',        field: 'pon',        width: '5%',  placeholder: '', center: true },
+        { label: 'ONU ID',     field: 'onu_id',     width: '6%',  placeholder: '', center: true },
+        { label: 'ONU Name',   field: 'onu_name',   width: '12%', placeholder: 'gpon x onu y' },
+        { label: 'ONU Serial', field: 'onu_serial', width: '11%', placeholder: 'ONU Serial', mono: true },
+      ];
+
+  const theadRow = document.querySelector('#editCamTable thead tr');
+  const colgroup = document.querySelector('#editCamTable colgroup');
+  if (theadRow) {
+    theadRow.innerHTML = '<th>IP</th><th>Titulo</th><th>Fabricante</th><th>Modelo</th><th>Local</th><th>MAC</th>' +
+      extraCols.map(c => `<th>${esc(c.label)}</th>`).join('');
+  }
+  if (colgroup) {
+    colgroup.innerHTML = '<col style="width:9%"><col style="width:16%"><col style="width:9%"><col style="width:10%"><col style="width:9%"><col style="width:13%">' +
+      extraCols.map(c => `<col style="width:${c.width}">`).join('');
+  }
+
   document.getElementById('editCamTableBody').innerHTML = cams.map(c => `
     <tr data-key="${esc(_camKey(c))}" data-connector-id="${esc(c.remote_connector_id || c.connector_id || '')}" data-site="${esc(c.site || c.site_name || c.local || '')}" data-remote="${c.remote ? '1' : ''}">
       <td class="monospace" style="font-size:11px;color:var(--muted);white-space:nowrap">${esc(c.ip)}</td>
@@ -583,10 +612,7 @@ function openEditCamModal(cams, opts = {}) {
       <td><input data-ip="${esc(c.ip)}" data-field="model"      style="${s}" value="${esc(c.modelo || c.model || '')}" placeholder="Modelo"></td>
       <td><input data-ip="${esc(c.ip)}" data-field="local"      style="${s}" value="${esc(c.local     || '')}" placeholder="Local"></td>
       <td><input data-ip="${esc(c.ip)}" data-field="mac"        style="${s};font-family:monospace" value="${esc(c.mac       || '')}" placeholder="MAC"></td>
-      <td><input data-ip="${esc(c.ip)}" data-field="pon"        style="${s};text-align:center" value="${esc(c.pon       || '')}" placeholder=""></td>
-      <td><input data-ip="${esc(c.ip)}" data-field="onu_id"     style="${s};text-align:center" value="${esc(c.onu_id    || '')}" placeholder=""></td>
-      <td><input data-ip="${esc(c.ip)}" data-field="onu_name"   style="${s}" value="${esc(c.onu_name  || '')}" placeholder="gpon x onu y"></td>
-      <td><input data-ip="${esc(c.ip)}" data-field="onu_serial" style="${s};font-family:monospace" value="${esc(c.onu_serial|| '')}" placeholder="ONU Serial"></td>
+      ${extraCols.map(col => `<td><input data-ip="${esc(c.ip)}" data-field="${col.field}" style="${s}${col.center ? ';text-align:center' : ''}${col.mono ? ';font-family:monospace' : ''}" value="${esc(c[col.field] || '')}" placeholder="${esc(col.placeholder)}"></td>`).join('')}
     </tr>`).join('');
 
   document.getElementById('modalEditCam').classList.remove('hidden');

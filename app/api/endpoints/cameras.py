@@ -45,6 +45,10 @@ class CameraUpdate(BaseModel):
     onu_id: str | None = None
     onu_name: str | None = None
     onu_serial: str | None = None
+    switch_name: str | None = None
+    switch_ip: str | None = None
+    switch_port: str | None = None
+    switch_vlan: str | None = None
 
 
 class CamerasSaveRequest(BaseModel):
@@ -194,6 +198,10 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
                     "onu_id": (cam.onu_id or ""),
                     "onu_name": (cam.onu_name or ""),
                     "onu_serial": (cam.onu_serial or ""),
+                    "switch_name": (cam.switch_name or ""),
+                    "switch_ip": (cam.switch_ip or ""),
+                    "switch_port": (cam.switch_port or ""),
+                    "switch_vlan": (cam.switch_vlan or ""),
                 }
             )
         if base_rows:
@@ -256,6 +264,14 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
             row["onu_name"] = cam.onu_name
         if cam.onu_serial is not None:
             row["onu_serial"] = cam.onu_serial
+        if cam.switch_name is not None:
+            row["switch_name"] = cam.switch_name
+        if cam.switch_ip is not None:
+            row["switch_ip"] = cam.switch_ip
+        if cam.switch_port is not None:
+            row["switch_port"] = cam.switch_port
+        if cam.switch_vlan is not None:
+            row["switch_vlan"] = cam.switch_vlan
 
         return row
 
