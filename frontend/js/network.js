@@ -162,19 +162,24 @@ async function loadSwitch() {
   const ports = swData?.ports || [];
 
   // MACs aprendidos na porta uplink sao de equipamentos atras do switch (outra
-  // rede/segmento), nao ligados fisicamente nela -- fora da tabela.
+  // rede/segmento), nao ligados fisicamente nela -- fora da tabela por completo
+  // (inclusive nao vira linha "vazia": a porta uplink tem trafego real).
+  const uplinkPorts = new Set(
+    rawRows.filter(r => r.port_role_guess === 'uplink').map(r => `${r.switch_ip || ''}|${r.port || ''}`)
+  );
   const edgeRows = rawRows.filter(r => r.port_role_guess !== 'uplink');
 
   // Portas sem nenhum MAC aprendido nao aparecem no mac_table (nada circulou
   // por elas) -- usamos a lista de portas fisicas coletada junto pra mostrar
-  // essas tambem, sinalizando se tem cabo linkado ou nao.
+  // essas tambem. Switch nao tem MAC por porta, entao usamos o MAC fisico do
+  // proprio aparelho (dado real) em vez de um texto generico.
   const withRow = new Set(edgeRows.map(r => `${r.switch_ip || ''}|${r.port || ''}`));
   const emptyPortRows = ports
-    .filter(p => p.port && !withRow.has(`${p.switch_ip || ''}|${p.port || ''}`))
+    .filter(p => p.port && !withRow.has(`${p.switch_ip || ''}|${p.port || ''}`) && !uplinkPorts.has(`${p.switch_ip || ''}|${p.port || ''}`))
     .map(p => ({
       site: p.site, switch_ip: p.switch_ip, switch_name: p.switch_name,
-      port: p.port, mac: '', vlan: '', entry_type: '', port_role_guess: 'edge',
-      _linkUp: !!p.up,
+      port: p.port, mac: p.switch_mac || '', vlan: '', entry_type: '', port_role_guess: 'edge',
+      _linkUp: !!p.up, _synthetic: true,
     }));
 
   _switchRows = [...edgeRows, ...emptyPortRows];
@@ -208,7 +213,7 @@ function renderSwitchTable(rows) {
   const tbody = document.getElementById('switchTable');
   if (!tbody) return;
 
-  const withMac = rows.filter(r => r.mac);
+  const withMac = rows.filter(r => !r._synthetic);
   const switches = new Set(rows.map(r => String(r.switch_ip || r.switch_name || '').trim()).filter(Boolean));
   const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
   const activePorts = new Set(withMac.map(r => `${r.switch_ip || ''}|${r.port || ''}`).filter(k => k !== '|'));
@@ -224,17 +229,14 @@ function renderSwitchTable(rows) {
   }
 
   tbody.innerHTML = rows.map(r => {
-    const isEmpty = !r.mac;
+    const isEmpty = !!r._synthetic;
     const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
-    const macCell = isEmpty
-      ? `<span class="text-muted">${r._linkUp ? 'Conectado, sem MAC aprendido' : 'Sem cabo conectado'}</span>`
-      : esc(r.mac);
     return `
     <tr${isEmpty ? ' style="opacity:.65"' : ''}>
       <td class="text-muted">${esc(r.port || '')}</td>
-      <td class="monospace">${macCell}</td>
+      <td class="monospace">${r.mac ? esc(r.mac) : '<span class="text-muted">-</span>'}</td>
       <td class="text-muted" style="text-align:center">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
-      <td class="text-muted">${isEmpty ? '-' : esc(r.entry_type || '')}</td>
+      <td class="text-muted">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
       <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
       <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
       <td class="text-muted">${esc(r.site || '')}</td>

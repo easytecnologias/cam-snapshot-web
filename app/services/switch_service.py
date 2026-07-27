@@ -158,6 +158,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             }
         )
 
+    switch_mac = _safe(snapshot.get("system", {}).get("mac_address"))
     new_ports = [
         {
             "site": _safe(req.site),
@@ -165,6 +166,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "switch_name": switch_name,
             "port": _safe(item.get("name")),
             "up": "RUNNING" in (item.get("flags") or []),
+            "switch_mac": switch_mac,
         }
         for item in (snapshot.get("interfaces") or [])
         if isinstance(item, dict) and _safe(item.get("name"))
