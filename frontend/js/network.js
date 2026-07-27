@@ -253,7 +253,8 @@ function renderSwitchTable(rows) {
 
     let poeCell = '<span class="text-muted">-</span>';
     if (r.poe_enabled === true) {
-      poeCell = `<span class="badge badge-green">${esc(r.poe_power_watts != null ? `${r.poe_power_watts}W` : 'ligado')}</span>`;
+      const watts = r.poe_power_watts != null ? `${Number(r.poe_power_watts).toFixed(1)}W` : 'ligado';
+      poeCell = `<span class="badge badge-green">${esc(watts)}</span>`;
     } else if (r.poe_enabled === false) {
       poeCell = '<span class="badge badge-gray">desligado</span>';
     }
