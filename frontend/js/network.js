@@ -253,7 +253,6 @@ function renderSwitchTable(rows) {
     const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
     const speed = [r.bandwidth, r.duplex].filter(Boolean).join(' / ');
     const switchLabel = r.switch_name || r.switch_ip || '';
-    const camLabel = cam ? (cam.titulo || cam.local || cam.ip || '') : '';
 
     let poeCell = '<span class="text-muted">-</span>';
     if (r.poe_enabled === true) {
@@ -288,10 +287,10 @@ function renderSwitchTable(rows) {
       <td class="monospace" style="white-space:nowrap">${r.mac ? esc(r.mac) : '<span class="text-muted">-</span>'}</td>
       <td class="text-muted" style="text-align:center;white-space:nowrap">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
       <td class="text-muted" style="white-space:nowrap">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
-      <td style="${cellNowrap}" title="${esc(camLabel)}">${camLabel ? esc(camLabel) : '<span class="text-muted">-</span>'}</td>
+      <td class="text-muted" style="${cellNowrap}" title="${esc(switchLabel)}">${esc(switchLabel)}</td>
+      <td class="text-muted monospace" style="white-space:nowrap">${esc(r.switch_ip || '')}</td>
       <td class="text-muted" style="white-space:nowrap">${speed ? esc(speed) : '<span class="text-muted">-</span>'}</td>
       <td style="white-space:nowrap">${poeCell}</td>
-      <td class="text-muted" style="${cellNowrap}" title="${esc(switchLabel)}">${esc(switchLabel)}</td>
       <td class="text-muted" style="${cellNowrap}" title="${esc(r.site || '')}">${esc(r.site || '')}</td>
       <td style="white-space:nowrap;text-align:center">${actionsHtml}</td>
     </tr>`;
@@ -408,6 +407,7 @@ function closeSwitchCollectModal() {
 async function switchCollect() {
   const platform = document.getElementById('switchPlatform')?.value || 'intelbras';
   const switch_ip = document.getElementById('switchIp')?.value.trim() || '';
+  const switch_name = document.getElementById('switchName')?.value.trim() || '';
   const site = document.getElementById('switchSite')?.value.trim() || '';
   const user = document.getElementById('switchUser')?.value.trim() || 'admin';
   const password = document.getElementById('switchPassword')?.value || '';
@@ -428,7 +428,7 @@ async function switchCollect() {
   try {
     const res = await api('/api/switch/collect-macs', {
       method: 'POST',
-      body: JSON.stringify({ platform, switch_ip, site, user, password, reuse_json, connector_id: context.connectorId || '' }),
+      body: JSON.stringify({ platform, switch_ip, switch_name, site, user, password, reuse_json, connector_id: context.connectorId || '' }),
     });
     const data = await res?.json().catch(() => ({}));
     if (res?.ok) {

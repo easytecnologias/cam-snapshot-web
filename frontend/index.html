@@ -1467,9 +1467,9 @@
             <table class="data-table" style="table-layout:fixed;width:100%;min-width:1180px">
               <colgroup>
                 <col style="width:6%"><col style="width:14%"><col style="width:6%">
-                <col style="width:8%"><col style="width:14%"><col style="width:10%">
-                <col style="width:8%"><col style="width:14%"><col style="width:10%">
-                <col style="width:10%">
+                <col style="width:8%"><col style="width:14%"><col style="width:12%">
+                <col style="width:10%"><col style="width:8%"><col style="width:10%">
+                <col style="width:12%">
               </colgroup>
               <thead>
                 <tr>
@@ -1477,10 +1477,10 @@
                   <th>MAC</th>
                   <th>VLAN</th>
                   <th>Tipo</th>
-                  <th>Camera</th>
+                  <th>Switch</th>
+                  <th>IP</th>
                   <th>Velocidade</th>
                   <th>PoE</th>
-                  <th>Switch</th>
                   <th>Site</th>
                   <th>Ações</th>
                 </tr>
@@ -3850,6 +3850,10 @@
         <div class="form-group" style="margin:0">
           <label>IP do switch</label>
           <input id="switchIp" type="text" placeholder="Ex: 172.16.80.204" autocomplete="off">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Nome do switch <span style="color:var(--muted);font-weight:400">(opcional)</span></label>
+          <input id="switchName" type="text" placeholder="Ex: Switch Sala Servidor" autocomplete="off">
         </div>
         <div class="form-group" style="margin:0">
           <label>Site <span style="color:var(--muted);font-weight:400">(opcional)</span></label>
