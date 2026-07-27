@@ -176,20 +176,31 @@ def _enrich_inventory_with_switch(rows: List[Dict[str, Any]], switch_json_path: 
                 return v
         return ""
 
+    def _is_uplink(src: dict[str, Any]) -> bool:
+        switch_ip = str(src.get("switch_ip") or "").strip().lower()
+        port = str(src.get("port") or src.get("switch_port") or "").strip().lower()
+        load = port_load.get((switch_ip, port), 999999)
+        vlan_count = len(port_vlans.get((switch_ip, port), set()))
+        return bool(src.get("is_uplink_candidate")) or vlan_count > 1 or load >= 32
+
     def pick_best_candidate(items: list[dict[str, Any]]) -> dict[str, Any] | None:
-        if not items:
+        # Uplink = trafego de varios equipamentos atras do switch (outro
+        # segmento), nao a porta fisica real da camera. Se so existe candidato
+        # via uplink, nao vale mostrar -- e melhor deixar switch/porta vazio do
+        # que dar a falsa impressao de que a camera esta ligada nessa porta.
+        candidates = [it for it in items if not _is_uplink(it)]
+        if not candidates:
             return None
 
-        def candidate_key(src: dict[str, Any]) -> tuple[int, int, int, int, str, str]:
+        def candidate_key(src: dict[str, Any]) -> tuple[int, int, str, str]:
             switch_ip = str(src.get("switch_ip") or "").strip().lower()
             port = str(src.get("port") or src.get("switch_port") or "").strip().lower()
             load = port_load.get((switch_ip, port), 999999)
             vlan_count = len(port_vlans.get((switch_ip, port), set()))
-            is_uplink = bool(src.get("is_uplink_candidate")) or vlan_count > 1 or load >= 32
             vlan = str(src.get("vlan") or src.get("switch_vlan") or "").strip()
-            return (1 if is_uplink else 0, load, vlan_count, 0 if port.startswith("ge") else 1, switch_ip, vlan)
+            return (load, vlan_count, switch_ip, vlan)
 
-        return sorted(items, key=candidate_key)[0]
+        return sorted(candidates, key=candidate_key)[0]
 
     changed = 0
     for cam in rows:

@@ -74,6 +74,7 @@ function _camCell(c) {
     onu_id:    `<span style="text-align:center;display:block;font-weight:500">${esc(c.onu_id||'')}</span>`,
     onu_name:  `<span class="text-muted" title="${esc(c.onu_name||'')}" style="font-size:11px">${esc(c.onu_name||'')}</span>`,
     onu_ser:   `<span class="monospace text-muted" title="${esc(c.onu_serial||'')}" style="font-size:11px">${esc(c.onu_serial||'')}</span>`,
+    sw_name:   `<span class="text-muted" title="${esc(c.switch_name||'')}">${esc(c.switch_name||'')}</span>`,
     sw_ip:     `<span class="monospace text-muted" title="${esc(c.switch_ip||'')}">${esc(c.switch_ip||'')}</span>`,
     sw_port:   `<span class="text-muted" title="${esc(c.switch_port||'')}">${esc(c.switch_port||'')}</span>`,
     sw_vlan:   `<span class="text-muted" title="${esc(c.switch_vlan||'')}">${esc(c.switch_vlan||'')}</span>`,
@@ -101,9 +102,9 @@ const INV_COLS = {
   },
   // Switch: base enxuta + dados Switch
   switch: {
-    cols:  ['4%','12%','14%','8%','9%','17%','7%','5%','6%','10%','5%','3%'],
-    heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch IP','Porta','VLAN'],
-    row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_ip, v.sw_port, v.sw_vlan]; },
+    cols:  ['4%','11%','13%','7%','8%','15%','6%','5%','6%','9%','9%','4%','3%'],
+    heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Switch IP','Porta','VLAN'],
+    row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_name, v.sw_ip, v.sw_port, v.sw_vlan]; },
   },
 };
 
@@ -978,7 +979,7 @@ function _isBlankValue(value) {
 function camHasMissingData(c) {
   const required = [c.ip, c.mac, c.fabricante, c.modelo || c.model, c.titulo, c.local];
   if (_invOltView === 'olt') required.push(c.pon, c.onu_id, c.onu_name, c.onu_serial);
-  if (_invOltView === 'switch') required.push(c.switch_ip, c.switch_port);
+  if (_invOltView === 'switch') required.push(c.switch_name, c.switch_ip, c.switch_port);
   return required.some(_isBlankValue);
 }
 
