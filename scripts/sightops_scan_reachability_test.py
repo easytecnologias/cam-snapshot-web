@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.services.ws_scan_service import _decide_remote_only, _pick_probe_targets
+from app.services.ws_scan_service import _connector_has_tunnel, _decide_remote_only, _pick_probe_targets
 
 FALHAS: list[str] = []
 
@@ -85,6 +85,29 @@ def main() -> None:
     amostra = _pick_probe_targets("10.200.0.1-10.200.1.254")  # faixa de 510 IPs
     check(len(amostra) <= 3, f"amostra deveria ser pequena (ate 3), veio {len(amostra)}")
     check(amostra[0] == "10.200.0.1", f"deveria comecar pelo primeiro IP da faixa: {amostra}")
+
+    # --- _connector_has_tunnel: Ruijie nao tem agente reportando
+    # tunnel/vpn/wireguard.enabled -- o sinal e ter vpn_config salvo. Bug
+    # real: sem isso, todo scan via conector Ruijie caia pro caminho de fila
+    # do MikroTik (que nao existe pra Ruijie) e ficava "preso" ate estourar
+    # o timeout de 150s por lote.
+    check(
+        _connector_has_tunnel({"type": "ruijie", "vpn_config": "dev tun\n..."}) is True,
+        "conector Ruijie com vpn_config deveria contar como tunel disponivel",
+    )
+    check(
+        _connector_has_tunnel({"type": "ruijie", "vpn_config": ""}) is False,
+        "conector Ruijie sem vpn_config nao deveria contar como tunel disponivel",
+    )
+    check(
+        _connector_has_tunnel({"type": "routeros", "vpn_config": "isso nao deveria importar"}) is False,
+        "vpn_config nao e o sinal certo pro MikroTik -- so tunnel/vpn/wireguard.enabled contam",
+    )
+    check(
+        _connector_has_tunnel({"type": "routeros", "wireguard": {"enabled": True}}) is True,
+        "MikroTik continua reconhecendo wireguard.enabled normalmente",
+    )
+    check(_connector_has_tunnel(None) is False, "conector ausente nunca tem tunel")
 
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")

@@ -90,6 +90,13 @@ def _connector_from_payload(payload: Dict[str, Any]) -> dict[str, Any] | None:
 def _connector_has_tunnel(connector: dict[str, Any] | None) -> bool:
     if not connector:
         return False
+    # MikroTik reporta o tunel via tunnel/vpn/wireguard.enabled (populado
+    # pelo agente RouterOS). O Ruijie nao tem agente -- o tunel OpenVPN
+    # persistente e gerenciado fora do processo, por
+    # scripts/sightops_ruijie_vpn_sync.py; o sinal disponivel aqui e ter
+    # vpn_config salvo no cadastro.
+    if str(connector.get("type") or "").strip().lower() == "ruijie":
+        return bool(str(connector.get("vpn_config") or "").strip())
     tunnel = connector.get("tunnel") if isinstance(connector, dict) else None
     if isinstance(tunnel, dict) and tunnel.get("enabled"):
         return True
