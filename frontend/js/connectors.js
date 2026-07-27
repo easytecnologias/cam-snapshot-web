@@ -128,13 +128,15 @@ async function downloadConnectorVpn(connectorId) {
   openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
 }
 
-function loadVpnConfigFile(input, targetTextareaId) {
+function loadVpnConfigFile(input, targetTextareaId, fileNameLabelId) {
   const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
     const textarea = document.getElementById(targetTextareaId);
     if (textarea) textarea.value = String(reader.result || '').trim();
+    const label = fileNameLabelId ? document.getElementById(fileNameLabelId) : null;
+    if (label) label.textContent = `${file.name} carregado`;
   };
   reader.onerror = () => showToast('Nao consegui ler o arquivo selecionado.', true);
   reader.readAsText(file);
@@ -157,6 +159,8 @@ function resetConnectorCreateForm() {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  const vpnFileLabel = document.getElementById('connVpnConfigFileName');
+  if (vpnFileLabel) vpnFileLabel.textContent = 'Nenhum arquivo escolhido';
   const type = document.getElementById('connType');
   if (type) type.value = 'routeros';
   const gwUser = document.getElementById('connGatewayUser');
@@ -387,6 +391,8 @@ function openRuijieVpnModal(connectorId) {
   document.getElementById('ruijieVpnConfig').value = row?.vpn_config || '';
   const fileInput = document.getElementById('ruijieVpnConfigFile');
   if (fileInput) fileInput.value = '';
+  const fileLabel = document.getElementById('ruijieVpnConfigFileName');
+  if (fileLabel) fileLabel.textContent = row?.vpn_config ? 'Configuracao ja salva (escolha outro arquivo pra trocar)' : 'Nenhum arquivo escolhido';
   modal.dataset.connectorId = connectorId;
   modal.classList.remove('hidden');
   lucide.createIcons();

@@ -1746,9 +1746,13 @@
                 <input id="connVpnPassword" type="password" placeholder="senha da conta VPN">
               </label>
               <label id="connFieldsRuijieVpnConfig" class="hidden" style="grid-column:1 / -1">Configuração OpenVPN exportada do gateway (.ovpn, opcional)
-                <small style="display:block;color:var(--muted);margin-bottom:4px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
-                <input id="connVpnConfigFile" type="file" accept=".ovpn,.conf,.txt" onchange="loadVpnConfigFile(this,'connVpnConfig')" style="margin-bottom:6px">
-                <textarea id="connVpnConfig" rows="4" placeholder="Escolha o arquivo client.ovpn acima, ou cole o conteudo aqui" style="font-family:monospace;font-size:12px"></textarea>
+                <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <button type="button" class="secondary-action" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('connVpnConfigFile').click()"><i data-lucide="upload"></i> Escolher client.ovpn</button>
+                  <span id="connVpnConfigFileName" style="font-size:12px;color:var(--muted)">Nenhum arquivo escolhido</span>
+                </div>
+                <input id="connVpnConfigFile" type="file" accept=".ovpn,.conf,.txt" onchange="loadVpnConfigFile(this,'connVpnConfig','connVpnConfigFileName')" style="display:none">
+                <textarea id="connVpnConfig" rows="2" placeholder="Ou cole o conteudo aqui manualmente" style="font-family:monospace;font-size:11px;margin-top:8px"></textarea>
               </label>
             </div>
             <div class="connector-token-box hidden" id="connCreatedBox">
@@ -3967,9 +3971,13 @@
             <input id="ruijieVpnPassword" type="password" placeholder="senha da conta VPN">
           </label>
           <label style="grid-column:1 / -1">Configuração OpenVPN (.ovpn)
-            <small style="display:block;color:var(--muted);margin-bottom:4px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
-            <input id="ruijieVpnConfigFile" type="file" accept=".ovpn,.conf,.txt" onchange="loadVpnConfigFile(this,'ruijieVpnConfig')" style="margin-bottom:6px">
-            <textarea id="ruijieVpnConfig" rows="8" placeholder="Escolha o arquivo client.ovpn acima, ou cole o conteudo aqui" style="font-family:monospace;font-size:12px"></textarea>
+            <small style="display:block;color:var(--muted);margin-bottom:6px">O eWeb exporta um .tar -- extraia e escolha o arquivo "client.ovpn" de dentro dele.</small>
+            <div style="display:flex;align-items:center;gap:10px">
+              <button type="button" class="secondary-action" style="font-size:12px;padding:6px 12px" onclick="document.getElementById('ruijieVpnConfigFile').click()"><i data-lucide="upload"></i> Escolher client.ovpn</button>
+              <span id="ruijieVpnConfigFileName" style="font-size:12px;color:var(--muted)">Nenhum arquivo escolhido</span>
+            </div>
+            <input id="ruijieVpnConfigFile" type="file" accept=".ovpn,.conf,.txt" onchange="loadVpnConfigFile(this,'ruijieVpnConfig','ruijieVpnConfigFileName')" style="display:none">
+            <textarea id="ruijieVpnConfig" rows="3" placeholder="Ou cole o conteudo aqui manualmente" style="font-family:monospace;font-size:11px;margin-top:8px"></textarea>
           </label>
         </div>
       </div>
