@@ -1420,6 +1420,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeSwitchModal')?.addEventListener('click', closeSwitchCollectModal);
   document.getElementById('cancelSwitchModal')?.addEventListener('click', closeSwitchCollectModal);
   document.getElementById('btnSwitchStart')?.addEventListener('click', switchCollect);
+  document.getElementById('switchConnector')?.addEventListener('change', updateSwitchConnectorUi);
+  document.getElementById('switchSite')?.addEventListener('input', () => {
+    refreshSwitchConnectors().finally(updateSwitchConnectorUi);
+  });
 
   // Scripts
   document.getElementById('btnGenGrafana')?.addEventListener('click', async () => {

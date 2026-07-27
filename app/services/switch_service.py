@@ -185,6 +185,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "model": _safe(snapshot.get("system", {}).get("product_name")),
             "firmware": _safe(snapshot.get("system", {}).get("software_version")),
             "platform": platform,
+            "connector_id": _safe(getattr(req, "connector_id", "")),
         },
         "rows": all_rows,
     }

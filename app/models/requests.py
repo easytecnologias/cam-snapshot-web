@@ -104,6 +104,7 @@ class SwitchCollectMacsRequest(BaseModel):
     port: int = 23
     timeout: float = 12.0
     platform: str = "intelbras"
+    connector_id: str | None = None
 
 
 class OltDiscoverOnusRequest(BaseModel):

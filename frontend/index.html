@@ -3795,6 +3795,15 @@
           </select>
         </div>
         <div class="form-group" style="margin:0">
+          <label>Conector</label>
+          <select id="switchConnector" class="filter-select" style="width:100%">
+            <option value="">Opcional: usar servidor local/VPN</option>
+          </select>
+        </div>
+        <div id="switchConnectorStatus" class="deploy-result-box" style="padding:10px 12px;margin:0;font-size:13px">
+          Use local/VPN quando o servidor ja tiver rota ate o switch.
+        </div>
+        <div class="form-group" style="margin:0">
           <label>IP do switch</label>
           <input id="switchIp" type="text" placeholder="Ex: 172.16.80.204" autocomplete="off">
         </div>
@@ -4441,13 +4450,13 @@
   <script src="js/snapshots.js?v=142"></script>
   <script src="js/maintenance.js?v=141"></script>
   <script src="js/analysis.js?v=143"></script>
-  <script src="js/network.js?v=143"></script>
-  <script src="js/deploy.js?v=150"></script>
+  <script src="js/network.js?v=144"></script>
+  <script src="js/deploy.js?v=152"></script>
   <script src="js/deployOlt.js?v=158"></script>
-  <script src="js/connectors.js?v=144"></script>
+  <script src="js/connectors.js?v=152"></script>
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=16"></script>
   <script src="js/helpers.js?v=142"></script>
-  <script src="js/bootstrap.js?v=153"></script>
+  <script src="js/bootstrap.js?v=155"></script>
 </body>
 </html>

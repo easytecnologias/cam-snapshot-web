@@ -183,8 +183,46 @@ async function loadSwitch() {
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
 }
 
+async function refreshSwitchConnectors() {
+  const sel = document.getElementById('switchConnector');
+  if (!sel) return;
+  try {
+    const data = await apiJson('/api/connectors');
+    _connectors = Array.isArray(data?.connectors) ? data.connectors : (_connectors || []);
+  } catch {
+    _connectors = _connectors || [];
+  }
+  const rows = _routerConnectors();
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Opcional: usar servidor local/VPN</option>' + rows.map(c => {
+    const online = _connectorIsOnline(c);
+    const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+    return `<option value="${esc(c.id || '')}" ${online ? '' : 'disabled'}>${esc(_connectorLabel(c))}${tunnel}${online ? '' : ' (offline)'}</option>`;
+  }).join('');
+
+  const site = document.getElementById('switchSite')?.value.trim() || '';
+  const match = current ? _connectorById(current) : _findConnectorForSite(site);
+  if (match?.id) sel.value = match.id;
+}
+
+function updateSwitchConnectorUi() {
+  const site = document.getElementById('switchSite')?.value.trim() || '';
+  const connectorId = document.getElementById('switchConnector')?.value || '';
+  const context = _networkContextForSite(site, connectorId);
+  const status = document.getElementById('switchConnectorStatus');
+  if (status) {
+    status.innerHTML = context.connectorId
+      ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN configurada.' : ' -- configure a VPN antes de coletar remoto.'}`
+      : 'Sem conector para este site: usando servidor local/VPN ja roteada.';
+  }
+  const siteEl = document.getElementById('switchSite');
+  if (context.connector?.site && siteEl && !siteEl.value.trim()) siteEl.value = context.connector.site;
+  return context;
+}
+
 function openSwitchCollectModal() {
   document.getElementById('modalSwitchCollect')?.classList.remove('hidden');
+  refreshSwitchConnectors().finally(updateSwitchConnectorUi);
   lucide.createIcons();
 }
 
@@ -199,9 +237,15 @@ async function switchCollect() {
   const user = document.getElementById('switchUser')?.value.trim() || 'admin';
   const password = document.getElementById('switchPassword')?.value || '';
   const reuse_json = document.getElementById('switchReuse')?.checked || false;
+  const connectorId = document.getElementById('switchConnector')?.value || '';
+  const context = _networkContextForSite(site, connectorId);
 
   if (!switch_ip) { showToast('Informe o IP do switch', true); return; }
   if (!password) { showToast('Informe a senha do switch', true); return; }
+  if (context.connectorId) {
+    if (!context.online) { showToast('O conector selecionado esta offline.', true); return; }
+    if (!context.hasTunnel) { showToast('Configure a VPN do conector antes de coletar remoto.', true); return; }
+  }
 
   const btn = document.getElementById('btnSwitchStart');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader-circle"></i> Coletando'; lucide.createIcons(); }
@@ -209,7 +253,7 @@ async function switchCollect() {
   try {
     const res = await api('/api/switch/collect-macs', {
       method: 'POST',
-      body: JSON.stringify({ platform, switch_ip, site, user, password, reuse_json }),
+      body: JSON.stringify({ platform, switch_ip, site, user, password, reuse_json, connector_id: context.connectorId || '' }),
     });
     const data = await res?.json().catch(() => ({}));
     if (res?.ok) {
