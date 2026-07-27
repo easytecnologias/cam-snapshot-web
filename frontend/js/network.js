@@ -265,18 +265,22 @@ function renderSwitchTable(rows) {
 
     // Vermelho = estado atual ligado (apertar desliga); verde = estado atual
     // desligado (apertar liga) -- a cor do botao mostra o que vai acontecer.
+    const btnStyle = 'width:26px;height:26px';
     const actions = [];
     if (cam?.ip) {
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(cam.ip)}" title="Testar ping"><i data-lucide="activity"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(cam.ip)}" title="Testar ping" style="${btnStyle}"><i data-lucide="activity"></i></button>`);
     }
     if (canToggle && r.port_id != null && r.poe_enabled !== undefined && r.poe_enabled !== null) {
       const poeOn = r.poe_enabled === true;
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${poeOn ? '0' : '1'}" title="${poeOn ? 'Desligar PoE' : 'Ligar PoE'}" style="color:${poeOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="zap"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${poeOn ? '0' : '1'}" title="${poeOn ? 'Desligar PoE' : 'Ligar PoE'}" style="${btnStyle};color:${poeOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="zap"></i></button>`);
     }
     if (canToggle && r.port_id != null) {
       const portOn = r.admin_enabled !== false;
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}" style="color:${portOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="power"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}" style="${btnStyle};color:${portOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="power"></i></button>`);
     }
+    const actionsHtml = actions.length
+      ? `<div style="display:flex;gap:4px;align-items:center;justify-content:center">${actions.join('')}</div>`
+      : '<span class="text-muted">-</span>';
 
     return `
     <tr${isEmpty ? ' style="opacity:.65"' : ''}>
@@ -289,7 +293,7 @@ function renderSwitchTable(rows) {
       <td style="white-space:nowrap">${poeCell}</td>
       <td class="text-muted" style="${cellNowrap}" title="${esc(switchLabel)}">${esc(switchLabel)}</td>
       <td class="text-muted" style="${cellNowrap}" title="${esc(r.site || '')}">${esc(r.site || '')}</td>
-      <td style="white-space:nowrap;text-align:center">${actions.join('')}</td>
+      <td style="white-space:nowrap;text-align:center">${actionsHtml}</td>
     </tr>`;
   }).join('');
   lucide.createIcons();
