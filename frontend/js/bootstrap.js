@@ -1439,6 +1439,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('switchFilterDevice').value = '';
     filterSwitchTable();
   });
+  document.getElementById('switchTable')?.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.switch-port-action');
+    if (btn) switchPortAction(btn);
+  });
   document.getElementById('btnSwitchClearTable')?.addEventListener('click', async () => {
     const site = document.getElementById('switchFilterSite')?.value || '';
     const ok = await showConfirm({

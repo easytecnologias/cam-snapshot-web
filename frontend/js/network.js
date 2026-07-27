@@ -152,6 +152,7 @@ async function oltCollect() {
 
 let _switchRows = [];
 let _switchCamByMac = {};
+let _switchPlatform = '';
 
 async function loadSwitch() {
   const [swData, camData] = await Promise.all([
@@ -160,6 +161,10 @@ async function loadSwitch() {
   ]);
   const rawRows = swData?.rows || (Array.isArray(swData) ? swData : []);
   const ports = swData?.ports || [];
+  _switchPlatform = swData?.switch?.platform || '';
+
+  const portInfoByKey = {};
+  ports.forEach(p => { portInfoByKey[`${p.switch_ip || ''}|${p.port || ''}`] = p; });
 
   // MACs aprendidos na porta uplink sao de equipamentos atras do switch (outra
   // rede/segmento), nao ligados fisicamente nela -- fora da tabela por completo
@@ -182,7 +187,18 @@ async function loadSwitch() {
       _linkUp: !!p.up, _synthetic: true,
     }));
 
-  _switchRows = [...edgeRows, ...emptyPortRows];
+  _switchRows = [...edgeRows, ...emptyPortRows].map(r => {
+    const info = portInfoByKey[`${r.switch_ip || ''}|${r.port || ''}`] || {};
+    return {
+      ...r,
+      port_id: info.port_id,
+      bandwidth: info.bandwidth || '',
+      duplex: info.duplex || '',
+      poe_enabled: info.poe_enabled,
+      poe_power_watts: info.poe_power_watts,
+      admin_enabled: info.admin_enabled,
+    };
+  });
 
   _switchCamByMac = {};
   const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
@@ -224,13 +240,36 @@ function renderSwitchTable(rows) {
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum dado. Execute a coleta.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhum dado. Execute a coleta.</td></tr>';
     return;
   }
+
+  const canToggle = _switchPlatform === 'hikvision';
 
   tbody.innerHTML = rows.map(r => {
     const isEmpty = !!r._synthetic;
     const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
+    const speed = [r.bandwidth, r.duplex].filter(Boolean).join(' / ');
+
+    let poeCell = '<span class="text-muted">-</span>';
+    if (r.poe_enabled === true) {
+      poeCell = `<span class="badge badge-green">${esc(r.poe_power_watts != null ? `${r.poe_power_watts}W` : 'ligado')}</span>`;
+    } else if (r.poe_enabled === false) {
+      poeCell = '<span class="badge badge-gray">desligado</span>';
+    }
+    if (canToggle && r.poe_enabled !== undefined && r.poe_enabled !== null) {
+      poeCell = `<button type="button" class="ghost-action switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${r.poe_enabled ? '0' : '1'}" style="padding:2px 8px">${poeCell}</button>`;
+    }
+
+    const actions = [];
+    if (cam?.ip) {
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(cam.ip)}" title="Testar ping"><i data-lucide="activity"></i></button>`);
+    }
+    if (canToggle && r.port_id != null) {
+      const portOn = r.admin_enabled !== false;
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}"><i data-lucide="${portOn ? 'power-off' : 'power'}"></i></button>`);
+    }
+
     return `
     <tr${isEmpty ? ' style="opacity:.65"' : ''}>
       <td class="text-muted">${esc(r.port || '')}</td>
@@ -238,10 +277,56 @@ function renderSwitchTable(rows) {
       <td class="text-muted" style="text-align:center">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
       <td class="text-muted">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
       <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
+      <td class="text-muted">${speed ? esc(speed) : '<span class="text-muted">-</span>'}</td>
+      <td>${poeCell}</td>
       <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
       <td class="text-muted">${esc(r.site || '')}</td>
+      <td style="white-space:nowrap">${actions.join('')}</td>
     </tr>`;
   }).join('');
+  lucide.createIcons();
+}
+
+async function switchPortAction(el) {
+  const action = el.dataset.action;
+  if (action === 'ping') {
+    openPingTerminal(el.dataset.ip);
+    return;
+  }
+
+  const switchIp = el.dataset.switchIp;
+  const site = el.dataset.site;
+  const port = el.dataset.port;
+  const enabled = el.dataset.enabled === '1';
+
+  const labels = {
+    poe: enabled ? 'ligar o PoE' : 'desligar o PoE',
+    port: enabled ? 'ativar a porta' : 'desativar a porta',
+  };
+  const ok = await showConfirm({
+    eyebrow: 'Switch',
+    title: `Confirmar acao na porta ${port}`,
+    msg: `Isso vai ${labels[action]} da porta ${port}. Se houver um equipamento ligado nela, pode ficar offline. Continuar?`,
+    label: 'Confirmar',
+  });
+  if (!ok) return;
+
+  const path = action === 'poe' ? '/api/switch/port/poe' : '/api/switch/port/enabled';
+  try {
+    const res = await api(path, {
+      method: 'POST',
+      body: JSON.stringify({ switch_ip: switchIp, site, port, enabled }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (res?.ok) {
+      showToast('Acao aplicada.');
+      loadSwitch();
+    } else {
+      showToast(data?.detail || data?.error || 'Falha ao aplicar acao.', true);
+    }
+  } catch (e) {
+    showToast(e.message || 'Erro de conexao com o switch.', true);
+  }
 }
 
 function filterSwitchTable() {

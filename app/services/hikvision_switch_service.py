@@ -98,7 +98,26 @@ class HikvisionSwitchSession:
         return self.call(module_action, {"searchID": _search_id(), "maxResults": max_results, "searchResultPosition": 1})
 
 
-_RATE_LABELS = {0: "auto", 1: "10M", 2: "100M", 3: "1000M", 4: "10G"}
+# Mapa exato usado pela propria UI do switch (extraido do bundle JS) pra
+# traduzir os enums numericos rate/dx em texto "velocidade-duplex".
+_RATE_DX_LABELS = {
+    (0, 3): "auto-auto",
+    (4, 3): "1000M-auto",
+    (1, 1): "10M-full",
+    (3, 1): "100M-full",
+    (4, 1): "1000M-full",
+    (0, 0): "auto-half",
+    (1, 0): "10M-half",
+    (3, 0): "100M-half",
+}
+
+
+def rate_dx_to_speed_duplex(rate: int, dx: int) -> tuple[str, str]:
+    label = _RATE_DX_LABELS.get((int(rate or 0), int(dx or 0)))
+    if not label:
+        return "auto", "auto"
+    speed, duplex = label.split("-", 1)
+    return speed, duplex
 
 
 def _flags_for_port(status_row: dict[str, Any]) -> list[str]:
@@ -111,20 +130,28 @@ def build_snapshot(
     poe_info: list[dict[str, Any]],
     mac_entries: list[dict[str, Any]],
     vlan_entries: list[dict[str, Any]],
+    port_basic: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     poe_by_port = {int(row.get("portID")): row for row in poe_info if row.get("portID") is not None}
+    basic_by_port = {int(row.get("ID")): row for row in (port_basic or []) if row.get("ID") is not None}
 
     interfaces: list[dict[str, Any]] = []
     for row in port_status:
         port_id = row.get("ID")
         poe_row = poe_by_port.get(int(port_id)) if port_id is not None else None
+        basic_row = basic_by_port.get(int(port_id)) if port_id is not None else None
+        rate = int(row.get("rate") or 0)
+        dx = int(row.get("dx") or 0)
+        speed, duplex = rate_dx_to_speed_duplex(rate, dx)
         interfaces.append(
             {
+                "port_id": port_id,
                 "name": row.get("name") or f"port{port_id}",
                 "hardware": "",
                 "mac": "",
                 "flags": _flags_for_port(row),
-                "bandwidth": _RATE_LABELS.get(int(row.get("rate") or 0), ""),
+                "bandwidth": speed,
+                "duplex": duplex,
                 "ip_cidr": "",
                 "input_packets": None,
                 "input_bytes": None,
@@ -138,6 +165,10 @@ def build_snapshot(
                 "tx_pkt_s": row.get("stats", {}).get("txPktS"),
                 "poe_enabled": bool(poe_row.get("enabled")) if poe_row else None,
                 "poe_power_watts": poe_row.get("poePower") if poe_row else row.get("poePow"),
+                "admin_enabled": bool(basic_row.get("en")) if basic_row else None,
+                "flow_ctrl_en": bool(basic_row.get("flowCtrlEn")) if basic_row else None,
+                "rate_raw": rate,
+                "dx_raw": dx,
             }
         )
 
@@ -214,8 +245,35 @@ def collect_switch_snapshot(
 
     sum_info = session.call("PortMgr/GetSwitchSumInfo")
     port_status = session.search("PortMgr/SearchPortStatus").get("matchResults") or []
+    port_basic = session.search("PortMgr/SearchPortBasicParam").get("matchResults") or []
     poe_info = session.search("POE/SearchPortPoeInfo").get("portPoeInfoList") or []
     mac_entries = session.search("L2TableMgr/SearchPortMacAddress", max_results=1024).get("matchResults") or []
     vlan_entries = session.search("L2Mgr/SearchVLAN", max_results=4094).get("matchResults") or []
 
-    return build_snapshot(sum_info, port_status, poe_info, mac_entries, vlan_entries)
+    return build_snapshot(sum_info, port_status, poe_info, mac_entries, vlan_entries, port_basic)
+
+
+def set_port_poe(host: str, username: str, password: str, port_id: int, enabled: bool, port: int = 80, timeout: float = 10.0) -> None:
+    session = HikvisionSwitchSession(host=host, username=username, password=password, port=port, timeout=timeout)
+    session.login()
+    session.call("POE/ModifyPortPoeInfo", [{"portID": int(port_id), "enabled": bool(enabled)}])
+
+
+def set_port_enabled(host: str, username: str, password: str, port_id: int, enabled: bool, port: int = 80, timeout: float = 10.0) -> None:
+    session = HikvisionSwitchSession(host=host, username=username, password=password, port=port, timeout=timeout)
+    session.login()
+    current = session.search("PortMgr/SearchPortBasicParam").get("matchResults") or []
+    row = next((r for r in current if int(r.get("ID") or -1) == int(port_id)), None)
+    if row is None:
+        raise HikvisionSwitchError(f"Porta {port_id} nao encontrada no switch.")
+    speed, duplex = rate_dx_to_speed_duplex(row.get("rate"), row.get("dx"))
+    session.call(
+        "PortMgr/ModifyPortBasicParam",
+        {
+            "portID": int(port_id),
+            "enabled": bool(enabled),
+            "speed": speed,
+            "duplexMode": duplex,
+            "flowCtrlEnabled": bool(row.get("flowCtrlEn")),
+        },
+    )

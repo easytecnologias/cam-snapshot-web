@@ -5,8 +5,13 @@ from typing import Any, Dict, List, Tuple
 from fastapi import HTTPException
 
 from app.core.paths import DATA_DIR
+from app.core.crypto import encrypt, decrypt
 from app.services.intelbras_switch_service import collect_switch_snapshot as collect_intelbras_snapshot
-from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_snapshot
+from app.services.hikvision_switch_service import (
+    collect_switch_snapshot as collect_hikvision_snapshot,
+    set_port_poe as hikvision_set_port_poe,
+    set_port_enabled as hikvision_set_port_enabled,
+)
 from app.services.db_store import load_switch_mac_state, save_switch_mac_state
 from app.models.requests import SwitchCollectMacsRequest
 
@@ -165,8 +170,14 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "switch_ip": _safe(req.switch_ip),
             "switch_name": switch_name,
             "port": _safe(item.get("name")),
+            "port_id": item.get("port_id"),
             "up": "RUNNING" in (item.get("flags") or []),
             "switch_mac": switch_mac,
+            "bandwidth": _safe(item.get("bandwidth")),
+            "duplex": _safe(item.get("duplex")),
+            "poe_enabled": item.get("poe_enabled"),
+            "poe_power_watts": item.get("poe_power_watts"),
+            "admin_enabled": item.get("admin_enabled"),
         }
         for item in (snapshot.get("interfaces") or [])
         if isinstance(item, dict) and _safe(item.get("name"))
@@ -176,10 +187,12 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
         existing_obj = load_switch_mac_state() or {}
         existing_rows = [x for x in (existing_obj.get("rows") or existing_obj.get("items") or []) if isinstance(x, dict)]
         existing_ports = [x for x in (existing_obj.get("ports") or []) if isinstance(x, dict)]
+        existing_creds = [x for x in (existing_obj.get("switch_creds") or []) if isinstance(x, dict)]
     except Exception:
         existing_obj = {}
         existing_rows = []
         existing_ports = []
+        existing_creds = []
 
     site = _safe(req.site).lower()
     switch_ip = _safe(req.switch_ip)
@@ -187,16 +200,28 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
     def _same_scope(x: dict[str, Any]) -> bool:
         return _safe(x.get("switch_ip")) == switch_ip and _safe(x.get("site")).lower() == site
 
+    new_creds = [
+        {
+            "site": _safe(req.site),
+            "switch_ip": switch_ip,
+            "platform": platform,
+            "user": _safe(req.user),
+            "password_enc": encrypt(req.password),
+            "host_port": port if platform == "hikvision" else req.port,
+        }
+    ]
+
     if req.reuse_json:
         all_rows = existing_rows + new_rows
         all_ports = existing_ports + new_ports
     else:
         all_rows = [x for x in existing_rows if not _same_scope(x)] + new_rows
         all_ports = [x for x in existing_ports if not _same_scope(x)] + new_ports
+    all_creds = [x for x in existing_creds if not _same_scope(x)] + new_creds
 
     all_rows = _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(all_rows)))
     payload = {
-        **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "switch", "ports")},
+        **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "switch", "ports", "switch_creds")},
         "switch": {
             "ip": switch_ip,
             "name": switch_name,
@@ -208,6 +233,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
         },
         "rows": all_rows,
         "ports": all_ports,
+        "switch_creds": all_creds,
     }
     save_switch_mac_state(payload)
     return {
@@ -227,21 +253,24 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
     existing_obj = load_switch_mac_state() or {}
     rows = [x for x in (existing_obj.get("rows") or existing_obj.get("items") or []) if isinstance(x, dict)]
     ports = [x for x in (existing_obj.get("ports") or []) if isinstance(x, dict)]
+    creds = [x for x in (existing_obj.get("switch_creds") or []) if isinstance(x, dict)]
     before = len(rows)
 
     if site_norm:
         kept = [r for r in rows if _safe(r.get("site")).lower() != site_norm]
         kept_ports = [p for p in ports if _safe(p.get("site")).lower() != site_norm]
+        kept_creds = [c for c in creds if _safe(c.get("site")).lower() != site_norm]
         save_switch_mac_state(
             {
-                **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "ports")},
+                **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "ports", "switch_creds")},
                 "rows": kept,
                 "ports": kept_ports,
+                "switch_creds": kept_creds,
             }
         )
         return {"ok": True, "scope": "site", "site": site.strip(), "removed_rows": before - len(kept), "remaining": len(kept)}
 
-    save_switch_mac_state({"switch": {}, "rows": [], "ports": []})
+    save_switch_mac_state({"switch": {}, "rows": [], "ports": [], "switch_creds": []})
     return {"ok": True, "scope": "all", "removed_rows": before, "remaining": 0}
 
 
@@ -255,3 +284,69 @@ def list_macs(site: str = "") -> Dict[str, Any]:
         rows = [r for r in rows if _safe(r.get("site")).lower() == site_norm]
     rows = _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(rows)))
     return {"ok": True, "rows": rows, "count": len(rows), "site": site.strip(), "switch": obj.get("switch") or {}, "ports": ports}
+
+
+def _find_switch_and_port(switch_ip: str, site: str, port_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    obj = load_switch_mac_state() or {}
+    ip = _safe(switch_ip)
+    site_norm = _safe(site).lower()
+    creds = [x for x in (obj.get("switch_creds") or []) if isinstance(x, dict)]
+    cred = next((c for c in creds if _safe(c.get("switch_ip")) == ip and _safe(c.get("site")).lower() == site_norm), None)
+    if cred is None:
+        cred = next((c for c in creds if _safe(c.get("switch_ip")) == ip), None)
+    if cred is None:
+        raise HTTPException(404, "Credenciais do switch nao encontradas. Rode 'Coletar MACs' antes.")
+    if _safe(cred.get("platform")).lower() != "hikvision":
+        raise HTTPException(400, "Acao disponivel apenas para switches Hikvision no momento.")
+
+    ports = [x for x in (obj.get("ports") or []) if isinstance(x, dict)]
+    port_row = next(
+        (
+            p for p in ports
+            if _safe(p.get("switch_ip")) == ip and _safe(p.get("site")).lower() == site_norm and _safe(p.get("port")) == _safe(port_name)
+        ),
+        None,
+    )
+    if port_row is None:
+        raise HTTPException(404, f"Porta {port_name} nao encontrada na ultima coleta deste switch.")
+    return cred, port_row
+
+
+def set_port_poe(switch_ip: str, site: str, port_name: str, enabled: bool) -> Dict[str, Any]:
+    cred, port_row = _find_switch_and_port(switch_ip, site, port_name)
+    port_id = port_row.get("port_id")
+    if port_id is None:
+        raise HTTPException(400, f"Porta {port_name} nao suporta PoE (sem port_id).")
+    password = decrypt(cred.get("password_enc") or "")
+    try:
+        hikvision_set_port_poe(
+            host=_safe(switch_ip),
+            username=_safe(cred.get("user")),
+            password=password,
+            port_id=int(port_id),
+            enabled=enabled,
+            port=int(cred.get("host_port") or 80),
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao configurar PoE: {e}") from e
+    return {"ok": True, "port": port_name, "poe_enabled": enabled}
+
+
+def set_port_enabled(switch_ip: str, site: str, port_name: str, enabled: bool) -> Dict[str, Any]:
+    cred, port_row = _find_switch_and_port(switch_ip, site, port_name)
+    port_id = port_row.get("port_id")
+    if port_id is None:
+        raise HTTPException(400, f"Porta {port_name} sem port_id conhecido.")
+    password = decrypt(cred.get("password_enc") or "")
+    try:
+        hikvision_set_port_enabled(
+            host=_safe(switch_ip),
+            username=_safe(cred.get("user")),
+            password=password,
+            port_id=int(port_id),
+            enabled=enabled,
+            port=int(cred.get("host_port") or 80),
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao configurar porta: {e}") from e
+    return {"ok": True, "port": port_name, "admin_enabled": enabled}

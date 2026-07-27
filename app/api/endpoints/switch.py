@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from app.services.intelbras_switch_service import collect_switch_snapshot
 from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_switch_snapshot
 from app.models.requests import SwitchCollectMacsRequest
-from app.services.switch_service import collect_macs, list_macs, clear_macs
+from app.services.switch_service import collect_macs, list_macs, clear_macs, set_port_poe, set_port_enabled
 
 router = APIRouter(prefix="/api/switch", tags=["switch"])
 
@@ -82,3 +82,25 @@ def api_switch_rows(site: str = "") -> Dict[str, Any]:
 @router.post("/clear")
 def api_switch_clear(site: str = "") -> Dict[str, Any]:
     return clear_macs(site=site)
+
+
+@router.post("/port/poe")
+def api_switch_port_poe(payload: Dict[str, Any]) -> Dict[str, Any]:
+    switch_ip = _as_str(payload.get("switch_ip"))
+    site = _as_str(payload.get("site"))
+    port_name = _as_str(payload.get("port"))
+    enabled = bool(payload.get("enabled"))
+    if not switch_ip or not port_name:
+        return {"ok": False, "error": "switch_ip/port sao obrigatorios"}
+    return set_port_poe(switch_ip, site, port_name, enabled)
+
+
+@router.post("/port/enabled")
+def api_switch_port_enabled(payload: Dict[str, Any]) -> Dict[str, Any]:
+    switch_ip = _as_str(payload.get("switch_ip"))
+    site = _as_str(payload.get("site"))
+    port_name = _as_str(payload.get("port"))
+    enabled = bool(payload.get("enabled"))
+    if not switch_ip or not port_name:
+        return {"ok": False, "error": "switch_ip/port sao obrigatorios"}
+    return set_port_enabled(switch_ip, site, port_name, enabled)
