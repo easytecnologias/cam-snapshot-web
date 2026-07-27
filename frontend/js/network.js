@@ -246,10 +246,14 @@ function renderSwitchTable(rows) {
 
   const canToggle = _switchPlatform === 'hikvision';
 
+  const cellNowrap = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+
   tbody.innerHTML = rows.map(r => {
     const isEmpty = !!r._synthetic;
     const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
     const speed = [r.bandwidth, r.duplex].filter(Boolean).join(' / ');
+    const switchLabel = r.switch_name || r.switch_ip || '';
+    const camLabel = cam ? (cam.titulo || cam.local || cam.ip || '') : '';
 
     let poeCell = '<span class="text-muted">-</span>';
     if (r.poe_enabled === true) {
@@ -258,31 +262,34 @@ function renderSwitchTable(rows) {
     } else if (r.poe_enabled === false) {
       poeCell = '<span class="badge badge-gray">desligado</span>';
     }
-    if (canToggle && r.poe_enabled !== undefined && r.poe_enabled !== null) {
-      poeCell = `<button type="button" class="ghost-action switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${r.poe_enabled ? '0' : '1'}" style="padding:2px 8px">${poeCell}</button>`;
-    }
 
+    // Vermelho = estado atual ligado (apertar desliga); verde = estado atual
+    // desligado (apertar liga) -- a cor do botao mostra o que vai acontecer.
     const actions = [];
     if (cam?.ip) {
       actions.push(`<button type="button" class="icon-button switch-port-action" data-action="ping" data-ip="${esc(cam.ip)}" title="Testar ping"><i data-lucide="activity"></i></button>`);
     }
+    if (canToggle && r.port_id != null && r.poe_enabled !== undefined && r.poe_enabled !== null) {
+      const poeOn = r.poe_enabled === true;
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="poe" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${poeOn ? '0' : '1'}" title="${poeOn ? 'Desligar PoE' : 'Ligar PoE'}" style="color:${poeOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="zap"></i></button>`);
+    }
     if (canToggle && r.port_id != null) {
       const portOn = r.admin_enabled !== false;
-      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}"><i data-lucide="${portOn ? 'power-off' : 'power'}"></i></button>`);
+      actions.push(`<button type="button" class="icon-button switch-port-action" data-action="port" data-switch-ip="${esc(r.switch_ip || '')}" data-site="${esc(r.site || '')}" data-port="${esc(r.port || '')}" data-enabled="${portOn ? '0' : '1'}" title="${portOn ? 'Desativar porta' : 'Ativar porta'}" style="color:${portOn ? 'var(--danger)' : 'var(--primary)'}"><i data-lucide="power"></i></button>`);
     }
 
     return `
     <tr${isEmpty ? ' style="opacity:.65"' : ''}>
-      <td class="text-muted">${esc(r.port || '')}</td>
-      <td class="monospace">${r.mac ? esc(r.mac) : '<span class="text-muted">-</span>'}</td>
-      <td class="text-muted" style="text-align:center">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
-      <td class="text-muted">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
-      <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
-      <td class="text-muted">${speed ? esc(speed) : '<span class="text-muted">-</span>'}</td>
-      <td>${poeCell}</td>
-      <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
-      <td class="text-muted">${esc(r.site || '')}</td>
-      <td style="white-space:nowrap">${actions.join('')}</td>
+      <td class="text-muted monospace" style="white-space:nowrap">${esc(r.port || '')}</td>
+      <td class="monospace" style="white-space:nowrap">${r.mac ? esc(r.mac) : '<span class="text-muted">-</span>'}</td>
+      <td class="text-muted" style="text-align:center;white-space:nowrap">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
+      <td class="text-muted" style="white-space:nowrap">${isEmpty ? (r._linkUp ? 'conectado' : 'sem cabo') : esc(r.entry_type || '')}</td>
+      <td style="${cellNowrap}" title="${esc(camLabel)}">${camLabel ? esc(camLabel) : '<span class="text-muted">-</span>'}</td>
+      <td class="text-muted" style="white-space:nowrap">${speed ? esc(speed) : '<span class="text-muted">-</span>'}</td>
+      <td style="white-space:nowrap">${poeCell}</td>
+      <td class="text-muted" style="${cellNowrap}" title="${esc(switchLabel)}">${esc(switchLabel)}</td>
+      <td class="text-muted" style="${cellNowrap}" title="${esc(r.site || '')}">${esc(r.site || '')}</td>
+      <td style="white-space:nowrap;text-align:center">${actions.join('')}</td>
     </tr>`;
   }).join('');
   lucide.createIcons();
