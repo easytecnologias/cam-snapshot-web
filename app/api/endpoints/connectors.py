@@ -22,6 +22,7 @@ from app.services.connector_service import (
     list_connectors,
     list_jobs,
     poll_job,
+    ruijie_collect_lan_inventory,
 )
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -126,6 +127,16 @@ def api_connector_wireguard_routeros_script(connector_id: str) -> Response:
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="sightops-routeros-wireguard.rsc"'},
     )
+
+
+@router.post("/{connector_id}/ruijie/lan-inventory")
+def api_connector_ruijie_lan_inventory(connector_id: str) -> Dict[str, Any]:
+    """Coleta o inventario da LAN de um conector Ruijie na hora (sem fila/job --
+    o gateway tem IP publico e responde de imediato)."""
+    try:
+        return ruijie_collect_lan_inventory(connector_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{connector_id}/jobs")

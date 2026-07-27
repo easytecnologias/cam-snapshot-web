@@ -1713,8 +1713,9 @@
           <div class="panel connector-card" id="connectorCreateCard">
             <div class="connector-form">
               <label>Tipo
-                <select id="connType">
+                <select id="connType" onchange="updateConnectorTypeFields()">
                   <option value="routeros">MikroTik / RouterOS</option>
+                  <option value="ruijie">Ruijie / Reyee</option>
                 </select>
               </label>
               <label>Nome
@@ -1726,8 +1727,17 @@
               <label>Site
                 <input id="connSite" placeholder="Reserva">
               </label>
-              <label>URL pública do SightOps
+              <label id="connFieldsRouteros">URL pública do SightOps
                 <input id="connPublicUrl" placeholder="http://201.182.184.80:18080" value="http://201.182.184.80:18080">
+              </label>
+              <label id="connFieldsRuijieHost" class="hidden">IP/host do gateway
+                <input id="connGatewayHost" placeholder="177.131.224.11">
+              </label>
+              <label id="connFieldsRuijieUser" class="hidden">Usuário do gateway
+                <input id="connGatewayUser" placeholder="admin" value="admin">
+              </label>
+              <label id="connFieldsRuijiePass" class="hidden">Senha do gateway
+                <input id="connGatewayPassword" type="password" placeholder="senha do admin">
               </label>
             </div>
             <div class="connector-token-box hidden" id="connCreatedBox">

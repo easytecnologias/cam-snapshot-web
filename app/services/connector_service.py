@@ -18,8 +18,10 @@ from typing import Any, Dict, List
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
 
+from app.core.crypto import decrypt, encrypt
 from app.core.paths import DATA_DIR
 from app.core.tenant_context import get_current_tenant_slug
+from app.cli.tools.ruijie_reyee import RuijieAuthError, lan_inventory as ruijie_lan_inventory_call
 
 CONNECTORS_PATH = DATA_DIR / "connectors.json"
 CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
@@ -255,6 +257,7 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
     out["status"] = "online" if online else "offline"
     if not include_token:
         out.pop("token", None)
+    out.pop("password_enc", None)
     return out
 
 
@@ -273,7 +276,7 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
     site = _text(payload.get("site")) or "Matriz"
     public_base_url = _text(payload.get("public_base_url") or payload.get("public_url")).rstrip("/")
     connector_type = _text(payload.get("type")).lower() or "routeros"
-    if connector_type not in {"routeros"}:
+    if connector_type not in {"routeros", "ruijie"}:
         raise ValueError("tipo de conector invalido")
     connector_id = _text(payload.get("id")) or secrets.token_hex(8)
     token = secrets.token_urlsafe(32)
@@ -294,6 +297,18 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         "remote_ip": "",
         "public_base_url": public_base_url,
     }
+    if connector_type == "ruijie":
+        # O Reyee tem IP publico e nao roda agente -- o SightOps fala direto
+        # com ele (login+API) sempre que precisar, guardando so o necessario
+        # pra reconectar. Sem public_base_url/token de agente (nao se aplica).
+        gw_host = _text(payload.get("gateway_host") or payload.get("host"))
+        gw_user = _text(payload.get("gateway_user") or payload.get("username")) or "admin"
+        gw_pass = _text(payload.get("gateway_password") or payload.get("password"))
+        if not gw_host or not gw_pass:
+            raise ValueError("conector Ruijie exige host e senha do gateway")
+        row["gateway_host"] = gw_host
+        row["gateway_user"] = gw_user
+        row["password_enc"] = encrypt(gw_pass)
     with _lock:
         rows = _load_connectors()
         if any(_text(item.get("id")) == connector_id for item in rows):
@@ -301,6 +316,42 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         rows.append(row)
         _save_connectors(rows)
     return {"ok": True, "connector": _public_connector(row, include_token=True)}
+
+
+def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
+    """Loga no gateway Ruijie e devolve o inventario de dispositivos da LAN.
+
+    Chamado direto pelo SightOps (sem fila/job, sem agente) -- o gateway
+    tem IP publico e responde na hora, diferente do fluxo assincrono do
+    MikroTik (que precisa esperar o proximo ciclo do script no equipamento).
+    """
+    with _lock:
+        rows = _load_connectors()
+        row = next((r for r in rows if _text(r.get("id")) == _text(connector_id)), None)
+        if not row or not _visible_to_current_tenant(row):
+            raise ValueError("conector nao encontrado")
+        if _text(row.get("type")) != "ruijie":
+            raise ValueError("conector nao e do tipo Ruijie")
+        gw_host = _text(row.get("gateway_host"))
+        gw_user = _text(row.get("gateway_user")) or "admin"
+        gw_pass_enc = _text(row.get("password_enc"))
+    if not gw_host or not gw_pass_enc:
+        raise ValueError("conector Ruijie sem host/senha cadastrados")
+    gw_pass = decrypt(gw_pass_enc)
+    try:
+        result = ruijie_lan_inventory_call(gw_host, gw_user, gw_pass)
+    except RuijieAuthError as exc:
+        raise ValueError(f"falha ao autenticar no gateway Ruijie: {exc}") from exc
+    with _lock:
+        rows = _load_connectors()
+        for item in rows:
+            if _text(item.get("id")) == _text(connector_id):
+                item["last_seen"] = _now()
+                item["inventory"] = {"ruijie_devices": result.get("devices", []), "count": result.get("count", 0)}
+                item["remote_ip"] = gw_host
+                break
+        _save_connectors(rows)
+    return result
 
 
 def get_connector(connector_id: str, include_token: bool = False, enforce_tenant: bool = False) -> Dict[str, Any] | None:

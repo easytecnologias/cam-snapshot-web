@@ -124,13 +124,25 @@ async function downloadConnectorVpn(connectorId) {
   openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
 }
 
+function updateConnectorTypeFields() {
+  const type = document.getElementById('connType')?.value || 'routeros';
+  const isRuijie = type === 'ruijie';
+  document.getElementById('connFieldsRouteros')?.classList.toggle('hidden', isRuijie);
+  document.getElementById('connFieldsRuijieHost')?.classList.toggle('hidden', !isRuijie);
+  document.getElementById('connFieldsRuijieUser')?.classList.toggle('hidden', !isRuijie);
+  document.getElementById('connFieldsRuijiePass')?.classList.toggle('hidden', !isRuijie);
+}
+
 function resetConnectorCreateForm() {
-  ['connName', 'connClient', 'connSite'].forEach(id => {
+  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const type = document.getElementById('connType');
   if (type) type.value = 'routeros';
+  const gwUser = document.getElementById('connGatewayUser');
+  if (gwUser) gwUser.value = 'admin';
+  updateConnectorTypeFields();
   document.getElementById('connCreatedBox')?.classList.add('hidden');
 }
 
@@ -164,10 +176,13 @@ function openConnectorActionMenu(event, connectorId, trigger) {
   event.preventDefault();
   event.stopPropagation();
   closeConnectorActionMenu();
+  const isRuijie = String(connectorById(connectorId)?.type || '').toLowerCase() === 'ruijie';
   const menu = document.createElement('div');
   menu.id = 'connectorFloatingMenu';
   menu.className = 'connector-floating-menu';
-  menu.innerHTML = `
+  menu.innerHTML = isRuijie ? `
+    <button type="button" data-action="ruijie-lan"><i data-lucide="scan-search"></i><span>Coletar LAN</span></button>
+    <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>` : `
     <button type="button" data-action="download"><i data-lucide="download"></i><span>Baixar script</span></button>
     <button type="button" data-action="vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>`;
@@ -183,6 +198,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
     closeConnectorActionMenu();
     if (action === 'download') downloadConnectorAgent(connectorId);
     if (action === 'vpn') downloadConnectorVpn(connectorId);
+    if (action === 'ruijie-lan') collectRuijieLanInventory(connectorId);
     if (action === 'delete') deleteConnector(connectorId);
   });
   lucide.createIcons();
@@ -283,13 +299,24 @@ async function prepareConnectorVpn(connectorId, endpoint, clientLans, lanMode = 
 }
 
 async function createConnectorFromForm() {
+  const type = document.getElementById('connType')?.value || 'routeros';
   const payload = {
-    type: document.getElementById('connType')?.value || 'routeros',
+    type,
     name: document.getElementById('connName')?.value.trim() || '',
     client: document.getElementById('connClient')?.value.trim() || '',
     site: document.getElementById('connSite')?.value.trim() || '',
-    public_base_url: document.getElementById('connPublicUrl')?.value.trim() || '',
   };
+  if (type === 'ruijie') {
+    payload.gateway_host = document.getElementById('connGatewayHost')?.value.trim() || '';
+    payload.gateway_user = document.getElementById('connGatewayUser')?.value.trim() || 'admin';
+    payload.gateway_password = document.getElementById('connGatewayPassword')?.value || '';
+    if (!payload.gateway_host || !payload.gateway_password) {
+      showToast('Informe o IP/host e a senha do gateway Ruijie.', true);
+      return;
+    }
+  } else {
+    payload.public_base_url = document.getElementById('connPublicUrl')?.value.trim() || '';
+  }
   const btn = document.getElementById('btnCreateConnector');
   if (btn) { btn.disabled = true; btn.textContent = 'Criando'; }
   const res = await api('/api/connectors', { method: 'POST', body: JSON.stringify(payload) });
@@ -308,10 +335,25 @@ async function createConnectorFromForm() {
   _lastCreatedConnectorType = conn.type || payload.type || '';
   document.getElementById('connCreatedBox')?.classList.remove('hidden');
   const txt = document.getElementById('connCreatedText');
-  const typeText = 'Baixe o script e cole no terminal do MikroTik do cliente.';
+  const typeText = type === 'ruijie'
+    ? 'O SightOps ja fala direto com o gateway -- use "Coletar LAN" na lista de conectores.'
+    : 'Baixe o script e cole no terminal do MikroTik do cliente.';
   if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
-  ['connName', 'connClient', 'connSite'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   showToast('Conector criado.');
+  await loadConnectors();
+}
+
+async function collectRuijieLanInventory(connectorId) {
+  if (!connectorId) return;
+  showToast('Consultando o gateway Ruijie...');
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/ruijie/lan-inventory`, { method: 'POST' });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao coletar inventario do gateway Ruijie.', true);
+    return;
+  }
+  showToast(`Inventario coletado: ${body.count || 0} dispositivo(s) na LAN.`);
   await loadConnectors();
 }
 
