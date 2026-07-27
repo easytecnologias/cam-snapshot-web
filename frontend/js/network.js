@@ -213,7 +213,7 @@ function renderSwitchTable(rows) {
       <td class="text-muted">${esc(r.port || '')}</td>
       <td>${role}</td>
       <td class="monospace">${esc(r.mac || '')}</td>
-      <td class="text-muted" style="text-align:center">${esc(r.vlan || '-')}</td>
+      <td class="text-muted" style="text-align:center">${esc(r.vlan || 'default')}</td>
       <td class="text-muted">${esc(r.entry_type || '')}</td>
       <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
       <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
