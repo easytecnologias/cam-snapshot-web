@@ -112,6 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cancelConnectorVpnModal')?.addEventListener('click', closeConnectorVpnModal);
   document.getElementById('confirmConnectorVpnModal')?.addEventListener('click', submitConnectorVpnModal);
   document.querySelectorAll('input[name="connectorVpnLanMode"]').forEach(el => el.addEventListener('change', updateConnectorVpnLanMode));
+  document.getElementById('closeRuijieVpnModal')?.addEventListener('click', closeRuijieVpnModal);
+  document.getElementById('cancelRuijieVpnModal')?.addEventListener('click', closeRuijieVpnModal);
+  document.getElementById('confirmRuijieVpnModal')?.addEventListener('click', submitRuijieVpnModal);
   document.getElementById('connectorsTable')?.addEventListener('click', (e) => {
     const trigger = e.target.closest('[data-conn-menu]');
     if (trigger) openConnectorActionMenu(e, trigger.dataset.connMenu, trigger);

@@ -23,6 +23,7 @@ from app.services.connector_service import (
     list_jobs,
     poll_job,
     ruijie_collect_lan_inventory,
+    ruijie_update_vpn,
 )
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -127,6 +128,22 @@ def api_connector_wireguard_routeros_script(connector_id: str) -> Response:
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="sightops-routeros-wireguard.rsc"'},
     )
+
+
+@router.post("/{connector_id}/ruijie/vpn")
+def api_connector_ruijie_vpn(connector_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Grava/atualiza usuario, senha e a config (.ovpn) da VPN de um
+    conector Ruijie ja cadastrado."""
+    data = payload if isinstance(payload, dict) else {}
+    try:
+        return ruijie_update_vpn(
+            connector_id,
+            vpn_username=str(data.get("vpn_username") or ""),
+            vpn_password=str(data.get("vpn_password") or ""),
+            vpn_config=str(data.get("vpn_config") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/{connector_id}/ruijie/lan-inventory")

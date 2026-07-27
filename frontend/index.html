@@ -1739,6 +1739,15 @@
               <label id="connFieldsRuijiePass" class="hidden">Senha do gateway
                 <input id="connGatewayPassword" type="password" placeholder="senha do admin">
               </label>
+              <label id="connFieldsRuijieVpnUser" class="hidden">Usuário da VPN (opcional)
+                <input id="connVpnUsername" placeholder="sightops">
+              </label>
+              <label id="connFieldsRuijieVpnPass" class="hidden">Senha da VPN (opcional)
+                <input id="connVpnPassword" type="password" placeholder="senha da conta VPN">
+              </label>
+              <label id="connFieldsRuijieVpnConfig" class="hidden" style="grid-column:1 / -1">Configuração OpenVPN exportada do gateway (.ovpn, opcional)
+                <textarea id="connVpnConfig" rows="4" placeholder="Cole aqui o conteudo do arquivo .ovpn exportado (Export Client Configuration no eWeb)" style="font-family:monospace;font-size:12px"></textarea>
+              </label>
             </div>
             <div class="connector-token-box hidden" id="connCreatedBox">
               <strong>Conector criado</strong>
@@ -3928,6 +3937,41 @@
       <div class="modal-actions">
         <button class="secondary-action" id="cancelConnectorVpnModal">Cancelar</button>
         <button class="primary-action" id="confirmConnectorVpnModal"><i data-lucide="shield"></i> Preparar VPN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- --- MODAL: VPN DO CONECTOR RUIJIE --- -->
+  <div id="modalRuijieVpn" class="modal-backdrop hidden" style="z-index:80">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Conector Ruijie</p>
+          <h2>Configurar VPN (OpenVPN)</h2>
+        </div>
+        <button class="secondary-action" id="closeRuijieVpnModal" title="Fechar" style="width:44px;height:44px;padding:0;justify-content:center">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0 0 14px;color:var(--muted);font-size:14px;line-height:1.45">
+          Habilite o servidor OpenVPN no eWeb do gateway, crie uma conta de VPN e cole aqui a configuracao exportada ("Export Client Configuration").
+        </p>
+        <div class="connector-form" style="grid-template-columns:1fr 1fr">
+          <label>Usuário da VPN
+            <input id="ruijieVpnUsername" placeholder="sightops">
+          </label>
+          <label>Senha da VPN
+            <input id="ruijieVpnPassword" type="password" placeholder="senha da conta VPN">
+          </label>
+          <label style="grid-column:1 / -1">Configuração OpenVPN (.ovpn)
+            <textarea id="ruijieVpnConfig" rows="8" placeholder="Cole aqui o conteudo do arquivo .ovpn" style="font-family:monospace;font-size:12px"></textarea>
+          </label>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelRuijieVpnModal">Cancelar</button>
+        <button class="primary-action" id="confirmRuijieVpnModal"><i data-lucide="shield"></i> Salvar VPN</button>
       </div>
     </div>
   </div>

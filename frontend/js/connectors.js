@@ -135,10 +135,13 @@ function updateConnectorTypeFields() {
   document.getElementById('connFieldsRuijieHost')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijieUser')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijiePass')?.classList.toggle('hidden', !isRuijie);
+  document.getElementById('connFieldsRuijieVpnUser')?.classList.toggle('hidden', !isRuijie);
+  document.getElementById('connFieldsRuijieVpnPass')?.classList.toggle('hidden', !isRuijie);
+  document.getElementById('connFieldsRuijieVpnConfig')?.classList.toggle('hidden', !isRuijie);
 }
 
 function resetConnectorCreateForm() {
-  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => {
+  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword', 'connVpnUsername', 'connVpnPassword', 'connVpnConfig'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -186,6 +189,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
   menu.className = 'connector-floating-menu';
   menu.innerHTML = isRuijie ? `
     <button type="button" data-action="ruijie-lan"><i data-lucide="scan-search"></i><span>Coletar LAN</span></button>
+    <button type="button" data-action="ruijie-vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>` : `
     <button type="button" data-action="download"><i data-lucide="download"></i><span>Baixar script</span></button>
     <button type="button" data-action="vpn"><i data-lucide="shield"></i><span>Configurar VPN</span></button>
@@ -203,6 +207,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
     if (action === 'download') downloadConnectorAgent(connectorId);
     if (action === 'vpn') downloadConnectorVpn(connectorId);
     if (action === 'ruijie-lan') collectRuijieLanInventory(connectorId);
+    if (action === 'ruijie-vpn') openRuijieVpnModal(connectorId);
     if (action === 'delete') deleteConnector(connectorId);
   });
   lucide.createIcons();
@@ -318,6 +323,18 @@ async function createConnectorFromForm() {
       showToast('Informe o IP/host e a senha do gateway Ruijie.', true);
       return;
     }
+    const vpnUser = document.getElementById('connVpnUsername')?.value.trim() || '';
+    const vpnPass = document.getElementById('connVpnPassword')?.value || '';
+    const vpnConfig = document.getElementById('connVpnConfig')?.value.trim() || '';
+    if (vpnUser || vpnPass || vpnConfig) {
+      if (!vpnUser || !vpnPass || !vpnConfig) {
+        showToast('Pra salvar a VPN junto, informe usuario, senha e a configuracao (.ovpn).', true);
+        return;
+      }
+      payload.vpn_username = vpnUser;
+      payload.vpn_password = vpnPass;
+      payload.vpn_config = vpnConfig;
+    }
   } else {
     payload.public_base_url = document.getElementById('connPublicUrl')?.value.trim() || '';
   }
@@ -346,6 +363,47 @@ async function createConnectorFromForm() {
   document.getElementById('btnDownloadCreatedAgent')?.classList.toggle('hidden', type === 'ruijie');
   ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   showToast('Conector criado.');
+  await loadConnectors();
+}
+
+function openRuijieVpnModal(connectorId) {
+  const modal = document.getElementById('modalRuijieVpn');
+  if (!modal) return;
+  const row = connectorById(connectorId);
+  document.getElementById('ruijieVpnUsername').value = row?.vpn_username || '';
+  document.getElementById('ruijieVpnPassword').value = '';
+  document.getElementById('ruijieVpnConfig').value = row?.vpn_config || '';
+  modal.dataset.connectorId = connectorId;
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeRuijieVpnModal() {
+  document.getElementById('modalRuijieVpn')?.classList.add('hidden');
+}
+
+async function submitRuijieVpnModal() {
+  const modal = document.getElementById('modalRuijieVpn');
+  const connectorId = modal?.dataset.connectorId || '';
+  const vpn_username = document.getElementById('ruijieVpnUsername')?.value.trim() || '';
+  const vpn_password = document.getElementById('ruijieVpnPassword')?.value || '';
+  const vpn_config = document.getElementById('ruijieVpnConfig')?.value.trim() || '';
+  if (!connectorId) return;
+  if (!vpn_username || !vpn_password || !vpn_config) {
+    showToast('Informe usuario, senha e a configuracao (.ovpn) da VPN.', true);
+    return;
+  }
+  const res = await api(`/api/connectors/${encodeURIComponent(connectorId)}/ruijie/vpn`, {
+    method: 'POST',
+    body: JSON.stringify({ vpn_username, vpn_password, vpn_config }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || 'Erro ao salvar VPN.', true);
+    return;
+  }
+  showToast('VPN salva no conector.');
+  closeRuijieVpnModal();
   await loadConnectors();
 }
 

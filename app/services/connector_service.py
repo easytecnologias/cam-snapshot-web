@@ -265,6 +265,7 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
     if not include_token:
         out.pop("token", None)
     out.pop("password_enc", None)
+    out.pop("vpn_password_enc", None)
     return out
 
 
@@ -316,6 +317,18 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         row["gateway_host"] = gw_host
         row["gateway_user"] = gw_user
         row["password_enc"] = encrypt(gw_pass)
+        # VPN (OpenVPN) e opcional na hora do cadastro -- o gateway precisa
+        # ter o servidor OpenVPN habilitado e a config exportada primeiro (um
+        # passo manual no eWeb). Se ja tiver isso em maos, guarda tudo junto.
+        vpn_username = _text(payload.get("vpn_username"))
+        vpn_password = _text(payload.get("vpn_password"))
+        vpn_config = str(payload.get("vpn_config") or "").strip()
+        if vpn_username or vpn_password or vpn_config:
+            if not (vpn_username and vpn_password and vpn_config):
+                raise ValueError("VPN exige usuario, senha e a configuracao (.ovpn) juntos")
+            row["vpn_username"] = vpn_username
+            row["vpn_password_enc"] = encrypt(vpn_password)
+            row["vpn_config"] = vpn_config
     with _lock:
         rows = _load_connectors()
         if any(_text(item.get("id")) == connector_id for item in rows):
@@ -323,6 +336,31 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         rows.append(row)
         _save_connectors(rows)
     return {"ok": True, "connector": _public_connector(row, include_token=True)}
+
+
+def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, vpn_config: str) -> Dict[str, Any]:
+    """Grava/atualiza a credencial e a config OpenVPN (.ovpn exportado do
+    eWeb) de um conector Ruijie ja cadastrado -- separado do cadastro
+    inicial porque a config so existe depois de habilitar o servidor
+    OpenVPN no gateway e exportar manualmente (nao da pra automatizar
+    esse passo pela API, so descobrimos o login/inventario por API)."""
+    vpn_username = _text(vpn_username)
+    vpn_password = _text(vpn_password)
+    vpn_config = str(vpn_config or "").strip()
+    if not (vpn_username and vpn_password and vpn_config):
+        raise ValueError("informe usuario, senha e a configuracao (.ovpn) da VPN")
+    with _lock:
+        rows = _load_connectors()
+        row = next((r for r in rows if _text(r.get("id")) == _text(connector_id)), None)
+        if not row or not _visible_to_current_tenant(row):
+            raise ValueError("conector nao encontrado")
+        if _text(row.get("type")) != "ruijie":
+            raise ValueError("conector nao e do tipo Ruijie")
+        row["vpn_username"] = vpn_username
+        row["vpn_password_enc"] = encrypt(vpn_password)
+        row["vpn_config"] = vpn_config
+        _save_connectors(rows)
+        return {"ok": True, "connector": _public_connector(row, include_token=False)}
 
 
 def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
