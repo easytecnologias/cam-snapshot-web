@@ -2185,6 +2185,10 @@ function connectorHostLabel(host) {
 function connectorInventoryLabel(row) {
   const inv = row?.inventory || {};
   const items = [];
+  if (String(row?.type || '').toLowerCase() === 'ruijie') {
+    if (inv.count) items.push(`${inv.count} dispositivos`);
+    return items.join(' / ');
+  }
   if (inv.dhcp_leases) items.push(`DHCP ${inv.dhcp_leases}`);
   if (inv.arp_entries) items.push(`ARP ${inv.arp_entries}`);
   if (inv.neighbors) items.push(`Neighbors ${inv.neighbors}`);

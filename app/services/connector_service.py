@@ -392,8 +392,16 @@ def ruijie_collect_lan_inventory(connector_id: str) -> Dict[str, Any]:
         for item in rows:
             if _text(item.get("id")) == _text(connector_id):
                 item["last_seen"] = _now()
-                item["inventory"] = {"ruijie_devices": result.get("devices", []), "count": result.get("count", 0)}
+                item["inventory"] = {
+                    "ruijie_devices": result.get("devices", []),
+                    "count": result.get("count", 0),
+                }
                 item["remote_ip"] = gw_host
+                item["host"] = {
+                    "hostname": _text(item.get("name")),
+                    "model": f"SN {result.get('sn')}" if result.get("sn") else "",
+                    "ips": [gw_host],
+                }
                 break
         _save_connectors(rows)
     return result
