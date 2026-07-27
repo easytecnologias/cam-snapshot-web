@@ -103,6 +103,7 @@ class SwitchCollectMacsRequest(BaseModel):
     reuse_json: bool = False
     port: int = 23
     timeout: float = 12.0
+    platform: str = "intelbras"
 
 
 class OltDiscoverOnusRequest(BaseModel):

@@ -1416,11 +1416,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('oltTermClose')?.addEventListener('click', () => document.getElementById('oltTerminal').classList.add('hidden'));
 
   // Coleta Switch
-  document.getElementById('btnScanSwitch')?.addEventListener('click', async () => {
-    showToast('Coletando MACs do switch');
-    await api('/api/switch/collect-macs', { method: 'POST', body: '{}' });
-    setTimeout(loadSwitch, 3000);
-  });
+  document.getElementById('btnScanSwitch')?.addEventListener('click', openSwitchCollectModal);
+  document.getElementById('closeSwitchModal')?.addEventListener('click', closeSwitchCollectModal);
+  document.getElementById('cancelSwitchModal')?.addEventListener('click', closeSwitchCollectModal);
+  document.getElementById('btnSwitchStart')?.addEventListener('click', switchCollect);
 
   // Scripts
   document.getElementById('btnGenGrafana')?.addEventListener('click', async () => {

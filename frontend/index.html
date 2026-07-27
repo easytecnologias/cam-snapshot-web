@@ -1434,6 +1434,7 @@
             <button class="primary-action" id="btnScanSwitch"><i data-lucide="scan-search"></i> Coletar MACs</button>
           </div>
         </div>
+        <div id="switchInfo" class="deploy-result-box hidden" style="padding:10px 12px;margin:0 0 12px;font-size:13px"></div>
         <div class="panel">
           <div class="table-wrap">
             <table class="data-table">
@@ -3775,6 +3776,50 @@
       <div class="modal-actions">
         <button class="secondary-action" id="cancelOltModal">Cancelar</button>
         <button class="primary-action" id="btnOltStart"><i data-lucide="radio"></i> Iniciar coleta</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalSwitchCollect" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Inventario</p><h2>Coletar MACs do Switch</h2></div>
+        <button id="closeSwitchModal" class="icon-button"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label>Fabricante</label>
+          <select id="switchPlatform" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:14px;outline:none">
+            <option value="intelbras">Intelbras (Telnet)</option>
+            <option value="hikvision">Hikvision (HTTP)</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>IP do switch</label>
+          <input id="switchIp" type="text" placeholder="Ex: 172.16.80.204" autocomplete="off">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>Site <span style="color:var(--muted);font-weight:400">(opcional)</span></label>
+          <input id="switchSite" type="text" placeholder="Ex: JANGADEIROS" autocomplete="off">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;min-width:0">
+          <div class="form-group" style="margin:0;min-width:0">
+            <label>Usuario</label>
+            <input id="switchUser" type="text" placeholder="admin" autocomplete="off" style="width:100%">
+          </div>
+          <div class="form-group" style="margin:0;min-width:0">
+            <label>Senha</label>
+            <input id="switchPassword" type="password" placeholder="********" autocomplete="new-password" style="width:100%">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
+          <input type="checkbox" id="switchReuse" style="accent-color:var(--primary);width:15px;height:15px;flex-shrink:0">
+          Reutilizar coleta anterior
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="cancelSwitchModal">Cancelar</button>
+        <button class="primary-action" id="btnSwitchStart"><i data-lucide="scan-search"></i> Coletar</button>
       </div>
     </div>
   </div>

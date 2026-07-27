@@ -5,6 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter
 
 from app.services.intelbras_switch_service import collect_switch_snapshot
+from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_switch_snapshot
 from app.models.requests import SwitchCollectMacsRequest
 from app.services.switch_service import collect_macs, list_macs, clear_macs
 
@@ -40,6 +41,32 @@ def inspect_intelbras_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": str(e) or repr(e) or "falha ao consultar switch"}
 
     return {"ok": True, "host": host, "platform": "intelbras_telnet", "snapshot": snapshot}
+
+
+@router.post("/hikvision/inspect")
+def inspect_hikvision_switch(payload: Dict[str, Any]) -> Dict[str, Any]:
+    host = _as_str(payload.get("host") or payload.get("ip"))
+    user = _as_str(payload.get("user") or payload.get("username"))
+    password = _as_str(payload.get("pass") or payload.get("password"))
+    timeout = float(payload.get("timeout") or 10.0)
+    port = int(payload.get("port") or 80)
+
+    if not host or not user or not password:
+        return {"ok": False, "error": "host/user/pass sao obrigatorios"}
+
+    try:
+        snapshot = collect_hikvision_switch_snapshot(
+            host=host,
+            username=user,
+            password=password,
+            include_config=False,
+            port=port,
+            timeout=timeout,
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e) or repr(e) or "falha ao consultar switch"}
+
+    return {"ok": True, "host": host, "platform": "hikvision_http", "snapshot": snapshot}
 
 
 @router.post("/collect-macs")

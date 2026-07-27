@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Tuple
 from fastapi import HTTPException
 
 from app.core.paths import DATA_DIR
-from app.services.intelbras_switch_service import collect_switch_snapshot
+from app.services.intelbras_switch_service import collect_switch_snapshot as collect_intelbras_snapshot
+from app.services.hikvision_switch_service import collect_switch_snapshot as collect_hikvision_snapshot
 from app.services.db_store import load_switch_mac_state, save_switch_mac_state
 from app.models.requests import SwitchCollectMacsRequest
 
@@ -108,15 +109,27 @@ def _attach_port_stats(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
+    platform = _safe(getattr(req, "platform", "") or "intelbras").lower()
     try:
-        snapshot = collect_switch_snapshot(
-            host=req.switch_ip,
-            username=req.user,
-            password=req.password,
-            include_config=False,
-            port=req.port,
-            timeout=req.timeout,
-        )
+        if platform == "hikvision":
+            port = req.port if req.port and req.port != 23 else 80
+            snapshot = collect_hikvision_snapshot(
+                host=req.switch_ip,
+                username=req.user,
+                password=req.password,
+                include_config=False,
+                port=port,
+                timeout=req.timeout,
+            )
+        else:
+            snapshot = collect_intelbras_snapshot(
+                host=req.switch_ip,
+                username=req.user,
+                password=req.password,
+                include_config=False,
+                port=req.port,
+                timeout=req.timeout,
+            )
     except Exception as e:
         raise HTTPException(500, f"Erro ao consultar switch: {e}") from e
 
@@ -171,6 +184,7 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "site": _safe(req.site),
             "model": _safe(snapshot.get("system", {}).get("product_name")),
             "firmware": _safe(snapshot.get("system", {}).get("software_version")),
+            "platform": platform,
         },
         "rows": all_rows,
     }
@@ -213,4 +227,4 @@ def list_macs(site: str = "") -> Dict[str, Any]:
     if site_norm:
         rows = [r for r in rows if _safe(r.get("site")).lower() == site_norm]
     rows = _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(rows)))
-    return {"ok": True, "rows": rows, "count": len(rows), "site": site.strip()}
+    return {"ok": True, "rows": rows, "count": len(rows), "site": site.strip(), "switch": obj.get("switch") or {}}

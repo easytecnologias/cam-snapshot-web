@@ -154,6 +154,20 @@ async function loadSwitch() {
   const data = await apiJson('/api/switch/rows');
   const rows = data?.rows || data || [];
   const tbody = document.getElementById('switchTable');
+
+  const infoEl = document.getElementById('switchInfo');
+  const sw = data?.switch || null;
+  if (infoEl) {
+    if (sw && (sw.ip || sw.model)) {
+      const platformLabel = sw.platform === 'hikvision' ? 'Hikvision' : 'Intelbras';
+      infoEl.classList.remove('hidden');
+      infoEl.innerHTML = `<b>${esc(sw.name || sw.ip || '')}</b> -- ${esc(platformLabel)} -- ${esc(sw.model || '')} ${esc(sw.firmware ? `(fw ${sw.firmware})` : '')} -- ${esc(sw.ip || '')}`;
+    } else {
+      infoEl.classList.add('hidden');
+      infoEl.innerHTML = '';
+    }
+  }
+
   if (!rows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum dado. Execute a coleta.</td></tr>';
     setText('switchFooter', '0 registros');
@@ -167,6 +181,49 @@ async function loadSwitch() {
       <td>${esc(r.camera_name || r.camera || '')}</td>
     </tr>`).join('');
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
+}
+
+function openSwitchCollectModal() {
+  document.getElementById('modalSwitchCollect')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeSwitchCollectModal() {
+  document.getElementById('modalSwitchCollect')?.classList.add('hidden');
+}
+
+async function switchCollect() {
+  const platform = document.getElementById('switchPlatform')?.value || 'intelbras';
+  const switch_ip = document.getElementById('switchIp')?.value.trim() || '';
+  const site = document.getElementById('switchSite')?.value.trim() || '';
+  const user = document.getElementById('switchUser')?.value.trim() || 'admin';
+  const password = document.getElementById('switchPassword')?.value || '';
+  const reuse_json = document.getElementById('switchReuse')?.checked || false;
+
+  if (!switch_ip) { showToast('Informe o IP do switch', true); return; }
+  if (!password) { showToast('Informe a senha do switch', true); return; }
+
+  const btn = document.getElementById('btnSwitchStart');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader-circle"></i> Coletando'; lucide.createIcons(); }
+
+  try {
+    const res = await api('/api/switch/collect-macs', {
+      method: 'POST',
+      body: JSON.stringify({ platform, switch_ip, site, user, password, reuse_json }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (res?.ok) {
+      showToast(`Coleta concluida: ${data?.count ?? 0} registros novos.`);
+      closeSwitchCollectModal();
+      loadSwitch();
+    } else {
+      showToast(data?.detail || data?.error || 'Falha na coleta do switch.', true);
+    }
+  } catch (e) {
+    showToast(e.message || 'Erro de conexao com o switch.', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="scan-search"></i> Coletar'; lucide.createIcons(); }
+  }
 }
 
 function netToolSetLog(html, status = '') {
