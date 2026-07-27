@@ -361,7 +361,7 @@ async function createConnectorFromForm() {
     : 'Baixe o script e cole no terminal do MikroTik do cliente.';
   if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
   document.getElementById('btnDownloadCreatedAgent')?.classList.toggle('hidden', type === 'ruijie');
-  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword', 'connVpnUsername', 'connVpnPassword', 'connVpnConfig'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   showToast('Conector criado.');
   await loadConnectors();
 }
