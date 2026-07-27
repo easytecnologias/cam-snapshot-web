@@ -98,7 +98,11 @@ async function loadConnectors() {
   }
   const sel = document.getElementById('connJobConnector');
   if (sel) {
-    sel.innerHTML = rows.map(row => `<option value="${esc(row.id)}">${esc(row.name || row.id)} - ${esc(row.site || '')}</option>`).join('');
+    // "Tarefas remotas" (Enviar ping/Coletar LAN por fila de job) so vale
+    // pro fluxo MikroTik -- o Ruijie fala direto (sem agente/fila), usa o
+    // "Coletar LAN" do menu de acoes de cada linha, nao esse painel.
+    const jobRows = rows.filter(row => String(row.type || 'routeros').toLowerCase() === 'routeros');
+    sel.innerHTML = jobRows.map(row => `<option value="${esc(row.id)}">${esc(row.name || row.id)} - ${esc(row.site || '')}</option>`).join('');
   }
   lucide.createIcons();
 }
