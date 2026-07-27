@@ -326,6 +326,11 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         if vpn_username or vpn_password or vpn_config:
             if not (vpn_username and vpn_password and vpn_config):
                 raise ValueError("VPN exige usuario, senha e a configuracao (.ovpn) juntos")
+            if not _looks_like_valid_ovpn_config(vpn_config):
+                raise ValueError(
+                    "essa configuracao nao parece ser o client.ovpn (pode ser o .tar inteiro) -- "
+                    "extraia o .tar exportado do eWeb e use o arquivo client.ovpn de dentro dele"
+                )
             row["vpn_username"] = vpn_username
             row["vpn_password_enc"] = encrypt(vpn_password)
             row["vpn_config"] = vpn_config
@@ -336,6 +341,21 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         rows.append(row)
         _save_connectors(rows)
     return {"ok": True, "connector": _public_connector(row, include_token=True)}
+
+
+def _looks_like_valid_ovpn_config(text: str) -> bool:
+    """O eWeb exporta um .tar (client.ovpn + ca.crt + ca.key). Se alguem
+    colar/enviar o .tar inteiro em vez do client.ovpn de dentro dele, o
+    conteudo vira um cabecalho de tar ("ustar", bytes de controle) colado
+    na frente da config real -- ja aconteceu de verdade em producao e
+    deixa o container OpenVPN em crash-loop. Validacao espelha a do
+    frontend (loadVpnConfigFile em connectors.js), mas aqui protege contra
+    qualquer entrada, nao so o seletor de arquivo."""
+    if "ustar" in text:
+        return False
+    if re.search(r"[\x00-\x08\x0e-\x1f]", text[:512]):
+        return False
+    return bool(re.search(r"^\s*(client|dev\s+tun|dev\s+tap|#|;)", text, re.MULTILINE))
 
 
 def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, vpn_config: str) -> Dict[str, Any]:
@@ -349,6 +369,11 @@ def ruijie_update_vpn(connector_id: str, vpn_username: str, vpn_password: str, v
     vpn_config = str(vpn_config or "").strip()
     if not (vpn_username and vpn_password and vpn_config):
         raise ValueError("informe usuario, senha e a configuracao (.ovpn) da VPN")
+    if not _looks_like_valid_ovpn_config(vpn_config):
+        raise ValueError(
+            "essa configuracao nao parece ser o client.ovpn (pode ser o .tar inteiro) -- "
+            "extraia o .tar exportado do eWeb e use o arquivo client.ovpn de dentro dele"
+        )
     with _lock:
         rows = _load_connectors()
         row = next((r for r in rows if _text(r.get("id")) == _text(connector_id)), None)

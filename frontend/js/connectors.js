@@ -128,14 +128,32 @@ async function downloadConnectorVpn(connectorId) {
   openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
 }
 
+function looksLikeValidOvpnConfig(text) {
+  // O eWeb exporta um .tar (client.ovpn + ca.crt + ca.key) -- se alguem
+  // escolher o .tar inteiro em vez do client.ovpn de dentro dele, o
+  // FileReader le os bytes binarios "como texto" e produz um cabecalho de
+  // tar (ustar, permissoes tipo "0000777", nome de arquivo com \0 no meio)
+  // colado na frente da config real. Bug real ja visto em producao.
+  if (/\bustar\b/.test(text)) return false;
+  if (/[\x00-\x08\x0e-\x1f]/.test(text.slice(0, 512))) return false; // bytes de controle = binario
+  return /^\s*(client|dev\s+tun|dev\s+tap|#|;)/m.test(text);
+}
+
 function loadVpnConfigFile(input, targetTextareaId, fileNameLabelId) {
   const file = input.files && input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
-    const textarea = document.getElementById(targetTextareaId);
-    if (textarea) textarea.value = String(reader.result || '').trim();
+    const text = String(reader.result || '').trim();
     const label = fileNameLabelId ? document.getElementById(fileNameLabelId) : null;
+    if (!looksLikeValidOvpnConfig(text)) {
+      input.value = '';
+      if (label) label.textContent = 'Nenhum arquivo escolhido';
+      showToast(`"${file.name}" nao parece ser o client.ovpn (pode ser o .tar inteiro) -- extraia o .tar e escolha o arquivo client.ovpn de dentro dele.`, true);
+      return;
+    }
+    const textarea = document.getElementById(targetTextareaId);
+    if (textarea) textarea.value = text;
     if (label) label.textContent = `${file.name} carregado`;
   };
   reader.onerror = () => showToast('Nao consegui ler o arquivo selecionado.', true);
