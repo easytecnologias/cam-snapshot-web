@@ -339,6 +339,7 @@ async function createConnectorFromForm() {
     ? 'O SightOps ja fala direto com o gateway -- use "Coletar LAN" na lista de conectores.'
     : 'Baixe o script e cole no terminal do MikroTik do cliente.';
   if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
+  document.getElementById('btnDownloadCreatedAgent')?.classList.toggle('hidden', type === 'ruijie');
   ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   showToast('Conector criado.');
   await loadConnectors();
