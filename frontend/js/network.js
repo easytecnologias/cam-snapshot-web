@@ -150,37 +150,93 @@ async function oltCollect() {
   }
 }
 
-async function loadSwitch() {
-  const data = await apiJson('/api/switch/rows');
-  const rows = data?.rows || data || [];
-  const tbody = document.getElementById('switchTable');
+let _switchRows = [];
+let _switchCamByMac = {};
 
-  const infoEl = document.getElementById('switchInfo');
-  const sw = data?.switch || null;
-  if (infoEl) {
-    if (sw && (sw.ip || sw.model)) {
-      const platformLabel = sw.platform === 'hikvision' ? 'Hikvision' : 'Intelbras';
-      infoEl.classList.remove('hidden');
-      infoEl.innerHTML = `<b>${esc(sw.name || sw.ip || '')}</b> -- ${esc(platformLabel)} -- ${esc(sw.model || '')} ${esc(sw.firmware ? `(fw ${sw.firmware})` : '')} -- ${esc(sw.ip || '')}`;
-    } else {
-      infoEl.classList.add('hidden');
-      infoEl.innerHTML = '';
-    }
+async function loadSwitch() {
+  const [swData, camData] = await Promise.all([
+    apiJson('/api/switch/rows'),
+    apiJson('/api/cameras').catch(() => ({ cameras: [] })),
+  ]);
+  _switchRows = swData?.rows || (Array.isArray(swData) ? swData : []);
+
+  _switchCamByMac = {};
+  const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
+  cams.forEach(c => { if (c.mac) _switchCamByMac[String(c.mac).toLowerCase()] = c; });
+
+  populateSwitchFilters();
+  renderSwitchTable(_switchRows);
+}
+
+function populateSwitchFilters() {
+  const sites = [...new Set(_switchRows.map(r => r.site).filter(Boolean))].sort();
+  const devices = [...new Set(_switchRows.map(r => r.switch_name || r.switch_ip).filter(Boolean))].sort();
+  const selSite = document.getElementById('switchFilterSite');
+  const selDevice = document.getElementById('switchFilterDevice');
+  if (selSite) {
+    const cur = selSite.value;
+    selSite.innerHTML = '<option value="">Todos os sites</option>' +
+      sites.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
   }
+  if (selDevice) {
+    const cur = selDevice.value;
+    selDevice.innerHTML = '<option value="">Todos os switches</option>' +
+      devices.map(d => `<option${d === cur ? ' selected' : ''}>${esc(d)}</option>`).join('');
+  }
+}
+
+function renderSwitchTable(rows) {
+  const tbody = document.getElementById('switchTable');
+  if (!tbody) return;
+
+  const switches = new Set(rows.map(r => String(r.switch_ip || r.switch_name || '').trim()).filter(Boolean));
+  const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
+  const activePorts = new Set(rows.map(r => `${r.switch_ip || ''}|${r.port || ''}`).filter(k => k !== '|'));
+  setText('switchCount', switches.size);
+  setText('switchPortCount', activePorts.size);
+  setText('switchMacTotal', rows.length);
+  setText('switchSiteCount', sites.size);
+  setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum dado. Execute a coleta.</td></tr>';
-    setText('switchFooter', '0 registros');
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(r => `
+
+  tbody.innerHTML = rows.map(r => {
+    const cam = _switchCamByMac[String(r.mac || '').toLowerCase()];
+    const role = r.port_role_guess === 'uplink'
+      ? '<span class="badge badge-amber">Uplink</span>'
+      : '<span class="badge badge-gray">Edge</span>';
+    return `
     <tr>
       <td class="text-muted">${esc(r.port || '')}</td>
+      <td>${role}</td>
       <td class="monospace">${esc(r.mac || '')}</td>
-      <td class="text-muted">${esc(r.vlan || '')}</td>
-      <td>${esc(r.camera_name || r.camera || '')}</td>
-    </tr>`).join('');
-  setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
+      <td class="text-muted" style="text-align:center">${esc(r.vlan || '-')}</td>
+      <td class="text-muted">${esc(r.entry_type || '')}</td>
+      <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
+      <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
+      <td class="text-muted">${esc(r.site || '')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterSwitchTable() {
+  const site = document.getElementById('switchFilterSite')?.value || '';
+  const device = document.getElementById('switchFilterDevice')?.value || '';
+  const q = (document.getElementById('switchSearch')?.value || '').toLowerCase();
+  const filtered = _switchRows.filter(r => {
+    if (site && r.site !== site) return false;
+    if (device && r.switch_name !== device && r.switch_ip !== device) return false;
+    if (q) {
+      const cam = _switchCamByMac[String(r.mac || '').toLowerCase()];
+      return [r.site, r.switch_name, r.switch_ip, r.port, r.mac, r.vlan, r.entry_type, cam?.titulo, cam?.local]
+        .some(f => (f || '').toString().toLowerCase().includes(q));
+    }
+    return true;
+  });
+  renderSwitchTable(filtered);
 }
 
 async function refreshSwitchConnectors() {

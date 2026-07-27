@@ -1431,23 +1431,54 @@
             <p>Coleta de MACs dos switches gerenci-veis.</p>
           </div>
           <div class="page-heading-actions">
+            <button class="secondary-action danger-action" id="btnSwitchClearTable"><i data-lucide="trash-2"></i> Apagar</button>
             <button class="primary-action" id="btnScanSwitch"><i data-lucide="scan-search"></i> Coletar MACs</button>
           </div>
         </div>
-        <div id="switchInfo" class="deploy-result-box hidden" style="padding:10px 12px;margin:0 0 12px;font-size:13px"></div>
+
+        <!-- Resumo -->
+        <div class="inv-summary">
+          <span>Switches: <strong id="switchCount">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>Portas ativas: <strong id="switchPortCount">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>MACs: <strong id="switchMacTotal">-</strong></span>
+          <span class="inv-sum-sep">-</span>
+          <span>Sites: <strong id="switchSiteCount">-</strong></span>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filters" style="padding:0 0 12px;border:none">
+          <label class="search-box" style="flex:1">
+            <i data-lucide="search"></i>
+            <input id="switchSearch" placeholder="Buscar: site, switch, porta, MAC, VLAN, camera-">
+          </label>
+          <select class="filter-select" id="switchFilterSite">
+            <option value="">Todos os sites</option>
+          </select>
+          <select class="filter-select" id="switchFilterDevice">
+            <option value="">Todos os switches</option>
+          </select>
+          <button class="ghost-action" id="btnSwitchClearFilter" style="padding:8px 12px;font-size:13px">Limpar</button>
+        </div>
+
         <div class="panel">
           <div class="table-wrap">
             <table class="data-table">
               <thead>
                 <tr>
                   <th>Porta</th>
+                  <th>Papel</th>
                   <th>MAC</th>
                   <th>VLAN</th>
+                  <th>Tipo</th>
                   <th>Camera</th>
+                  <th>Switch</th>
+                  <th>Site</th>
                 </tr>
               </thead>
               <tbody id="switchTable">
-                <tr class="empty-row"><td colspan="4">Nenhum dado. Execute a coleta.</td></tr>
+                <tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>
               </tbody>
             </table>
           </div>
@@ -4450,13 +4481,13 @@
   <script src="js/snapshots.js?v=142"></script>
   <script src="js/maintenance.js?v=141"></script>
   <script src="js/analysis.js?v=143"></script>
-  <script src="js/network.js?v=144"></script>
+  <script src="js/network.js?v=145"></script>
   <script src="js/deploy.js?v=152"></script>
   <script src="js/deployOlt.js?v=158"></script>
   <script src="js/connectors.js?v=152"></script>
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=16"></script>
   <script src="js/helpers.js?v=142"></script>
-  <script src="js/bootstrap.js?v=155"></script>
+  <script src="js/bootstrap.js?v=156"></script>
 </body>
 </html>

@@ -1425,6 +1425,34 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshSwitchConnectors().finally(updateSwitchConnectorUi);
   });
 
+  // Filtros Switch
+  document.getElementById('switchFilterSite')?.addEventListener('change', filterSwitchTable);
+  document.getElementById('switchFilterDevice')?.addEventListener('change', filterSwitchTable);
+  document.getElementById('switchSearch')?.addEventListener('input', filterSwitchTable);
+  document.getElementById('btnSwitchClearFilter')?.addEventListener('click', () => {
+    document.getElementById('switchSearch').value = '';
+    document.getElementById('switchFilterSite').value = '';
+    document.getElementById('switchFilterDevice').value = '';
+    filterSwitchTable();
+  });
+  document.getElementById('btnSwitchClearTable')?.addEventListener('click', async () => {
+    const site = document.getElementById('switchFilterSite')?.value || '';
+    const ok = await showConfirm({
+      eyebrow: 'Tabela Switch',
+      title:   site ? `Apagar site "${site}"` : 'Apagar tudo',
+      msg:     site
+        ? `Serao removidos todos os registros do site "${site}". Esta acao nao pode ser desfeita.`
+        : 'Serao removidos todos os registros de todos os sites. Esta acao nao pode ser desfeita.',
+      label: 'Apagar',
+    });
+    if (!ok) return;
+    await api(`/api/switch/clear${site ? `?site=${encodeURIComponent(site)}` : ''}`, { method: 'POST', body: '{}' });
+    _switchRows = site ? _switchRows.filter(r => r.site !== site) : [];
+    populateSwitchFilters();
+    renderSwitchTable(_switchRows);
+    showToast(site ? `Site "${site}" apagado.` : 'Tabela Switch apagada.');
+  });
+
   // Scripts
   document.getElementById('btnGenGrafana')?.addEventListener('click', async () => {
     const url       = document.getElementById('gfUrl')?.value.trim();
