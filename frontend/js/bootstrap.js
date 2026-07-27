@@ -96,7 +96,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scanOrigin')?.addEventListener('change', updateScanOriginUi);
   document.getElementById('scanLocal')?.addEventListener('change', () => refreshScanConnectors().finally(updateScanOriginUi));
   document.getElementById('scanConnector')?.addEventListener('change', updateScanOriginUi);
-  document.getElementById('scanMode')?.addEventListener('change', updateScanOriginUi);
+  document.getElementById('scanMode')?.addEventListener('change', () => {
+    updateScanOriginUi();
+    updateScanEnrichDefaults();
+  });
 
   // Conectores SaaS
   document.getElementById('btnConnectorRefresh')?.addEventListener('click', loadConnectors);
@@ -291,6 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const taskMap = {
         discover:   { },
         olt_enrich: { olt_enrich: true },
+        switch_enrich: { switch_enrich: true },
         snapshot:   { snapshot: true },
         imgbb:      { imgbb: true },
         ia:         { ia: true },

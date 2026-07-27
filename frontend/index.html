@@ -1468,7 +1468,6 @@
               <thead>
                 <tr>
                   <th>Porta</th>
-                  <th>Papel</th>
                   <th>MAC</th>
                   <th>VLAN</th>
                   <th>Tipo</th>
@@ -1478,7 +1477,7 @@
                 </tr>
               </thead>
               <tbody id="switchTable">
-                <tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>
+                <tr class="empty-row"><td colspan="7">Nenhum dado. Execute a coleta.</td></tr>
               </tbody>
             </table>
           </div>
@@ -3548,10 +3547,15 @@
             <div class="scan-task-label"><i data-lucide="scan-search"></i><span>Descoberta de cameras</span></div>
             <button class="scan-task-btn" data-task="discover"><i data-lucide="play"></i></button>
           </div>
-          <div class="scan-task-row">
+          <div class="scan-task-row" id="scanOltEnrichRow">
             <input type="checkbox" class="scan-chk" id="scanOltEnrich" checked>
             <div class="scan-task-label"><i data-lucide="radio"></i><span>Enriquecer com OLT</span></div>
             <button class="scan-task-btn" data-task="olt_enrich"><i data-lucide="play"></i></button>
+          </div>
+          <div class="scan-task-row" id="scanSwitchEnrichRow">
+            <input type="checkbox" class="scan-chk" id="scanSwitchEnrich">
+            <div class="scan-task-label"><i data-lucide="server"></i><span>Enriquecer com Switch</span></div>
+            <button class="scan-task-btn" data-task="switch_enrich"><i data-lucide="play"></i></button>
           </div>
           <div class="scan-task-row">
             <input type="checkbox" class="scan-chk" id="scanSnapshot">

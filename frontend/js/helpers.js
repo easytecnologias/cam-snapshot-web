@@ -6,6 +6,7 @@ function startScan() {
     snapshot:   document.getElementById('scanSnapshot')?.checked  || false,
     imgbb:      document.getElementById('scanImgbb')?.checked     || false,
     olt_enrich: document.getElementById('scanOltEnrich')?.checked || false,
+    switch_enrich: document.getElementById('scanSwitchEnrich')?.checked || false,
   });
 }
 

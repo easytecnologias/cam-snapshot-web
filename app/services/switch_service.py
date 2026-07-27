@@ -158,26 +158,43 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             }
         )
 
+    new_ports = [
+        {
+            "site": _safe(req.site),
+            "switch_ip": _safe(req.switch_ip),
+            "switch_name": switch_name,
+            "port": _safe(item.get("name")),
+            "up": "RUNNING" in (item.get("flags") or []),
+        }
+        for item in (snapshot.get("interfaces") or [])
+        if isinstance(item, dict) and _safe(item.get("name"))
+    ]
+
     try:
         existing_obj = load_switch_mac_state() or {}
         existing_rows = [x for x in (existing_obj.get("rows") or existing_obj.get("items") or []) if isinstance(x, dict)]
+        existing_ports = [x for x in (existing_obj.get("ports") or []) if isinstance(x, dict)]
     except Exception:
         existing_obj = {}
         existing_rows = []
+        existing_ports = []
 
     site = _safe(req.site).lower()
     switch_ip = _safe(req.switch_ip)
+
+    def _same_scope(x: dict[str, Any]) -> bool:
+        return _safe(x.get("switch_ip")) == switch_ip and _safe(x.get("site")).lower() == site
+
     if req.reuse_json:
         all_rows = existing_rows + new_rows
+        all_ports = existing_ports + new_ports
     else:
-        def _same_scope(x: dict[str, Any]) -> bool:
-            return _safe(x.get("switch_ip")) == switch_ip and _safe(x.get("site")).lower() == site
-        kept = [x for x in existing_rows if not _same_scope(x)]
-        all_rows = kept + new_rows
+        all_rows = [x for x in existing_rows if not _same_scope(x)] + new_rows
+        all_ports = [x for x in existing_ports if not _same_scope(x)] + new_ports
 
     all_rows = _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(all_rows)))
     payload = {
-        **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "switch")},
+        **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "switch", "ports")},
         "switch": {
             "ip": switch_ip,
             "name": switch_name,
@@ -188,12 +205,14 @@ def collect_macs(req: SwitchCollectMacsRequest) -> Dict[str, Any]:
             "connector_id": _safe(getattr(req, "connector_id", "")),
         },
         "rows": all_rows,
+        "ports": all_ports,
     }
     save_switch_mac_state(payload)
     return {
         "ok": True,
         "rows": _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(new_rows))),
         "rows_all": all_rows,
+        "ports": new_ports,
         "count": len(new_rows),
         "count_all": len(all_rows),
         "summary": snapshot.get("summary") or {},
@@ -205,27 +224,32 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
     site_norm = _safe(site).lower()
     existing_obj = load_switch_mac_state() or {}
     rows = [x for x in (existing_obj.get("rows") or existing_obj.get("items") or []) if isinstance(x, dict)]
+    ports = [x for x in (existing_obj.get("ports") or []) if isinstance(x, dict)]
     before = len(rows)
 
     if site_norm:
         kept = [r for r in rows if _safe(r.get("site")).lower() != site_norm]
+        kept_ports = [p for p in ports if _safe(p.get("site")).lower() != site_norm]
         save_switch_mac_state(
             {
-                **{k: v for k, v in existing_obj.items() if k not in ("rows", "items")},
+                **{k: v for k, v in existing_obj.items() if k not in ("rows", "items", "ports")},
                 "rows": kept,
+                "ports": kept_ports,
             }
         )
         return {"ok": True, "scope": "site", "site": site.strip(), "removed_rows": before - len(kept), "remaining": len(kept)}
 
-    save_switch_mac_state({"switch": {}, "rows": []})
+    save_switch_mac_state({"switch": {}, "rows": [], "ports": []})
     return {"ok": True, "scope": "all", "removed_rows": before, "remaining": 0}
 
 
 def list_macs(site: str = "") -> Dict[str, Any]:
     obj = load_switch_mac_state() or {}
     rows = [x for x in (obj.get("rows") or obj.get("items") or []) if isinstance(x, dict)]
+    ports = [x for x in (obj.get("ports") or []) if isinstance(x, dict)]
     site_norm = _safe(site).lower()
     if site_norm:
+        ports = [p for p in ports if _safe(p.get("site")).lower() == site_norm]
         rows = [r for r in rows if _safe(r.get("site")).lower() == site_norm]
     rows = _attach_port_stats(_sort_switch_rows(_dedup_switch_rows(rows)))
-    return {"ok": True, "rows": rows, "count": len(rows), "site": site.strip(), "switch": obj.get("switch") or {}}
+    return {"ok": True, "rows": rows, "count": len(rows), "site": site.strip(), "switch": obj.get("switch") or {}, "ports": ports}

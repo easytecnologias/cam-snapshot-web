@@ -158,7 +158,26 @@ async function loadSwitch() {
     apiJson('/api/switch/rows'),
     apiJson('/api/cameras').catch(() => ({ cameras: [] })),
   ]);
-  _switchRows = swData?.rows || (Array.isArray(swData) ? swData : []);
+  const rawRows = swData?.rows || (Array.isArray(swData) ? swData : []);
+  const ports = swData?.ports || [];
+
+  // MACs aprendidos na porta uplink sao de equipamentos atras do switch (outra
+  // rede/segmento), nao ligados fisicamente nela -- fora da tabela.
+  const edgeRows = rawRows.filter(r => r.port_role_guess !== 'uplink');
+
+  // Portas sem nenhum MAC aprendido nao aparecem no mac_table (nada circulou
+  // por elas) -- usamos a lista de portas fisicas coletada junto pra mostrar
+  // essas tambem, sinalizando se tem cabo linkado ou nao.
+  const withRow = new Set(edgeRows.map(r => `${r.switch_ip || ''}|${r.port || ''}`));
+  const emptyPortRows = ports
+    .filter(p => p.port && !withRow.has(`${p.switch_ip || ''}|${p.port || ''}`))
+    .map(p => ({
+      site: p.site, switch_ip: p.switch_ip, switch_name: p.switch_name,
+      port: p.port, mac: '', vlan: '', entry_type: '', port_role_guess: 'edge',
+      _linkUp: !!p.up,
+    }));
+
+  _switchRows = [...edgeRows, ...emptyPortRows];
 
   _switchCamByMac = {};
   const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
@@ -189,32 +208,33 @@ function renderSwitchTable(rows) {
   const tbody = document.getElementById('switchTable');
   if (!tbody) return;
 
+  const withMac = rows.filter(r => r.mac);
   const switches = new Set(rows.map(r => String(r.switch_ip || r.switch_name || '').trim()).filter(Boolean));
   const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
-  const activePorts = new Set(rows.map(r => `${r.switch_ip || ''}|${r.port || ''}`).filter(k => k !== '|'));
+  const activePorts = new Set(withMac.map(r => `${r.switch_ip || ''}|${r.port || ''}`).filter(k => k !== '|'));
   setText('switchCount', switches.size);
   setText('switchPortCount', activePorts.size);
-  setText('switchMacTotal', rows.length);
+  setText('switchMacTotal', withMac.length);
   setText('switchSiteCount', sites.size);
   setText('switchFooter', `${rows.length} registro${rows.length !== 1 ? 's' : ''}`);
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum dado. Execute a coleta.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum dado. Execute a coleta.</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map(r => {
-    const cam = _switchCamByMac[String(r.mac || '').toLowerCase()];
-    const role = r.port_role_guess === 'uplink'
-      ? '<span class="badge badge-amber">Uplink</span>'
-      : '<span class="badge badge-gray">Edge</span>';
+    const isEmpty = !r.mac;
+    const cam = isEmpty ? null : _switchCamByMac[String(r.mac || '').toLowerCase()];
+    const macCell = isEmpty
+      ? `<span class="text-muted">${r._linkUp ? 'Conectado, sem MAC aprendido' : 'Sem cabo conectado'}</span>`
+      : esc(r.mac);
     return `
-    <tr>
+    <tr${isEmpty ? ' style="opacity:.65"' : ''}>
       <td class="text-muted">${esc(r.port || '')}</td>
-      <td>${role}</td>
-      <td class="monospace">${esc(r.mac || '')}</td>
-      <td class="text-muted" style="text-align:center">${esc(r.vlan || 'default')}</td>
-      <td class="text-muted">${esc(r.entry_type || '')}</td>
+      <td class="monospace">${macCell}</td>
+      <td class="text-muted" style="text-align:center">${isEmpty ? '-' : esc(r.vlan || 'default')}</td>
+      <td class="text-muted">${isEmpty ? '-' : esc(r.entry_type || '')}</td>
       <td>${cam ? esc(cam.titulo || cam.local || cam.ip || '') : '<span class="text-muted">-</span>'}</td>
       <td class="text-muted">${esc(r.switch_name || r.switch_ip || '')}</td>
       <td class="text-muted">${esc(r.site || '')}</td>

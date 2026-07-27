@@ -834,11 +834,20 @@ function _scanModeForCurrentTab() {
   return map[_invOltView] || 'olt';
 }
 
+function updateScanEnrichDefaults() {
+  const mode = document.getElementById('scanMode')?.value || 'olt';
+  const oltChk = document.getElementById('scanOltEnrich');
+  const switchChk = document.getElementById('scanSwitchEnrich');
+  if (oltChk) oltChk.checked = mode === 'olt';
+  if (switchChk) switchChk.checked = mode === 'switch';
+}
+
 function openScanModal() {
   document.getElementById('scanLog').textContent = 'Aguardando inicio';
   document.getElementById('modalScan').classList.remove('hidden');
   const modeEl = document.getElementById('scanMode');
   if (modeEl) modeEl.value = _scanModeForCurrentTab();
+  updateScanEnrichDefaults();
   refreshScanConnectors().finally(updateScanOriginUi);
 }
 
@@ -862,9 +871,9 @@ function resetScanForm() {
   const connector = document.getElementById('scanConnector');
   if (connector) connector.value = '';
   updateScanOriginUi();
+  updateScanEnrichDefaults();
   const checks = {
     scanDiscover: true,
-    scanOltEnrich: true,
     scanSnapshot: false,
     scanImgbb: false,
     scanAppend: false,
