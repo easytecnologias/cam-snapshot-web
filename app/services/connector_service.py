@@ -247,9 +247,16 @@ def _public_connector(row: Dict[str, Any], include_token: bool = False) -> Dict[
     last_seen = _text(row.get("last_seen"))
     online = False
     if last_seen:
+        # O MikroTik tem agente que bate heartbeat sozinho a cada 60s -- 90s de
+        # janela reflete isso de verdade. O Ruijie e "pull": so atualiza
+        # last_seen quando alguem clica em "Coletar LAN" (sem heartbeat), entao
+        # a mesma janela curta o deixaria "offline" minutos depois de qualquer
+        # coleta bem-sucedida, por engano. Usa uma janela bem mais longa nesse
+        # caso -- e um sinal de "ultima coleta ok", nao de conexao continua.
+        window_seconds = 90 if _text(row.get("type")).lower() != "ruijie" else 86400
         try:
             last_ts = datetime.fromisoformat(last_seen.replace("Z", "+00:00")).timestamp()
-            online = (time.time() - last_ts) <= 90
+            online = (time.time() - last_ts) <= window_seconds
         except Exception:
             online = False
     out = dict(row)
