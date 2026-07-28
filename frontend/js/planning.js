@@ -243,6 +243,8 @@ function renderPlanningDevices() {
       ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
       : ['onu', 'ont'].includes(item.device_type) && metadata.eth_port_capacity
       ? `${childCount}/${Number(metadata.eth_port_capacity)} portas ETH usadas`
+      : item.device_type === 'cto' && metadata.port_capacity
+      ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
       : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
       : ['camera', 'switch', 'injector'].includes(item.device_type) && item.parent_name && metadata.port_number
       ? `${item.parent_name} · Porta ${metadata.port_number}`
@@ -373,6 +375,7 @@ function openPlanningAddPortChild(parentId, deviceType) {
 // portas PoE onde entra camera. Mesma tela de detalhe serve pros dois
 // niveis, so muda a config.
 const PLANNING_PORT_HOLDER_CONFIG = {
+  cto: { childTypes: ['box'], addButtons: [['box', 'Adicionar Caixa']], portsLabel: 'Portas' },
   onu: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
   ont: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
   switch: { childTypes: ['camera'], addButtons: [['camera', 'Adicionar Camera']], portsLabel: 'Portas PoE' },
@@ -476,7 +479,10 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuPortsField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
-  planDeviceParentPortField: { showOnlyFor: ['camera', 'switch', 'injector'] },
+  planDeviceCtoPortsField: { showOnlyFor: ['cto'] },
+  // planDeviceParentPortField NAO entra aqui -- a visibilidade dele depende
+  // de quem esta selecionado em "Ligado a" ter portas (CTO, ONU/ONT,
+  // switch/injetor), nao do tipo do proprio equipamento. Ver refreshParentPort.
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
@@ -571,6 +577,7 @@ function planningSiteOptions(selected = '') {
 // ONU, que e uma ponta, nao um ponto de distribuicao.
 const PLANNING_PARENT_TYPES = {
   box: ['cto', 'olt', 'pole'],
+  cto: ['olt'],
   onu: ['box'],
   ont: ['box'],
   // Switch/injetor ligam na porta ETH da ONU/ONT que esta na caixa, nao
@@ -614,7 +621,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector', 'camera'];
+const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector', 'camera', 'cto'];
 
 // Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
 // camera ocupa uma porta so dela, entao portas com outra camera aparecem
@@ -625,6 +632,9 @@ function planningParentPortCapacity(parent) {
   if (!parent) return 0;
   if (['switch', 'injector'].includes(parent.device_type)) return planningPoeCapacity(parent.metadata || {});
   if (['onu', 'ont'].includes(parent.device_type)) return Number(parent.metadata?.eth_port_capacity || 1);
+  // CTO e um splitter optico: cada porta de saida atende uma caixa/cliente.
+  // Sem reserva de uplink (nao e PoE) -- todas as portas contam.
+  if (parent.device_type === 'cto') return Number(parent.metadata?.port_capacity || 8);
   return 0;
 }
 
@@ -687,6 +697,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
         <option value="smart" ${metadata.switch_mode === 'smart' ? 'selected' : ''}>Smart - gerenciavel (com IP)</option>
       </select></label>
       <label class="planning-field" id="planDeviceSwitchPortsField"><span>Quantidade de portas</span><select id="planDeviceSwitchPorts">${[4, 5, 8, 16, 24, 48].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 5) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
+      <label class="planning-field" id="planDeviceCtoPortsField"><span>Quantidade de portas</span><select id="planDeviceCtoPorts">${[1, 2, 4, 8, 12, 16, 24].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 8) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
@@ -720,8 +731,11 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   };
   const refreshParentPort = () => {
     const portSelect = modal.querySelector('#planDeviceParentPort');
-    if (!portSelect) return;
+    const portField = modal.querySelector('#planDeviceParentPortField');
+    if (!portSelect || !portField) return;
     const parentId = modal.querySelector('#planDeviceParent')?.value || '';
+    const parent = (_planningCurrent?.devices || []).find(d => Number(d.id) === Number(parentId));
+    portField.classList.toggle('hidden', planningParentPortCapacity(parent) <= 0);
     const current = portSelect.value;
     portSelect.innerHTML = planningPortOptions(parentId, current, item.id);
   };
@@ -759,16 +773,20 @@ function planningDevicePayload(root, metadata = {}) {
     // Injetor PoE e sempre porta unica -- nao ha uplink separado a reservar.
     delete nextMetadata.switch_mode;
     nextMetadata.port_capacity = 1; nextMetadata.poe_port_capacity = 1; nextMetadata.uplink_ports = 0;
+  } else if (deviceType === 'cto') {
+    // CTO e splitter optico -- todas as portas de saida contam, sem reserva
+    // de uplink (nao e PoE).
+    delete nextMetadata.switch_mode; delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
+    nextMetadata.port_capacity = Math.max(1, Number(value('planDeviceCtoPorts')) || 8);
   } else {
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
     delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
   }
-  if (['camera', 'switch', 'injector'].includes(deviceType)) {
-    const port = value('planDeviceParentPort');
-    if (port) nextMetadata.port_number = Number(port); else delete nextMetadata.port_number;
-  } else {
-    delete nextMetadata.port_number;
-  }
+  // A visibilidade do campo "Porta no equipamento pai" ja depende do pai
+  // escolhido ter portas (ver refreshParentPort), entao aqui basta ler o
+  // valor -- se nao se aplicar, o campo simplesmente esta vazio.
+  const parentPort = value('planDeviceParentPort');
+  if (parentPort) nextMetadata.port_number = Number(parentPort); else delete nextMetadata.port_number;
   return {
     device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
