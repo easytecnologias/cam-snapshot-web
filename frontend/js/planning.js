@@ -1368,14 +1368,20 @@ async function exportPlanningKmz() {
   }
 }
 
-async function downloadPlanningNetworkPdf() {
+async function downloadPlanningNetworkPdf(cableConfig = null, triggerButton = null) {
   if (!_planningCurrent) return;
-  const button = document.getElementById('btnPlanningNetworkPdf');
+  const button = triggerButton || document.getElementById('btnPlanningNetworkPdf');
   if (button) button.disabled = true;
   try {
     const headers = {};
     if (_token) headers.Authorization = `Bearer ${_token}`;
-    const response = await fetch(`${API_BASE}/api/planning/projects/${Number(_planningCurrent.id)}/network-document.pdf`, { headers, credentials: 'same-origin' });
+    const params = new URLSearchParams();
+    if (cableConfig) {
+      if (Number.isFinite(cableConfig.routePercent)) params.set('route_margin_pct', cableConfig.routePercent);
+      if (Number.isFinite(cableConfig.slackMeters)) params.set('slack_meters', cableConfig.slackMeters);
+    }
+    const query = params.toString();
+    const response = await fetch(`${API_BASE}/api/planning/projects/${Number(_planningCurrent.id)}/network-document.pdf${query ? `?${query}` : ''}`, { headers, credentials: 'same-origin' });
     if (!response.ok) {
       const raw = await response.text();
       let message = raw;
@@ -1629,6 +1635,11 @@ function openPlanningCableModal() {
     download.innerHTML = '<i data-lucide="download"></i> Baixar CSV';
     download.onclick = () => downloadPlanningCableCsv(modal);
     footer.insertBefore(download, saveButton);
+    const pdfButton = document.createElement('button');
+    pdfButton.type = 'button'; pdfButton.className = 'secondary-action';
+    pdfButton.innerHTML = '<i data-lucide="file-text"></i> Gerar documento de rede';
+    pdfButton.onclick = () => downloadPlanningNetworkPdf(planningCableConfig(modal), pdfButton);
+    footer.insertBefore(pdfButton, saveButton);
   }
   ['planCableRoute', 'planCableSlack', 'planCableReserve', 'planCableMax'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', () => renderPlanningCableResults(modal)));
   renderPlanningCableResults(modal);

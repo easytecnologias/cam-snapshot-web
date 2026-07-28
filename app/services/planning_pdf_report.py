@@ -201,7 +201,11 @@ def _kpis(values: List[tuple[str, str]], styles: Dict[str, ParagraphStyle]) -> T
     return table
 
 
-def generate_project_network_pdf(project: Dict[str, Any]) -> bytes:
+def generate_project_network_pdf(
+    project: Dict[str, Any],
+    route_margin_pct: float = CABLE_ROUTE_MARGIN_PCT,
+    slack_meters: float = CABLE_SLACK_METERS,
+) -> bytes:
     devices = list(project.get("devices") or [])
     sites = list(project.get("sites") or [])
     title = _text(project.get("name"), "Projeto de CFTV")
@@ -358,7 +362,7 @@ def generate_project_network_pdf(project: Dict[str, Any]) -> bytes:
             route = metadata.get("route_distance_m", metadata.get("distance_to_box_m"))
             if route in (None, ""):
                 straight = _straight_line_meters(box, camera)
-                estimate = straight * (1 + CABLE_ROUTE_MARGIN_PCT / 100) + CABLE_SLACK_METERS if straight is not None else None
+                estimate = straight * (1 + route_margin_pct / 100) + slack_meters if straight is not None else None
                 route_label = f"{estimate:.1f} m (estimado)" if estimate is not None else "A definir"
             else:
                 route_label = f"{float(route):.1f} m"

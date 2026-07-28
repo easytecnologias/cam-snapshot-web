@@ -61,12 +61,21 @@ def projects_export_kmz(project_id: int) -> Response:
 
 
 @router.get("/projects/{project_id}/network-document.pdf")
-def projects_network_document(project_id: int) -> Response:
+def projects_network_document(
+    project_id: int,
+    route_margin_pct: float | None = None,
+    slack_meters: float | None = None,
+) -> Response:
     project = planning_service.get_project(project_id)
     if not project:
         raise HTTPException(404, "Projeto nao encontrado")
     try:
-        content = generate_project_network_pdf(project)
+        kwargs: Dict[str, Any] = {}
+        if route_margin_pct is not None:
+            kwargs["route_margin_pct"] = route_margin_pct
+        if slack_meters is not None:
+            kwargs["slack_meters"] = slack_meters
+        content = generate_project_network_pdf(project, **kwargs)
         safe_name = "".join(
             char if char.isascii() and (char.isalnum() or char in "-_") else "-"
             for char in str(project.get("name") or "projeto-cftv")
