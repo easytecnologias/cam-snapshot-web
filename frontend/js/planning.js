@@ -233,10 +233,20 @@ function openPlanningBoxDetails(deviceId) {
         <span><i data-lucide="network"></i><strong>Distribuicao PoE</strong></span>
         <span>${capacity ? `${usedPorts} de ${capacity} portas planejadas` : `${usedPorts} camera(s), capacidade ainda nao informada`}</span>
       </div>
-      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><span>${internal.length}</span></div>${equipmentRows}</section>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)})"><i data-lucide="plus"></i> Adicionar ONU</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
       <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras ligadas</h3><p>As cameras permanecem nas coordenadas individuais e aparecem pelo vinculo com o switch ou injetor.</p></div><span>${cameras.length}</span></div>${cameraRows}</section>
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
+  });
+}
+
+function openPlanningAddToBox(boxId) {
+  const box = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(boxId));
+  if (!box) return;
+  closePlanningModal();
+  openPlanningDeviceModal(0, {
+    parent_id: box.id, device_type: 'onu', site_id: box.site_id ?? null,
+    latitude: box.latitude ?? null, longitude: box.longitude ?? null,
   });
 }
 
@@ -274,13 +284,16 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
   return `<label class="planning-field" ${wrapAttrs}><span>${planningEscape(label)}</span><input id="${id}" value="${planningEscape(value)}" ${extra}></label>`;
 }
 
-// Caixa/poste/CTO sao elementos fisicos sem endereco de rede proprio;
-// PON/posicao ONU so fazem sentido pra quem termina uma fibra (ONU/ONT).
-const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto'];
+// Caixa/poste/CTO sao elementos fisicos sem endereco de rede proprio. ONU
+// (bridge transparente) tambem nao tem IP de gerenciamento -- so a ONT
+// (VEIP/roteador) e "gerenciavel" e tem IP, igual no menu OLT.
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu'];
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceIpField: { hideFor: PLANNING_TYPES_WITHOUT_IP },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
+  planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
+  planDeviceMacField: { showOnlyFor: ['onu', 'ont'] },
 };
 
 function refreshPlanningDeviceFields(modal) {
@@ -368,20 +381,25 @@ function refreshPlanningCatalogLists(root) {
   if (modelList) modelList.innerHTML = models.map(value => `<option value="${planningEscape(value)}"></option>`).join('');
 }
 
-async function openPlanningDeviceModal(deviceId = 0) {
+// Tipos que o usuario ja aprovou pro fluxo novo de "Adicionar". Vai crescendo
+// conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
+const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'ont'];
+
+async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   if (!_planningCurrent) return;
   await loadPlanningCatalog();
   const isNew = !deviceId;
-  // Por enquanto so criamos Caixa de CFTV -- os demais tipos entram aos
-  // poucos, conforme o usuario for aprovando cada etapa do fluxo novo.
-  const item = isNew ? { device_type: 'box' } : ((_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'box' });
+  const item = isNew
+    ? { device_type: 'box', parent_id: null, metadata: {}, ...defaults }
+    : ((_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'box' });
   const typeOptions = isNew
-    ? `<option value="box" selected>${planningEscape(PLANNING_TYPES.box)}</option>`
+    ? PLANNING_ADDABLE_TYPES.map(key => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${planningEscape(PLANNING_TYPES[key])}</option>`).join('')
     : Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('');
+  const metadata = item.metadata || {};
   const modal = planningModal({
-    title: item.id ? 'Editar equipamento planejado' : 'Adicionar Caixa de CFTV', wide: true,
+    title: item.id ? 'Editar equipamento planejado' : `Adicionar ${planningEscape(PLANNING_TYPES[item.device_type] || 'equipamento')}`, wide: true,
     body: `<div class="planning-form-grid">
-      <label class="planning-field"><span>Tipo</span><select id="planDeviceType" ${isNew ? 'disabled' : ''}>${typeOptions}</select></label>
+      <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${typeOptions}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
@@ -390,6 +408,8 @@ async function openPlanningDeviceModal(deviceId = 0) {
       <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.parent_id, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
+      ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
+      ${planningField('MAC', 'planDeviceMac', metadata.mac || '', 'placeholder="AA:BB:CC:DD:EE:FF"', 'id="planDeviceMacField"')}
       ${planningField('Latitude', 'planDeviceLat', item.latitude ?? '', 'placeholder="-9.750000"')}
       ${planningField('Longitude', 'planDeviceLon', item.longitude ?? '', 'placeholder="-36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
@@ -413,12 +433,16 @@ async function openPlanningDeviceModal(deviceId = 0) {
 
 function planningDevicePayload(root, metadata = {}) {
   const value = id => root.querySelector(`#${id}`)?.value?.trim() || '';
+  const nextMetadata = { ...metadata };
+  const serial = value('planDeviceSerial'); const mac = value('planDeviceMac');
+  if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
+  if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
   return {
     device_type: value('planDeviceType'), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
     parent_id: value('planDeviceParent') || null, pon: value('planDevicePon'), onu_position: value('planDeviceOnu'),
     latitude: value('planDeviceLat') || null, longitude: value('planDeviceLon') || null,
-    reference_image_url: value('planDeviceImage'), notes: value('planDeviceNotes'), metadata, status: 'planned',
+    reference_image_url: value('planDeviceImage'), notes: value('planDeviceNotes'), metadata: nextMetadata, status: 'planned',
   };
 }
 

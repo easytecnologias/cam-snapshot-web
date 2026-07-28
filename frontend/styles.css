@@ -5781,7 +5781,8 @@ body.cam-live-lock {
 .planning-box-section { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
 .planning-box-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--surface-soft); }
 .planning-box-section-head h3 { margin: 0 0 2px; font-size: 14px; }.planning-box-section-head p { margin: 0; color: var(--muted); font-size: 11px; }
-.planning-box-section-head > span { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-soft); font-size: 12px; font-weight: 800; }
+.planning-box-section-head > span, .planning-box-section-head-actions > span { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 50%; color: var(--primary); background: var(--primary-soft); font-size: 12px; font-weight: 800; }
+.planning-box-section-head-actions { display: flex; align-items: center; gap: 10px; flex: none; }
 .planning-box-detail-row, .planning-box-camera-row { display: grid; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--border); color: var(--text); background: #fff; text-align: left; cursor: pointer; }
 .planning-box-detail-row { grid-template-columns: 38px minmax(0, 1fr) 18px; }.planning-box-camera-row { grid-template-columns: 38px minmax(0, 1.4fr) minmax(130px, .65fr) 18px; }
 .planning-box-detail-row:last-child, .planning-box-camera-row:last-child { border-bottom: 0; }.planning-box-detail-row:hover, .planning-box-camera-row:hover { background: var(--surface-soft); }
