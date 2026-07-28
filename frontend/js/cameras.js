@@ -78,6 +78,12 @@ function _camCell(c) {
     sw_ip:     `<span class="monospace text-muted" title="${esc(c.switch_ip||'')}">${esc(c.switch_ip||'')}</span>`,
     sw_port:   `<span class="text-muted" title="${esc(c.switch_port||'')}">${esc(c.switch_port||'')}</span>`,
     sw_vlan:   `<span class="text-muted" title="${esc(c.switch_vlan||'')}">${esc(c.switch_vlan||'')}</span>`,
+    sw_combo:  (() => {
+      const name = c.switch_name || '';
+      const ip = c.switch_ip || '';
+      const full = name && ip ? `${name} (${ip})` : (name || ip || '');
+      return `<span class="text-muted" title="${esc(full)}">${esc(full)}</span>`;
+    })(),
   };
 }
 
@@ -102,9 +108,9 @@ const INV_COLS = {
   },
   // Switch: base enxuta + dados Switch
   switch: {
-    cols:  ['4%','11%','13%','6%','7%','13%','5%','4%','6%','13%','10%','5%','3%'],
-    heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Switch IP','Porta','VLAN'],
-    row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_name, v.sw_ip, v.sw_port, v.sw_vlan]; },
+    cols:  ['4%','11%','13%','7%','8%','14%','6%','5%','7%','14%','6%','5%'],
+    heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Porta','VLAN'],
+    row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_combo, v.sw_port, v.sw_vlan]; },
   },
 };
 
