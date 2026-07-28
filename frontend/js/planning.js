@@ -264,7 +264,7 @@ function openPlanningBoxDetails(deviceId) {
         <span><i data-lucide="network"></i><strong>Distribuicao PoE</strong></span>
         <span>${capacity ? `${usedPorts} de ${capacity} portas planejadas` : `${usedPorts} camera(s), capacidade ainda nao informada`}</span>
       </div>
-      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'onu')"><i data-lucide="plus"></i> Adicionar ONU</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'switch')"><i data-lucide="plus"></i> Adicionar Switch</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'onu')"><i data-lucide="plus"></i> Adicionar ONU</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'switch')"><i data-lucide="plus"></i> Adicionar Switch</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'injector')"><i data-lucide="plus"></i> Adicionar Injetor</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
       <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras ligadas</h3><p>As cameras permanecem nas coordenadas individuais e aparecem pelo vinculo com o switch ou injetor.</p></div><span>${cameras.length}</span></div>${cameraRows}</section>
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
@@ -323,7 +323,7 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // Switch segue o mesmo principio: Normal (sem gerenciamento, bridge, sem IP)
 // vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
 // sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
-const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu'];
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector'];
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuModeField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
@@ -418,6 +418,7 @@ const PLANNING_PARENT_TYPES = {
   onu: ['box'],
   ont: ['box'],
   switch: ['box'],
+  injector: ['box'],
 };
 const PLANNING_DEFAULT_PARENT_TYPES = ['olt', 'onu', 'ont', 'switch', 'recorder', 'box', 'pole'];
 
@@ -454,7 +455,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch'];
+const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector'];
 
 function planningTypeOptionLabel(key) {
   return key === 'onu' ? 'ONU / ONT' : (PLANNING_TYPES[key] || key);
@@ -536,7 +537,8 @@ function planningDevicePayload(root, metadata = {}) {
   const serial = value('planDeviceSerial'); const mac = value('planDeviceMac');
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
-  if (value('planDeviceType') === 'switch') {
+  const deviceType = value('planDeviceType');
+  if (deviceType === 'switch') {
     nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
     // 1 porta reservada pro uplink (liga a caixa na rede) -- so as demais
     // contam como capacidade real pra camera, igual a regra da caixa GPON.
@@ -545,6 +547,10 @@ function planningDevicePayload(root, metadata = {}) {
     nextMetadata.port_capacity = portCapacity;
     nextMetadata.poe_port_capacity = Math.max(1, portCapacity - uplinkPorts);
     nextMetadata.uplink_ports = uplinkPorts;
+  } else if (deviceType === 'injector') {
+    // Injetor PoE e sempre porta unica -- nao ha uplink separado a reservar.
+    delete nextMetadata.switch_mode;
+    nextMetadata.port_capacity = 1; nextMetadata.poe_port_capacity = 1; nextMetadata.uplink_ports = 0;
   } else {
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
     delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
