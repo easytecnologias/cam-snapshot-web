@@ -121,9 +121,15 @@ function filteredPlanningDevices() {
   const term = String(document.getElementById('planningSearch')?.value || '').trim().toLowerCase();
   const type = document.getElementById('planningTypeFilter')?.value || '';
   const site = document.getElementById('planningSiteFilter')?.value || '';
+  // Navegando sem busca/filtro de tipo: mostra so o topo da hierarquia --
+  // quem tem pai (ex: ONU dentro de uma caixa) so aparece ao abrir o pai,
+  // nao como linha solta na lista. Busca/filtro de tipo e "achar algo
+  // especifico", entao ai mostra tudo, inclusive itens aninhados.
+  const isBrowsingHierarchy = !term && !type;
   return (_planningCurrent?.devices || []).filter(item => {
     if (type && item.device_type !== type) return false;
     if (site && String(item.site_id || '') !== site) return false;
+    if (isBrowsingHierarchy && item.parent_id) return false;
     if (!term) return true;
     return [item.name, item.ip, item.model, item.manufacturer, item.site_name, item.parent_name]
       .some(value => String(value || '').toLowerCase().includes(term));
