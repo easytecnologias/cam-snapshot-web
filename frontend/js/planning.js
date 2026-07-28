@@ -29,6 +29,27 @@ function planningNaturalCompare(left, right) {
   return String(left || '').localeCompare(String(right || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
 }
 
+// Valor clicavel-pra-copiar, usado onde o texto pode ser longo (coordenada,
+// serial...) e cortar com "..." esconderia parte que a pessoa precisa colar
+// em outro lugar (Google Maps, etc.).
+function planningCopyableValue(value, title = 'Copiar') {
+  const text = String(value || '').trim();
+  if (!text) return '<strong>A definir</strong>';
+  return `<button type="button" class="planning-copy-value" data-copy-value="${planningEscape(text)}" onclick="planningCopyFromButton(event)" title="${planningEscape(title)}"><strong>${planningEscape(text)}</strong><i data-lucide="copy"></i></button>`;
+}
+
+async function planningCopyFromButton(event) {
+  const btn = event.currentTarget;
+  const value = btn?.dataset.copyValue || '';
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast('Copiado para a area de transferencia.');
+  } catch (err) {
+    showToast('Nao foi possivel copiar.', true);
+  }
+}
+
 async function planningRequest(path, options = {}) {
   const res = await api(path, options);
   return jsonOrReadableError(res, 'Nao foi possivel concluir a operacao do projeto.');
@@ -256,7 +277,7 @@ function openPlanningBoxDetails(deviceId) {
     body: `<div class="planning-box-details">
       <div class="planning-box-summary-grid">
         <div><span>Site/local</span><strong>${planningEscape(item.site_name || 'Sem site')}</strong></div>
-        <div><span>Coordenada da caixa</span><strong>${planningEscape(coordinate || 'A definir')}</strong></div>
+        <div><span>Coordenada da caixa</span>${planningCopyableValue(coordinate, 'Copiar coordenada')}</div>
         <div><span>Equipamentos internos</span><strong>${internal.length}</strong></div>
         <div><span>Cameras atendidas</span><strong>${cameras.length}</strong></div>
       </div>

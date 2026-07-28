@@ -5780,6 +5780,10 @@ body.cam-live-lock {
 .planning-box-summary-grid > div { display: grid; min-width: 0; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .planning-box-summary-grid span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .planning-box-summary-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-copy-value { display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.planning-copy-value strong { overflow: visible; text-overflow: clip; white-space: normal; word-break: break-word; }
+.planning-copy-value i, .planning-copy-value svg { width: 13px; height: 13px; flex: none; margin-top: 3px; color: var(--muted); }
+.planning-copy-value:hover strong, .planning-copy-value:hover i { color: var(--primary); }
 .planning-box-capacity { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid #a7dcc9; border-radius: 8px; color: #17634e; background: #effaf6; font-size: 12px; }
 .planning-box-capacity > span { display: flex; align-items: center; gap: 8px; }.planning-box-capacity svg { width: 17px; }.planning-box-capacity.danger { border-color: #f2b0b0; color: #a92121; background: #fff2f2; }
 .planning-box-section { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
