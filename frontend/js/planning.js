@@ -621,7 +621,9 @@ function planningModal({ eyebrow = 'Planejamento', title, body, primary = 'Salva
     <div class="planning-modal-footer"><button class="secondary-action" data-close>Cancelar</button><button class="primary-action" data-save><i data-lucide="check"></i> ${planningEscape(primary)}</button></div>
   </div>`;
   root.classList.remove('hidden');
-  root.onclick = event => { if (event.target === root) closePlanningModal(); };
+  // Sem fechar ao clicar fora -- e facil perder o que estava editando sem
+  // querer. So fecha pelo X ou pelo Cancelar.
+  root.onclick = null;
   root.querySelectorAll('[data-close]').forEach(btn => btn.onclick = closePlanningModal);
   root.querySelector('[data-save]').onclick = async event => {
     const btn = event.currentTarget;
