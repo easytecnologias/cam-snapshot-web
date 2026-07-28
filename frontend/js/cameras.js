@@ -81,8 +81,12 @@ function _camCell(c) {
     sw_combo:  (() => {
       const name = c.switch_name || '';
       const ip = c.switch_ip || '';
-      const full = name && ip ? `${name} (${ip})` : (name || ip || '');
-      return `<span class="text-muted" title="${esc(full)}">${esc(full)}</span>`;
+      // So o nome aparece na celula (curto, cabe); IP completo vai so no
+      // tooltip -- "nome (ip)" inteiro nunca coube em nenhuma largura
+      // razoavel de coluna com nomes reais tipo "SWITCH GALPAO".
+      const shown = name || ip;
+      const full = name && ip ? `${name} (${ip})` : shown;
+      return `<span class="text-muted" title="${esc(full)}">${esc(shown)}</span>`;
     })(),
   };
 }
@@ -108,7 +112,7 @@ const INV_COLS = {
   },
   // Switch: base enxuta + dados Switch
   switch: {
-    cols:  ['4%','11%','13%','7%','8%','14%','6%','5%','7%','14%','6%','5%'],
+    cols:  ['4%','11%','13%','8%','9%','14%','6%','5%','8%','10%','6%','6%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Porta','VLAN'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_combo, v.sw_port, v.sw_vlan]; },
   },
