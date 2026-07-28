@@ -74,6 +74,35 @@ async function planningCopyText(text) {
   }
 }
 
+// Monta "CAIXA - 01 > SWITCH-01 > Porta 1 > 01 - CAMERA" subindo a cadeia de
+// pais -- util pra colar num chamado/mensagem pro tecnico de campo achar
+// fisicamente onde a camera esta ligada, sem precisar abrir o app.
+function planningDevicePath(item) {
+  const devices = _planningCurrent?.devices || [];
+  const chainUp = [];
+  const seen = new Set();
+  let current = item;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    chainUp.push(current);
+    current = current.parent_id ? devices.find(d => Number(d.id) === Number(current.parent_id)) : null;
+  }
+  const parts = [];
+  chainUp.reverse().forEach(node => {
+    if (node.device_type === 'camera' && node.metadata?.port_number) parts.push(`Porta ${node.metadata.port_number}`);
+    parts.push(node.name);
+  });
+  return parts.join(' > ');
+}
+
+async function planningCopyDevicePath(id) {
+  const item = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(id));
+  if (!item) return;
+  const path = planningDevicePath(item);
+  if (await planningCopyText(path)) showToast(`Caminho copiado: ${path}`);
+  else showToast('Nao foi possivel copiar.', true);
+}
+
 async function planningRequest(path, options = {}) {
   const res = await api(path, options);
   return jsonOrReadableError(res, 'Nao foi possivel concluir a operacao do projeto.');
@@ -232,6 +261,7 @@ function renderPlanningDevices() {
         <span class="planning-device-parent">${planningEscape(relation)}</span>
       </button>
       <div class="planning-row-actions">
+        ${item.device_type === 'camera' ? `<button class="icon-button" onclick="planningCopyDevicePath(${Number(item.id)})" aria-label="Copiar caminho"><i data-lucide="copy"></i></button>` : ''}
         <button class="icon-button" onclick="openPlanningDeviceModal(${Number(item.id)})" aria-label="Editar"><i data-lucide="pencil"></i></button>
         <button class="icon-button danger" onclick="deletePlanningDevice(${Number(item.id)})" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
       </div>
@@ -433,7 +463,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
-  planDeviceMacField: { showOnlyFor: ['onu', 'ont'] },
+  planDeviceMacField: { showOnlyFor: ['onu', 'ont', 'camera'] },
 };
 
 // Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
@@ -462,6 +492,13 @@ function refreshPlanningDeviceFields(modal) {
   }
   const ipField = modal.querySelector('#planDeviceIpField');
   if (ipField) ipField.classList.toggle('hidden', planningShouldHideIp(modal));
+  // Switch so ganha campo de MAC quando e Smart (gerenciavel) -- normal
+  // (bridge) nao tem como consultar/gerenciar por MAC mesmo assim.
+  const macField = modal.querySelector('#planDeviceMacField');
+  if (macField && type === 'switch') {
+    const smart = (modal.querySelector('#planDeviceSwitchMode')?.value || 'normal') === 'smart';
+    macField.classList.toggle('hidden', !smart);
+  }
 }
 
 function openPlanningProjectModal(isNew = false) {
