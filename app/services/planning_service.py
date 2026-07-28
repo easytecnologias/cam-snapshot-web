@@ -8,6 +8,7 @@ import struct
 import uuid
 import zipfile
 import zlib
+from html import escape as html_escape
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 from typing import Any, Dict, Iterable, List
@@ -639,6 +640,22 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador", "box": "Caixa de CFTV",
         "pole": "Poste", "other": "Outro",
     }
+    type_icons = {
+        "camera": "📷", "onu": "📡", "ont": "📶", "olt": "🛰️", "switch": "🔀",
+        "injector": "⚡", "cto": "🧷", "recorder": "💾", "box": "📦", "pole": "🗼", "other": "⚙️",
+    }
+    # Mesma regra do frontend (planningItemHasNoIp): esses tipos nao tem IP
+    # proprio, entao a linha de IP so polui o balao sem informacao real.
+    types_without_ip = {"box", "pole", "cto", "onu", "injector"}
+
+    def has_ip(item: Dict[str, Any]) -> bool:
+        dtype = str(item.get("device_type") or "other")
+        if dtype in types_without_ip:
+            return False
+        if dtype == "switch":
+            return (item.get("metadata") or {}).get("switch_mode", "normal") == "smart"
+        return True
+
     styles = (
         '<Style id="camera"><IconStyle><scale>0.82</scale><Icon><href>files/icons/cctv-green.png</href></Icon>'
         '</IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>'
@@ -658,31 +675,86 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             found.extend(descendants(int(child["id"])))
         return found
 
-    def placemark(item: Dict[str, Any], style: str, extra_details: List[str] | None = None) -> str:
+    def esc(value: Any) -> str:
+        return html_escape(str(value), quote=False)
+
+    def field_row(icon: str, label: str, value: Any) -> str:
+        if value in (None, ""):
+            return ""
+        return (
+            '<tr>'
+            f'<td style="padding:4px 8px 4px 0;color:#5f6368;white-space:nowrap;vertical-align:top;">{icon} {esc(label)}</td>'
+            f'<td style="padding:4px 0;color:#202124;vertical-align:top;">{esc(value)}</td>'
+            '</tr>'
+        )
+
+    def device_fields(item: Dict[str, Any]) -> str:
+        metadata = item.get("metadata") or {}
+        model = " / ".join(filter(None, [item.get("manufacturer"), item.get("model")]))
+        rows = [
+            field_row("📍", "Site", item.get("site_name")),
+            field_row("🌐", "IP", item.get("ip") if has_ip(item) else None),
+            field_row("🏷️", "Fabricante/modelo", model),
+            field_row("🔖", "Patrimonio", metadata.get("patrimonio")),
+            field_row("🔗", "Ligado a", item.get("parent_name")),
+            field_row("🔌", "PON", item.get("pon")),
+            field_row("#️⃣", "Posicao ONU", item.get("onu_position")),
+            field_row("🔢", "Serial", metadata.get("serial")),
+            field_row("🖧", "MAC", metadata.get("mac")),
+            field_row("🧩", "VLAN", metadata.get("vlan")),
+            field_row("📏", "Percurso ate a caixa", f"{metadata['route_distance_m']} m" if metadata.get("route_distance_m") not in (None, "") else None),
+            field_row("📐", "Distancia ate a caixa", f"{metadata['distance_to_box_m']} m" if metadata.get("distance_to_box_m") not in (None, "") else None),
+            field_row("📝", "Observacoes", item.get("notes")),
+        ]
+        return "".join(rows)
+
+    def card_html(item: Dict[str, Any], extra_sections: str = "") -> str:
+        dtype = str(item.get("device_type") or "other")
+        icon = type_icons.get(dtype, "⚙️")
+        label = type_labels.get(dtype, dtype)
+        name = esc(item.get("name") or "Equipamento")
+        return (
+            '<div style="font-family:Roboto,Arial,sans-serif;width:250px;">'
+            '<div style="background:#0f9d58;color:#fff;padding:10px 12px;border-radius:8px 8px 0 0;">'
+            f'<div style="font-size:15px;font-weight:700;">{icon} {name}</div>'
+            f'<div style="font-size:11px;opacity:.9;letter-spacing:.03em;text-transform:uppercase;">{esc(label)}</div>'
+            '</div>'
+            '<div style="border:1px solid #e0e0e0;border-top:0;border-radius:0 0 8px 8px;padding:8px 10px;">'
+            f'<table style="width:100%;border-collapse:collapse;font-size:12px;">{device_fields(item)}</table>'
+            f'{extra_sections}'
+            '</div>'
+            '</div>'
+        )
+
+    def item_chip(item: Dict[str, Any], sub: str) -> str:
+        dtype = str(item.get("device_type") or "other")
+        icon = type_icons.get(dtype, "⚙️")
+        return (
+            '<div style="display:flex;gap:6px;align-items:flex-start;padding:5px 0;border-top:1px solid #f1f3f4;">'
+            f'<span>{icon}</span>'
+            '<div style="min-width:0;">'
+            f'<div style="font-weight:600;color:#202124;">{esc(item.get("name") or "Equipamento")}</div>'
+            f'<div style="color:#5f6368;">{esc(sub)}</div>'
+            '</div></div>'
+        )
+
+    def section_header(title: str, count: int) -> str:
+        return (
+            '<div style="margin-top:10px;padding-top:8px;border-top:2px solid #e8f5e9;'
+            'font-size:11px;font-weight:700;color:#0f9d58;text-transform:uppercase;letter-spacing:.03em;">'
+            f'{esc(title)} ({count})</div>'
+        )
+
+    def placemark(item: Dict[str, Any], style: str, extra_sections: str = "") -> str:
         lat = item.get("latitude")
         lon = item.get("longitude")
         if lat in (None, "") or lon in (None, ""):
             return ""
-        dtype = str(item.get("device_type") or "other")
-        metadata = item.get("metadata") or {}
-        details = [
-            f"Tipo: {type_labels.get(dtype, dtype)}",
-            f"Site: {item.get('site_name') or 'Nao informado'}",
-            f"IP: {item.get('ip') or 'A definir'}",
-            f"Fabricante/modelo: {' / '.join(filter(None, [item.get('manufacturer'), item.get('model')])) or 'A definir'}",
-            f"Ligado a: {item.get('parent_name') or 'Sem vinculo'}",
-        ]
-        if extra_details:
-            details.extend(extra_details)
-        if metadata.get("distance_to_box_m") is not None:
-            details.append(f"Distancia ate a caixa: {metadata['distance_to_box_m']} m")
-        if item.get("notes"):
-            details.append(f"Observacoes: {item['notes']}")
         return (
             "<Placemark>"
             f"<name>{xml_escape(str(item.get('name') or 'Equipamento'))}</name>"
             f"<styleUrl>#{style}</styleUrl>"
-            f"<description>{xml_escape(chr(10).join(details))}</description>"
+            f"<description><![CDATA[{card_html(item, extra_sections)}]]></description>"
             f"<Point><coordinates>{float(lon):.7f},{float(lat):.7f},0</coordinates></Point>"
             "</Placemark>"
         )
@@ -695,18 +767,20 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         members = descendants(int(box["id"]))
         internal = [item for item in members if item.get("device_type") != "camera"]
         linked_cameras = [item for item in members if item.get("device_type") == "camera"]
-        extra = ["", f"EQUIPAMENTOS DENTRO DA CAIXA ({len(internal)}):"]
-        extra.extend(
-            f"- {type_labels.get(str(item.get('device_type')), str(item.get('device_type')))}: {item.get('name')}"
-            f" | {' / '.join(filter(None, [item.get('manufacturer'), item.get('model')])) or 'modelo a definir'}"
+        extra = section_header("Equipamentos internos", len(internal))
+        extra += "".join(
+            item_chip(item, " / ".join(filter(None, [item.get("manufacturer"), item.get("model")])) or "Modelo a definir")
             for item in internal
-        )
-        extra.extend(["", f"CAMERAS LIGADAS ({len(linked_cameras)}):"])
-        extra.extend(
-            f"- {item.get('name')} | IP {item.get('ip') or 'a definir'}"
-            f" | {item.get('metadata', {}).get('distance_to_box_m', 'distancia a definir')} m"
+        ) or '<div style="padding:5px 0;color:#5f6368;">Nenhum equipamento interno</div>'
+        extra += section_header("Cameras atendidas", len(linked_cameras))
+        extra += "".join(
+            item_chip(
+                item,
+                f"IP {item.get('ip') or 'a definir'} · "
+                f"{(item.get('metadata') or {}).get('route_distance_m') or (item.get('metadata') or {}).get('distance_to_box_m') or 'distancia a definir'} m",
+            )
             for item in linked_cameras
-        )
+        ) or '<div style="padding:5px 0;color:#5f6368;">Nenhuma camera vinculada</div>'
         box_placemarks.append(placemark(box, "box", extra))
 
     folders = (
