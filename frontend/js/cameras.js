@@ -119,7 +119,7 @@ const INV_COLS = {
     //   Fabricante "Intelbras/Hikvision" | Modelo ate ~16 chars | Titulo ate ~28 chars (bold)
     //   Status "auth_failed" (bold) | ImgBB "up/down" (bold) | Local ate ~14 chars
     //   Switch (nome) ate ~18 chars | Porta "Eth10/Ge10" mono | VLAN "default"
-    cols:  ['3%','10%','11%','8%','9%','18%','7%','4%','10%','11%','4%','5%'],
+    cols:  ['3%','10%','11%','8%','9%','18%','6%','5%','10%','11%','4%','5%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Porta','VLAN'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_combo, v.sw_port, v.sw_vlan]; },
   },
