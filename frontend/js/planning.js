@@ -10,6 +10,11 @@ const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
   injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste', other: 'Outro',
 };
+function planningPoeCapacity(metadata) {
+  const poe = Number(metadata?.poe_port_capacity);
+  return poe > 0 ? poe : Number(metadata?.port_capacity || 0);
+}
+
 const PLANNING_STATUS = {
   draft: 'Rascunho', planned: 'Planejado', approved: 'Aprovado',
   deploying: 'Em implantacao', completed: 'Concluido',
@@ -139,7 +144,7 @@ function renderPlanningDevices() {
     const metadata = item.metadata || {};
     const childCount = allDevices.filter(child => Number(child.parent_id) === Number(item.id)).length;
     const relation = ['switch', 'injector'].includes(item.device_type) && metadata.port_capacity
-      ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
+      ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
       : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
       : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
     return `
@@ -194,7 +199,7 @@ function openPlanningBoxDetails(deviceId) {
   const internal = descendants.filter(row => row.device_type !== 'camera').sort((a, b) => planningNaturalCompare(a.name, b.name));
   const cameras = descendants.filter(row => row.device_type === 'camera').sort((a, b) => planningNaturalCompare(a.name, b.name));
   const distribution = internal.filter(row => ['switch', 'injector'].includes(row.device_type));
-  const capacity = distribution.reduce((total, row) => total + Number(row.metadata?.port_capacity || 0), 0);
+  const capacity = distribution.reduce((total, row) => total + planningPoeCapacity(row.metadata), 0);
   const usedPorts = cameras.length;
   const coordinate = [item.latitude, item.longitude].filter(value => value !== null && value !== undefined && value !== '').join(', ');
   const equipmentRows = internal.length ? internal.map(row => `
@@ -479,9 +484,16 @@ async function openPlanningBoxModal() {
     fill(manufacturerListId, rows.map(item => item.manufacturer)); fill(modelListId, rows.filter(item => !manufacturer || item.manufacturer.toLowerCase() === manufacturer).map(item => item.model));
   };
   const refreshCapacity = () => {
-    const capacity = Number(modal.querySelector('#planBoxDistributionCount').value || 0) * Number(modal.querySelector('#planBoxPorts').value || 0);
+    const count = Number(modal.querySelector('#planBoxDistributionCount').value || 0);
+    const portsPerUnit = Number(modal.querySelector('#planBoxPorts').value || 0);
+    const isSwitch = modal.querySelector('#planBoxDistributionType').value === 'switch';
+    const uplinkPerUnit = isSwitch && portsPerUnit > 1 ? 1 : 0;
+    const poePerUnit = Math.max(1, portsPerUnit - uplinkPerUnit);
+    const capacity = count * poePerUnit;
     const used = Number(modal.querySelector('#planBoxCameraCount').value || 0); modal.querySelector('#planBoxCapacity').textContent = `${capacity} camera${capacity === 1 ? '' : 's'}`;
-    const free = capacity - used; modal.querySelector('#planBoxAvailability').textContent = free < 0 ? `${Math.abs(free)} acima da capacidade` : `${free} porta${free === 1 ? '' : 's'} livre${free === 1 ? '' : 's'}`;
+    const free = capacity - used;
+    const uplinkNote = uplinkPerUnit ? ` (${count * uplinkPerUnit} porta${count * uplinkPerUnit === 1 ? '' : 's'} reservada${count * uplinkPerUnit === 1 ? '' : 's'} p/ uplink)` : '';
+    modal.querySelector('#planBoxAvailability').textContent = (free < 0 ? `${Math.abs(free)} acima da capacidade` : `${free} porta${free === 1 ? '' : 's'} PoE livre${free === 1 ? '' : 's'}`) + uplinkNote;
     modal.querySelector('.planning-capacity-card').classList.toggle('danger', used > capacity);
   };
   const refreshDistribution = () => refreshCatalog(modal.querySelector('#planBoxDistributionType').value, 'planBoxDistributionManufacturer', 'planningBoxDistributionManufacturers', 'planningBoxDistributionModels');
@@ -490,7 +502,7 @@ async function openPlanningBoxModal() {
   ['planBoxOnuType','planBoxOnuManufacturer'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshOnu));
   ['planBoxDistributionType','planBoxDistributionManufacturer'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshDistribution));
   modal.querySelector('#planBoxCameraManufacturer')?.addEventListener('input', () => refreshCatalog('camera', 'planBoxCameraManufacturer', 'planningBoxCameraManufacturers', 'planningBoxCameraModels'));
-  ['planBoxDistributionCount','planBoxPorts','planBoxCameraCount'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshCapacity));
+  ['planBoxDistributionType','planBoxDistributionCount','planBoxPorts','planBoxCameraCount'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', refreshCapacity));
   modal.querySelector('#planBoxCto')?.addEventListener('change', event => modal.querySelector('#planningCtoFields').classList.toggle('hidden', !event.target.checked));
 }
 

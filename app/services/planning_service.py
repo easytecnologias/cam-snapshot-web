@@ -393,7 +393,11 @@ def generate_devices(project_id: int, payload: Dict[str, Any]) -> List[Dict[str,
     for offset in range(count):
         number = str(first_number + offset).zfill(digits)
         item = dict(payload)
-        item["name"] = template.replace("{number}", number).replace("{n}", str(first_number + offset))
+        name = template.replace("{number}", number).replace("{n}", str(first_number + offset))
+        if count > 1 and name == template:
+            # Padrao sem {number}/{n} geraria nome identico pra todos os equipamentos.
+            name = f"{name} {number}"
+        item["name"] = name
         item["ip"] = str(ipaddress.ip_address(base_ip + offset)) if base_ip is not None else ""
         for key in ("count", "first_number", "digits", "name_template", "start_ip"):
             item.pop(key, None)
@@ -415,10 +419,14 @@ def assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any
     if distribution_type not in {"switch", "injector"}:
         raise ValueError("Distribuicao deve ser switch ou injetor PoE")
     port_capacity = max(1, min(int(payload.get("port_capacity") or 5), 48))
+    # Switch PoE reserva 1 porta pra uplink (liga no ONU/rede) -- essa porta
+    # nao alimenta camera. Injetor PoE e passthrough de porta unica, sem uplink.
+    uplink_ports = 1 if distribution_type == "switch" and port_capacity > 1 else 0
+    poe_port_capacity = max(1, port_capacity - uplink_ports)
     camera_count = max(0, min(int(payload.get("camera_count") or 0), 100))
-    total_ports = distribution_count * port_capacity
+    total_ports = distribution_count * poe_port_capacity
     if camera_count > total_ports:
-        raise ValueError(f"A caixa possui {total_ports} porta(s), mas recebeu {camera_count} camera(s)")
+        raise ValueError(f"A caixa possui {total_ports} porta(s) PoE disponivel(is) ({port_capacity} porta(s) por switch, 1 reservada pra uplink), mas recebeu {camera_count} camera(s)")
 
     start_ip = str(payload.get("camera_start_ip") or "").strip()
     base_ip = int(ipaddress.ip_address(start_ip)) if start_ip else None
@@ -461,7 +469,7 @@ def assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any
                 "device_type": distribution_type, "name": f"{box_name} - {label} {index + 1}",
                 "site_id": site_id, "parent_id": box["id"], "manufacturer": payload.get("distribution_manufacturer") or "",
                 "model": payload.get("distribution_model") or "", "latitude": latitude, "longitude": longitude,
-                "metadata": {"container_id": box["id"], "uplink_device_id": onus[0]["id"], "port_capacity": port_capacity, "poe": True},
+                "metadata": {"container_id": box["id"], "uplink_device_id": onus[0]["id"], "port_capacity": port_capacity, "poe_port_capacity": poe_port_capacity, "uplink_ports": uplink_ports, "poe": True},
             })
             created.append(distributor)
             distributors.append(distributor)
@@ -469,14 +477,18 @@ def assemble_gpon_box(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any
         cameras: List[Dict[str, Any]] = []
         for index in range(camera_count):
             number = str(first_number + index).zfill(2)
-            distributor = distributors[min(index // port_capacity, len(distributors) - 1)]
+            distributor = distributors[min(index // poe_port_capacity, len(distributors) - 1)]
+            name = name_template.replace("{number}", number).replace("{n}", str(first_number + index))
+            if camera_count > 1 and name == name_template:
+                # Padrao sem {number}/{n} geraria nome identico pra todas as cameras.
+                name = f"{name} {number}"
             camera = save_device(project_id, {
-                "device_type": "camera", "name": name_template.replace("{number}", number).replace("{n}", str(first_number + index)),
+                "device_type": "camera", "name": name,
                 "ip": str(ipaddress.ip_address(base_ip + index)) if base_ip is not None else "",
                 "site_id": site_id, "parent_id": distributor["id"], "manufacturer": payload.get("camera_manufacturer") or "",
                 "model": payload.get("camera_model") or "", "latitude": latitude, "longitude": longitude,
                 "reference_image_url": payload.get("camera_image_url") or "",
-                "metadata": {"container_id": box["id"], "power_device_id": distributor["id"], "port_number": (index % port_capacity) + 1, "coordinates_inherited": True},
+                "metadata": {"container_id": box["id"], "power_device_id": distributor["id"], "port_number": (index % poe_port_capacity) + 1, "coordinates_inherited": True},
             })
             created.append(camera)
             cameras.append(camera)
