@@ -1505,8 +1505,19 @@ function renderPlanningCableResults(root) {
   }).join('');
   const warnings = [];
   if (overLimit.length) warnings.push(`${overLimit.length} trecho(s) ultrapassam ${config.maxMeters} m instalados. Considere reposicionar a caixa ou adicionar outra distribuicao.`);
-  if (missing.length) warnings.push(`${missing.length} camera(s) nao puderam ser calculadas por falta de vinculo ou coordenadas.`);
-  target.innerHTML = `<div class="planning-cable-summary"><div><span>Cameras calculadas</span><strong>${valid.length}</strong></div><div><span>Cabo instalado</span><strong>${totalInstalled.toFixed(0)} m</strong></div><div><span>Cabo para compra</span><strong>${totalPurchase.toFixed(0)} m</strong></div><div><span>Caixas de 305 m</span><strong>${Math.ceil(totalPurchase / config.spoolMeters)}</strong></div></div>${warnings.length ? `<div class="planning-cable-warning">${warnings.map(planningEscape).join('<br>')}</div>` : ''}${boxSections || '<div class="planning-cable-empty">Nenhuma camera com caixa e coordenadas disponiveis.</div>'}`;
+  if (missing.length) {
+    // Motivo real varia (sem caixa vinculada / sem coordenada / sem percurso
+    // viario informado) -- agrupa por motivo em vez de um aviso generico so,
+    // que confundia mostrando "falta vinculo" quando na verdade so faltava
+    // preencher o percurso.
+    const byReason = new Map();
+    missing.forEach(row => byReason.set(row.error, (byReason.get(row.error) || 0) + 1));
+    byReason.forEach((count, reason) => warnings.push(`${count} camera(s): ${reason}.`));
+  }
+  const emptyMessage = rows.length
+    ? 'Nenhuma camera pronta pra calcular ainda -- veja os avisos acima.'
+    : 'Nenhuma camera cadastrada neste projeto.';
+  target.innerHTML = `<div class="planning-cable-summary"><div><span>Cameras calculadas</span><strong>${valid.length}</strong></div><div><span>Cabo instalado</span><strong>${totalInstalled.toFixed(0)} m</strong></div><div><span>Cabo para compra</span><strong>${totalPurchase.toFixed(0)} m</strong></div><div><span>Caixas de 305 m</span><strong>${Math.ceil(totalPurchase / config.spoolMeters)}</strong></div></div>${warnings.length ? `<div class="planning-cable-warning">${warnings.map(planningEscape).join('<br>')}</div>` : ''}${boxSections || `<div class="planning-cable-empty">${planningEscape(emptyMessage)}</div>`}`;
   lucide.createIcons();
   root._planningCableRows = rows;
   return rows;
