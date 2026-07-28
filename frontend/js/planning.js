@@ -179,7 +179,7 @@ function renderPlanningDevices() {
     const row = `
     <article class="planning-device-row${depth ? ' is-child' : ''}" data-device-id="${Number(item.id)}" style="${depth ? `grid-template-columns:${28 + depth * 20}px minmax(0, 1fr) auto` : ''}">
       ${toggle}
-      <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : 'Abrir detalhes do equipamento'}">
+      <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : ['switch', 'injector'].includes(item.device_type) ? 'Ver e cadastrar cameras deste equipamento' : 'Abrir detalhes do equipamento'}">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
         <span class="planning-device-ip">${planningItemHasNoIp(item) ? '' : planningEscape(item.ip || 'IP a definir')}</span>
@@ -216,11 +216,9 @@ function planningDescendants(parentId) {
 function openPlanningDeviceDetails(deviceId) {
   const item = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(deviceId));
   if (!item) return;
-  if (item.device_type !== 'box') {
-    openPlanningDeviceModal(deviceId);
-    return;
-  }
-  openPlanningBoxDetails(deviceId);
+  if (item.device_type === 'box') { openPlanningBoxDetails(deviceId); return; }
+  if (['switch', 'injector'].includes(item.device_type)) { openPlanningSwitchDetails(deviceId); return; }
+  openPlanningDeviceModal(deviceId);
 }
 
 function openPlanningBoxDetails(deviceId) {
@@ -236,7 +234,7 @@ function openPlanningBoxDetails(deviceId) {
   const usedPorts = cameras.length;
   const coordinate = [item.latitude, item.longitude].filter(value => value !== null && value !== undefined && value !== '').join(', ');
   const equipmentRows = internal.length ? internal.map(row => `
-    <button class="planning-box-detail-row" type="button" onclick="closePlanningModal();openPlanningDeviceModal(${Number(row.id)})">
+    <button class="planning-box-detail-row" type="button" onclick="closePlanningModal();openPlanningDeviceDetails(${Number(row.id)})">
       <span class="planning-device-icon ${planningEscape(row.device_type)}"><i data-lucide="${planningDeviceIcon(row.device_type)}"></i></span>
       <span><strong>${planningEscape(row.name)}</strong><small>${planningEscape(PLANNING_TYPES[row.device_type] || row.device_type)} &middot; ${planningEscape([row.manufacturer, row.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</small></span>
       <i data-lucide="chevron-right"></i>
@@ -280,6 +278,52 @@ function openPlanningAddToBox(boxId, deviceType = 'onu') {
   openPlanningDeviceModal(0, {
     parent_id: box.id, device_type: deviceType, site_id: box.site_id ?? null,
     latitude: box.latitude ?? null, longitude: box.longitude ?? null,
+  });
+}
+
+function openPlanningAddCameraTo(parentId) {
+  const parent = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(parentId));
+  if (!parent) return;
+  closePlanningModal();
+  openPlanningDeviceModal(0, {
+    parent_id: parent.id, device_type: 'camera', site_id: parent.site_id ?? null,
+    latitude: parent.latitude ?? null, longitude: parent.longitude ?? null,
+  });
+}
+
+// Detalhe de Switch/Injetor: lista as cameras ja ligadas em cada porta e
+// deixa cadastrar mais uma direto daqui, igual o detalhe da caixa faz com
+// ONU/Switch/Injetor.
+function openPlanningSwitchDetails(deviceId) {
+  const devices = _planningCurrent?.devices || [];
+  const item = devices.find(row => Number(row.id) === Number(deviceId));
+  if (!item) return;
+  const metadata = item.metadata || {};
+  const cameras = devices.filter(row => Number(row.parent_id) === Number(item.id) && row.device_type === 'camera')
+    .sort((a, b) => (Number(a.metadata?.port_number) || 999) - (Number(b.metadata?.port_number) || 999) || planningNaturalCompare(a.name, b.name));
+  const capacity = planningPoeCapacity(metadata);
+  const modeLabel = item.device_type === 'switch' ? (metadata.switch_mode === 'smart' ? 'Smart - gerenciavel (com IP)' : 'Normal - sem gerenciamento (bridge)') : '';
+  const typeLabel = PLANNING_TYPES[item.device_type] || item.device_type;
+  const cameraRows = cameras.length ? cameras.map(row => `
+    <button class="planning-box-camera-row" type="button" onclick="closePlanningModal();openPlanningDeviceModal(${Number(row.id)})">
+      <span class="planning-device-icon camera"><i data-lucide="camera"></i></span>
+      <span class="planning-box-camera-main"><strong>${planningEscape(row.name)}</strong><small>${row.metadata?.port_number ? `Porta ${planningEscape(row.metadata.port_number)}` : 'Porta a definir'}</small></span>
+      <span class="planning-box-camera-location"><strong>${planningEscape(row.ip || 'IP a definir')}</strong></span>
+      <i data-lucide="chevron-right"></i>
+    </button>`).join('') : '<div class="planning-box-empty">Nenhuma camera ligada ainda.</div>';
+
+  planningModal({
+    eyebrow: typeLabel, title: item.name, wide: true, primary: `Editar ${typeLabel.toLowerCase()}`,
+    body: `<div class="planning-box-details">
+      <div class="planning-box-summary-grid">
+        <div><span>Site/local</span><strong>${planningEscape(item.site_name || 'Sem site')}</strong></div>
+        ${modeLabel ? `<div><span>Modo</span><strong>${planningEscape(modeLabel)}</strong></div>` : ''}
+        <div><span>Portas PoE</span><strong>${capacity || '-'}</strong></div>
+        <div><span>Cameras ligadas</span><strong>${cameras.length}</strong></div>
+      </div>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras por porta</h3><p>Cada camera ocupa uma porta PoE deste equipamento.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddCameraTo(${Number(item.id)})"><i data-lucide="plus"></i> Adicionar Camera</button><span>${cameras.length}</span></div></div>${cameraRows}</section>
+    </div>`,
+    onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
   });
 }
 
