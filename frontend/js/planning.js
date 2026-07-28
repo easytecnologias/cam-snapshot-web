@@ -264,19 +264,19 @@ function openPlanningBoxDetails(deviceId) {
         <span><i data-lucide="network"></i><strong>Distribuicao PoE</strong></span>
         <span>${capacity ? `${usedPorts} de ${capacity} portas planejadas` : `${usedPorts} camera(s), capacidade ainda nao informada`}</span>
       </div>
-      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)})"><i data-lucide="plus"></i> Adicionar ONU</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'onu')"><i data-lucide="plus"></i> Adicionar ONU</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'switch')"><i data-lucide="plus"></i> Adicionar Switch</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
       <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras ligadas</h3><p>As cameras permanecem nas coordenadas individuais e aparecem pelo vinculo com o switch ou injetor.</p></div><span>${cameras.length}</span></div>${cameraRows}</section>
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
   });
 }
 
-function openPlanningAddToBox(boxId) {
+function openPlanningAddToBox(boxId, deviceType = 'onu') {
   const box = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(boxId));
   if (!box) return;
   closePlanningModal();
   openPlanningDeviceModal(0, {
-    parent_id: box.id, device_type: 'onu', site_id: box.site_id ?? null,
+    parent_id: box.id, device_type: deviceType, site_id: box.site_id ?? null,
     latitude: box.latitude ?? null, longitude: box.longitude ?? null,
   });
 }
@@ -320,9 +320,13 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // (VEIP/roteador) e "gerenciavel" e tem IP, igual no menu OLT. ONU e ONT sao
 // um so "cartao" no formulario (Tipo = onu); o campo Modo decide qual das
 // duas funcoes se aplica, em vez de serem duas opcoes separadas de Tipo.
+// Switch segue o mesmo principio: Normal (sem gerenciamento, bridge, sem IP)
+// vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
+// sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
 const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu'];
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuModeField: { showOnlyFor: ['onu'] },
+  planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
@@ -330,10 +334,19 @@ const PLANNING_DEVICE_FIELD_RULES = {
 };
 
 // Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
-// decidir campos/IP/parentesco vem do Modo quando o Tipo e o grupo onu.
+// decidir device_type salvo/parentesco/catalogo vem do Modo quando o Tipo
+// e o grupo onu. Switch nao troca de device_type (sempre "switch") -- ver
+// planningShouldHideIp pra saber onde o Modo dele entra.
 function planningEffectiveType(modal) {
   const type = modal.querySelector('#planDeviceType')?.value || '';
   return type === 'onu' ? (modal.querySelector('#planDeviceOnuMode')?.value || 'onu') : type;
+}
+
+function planningShouldHideIp(modal) {
+  const type = modal.querySelector('#planDeviceType')?.value || '';
+  if (type === 'onu') return (modal.querySelector('#planDeviceOnuMode')?.value || 'onu') === 'onu';
+  if (type === 'switch') return (modal.querySelector('#planDeviceSwitchMode')?.value || 'normal') === 'normal';
+  return PLANNING_TYPES_WITHOUT_IP.includes(type);
 }
 
 function refreshPlanningDeviceFields(modal) {
@@ -345,7 +358,7 @@ function refreshPlanningDeviceFields(modal) {
     field.classList.toggle('hidden', hide);
   }
   const ipField = modal.querySelector('#planDeviceIpField');
-  if (ipField) ipField.classList.toggle('hidden', PLANNING_TYPES_WITHOUT_IP.includes(planningEffectiveType(modal)));
+  if (ipField) ipField.classList.toggle('hidden', planningShouldHideIp(modal));
 }
 
 function openPlanningProjectModal(isNew = false) {
@@ -403,6 +416,7 @@ const PLANNING_PARENT_TYPES = {
   box: ['cto', 'olt', 'pole'],
   onu: ['box'],
   ont: ['box'],
+  switch: ['box'],
 };
 const PLANNING_DEFAULT_PARENT_TYPES = ['olt', 'onu', 'ont', 'switch', 'recorder', 'box', 'pole'];
 
@@ -439,7 +453,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'onu'];
+const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch'];
 
 function planningTypeOptionLabel(key) {
   return key === 'onu' ? 'ONU / ONT' : (PLANNING_TYPES[key] || key);
@@ -471,6 +485,10 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       <label class="planning-field" id="planDeviceOnuModeField"><span>Modo</span><select id="planDeviceOnuMode">
         <option value="onu" ${item.device_type !== 'ont' ? 'selected' : ''}>ONU - bridge transparente (sem IP)</option>
         <option value="ont" ${item.device_type === 'ont' ? 'selected' : ''}>ONT - roteador/VEIP (com IP, gerenciavel)</option>
+      </select></label>
+      <label class="planning-field" id="planDeviceSwitchModeField"><span>Modo</span><select id="planDeviceSwitchMode">
+        <option value="normal" ${metadata.switch_mode !== 'smart' ? 'selected' : ''}>Normal - sem gerenciamento (bridge, sem IP)</option>
+        <option value="smart" ${metadata.switch_mode === 'smart' ? 'selected' : ''}>Smart - gerenciavel (com IP)</option>
       </select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
@@ -506,6 +524,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   refreshAll();
   modal.querySelector('#planDeviceType')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceOnuMode')?.addEventListener('change', refreshAll);
+  modal.querySelector('#planDeviceSwitchMode')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
@@ -515,6 +534,8 @@ function planningDevicePayload(root, metadata = {}) {
   const serial = value('planDeviceSerial'); const mac = value('planDeviceMac');
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
+  if (value('planDeviceType') === 'switch') nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
+  else delete nextMetadata.switch_mode;
   return {
     device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
