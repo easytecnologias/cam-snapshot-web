@@ -5,6 +5,7 @@ let _planningMap = null;
 let _planningMapLayers = null;
 let _planningMarkers = {};
 let _planningCatalog = null;
+let _planningExpandedRows = new Set();
 
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
@@ -117,15 +118,21 @@ function fillPlanningFilters() {
   }
 }
 
+// Navegando sem busca/filtro de tipo: mostra so o topo da hierarquia --
+// quem tem pai (ex: ONU dentro de uma caixa) so aparece ao expandir o pai,
+// nao como linha solta na lista. Busca/filtro de tipo e "achar algo
+// especifico", entao ai mostra tudo de forma plana, inclusive aninhados.
+function planningIsBrowsingHierarchy() {
+  const term = String(document.getElementById('planningSearch')?.value || '').trim();
+  const type = document.getElementById('planningTypeFilter')?.value || '';
+  return !term && !type;
+}
+
 function filteredPlanningDevices() {
   const term = String(document.getElementById('planningSearch')?.value || '').trim().toLowerCase();
   const type = document.getElementById('planningTypeFilter')?.value || '';
   const site = document.getElementById('planningSiteFilter')?.value || '';
-  // Navegando sem busca/filtro de tipo: mostra so o topo da hierarquia --
-  // quem tem pai (ex: ONU dentro de uma caixa) so aparece ao abrir o pai,
-  // nao como linha solta na lista. Busca/filtro de tipo e "achar algo
-  // especifico", entao ai mostra tudo, inclusive itens aninhados.
-  const isBrowsingHierarchy = !term && !type;
+  const isBrowsingHierarchy = planningIsBrowsingHierarchy();
   return (_planningCurrent?.devices || []).filter(item => {
     if (type && item.device_type !== type) return false;
     if (site && String(item.site_id || '') !== site) return false;
@@ -134,6 +141,13 @@ function filteredPlanningDevices() {
     return [item.name, item.ip, item.model, item.manufacturer, item.site_name, item.parent_name]
       .some(value => String(value || '').toLowerCase().includes(term));
   });
+}
+
+function togglePlanningRowExpand(id) {
+  const key = Number(id);
+  if (_planningExpandedRows.has(key)) _planningExpandedRows.delete(key);
+  else _planningExpandedRows.add(key);
+  renderPlanningDevices();
 }
 
 function renderPlanningDevices() {
@@ -146,15 +160,23 @@ function renderPlanningDevices() {
     return;
   }
   const allDevices = _planningCurrent?.devices || [];
-  box.innerHTML = rows.map(item => {
+  const canExpand = planningIsBrowsingHierarchy();
+  const renderRow = (item, depth) => {
     const metadata = item.metadata || {};
-    const childCount = allDevices.filter(child => Number(child.parent_id) === Number(item.id)).length;
+    const children = allDevices.filter(child => Number(child.parent_id) === Number(item.id)).sort((a, b) => planningNaturalCompare(a.name, b.name));
+    const childCount = children.length;
     const relation = ['switch', 'injector'].includes(item.device_type) && metadata.port_capacity
       ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
       : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
       : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
-    return `
-    <article class="planning-device-row" data-device-id="${Number(item.id)}">
+    const expandable = canExpand && childCount > 0;
+    const expanded = expandable && _planningExpandedRows.has(Number(item.id));
+    const toggle = expandable
+      ? `<button class="planning-row-toggle" type="button" onclick="event.stopPropagation();togglePlanningRowExpand(${Number(item.id)})" aria-label="${expanded ? 'Recolher' : 'Expandir'}"><i data-lucide="${expanded ? 'chevron-down' : 'chevron-right'}"></i></button>`
+      : '<span class="planning-row-toggle-spacer"></span>';
+    const row = `
+    <article class="planning-device-row${depth ? ' is-child' : ''}" data-device-id="${Number(item.id)}" style="${depth ? `grid-template-columns:${28 + depth * 20}px minmax(0, 1fr) auto` : ''}">
+      ${toggle}
       <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : 'Abrir detalhes do equipamento'}">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
@@ -167,7 +189,10 @@ function renderPlanningDevices() {
         <button class="icon-button danger" onclick="deletePlanningDevice(${Number(item.id)})" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
       </div>
     </article>`;
-  }).join('');
+    const childrenHtml = expanded ? children.map(child => renderRow(child, depth + 1)).join('') : '';
+    return row + childrenHtml;
+  };
+  box.innerHTML = rows.map(item => renderRow(item, 0)).join('');
   lucide.createIcons();
 }
 

@@ -5757,8 +5757,12 @@ body.cam-live-lock {
 .planning-filters input { padding: 0 12px 0 38px; }
 .planning-filters select { padding: 0 34px 0 12px; }
 .planning-device-list { flex: 1; min-height: 0; max-height: 680px; overflow-y: auto; }
-.planning-device-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid var(--border); }
+.planning-device-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .planning-device-row:last-child { border-bottom: 0; }
+.planning-device-row.is-child { background: var(--surface-soft); }
+.planning-row-toggle { display: grid; place-items: center; border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0; }
+.planning-row-toggle:hover { color: var(--primary); }
+.planning-row-toggle-spacer { display: block; }
 .planning-device-focus { display: grid; grid-template-columns: 42px minmax(220px, 1.5fr) minmax(130px, .65fr) minmax(190px, 1fr) minmax(170px, .9fr); min-width: 0; align-items: center; gap: 14px; padding: 10px 14px; border: 0; color: var(--text); background: transparent; text-align: left; }
 .planning-device-focus:hover { background: var(--surface-soft); }
 .planning-device-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 8px; color: var(--primary); background: var(--primary-soft); }
