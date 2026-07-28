@@ -897,8 +897,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
       ${planningField('Patrimonio', 'planDevicePatrimonio', metadata.patrimonio || '', 'placeholder="Numero do patrimonio"')}
-      ${planningField('Latitude', 'planDeviceLat', item.latitude ?? '', 'placeholder="-9.750000"')}
-      ${planningField('Longitude', 'planDeviceLon', item.longitude ?? '', 'placeholder="-36.660000"')}
+      ${planningField('Coordenadas', 'planDeviceCoords', (item.latitude != null && item.longitude != null) ? `${item.latitude}, ${item.longitude}` : '', 'placeholder="-9.750000, -36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
       <label class="planning-field full"><span>Observacoes</span><textarea id="planDeviceNotes" rows="3">${planningEscape(item.notes || '')}</textarea></label>
       ${planningCatalogDatalists(item)}
@@ -982,11 +981,15 @@ function planningDevicePayload(root, metadata = {}) {
   // valor -- se nao se aplicar, o campo simplesmente esta vazio.
   const parentPort = value('planDeviceParentPort');
   if (parentPort) nextMetadata.port_number = Number(parentPort); else delete nextMetadata.port_number;
+  // Aceita "lat, lon" colado direto do Google Maps num campo so, em vez de
+  // duas caixas separadas -- tambem aceita so espaco entre os numeros.
+  const coordsParts = value('planDeviceCoords').split(/[,\s]+/).filter(Boolean);
+  const lat = Number(coordsParts[0]); const lon = Number(coordsParts[1]);
   return {
     device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
     parent_id: value('planDeviceParent') || null, pon: value('planDevicePon'), onu_position: value('planDeviceOnu'),
-    latitude: value('planDeviceLat') || null, longitude: value('planDeviceLon') || null,
+    latitude: Number.isFinite(lat) ? lat : null, longitude: Number.isFinite(lon) ? lon : null,
     reference_image_url: value('planDeviceImage'), notes: value('planDeviceNotes'), metadata: nextMetadata, status: 'planned',
   };
 }
