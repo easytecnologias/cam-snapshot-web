@@ -1432,11 +1432,15 @@ function planningCableCalculation(config) {
     const coordinates = [camera.latitude, camera.longitude, box?.latitude, box?.longitude].map(Number);
     if (!box || coordinates.some(value => !Number.isFinite(value))) return { camera, box, error: !box ? 'Camera sem caixa vinculada' : 'Coordenadas incompletas' };
     const straight = planningDistanceMeters(...coordinates);
-    const route = Number(camera.metadata?.route_distance_m);
-    if (!Number.isFinite(route)) return { camera, box, straight, error: 'Percurso viario ainda nao calculado' };
+    // Sem percurso viario medido a mao, usa a distancia aerea (caixa->camera)
+    // como base automatica -- e assim que sempre funcionou; o campo manual e
+    // so pra refinar quando tiver a medida real da rua.
+    const manualRoute = Number(camera.metadata?.route_distance_m);
+    const route = Number.isFinite(manualRoute) ? manualRoute : straight;
+    const estimated = !Number.isFinite(manualRoute);
     const installed = (route * (1 + config.routePercent / 100)) + config.slackMeters;
     const purchase = installed * (1 + config.reservePercent / 100);
-    return { camera, box, straight, route, installed, purchase, overLimit: installed > config.maxMeters };
+    return { camera, box, straight, route, installed, purchase, estimated, overLimit: installed > config.maxMeters };
   });
   return rows.sort((a, b) => planningNaturalCompare(a.box?.name, b.box?.name) || planningNaturalCompare(a.camera?.name, b.camera?.name));
 }
@@ -1501,7 +1505,7 @@ function renderPlanningCableResults(root) {
     const subtotal = items.reduce((sum, row) => sum + row.purchase, 0);
     return `<details class="planning-cable-box" open><summary><span><strong>${planningEscape(box.name)}</strong><small>${items.length} camera(s) &middot; ${planningEscape(box.site_name || 'Sem site')}</small></span><strong>${subtotal.toFixed(1)} m</strong></summary>
       <div class="planning-cable-table-head"><span>Camera</span><span>Aerea</span><span>Via ruas</span><span>Instalado</span><span>Para compra</span><span>Situacao</span></div>
-      ${items.map(row => `<div class="planning-cable-row"><strong title="${planningEscape(row.camera.name)}">${planningEscape(row.camera.name)}</strong><span>${row.straight.toFixed(1)} m</span><span>${row.route.toFixed(1)} m</span><span>${row.installed.toFixed(1)} m</span><span>${row.purchase.toFixed(1)} m</span><span class="planning-cable-status ${row.overLimit ? 'danger' : ''}">${row.overLimit ? 'Revisar rota' : 'Dentro do limite'}</span></div>`).join('')}</details>`;
+      ${items.map(row => `<div class="planning-cable-row"><strong title="${planningEscape(row.camera.name)}">${planningEscape(row.camera.name)}</strong><span>${row.straight.toFixed(1)} m</span><span>${row.route.toFixed(1)} m${row.estimated ? ' (estimado)' : ''}</span><span>${row.installed.toFixed(1)} m</span><span>${row.purchase.toFixed(1)} m</span><span class="planning-cable-status ${row.overLimit ? 'danger' : ''}">${row.overLimit ? 'Revisar rota' : 'Dentro do limite'}</span></div>`).join('')}</details>`;
   }).join('');
   const warnings = [];
   if (overLimit.length) warnings.push(`${overLimit.length} trecho(s) ultrapassam ${config.maxMeters} m instalados. Considere reposicionar a caixa ou adicionar outra distribuicao.`);
@@ -1531,8 +1535,8 @@ function planningCsvValue(value) {
 function downloadPlanningCableCsv(root) {
   const config = planningCableConfig(root);
   const rows = renderPlanningCableResults(root);
-  const lines = [['caixa','camera','site','distancia_aerea_m','percurso_viario_m','cabo_instalado_m','cabo_compra_m','limite_m','situacao']];
-  rows.forEach(row => lines.push([row.box?.name || '', row.camera.name || '', row.camera.site_name || '', row.straight?.toFixed(1) || '', row.route?.toFixed(1) || '', row.installed?.toFixed(1) || '', row.purchase?.toFixed(1) || '', config.maxMeters, row.error || (row.overLimit ? 'revisar rota' : 'dentro do limite')]));
+  const lines = [['caixa','camera','site','distancia_aerea_m','percurso_viario_m','percurso_estimado','cabo_instalado_m','cabo_compra_m','limite_m','situacao']];
+  rows.forEach(row => lines.push([row.box?.name || '', row.camera.name || '', row.camera.site_name || '', row.straight?.toFixed(1) || '', row.route?.toFixed(1) || '', row.estimated ? 'sim' : 'nao', row.installed?.toFixed(1) || '', row.purchase?.toFixed(1) || '', config.maxMeters, row.error || (row.overLimit ? 'revisar rota' : 'dentro do limite')]));
   const content = '\ufeff' + lines.map(line => line.map(planningCsvValue).join(';')).join('\r\n');
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob); const link = document.createElement('a');
@@ -1551,7 +1555,7 @@ function openPlanningCableModal() {
         ${planningField('Reserva para compra (%)', 'planCableReserve', '10', 'type="number" min="0" step="1"')}
         ${planningField('Limite do trecho instalado (m)', 'planCableMax', '100', 'type="number" min="1" step="1"')}
       </div>
-      <div class="planning-csv-note"><i data-lucide="route"></i><span><strong>Instalado</strong> = percurso pelas ruas + margem de passagem + folga. A distancia aerea aparece apenas como referencia. A reserva entra somente na compra.</span></div>
+      <div class="planning-csv-note"><i data-lucide="route"></i><span><strong>Instalado</strong> = percurso pelas ruas + margem de passagem + folga. Sem percurso viario medido na camera, usa a distancia aerea (caixa-camera) como estimativa automatica -- preencha o percurso real na camera pra refinar. A reserva entra somente na compra.</span></div>
       <div class="planning-info"><i data-lucide="file-plus-2"></i><span>Depois de conferir as metragens, clique em <strong>Adicionar cabos ao orcamento</strong>. O item aparecera automaticamente em <strong>Gerar proposta</strong>, com a quantidade de caixas de 305 m.</span></div>
       <div class="planning-cable-results" id="planningCableResults"></div>
     </div>`,
