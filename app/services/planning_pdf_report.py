@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List
@@ -55,6 +56,21 @@ def _coords(item: Dict[str, Any]) -> str:
         return f"{float(item.get('latitude')):.7f}, {float(item.get('longitude')):.7f}"
     except (TypeError, ValueError):
         return "Não informadas"
+
+
+def _straight_line_meters(a: Dict[str, Any], b: Dict[str, Any]) -> float | None:
+    """Distancia aerea caixa->camera, mesma formula usada no calculo de cabo
+    do front -- serve de estimativa quando ninguem mediu o percurso na rua."""
+    try:
+        lat1, lon1 = math.radians(float(a.get("latitude"))), math.radians(float(a.get("longitude")))
+        lat2, lon2 = math.radians(float(b.get("latitude"))), math.radians(float(b.get("longitude")))
+    except (TypeError, ValueError):
+        return None
+    earth = 6371000
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return earth * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h))
 
 
 def _safe(value: Any, fallback: str = "—") -> str:
@@ -334,9 +350,14 @@ def generate_project_network_pdf(project: Dict[str, Any]) -> bytes:
         for camera in cameras:
             metadata = camera.get("metadata") or {}
             route = metadata.get("route_distance_m", metadata.get("distance_to_box_m"))
+            if route in (None, ""):
+                estimate = _straight_line_meters(box, camera)
+                route_label = f"{estimate:.1f} m (estimado)" if estimate is not None else "A definir"
+            else:
+                route_label = f"{float(route):.1f} m"
             camera_rows.append([
                 _p(camera.get("name"), styles["small_bold"]), _p(camera.get("ip"), styles["small"], "A definir"),
-                _p(_model(camera), styles["small"]), _p(f"{float(route):.1f} m" if route not in (None, "") else "A definir", styles["right"]),
+                _p(_model(camera), styles["small"]), _p(route_label, styles["right"]),
                 _p(_coords(camera), styles["small"]),
             ])
         if len(camera_rows) == 1:
