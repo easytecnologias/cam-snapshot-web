@@ -487,6 +487,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceMacField: { showOnlyFor: ['onu', 'ont', 'camera'] },
+  planDeviceVlanField: { showOnlyFor: ['onu'] },
 };
 
 // Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
@@ -515,13 +516,13 @@ function refreshPlanningDeviceFields(modal) {
   }
   const ipField = modal.querySelector('#planDeviceIpField');
   if (ipField) ipField.classList.toggle('hidden', planningShouldHideIp(modal));
-  // Switch so ganha campo de MAC quando e Smart (gerenciavel) -- normal
-  // (bridge) nao tem como consultar/gerenciar por MAC mesmo assim.
+  // Switch so ganha campo de MAC/VLAN quando e Smart (gerenciavel) -- normal
+  // (bridge) nao tem como consultar/gerenciar por MAC nem segmentar VLAN.
+  const smartSwitch = type === 'switch' && (modal.querySelector('#planDeviceSwitchMode')?.value || 'normal') === 'smart';
   const macField = modal.querySelector('#planDeviceMacField');
-  if (macField && type === 'switch') {
-    const smart = (modal.querySelector('#planDeviceSwitchMode')?.value || 'normal') === 'smart';
-    macField.classList.toggle('hidden', !smart);
-  }
+  if (macField && type === 'switch') macField.classList.toggle('hidden', !smartSwitch);
+  const vlanField = modal.querySelector('#planDeviceVlanField');
+  if (vlanField && type === 'switch') vlanField.classList.toggle('hidden', !smartSwitch);
 }
 
 function openPlanningProjectModal(isNew = false) {
@@ -699,6 +700,8 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       <label class="planning-field" id="planDeviceSwitchPortsField"><span>Quantidade de portas</span><select id="planDeviceSwitchPorts">${[4, 5, 8, 16, 24, 48].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 5) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       <label class="planning-field" id="planDeviceCtoPortsField"><span>Quantidade de portas</span><select id="planDeviceCtoPorts">${[1, 2, 4, 8, 12, 16, 24].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 8) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
+      ${planningField('MAC', 'planDeviceMac', metadata.mac || '', 'placeholder="AA:BB:CC:DD:EE:FF"', 'id="planDeviceMacField"')}
+      ${planningField('VLAN', 'planDeviceVlan', metadata.vlan || '', 'placeholder="Default ou numero (ex: 10)"', 'id="planDeviceVlanField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
@@ -707,7 +710,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
-      ${planningField('MAC', 'planDeviceMac', metadata.mac || '', 'placeholder="AA:BB:CC:DD:EE:FF"', 'id="planDeviceMacField"')}
+      ${planningField('Patrimonio', 'planDevicePatrimonio', metadata.patrimonio || '', 'placeholder="Numero do patrimonio"')}
       ${planningField('Latitude', 'planDeviceLat', item.latitude ?? '', 'placeholder="-9.750000"')}
       ${planningField('Longitude', 'planDeviceLon', item.longitude ?? '', 'placeholder="-36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
@@ -754,6 +757,12 @@ function planningDevicePayload(root, metadata = {}) {
   const serial = value('planDeviceSerial'); const mac = value('planDeviceMac');
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
+  const vlan = value('planDeviceVlan');
+  if (vlan) nextMetadata.vlan = vlan; else delete nextMetadata.vlan;
+  // Patrimonio se aplica a qualquer equipamento (CTO ate camera), entao nao
+  // depende de tipo -- so guarda o que foi preenchido.
+  const patrimonio = value('planDevicePatrimonio');
+  if (patrimonio) nextMetadata.patrimonio = patrimonio; else delete nextMetadata.patrimonio;
   const deviceType = value('planDeviceType');
   if (deviceType === 'onu') {
     nextMetadata.eth_port_capacity = Math.max(1, Number(value('planDeviceOnuPorts')) || 1);
