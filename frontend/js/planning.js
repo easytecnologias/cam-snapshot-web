@@ -168,6 +168,8 @@ function renderPlanningDevices() {
     const relation = ['switch', 'injector'].includes(item.device_type) && metadata.port_capacity
       ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
       : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
+      : item.device_type === 'camera' && item.parent_name && metadata.port_number
+      ? `${item.parent_name} · Porta ${metadata.port_number}`
       : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
     const expandable = canExpand && childCount > 0;
     const expanded = expandable && _planningExpandedRows.has(Number(item.id));
@@ -180,7 +182,7 @@ function renderPlanningDevices() {
       <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : 'Abrir detalhes do equipamento'}">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
-        <span class="planning-device-ip">${PLANNING_TYPES_WITHOUT_IP.includes(item.device_type) ? '' : planningEscape(item.ip || 'IP a definir')}</span>
+        <span class="planning-device-ip">${planningItemHasNoIp(item) ? '' : planningEscape(item.ip || 'IP a definir')}</span>
         <span class="planning-device-model"><strong>${planningEscape(item.model || 'Modelo a definir')}</strong><small>${planningEscape(item.manufacturer || 'Fabricante nao informado')}</small></span>
         <span class="planning-device-parent">${planningEscape(relation)}</span>
       </button>
@@ -245,7 +247,7 @@ function openPlanningBoxDetails(deviceId) {
     return `
       <button class="planning-box-camera-row" type="button" onclick="closePlanningModal();openPlanningDeviceModal(${Number(row.id)})">
         <span class="planning-device-icon camera"><i data-lucide="camera"></i></span>
-        <span class="planning-box-camera-main"><strong>${planningEscape(row.name)}</strong><small>${planningEscape(parent?.name || 'Ligacao a definir')}</small></span>
+        <span class="planning-box-camera-main"><strong>${planningEscape(row.name)}</strong><small>${planningEscape(parent?.name || 'Ligacao a definir')}${row.metadata?.port_number ? ` · Porta ${planningEscape(row.metadata.port_number)}` : ''}</small></span>
         <span class="planning-box-camera-location"><strong>${planningEscape(row.ip || 'IP a definir')}</strong><small>${Number.isFinite(distance) ? `${distance.toFixed(1)} m da caixa` : 'Distancia a definir'}</small></span>
         <i data-lucide="chevron-right"></i>
       </button>`;
@@ -324,10 +326,21 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
 // sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
 const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector'];
+
+// Switch normal (sem gerenciamento) tambem nao tem IP -- mas isso vem do
+// metadata.switch_mode salvo no item, nao do device_type (que e sempre
+// "switch"). Usado na lista/mapa pra decidir se mostra "IP a definir".
+function planningItemHasNoIp(item) {
+  if (PLANNING_TYPES_WITHOUT_IP.includes(item.device_type)) return true;
+  if (item.device_type === 'switch') return (item.metadata?.switch_mode || 'normal') !== 'smart';
+  return false;
+}
+
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuModeField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
+  planDeviceCameraPortField: { showOnlyFor: ['camera'] },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
@@ -419,6 +432,7 @@ const PLANNING_PARENT_TYPES = {
   ont: ['box'],
   switch: ['box'],
   injector: ['box'],
+  camera: ['switch', 'injector'],
 };
 const PLANNING_DEFAULT_PARENT_TYPES = ['olt', 'onu', 'ont', 'switch', 'recorder', 'box', 'pole'];
 
@@ -455,7 +469,32 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector'];
+const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector', 'camera'];
+
+// Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
+// camera ocupa uma porta so dela, entao portas com outra camera aparecem
+// desabilitadas (exceto a propria porta de quem esta sendo editado).
+function planningPortOptions(parentId, selectedPort, selfId) {
+  const devices = _planningCurrent?.devices || [];
+  const parent = devices.find(d => Number(d.id) === Number(parentId));
+  if (!parent) return '<option value="">Escolha o switch/injetor em "Ligado a" primeiro</option>';
+  const capacity = planningPoeCapacity(parent.metadata || {});
+  if (!capacity) return '<option value="">Esse equipamento nao tem portas PoE definidas</option>';
+  const occupied = new Map();
+  devices.forEach(d => {
+    if (Number(d.parent_id) === Number(parentId) && d.device_type === 'camera' && Number(d.id) !== Number(selfId)) {
+      const port = Number(d.metadata?.port_number);
+      if (port) occupied.set(port, d.name);
+    }
+  });
+  let html = '<option value="">Selecione a porta</option>';
+  for (let port = 1; port <= capacity; port++) {
+    const occupant = occupied.get(port);
+    const selected = String(selectedPort) === String(port);
+    html += `<option value="${port}" ${selected ? 'selected' : ''} ${occupant ? 'disabled' : ''}>Porta ${port}${occupant ? ` - ocupada (${planningEscape(occupant)})` : ''}</option>`;
+  }
+  return html;
+}
 
 function planningTypeOptionLabel(key) {
   return key === 'onu' ? 'ONU / ONT' : (PLANNING_TYPES[key] || key);
@@ -498,6 +537,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
       <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.device_type, item.parent_id, item.id)}</select></label>
+      <label class="planning-field" id="planDeviceCameraPortField"><span>Porta do switch/injetor</span><select id="planDeviceCameraPort">${planningPortOptions(item.parent_id, metadata.port_number, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
@@ -523,11 +563,19 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
     const current = parentSelect.value;
     parentSelect.innerHTML = planningParentOptions(planningEffectiveType(modal), current, item.id);
   };
-  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); };
+  const refreshCameraPort = () => {
+    const portSelect = modal.querySelector('#planDeviceCameraPort');
+    if (!portSelect) return;
+    const parentId = modal.querySelector('#planDeviceParent')?.value || '';
+    const current = portSelect.value;
+    portSelect.innerHTML = planningPortOptions(parentId, current, item.id);
+  };
+  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); refreshCameraPort(); };
   refreshAll();
   modal.querySelector('#planDeviceType')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceOnuMode')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceSwitchMode')?.addEventListener('change', refreshAll);
+  modal.querySelector('#planDeviceParent')?.addEventListener('change', refreshCameraPort);
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
@@ -554,6 +602,12 @@ function planningDevicePayload(root, metadata = {}) {
   } else {
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
     delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
+  }
+  if (deviceType === 'camera') {
+    const port = value('planDeviceCameraPort');
+    if (port) nextMetadata.port_number = Number(port); else delete nextMetadata.port_number;
+  } else {
+    delete nextMetadata.port_number;
   }
   return {
     device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
@@ -830,7 +884,7 @@ async function renderPlanningMap() {
     const referenceImage = item.reference_image_url
       ? `<img class="planning-popup-image" src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy"><small>Imagem ilustrativa do modelo</small>` : '';
     const marker = L.circleMarker([lat, lon], { radius: item.device_type === 'camera' ? 7 : 9, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 })
-      .bindPopup(`<div class="planning-popup">${referenceImage}<strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</span>${PLANNING_TYPES_WITHOUT_IP.includes(item.device_type) ? '' : `<code>${planningEscape(item.ip || 'IP a definir')}</code>`}<span>${planningEscape([item.manufacturer,item.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</span></div>`)
+      .bindPopup(`<div class="planning-popup">${referenceImage}<strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</span>${planningItemHasNoIp(item) ? '' : `<code>${planningEscape(item.ip || 'IP a definir')}</code>`}<span>${planningEscape([item.manufacturer,item.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</span></div>`)
       .addTo(_planningMapLayers);
     _planningMarkers[item.id] = marker; bounds.push([lat, lon]);
   });
