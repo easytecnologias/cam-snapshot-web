@@ -1528,7 +1528,7 @@ function downloadPlanningCableCsv(root) {
 function openPlanningCableModal() {
   if (!_planningCurrent) return;
   const modal = planningModal({
-    eyebrow: 'Dimensionamento', title: 'Calcular cabos de rede', wide: true, primary: 'Adicionar cabos ao orcamento',
+    eyebrow: 'Dimensionamento', title: 'Calcular cabo UTP', wide: true, primary: 'Adicionar cabos ao orcamento',
     body: `<div class="planning-cable-tool">
       <div class="planning-cable-settings">
         ${planningField('Margem sobre a rota (%)', 'planCableRoute', '15', 'type="number" min="0" step="1"')}
