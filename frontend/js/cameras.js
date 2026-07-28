@@ -1182,14 +1182,28 @@ function openCamPanel(cam) {
   setText('cpMac',    cam.mac    || '');
   setText('cpModelo', cam.model  || '');
   setText('cpLocal',  cam.local  || '');
-  setText('cpPonOnu', [cam.pon, cam.onu_id].filter(Boolean).join(' / ') || '');
-  setText('cpSerial', cam.onu_serial || '');
-  const onuHealth = cameraOnuHealth(cam);
-  const onuStatus = document.getElementById('cpOnuStatus');
-  if (onuStatus) {
-    onuStatus.className = `cam-onu-status ${onuHealth.state}`;
-    onuStatus.innerHTML = `<span class="cam-onu-status-dot"></span><span>${esc(onuHealth.label)}</span>`;
-    onuStatus.title = onuHealth.detail;
+
+  const oltFields = document.getElementById('cpOltFields');
+  const switchFields = document.getElementById('cpSwitchFields');
+  const isSwitchView = _invOltView === 'switch';
+  if (oltFields) oltFields.classList.toggle('hidden', isSwitchView);
+  if (switchFields) switchFields.classList.toggle('hidden', !isSwitchView);
+
+  if (isSwitchView) {
+    setText('cpSwName', cam.switch_name || '');
+    setText('cpSwIp',   cam.switch_ip   || '');
+    setText('cpSwPort', cam.switch_port || '');
+    setText('cpSwVlan', cam.switch_vlan || '');
+  } else {
+    setText('cpPonOnu', [cam.pon, cam.onu_id].filter(Boolean).join(' / ') || '');
+    setText('cpSerial', cam.onu_serial || '');
+    const onuHealth = cameraOnuHealth(cam);
+    const onuStatus = document.getElementById('cpOnuStatus');
+    if (onuStatus) {
+      onuStatus.className = `cam-onu-status ${onuHealth.state}`;
+      onuStatus.innerHTML = `<span class="cam-onu-status-dot"></span><span>${esc(onuHealth.label)}</span>`;
+      onuStatus.title = onuHealth.detail;
+    }
   }
 
   // Snapshot

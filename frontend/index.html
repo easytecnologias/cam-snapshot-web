@@ -380,9 +380,17 @@
               <div class="cam-info-row"><span>MAC</span><span id="cpMac">-</span></div>
               <div class="cam-info-row"><span>Modelo</span><span id="cpModelo">-</span></div>
               <div class="cam-info-row"><span>Local</span><span id="cpLocal">-</span></div>
-              <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">-</span></div>
-              <div class="cam-info-row cam-onu-health-row"><span>Estado da ONU</span><span id="cpOnuStatus" class="cam-onu-status unknown"><span class="cam-onu-status-dot"></span><span>Nao verificada</span></span></div>
-              <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">-</span></div>
+              <div id="cpOltFields">
+                <div class="cam-info-row"><span>PON / ONU ID</span><span id="cpPonOnu">-</span></div>
+                <div class="cam-info-row cam-onu-health-row"><span>Estado da ONU</span><span id="cpOnuStatus" class="cam-onu-status unknown"><span class="cam-onu-status-dot"></span><span>Nao verificada</span></span></div>
+                <div class="cam-info-row"><span>ONU Serial</span><span id="cpSerial">-</span></div>
+              </div>
+              <div id="cpSwitchFields" class="hidden">
+                <div class="cam-info-row"><span>Switch</span><span id="cpSwName">-</span></div>
+                <div class="cam-info-row"><span>Switch IP</span><span id="cpSwIp">-</span></div>
+                <div class="cam-info-row"><span>Porta</span><span id="cpSwPort">-</span></div>
+                <div class="cam-info-row"><span>VLAN</span><span id="cpSwVlan">-</span></div>
+              </div>
             </div>
             <div class="cam-snapshot-wrap" id="cpSnapshotWrap" title="Clique para ver a câmera ao vivo">
               <img id="cpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none'">
