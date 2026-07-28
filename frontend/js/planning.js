@@ -152,7 +152,7 @@ function renderPlanningDevices() {
       <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : 'Abrir detalhes do equipamento'}">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
-        <span class="planning-device-ip">${planningEscape(item.ip || 'IP a definir')}</span>
+        <span class="planning-device-ip">${PLANNING_TYPES_WITHOUT_IP.includes(item.device_type) ? '' : planningEscape(item.ip || 'IP a definir')}</span>
         <span class="planning-device-model"><strong>${planningEscape(item.model || 'Modelo a definir')}</strong><small>${planningEscape(item.manufacturer || 'Fabricante nao informado')}</small></span>
         <span class="planning-device-parent">${planningEscape(relation)}</span>
       </button>
@@ -276,8 +276,9 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 
 // Caixa/poste/CTO sao elementos fisicos sem endereco de rede proprio;
 // PON/posicao ONU so fazem sentido pra quem termina uma fibra (ONU/ONT).
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto'];
 const PLANNING_DEVICE_FIELD_RULES = {
-  planDeviceIpField: { hideFor: ['box', 'pole', 'cto'] },
+  planDeviceIpField: { hideFor: PLANNING_TYPES_WITHOUT_IP },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
 };
@@ -687,7 +688,7 @@ async function renderPlanningMap() {
     const referenceImage = item.reference_image_url
       ? `<img class="planning-popup-image" src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy"><small>Imagem ilustrativa do modelo</small>` : '';
     const marker = L.circleMarker([lat, lon], { radius: item.device_type === 'camera' ? 7 : 9, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 })
-      .bindPopup(`<div class="planning-popup">${referenceImage}<strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</span><code>${planningEscape(item.ip || 'IP a definir')}</code><span>${planningEscape([item.manufacturer,item.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</span></div>`)
+      .bindPopup(`<div class="planning-popup">${referenceImage}<strong>${planningEscape(item.name)}</strong><span>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</span>${PLANNING_TYPES_WITHOUT_IP.includes(item.device_type) ? '' : `<code>${planningEscape(item.ip || 'IP a definir')}</code>`}<span>${planningEscape([item.manufacturer,item.model].filter(Boolean).join(' / ') || 'Modelo a definir')}</span></div>`)
       .addTo(_planningMapLayers);
     _planningMarkers[item.id] = marker; bounds.push([lat, lon]);
   });
