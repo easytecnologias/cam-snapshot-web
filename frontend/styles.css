@@ -5744,7 +5744,6 @@ body.cam-live-lock {
 .planning-work-grid-list-only .planning-devices-panel { min-height: 610px; }
 .planning-devices-panel .panel-header, .planning-map-panel .panel-header { padding: 14px 16px; }
 .planning-devices-panel.is-empty { min-height: 0; }
-.planning-devices-panel.is-empty .planning-filters { display: none; }
 .planning-devices-panel.is-empty .planning-device-list { flex: none; }
 .planning-devices-panel.is-empty .planning-list-empty { min-height: 112px; padding: 20px 16px; }
 .planning-devices-head { align-items: stretch; flex-direction: column; gap: 12px; }
@@ -5813,6 +5812,7 @@ body.cam-live-lock {
 .planning-cable-warning { padding: 13px; border: 1px solid #f0c36d; border-radius: 8px; color: #855100; background: #fff8e6; }.planning-cable-empty { padding: 24px; color: var(--muted); text-align: center; }
 @media (max-width: 720px) { .planning-cable-settings, .planning-cable-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .planning-cable-table-head { display: none; } .planning-cable-row { grid-template-columns: minmax(0, 1fr) auto; }.planning-cable-row > span { text-align: right; }.planning-cable-row > span:first-child { grid-column: 1 / -1; text-align: left; } }
 .planning-list-empty { display: flex; min-height: 132px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 20px; color: var(--muted); text-align: center; }
+.planning-list-empty .secondary-action { margin-top: 10px; }
 .planning-map-panel #planningMap { flex: 1; min-height: 450px; z-index: 0; background: #e9eef1; }
 .planning-map-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 10px 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .planning-map-legend span { display: flex; align-items: center; gap: 6px; }

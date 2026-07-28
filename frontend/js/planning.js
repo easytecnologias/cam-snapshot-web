@@ -207,10 +207,15 @@ function filteredPlanningDevices() {
   const type = document.getElementById('planningTypeFilter')?.value || '';
   const site = document.getElementById('planningSiteFilter')?.value || '';
   const isBrowsingHierarchy = planningIsBrowsingHierarchy();
-  return (_planningCurrent?.devices || []).filter(item => {
+  const devices = _planningCurrent?.devices || [];
+  // Se o parent_id aponta pra um equipamento que nao existe mais (dado
+  // antigo, importado, ou pai excluido), tratar como raiz -- senao o item
+  // some da lista sem nenhum pai valido pra abrir e mostrar ele de volta.
+  const deviceIds = new Set(devices.map(d => Number(d.id)));
+  return devices.filter(item => {
     if (type && item.device_type !== type) return false;
     if (site && String(item.site_id || '') !== site) return false;
-    if (isBrowsingHierarchy && item.parent_id) return false;
+    if (isBrowsingHierarchy && item.parent_id && deviceIds.has(Number(item.parent_id))) return false;
     if (!term) return true;
     return [item.name, item.ip, item.model, item.manufacturer, item.site_name, item.parent_name]
       .some(value => String(value || '').toLowerCase().includes(term));
@@ -224,13 +229,30 @@ function togglePlanningRowExpand(id) {
   renderPlanningDevices();
 }
 
+function planningClearDeviceFilters() {
+  const search = document.getElementById('planningSearch'); if (search) search.value = '';
+  const type = document.getElementById('planningTypeFilter'); if (type) type.value = '';
+  const site = document.getElementById('planningSiteFilter'); if (site) site.value = '';
+  renderPlanningDevices();
+}
+
 function renderPlanningDevices() {
   const box = document.getElementById('planningDeviceList');
   if (!box) return;
   const rows = filteredPlanningDevices();
   box.closest('.planning-devices-panel')?.classList.toggle('is-empty', rows.length === 0);
   if (!rows.length) {
-    box.innerHTML = '<div class="planning-list-empty"><strong>Nenhum equipamento encontrado.</strong><span>Adicione manualmente, importe um CSV ou gere cameras em lote.</span></div>';
+    const term = document.getElementById('planningSearch')?.value || '';
+    const type = document.getElementById('planningTypeFilter')?.value || '';
+    const site = document.getElementById('planningSiteFilter')?.value || '';
+    const totalDevices = (_planningCurrent?.devices || []).length;
+    if (term || type || site) {
+      box.innerHTML = '<div class="planning-list-empty"><strong>Nenhum equipamento bate com essa busca/filtro.</strong><span>Confira o que foi digitado ou o filtro selecionado.</span><button class="secondary-action" type="button" onclick="planningClearDeviceFilters()">Limpar busca e filtros</button></div>';
+    } else if (totalDevices > 0) {
+      box.innerHTML = '<div class="planning-list-empty"><strong>Tem equipamento cadastrado, mas nenhum aparece aqui.</strong><span>Provavelmente algum esta ligado a um "pai" que nao existe mais. Use a busca por nome pra encontrar e corrigir o campo "Ligado a".</span></div>';
+    } else {
+      box.innerHTML = '<div class="planning-list-empty"><strong>Nenhum equipamento encontrado.</strong><span>Adicione manualmente, importe um CSV ou gere cameras em lote.</span></div>';
+    }
     return;
   }
   const allDevices = _planningCurrent?.devices || [];
