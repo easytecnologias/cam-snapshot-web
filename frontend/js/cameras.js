@@ -112,7 +112,14 @@ const INV_COLS = {
   },
   // Switch: base enxuta + dados Switch
   switch: {
-    cols:  ['4%','11%','13%','8%','9%','14%','6%','5%','8%','10%','6%','6%'],
+    // Larguras calculadas a partir do conteudo real max esperado por coluna
+    // (chars x largura media do char no font-size/peso da celula + os 20px
+    // de padding fixo de .data-table td), nao estimativa visual:
+    //   chk ~20px | IP "172.16.100.204" mono | MAC "50:e5:38:e8:e1:df" mono 11px
+    //   Fabricante "Intelbras/Hikvision" | Modelo ate ~16 chars | Titulo ate ~28 chars (bold)
+    //   Status "auth_failed" (bold) | ImgBB "up/down" (bold) | Local ate ~14 chars
+    //   Switch (nome) ate ~18 chars | Porta "Eth10/Ge10" mono | VLAN "default"
+    cols:  ['3%','10%','11%','8%','9%','18%','7%','4%','10%','11%','4%','5%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Porta','VLAN'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_combo, v.sw_port, v.sw_vlan]; },
   },
