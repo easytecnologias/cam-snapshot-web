@@ -270,8 +270,26 @@ function closePlanningModal() {
   document.getElementById('planningModal')?.classList.add('hidden');
 }
 
-function planningField(label, id, value = '', extra = '') {
-  return `<label class="planning-field"><span>${planningEscape(label)}</span><input id="${id}" value="${planningEscape(value)}" ${extra}></label>`;
+function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
+  return `<label class="planning-field" ${wrapAttrs}><span>${planningEscape(label)}</span><input id="${id}" value="${planningEscape(value)}" ${extra}></label>`;
+}
+
+// Caixa/poste/CTO sao elementos fisicos sem endereco de rede proprio;
+// PON/posicao ONU so fazem sentido pra quem termina uma fibra (ONU/ONT).
+const PLANNING_DEVICE_FIELD_RULES = {
+  planDeviceIpField: { hideFor: ['box', 'pole', 'cto'] },
+  planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
+  planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
+};
+
+function refreshPlanningDeviceFields(modal) {
+  const type = modal.querySelector('#planDeviceType')?.value || 'camera';
+  for (const [fieldId, rule] of Object.entries(PLANNING_DEVICE_FIELD_RULES)) {
+    const field = modal.querySelector(`#${fieldId}`);
+    if (!field) continue;
+    const hide = rule.hideFor ? rule.hideFor.includes(type) : !rule.showOnlyFor.includes(type);
+    field.classList.toggle('hidden', hide);
+  }
 }
 
 function openPlanningProjectModal(isNew = false) {
@@ -358,13 +376,13 @@ async function openPlanningDeviceModal(deviceId = 0) {
     body: `<div class="planning-form-grid">
       <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
-      ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"')}
+      ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
       <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.parent_id, item.id)}</select></label>
-      ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"')}
-      ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"')}
+      ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
+      ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Latitude', 'planDeviceLat', item.latitude ?? '', 'placeholder="-9.750000"')}
       ${planningField('Longitude', 'planDeviceLon', item.longitude ?? '', 'placeholder="-36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
@@ -381,7 +399,8 @@ async function openPlanningDeviceModal(deviceId = 0) {
     },
   });
   refreshPlanningCatalogLists(modal);
-  modal.querySelector('#planDeviceType')?.addEventListener('change', () => refreshPlanningCatalogLists(modal));
+  refreshPlanningDeviceFields(modal);
+  modal.querySelector('#planDeviceType')?.addEventListener('change', () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); });
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
