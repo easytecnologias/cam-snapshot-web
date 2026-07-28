@@ -327,6 +327,7 @@ const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu'];
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuModeField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
+  planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
@@ -490,6 +491,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
         <option value="normal" ${metadata.switch_mode !== 'smart' ? 'selected' : ''}>Normal - sem gerenciamento (bridge, sem IP)</option>
         <option value="smart" ${metadata.switch_mode === 'smart' ? 'selected' : ''}>Smart - gerenciavel (com IP)</option>
       </select></label>
+      <label class="planning-field" id="planDeviceSwitchPortsField"><span>Quantidade de portas</span><select id="planDeviceSwitchPorts">${[4, 5, 8, 16, 24, 48].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 5) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
@@ -534,8 +536,19 @@ function planningDevicePayload(root, metadata = {}) {
   const serial = value('planDeviceSerial'); const mac = value('planDeviceMac');
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
-  if (value('planDeviceType') === 'switch') nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
-  else delete nextMetadata.switch_mode;
+  if (value('planDeviceType') === 'switch') {
+    nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
+    // 1 porta reservada pro uplink (liga a caixa na rede) -- so as demais
+    // contam como capacidade real pra camera, igual a regra da caixa GPON.
+    const portCapacity = Math.max(1, Number(value('planDeviceSwitchPorts')) || 5);
+    const uplinkPorts = portCapacity > 1 ? 1 : 0;
+    nextMetadata.port_capacity = portCapacity;
+    nextMetadata.poe_port_capacity = Math.max(1, portCapacity - uplinkPorts);
+    nextMetadata.uplink_ports = uplinkPorts;
+  } else {
+    delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
+    delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
+  }
   return {
     device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
