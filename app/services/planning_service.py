@@ -290,6 +290,50 @@ def save_site(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
     return dict(row)
 
 
+def update_site(project_id: int, site_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    tenant = _current_tenant_slug()
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise ValueError("Informe o site/local")
+    notes = str(payload.get("notes") or "").strip()
+    with _conn() as c:
+        _require_project(c, project_id, tenant)
+        existing = c.execute(
+            "SELECT id FROM planning_project_sites WHERE id=? AND project_id=? AND tenant_slug=?",
+            (int(site_id), int(project_id), tenant),
+        ).fetchone()
+        if not existing:
+            raise LookupError("Site nao encontrado")
+        conflict = c.execute(
+            "SELECT id FROM planning_project_sites WHERE tenant_slug=? AND project_id=? AND name=? AND id<>?",
+            (tenant, int(project_id), name, int(site_id)),
+        ).fetchone()
+        if conflict:
+            raise ValueError("Ja existe um site com esse nome neste projeto")
+        c.execute(
+            "UPDATE planning_project_sites SET name=?, notes=? WHERE id=? AND project_id=? AND tenant_slug=?",
+            (name, notes, int(site_id), int(project_id), tenant),
+        )
+        row = c.execute(
+            "SELECT * FROM planning_project_sites WHERE id=? AND project_id=? AND tenant_slug=?",
+            (int(site_id), int(project_id), tenant),
+        ).fetchone()
+        c.commit()
+    return dict(row)
+
+
+def delete_site(project_id: int, site_id: int) -> bool:
+    tenant = _current_tenant_slug()
+    with _conn() as c:
+        _require_project(c, project_id, tenant)
+        cur = c.execute(
+            "DELETE FROM planning_project_sites WHERE id=? AND project_id=? AND tenant_slug=?",
+            (int(site_id), int(project_id), tenant),
+        )
+        c.commit()
+        return bool(cur.rowcount)
+
+
 def _optional_float(value: Any) -> float | None:
     if value in (None, ""):
         return None

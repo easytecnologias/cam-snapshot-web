@@ -745,9 +745,21 @@ function openPlanningProjectModal(isNew = false) {
 
 function openPlanningSiteModal() {
   if (!_planningCurrent) return;
+  const sites = _planningCurrent.sites || [];
+  const rows = sites.length ? sites.map(site => `
+    <div class="planning-site-row" data-site-id="${Number(site.id)}">
+      <div class="planning-site-row-main"><strong>${planningEscape(site.name)}</strong>${site.notes ? `<small>${planningEscape(site.notes)}</small>` : ''}</div>
+      <div class="planning-site-row-actions">
+        <button class="icon-button" type="button" title="Renomear" onclick="planningEditSiteRow(${Number(site.id)})"><i data-lucide="pencil"></i></button>
+        <button class="icon-button" type="button" title="Excluir" onclick="planningDeleteSite(${Number(site.id)})"><i data-lucide="trash-2"></i></button>
+      </div>
+    </div>`).join('') : '<div class="planning-box-empty">Nenhum site cadastrado ainda.</div>';
+
   planningModal({
-    title: 'Adicionar site/local',
-    body: `<div class="planning-form-grid one">${planningField('Nome do site/local', 'planSiteName', '', 'placeholder="Ex: Bloco A"')}<label class="planning-field"><span>Observacoes</span><textarea id="planSiteNotes" rows="3"></textarea></label></div>`,
+    title: 'Sites/locais do projeto',
+    primary: 'Adicionar site',
+    body: `<div class="planning-site-list">${rows}</div>
+      <div class="planning-form-grid one" style="margin-top:16px;">${planningField('Novo site/local', 'planSiteName', '', 'placeholder="Ex: Bloco A"')}<label class="planning-field"><span>Observacoes</span><textarea id="planSiteNotes" rows="2"></textarea></label></div>`,
     onSave: async root => {
       const name = root.querySelector('#planSiteName').value.trim();
       if (!name) throw new Error('Informe o site/local.');
@@ -755,6 +767,49 @@ function openPlanningSiteModal() {
       closePlanningModal(); showToast('Site adicionado.'); await planningRefreshCurrentProject();
     },
   });
+}
+
+function planningEditSiteRow(siteId) {
+  const row = document.querySelector(`.planning-site-row[data-site-id="${Number(siteId)}"]`);
+  const site = (_planningCurrent?.sites || []).find(item => Number(item.id) === Number(siteId));
+  if (!row || !site) return;
+  row.innerHTML = `
+    <div class="planning-site-row-main planning-site-row-editing">
+      <input id="planSiteEditName_${Number(siteId)}" value="${planningEscape(site.name)}" placeholder="Nome do site">
+      <input id="planSiteEditNotes_${Number(siteId)}" value="${planningEscape(site.notes || '')}" placeholder="Observacoes">
+    </div>
+    <div class="planning-site-row-actions">
+      <button class="icon-button" type="button" title="Salvar" onclick="planningSaveSiteRow(${Number(siteId)})"><i data-lucide="check"></i></button>
+      <button class="icon-button" type="button" title="Cancelar" onclick="openPlanningSiteModal()"><i data-lucide="x"></i></button>
+    </div>`;
+  lucide.createIcons();
+  row.querySelector('input')?.focus();
+}
+
+async function planningSaveSiteRow(siteId) {
+  const name = document.getElementById(`planSiteEditName_${Number(siteId)}`)?.value.trim();
+  const notes = document.getElementById(`planSiteEditNotes_${Number(siteId)}`)?.value.trim() || '';
+  if (!name) { showToast('Informe o nome do site.', true); return; }
+  try {
+    await planningRequest(`/api/planning/projects/${_planningCurrent.id}/sites/${Number(siteId)}`, { method: 'PUT', body: JSON.stringify({ name, notes }) });
+    showToast('Site atualizado.');
+    await planningRefreshCurrentProject();
+    openPlanningSiteModal();
+  } catch (err) { showToast(err.message || 'Nao foi possivel salvar o site.', true); }
+}
+
+async function planningDeleteSite(siteId) {
+  const site = (_planningCurrent?.sites || []).find(item => Number(item.id) === Number(siteId));
+  if (!site) return;
+  const inUse = (_planningCurrent?.devices || []).filter(item => Number(item.site_id) === Number(siteId)).length;
+  const msg = inUse ? `${site.name} · ${inUse} equipamento(s) vinculado(s) ficarao sem site.` : site.name;
+  if (!await showConfirm({ eyebrow: 'Planejamento', title: 'Excluir site/local?', msg, label: 'Excluir' })) return;
+  try {
+    await planningRequest(`/api/planning/projects/${_planningCurrent.id}/sites/${Number(siteId)}`, { method: 'DELETE' });
+    showToast('Site excluido.');
+    await planningRefreshCurrentProject();
+    openPlanningSiteModal();
+  } catch (err) { showToast(err.message || 'Nao foi possivel excluir o site.', true); }
 }
 
 function planningSiteOptions(selected = '') {
@@ -1438,7 +1493,9 @@ function planningCableCalculation(config) {
     const manualRoute = Number(camera.metadata?.route_distance_m);
     const route = Number.isFinite(manualRoute) ? manualRoute : straight;
     const estimated = !Number.isFinite(manualRoute);
-    const installed = (route * (1 + config.routePercent / 100)) + config.slackMeters;
+    // Slack fixo so faz sentido cobrindo a incerteza da estimativa por linha reta;
+    // quando o percurso e medido a mao (manual), o valor informado ja e o percurso real.
+    const installed = (route * (1 + config.routePercent / 100)) + (estimated ? config.slackMeters : 0);
     const purchase = installed * (1 + config.reservePercent / 100);
     return { camera, box, straight, route, installed, purchase, estimated, overLimit: installed > config.maxMeters };
   });

@@ -5806,6 +5806,15 @@ body.cam-live-lock {
 .planning-box-detail-row strong, .planning-box-camera-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.planning-box-detail-row small, .planning-box-camera-row small { color: var(--muted); font-size: 11px; }
 .planning-box-detail-row > svg, .planning-box-camera-row > svg { width: 16px; color: var(--muted); }.planning-box-camera-location { text-align: right; }
 .planning-box-empty { padding: 20px; color: var(--muted); text-align: center; }
+.planning-site-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 4px; }
+.planning-site-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: #fff; }
+.planning-site-row:last-child { border-bottom: 0; }
+.planning-site-row-main { display: grid; min-width: 0; gap: 2px; }
+.planning-site-row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-site-row-main small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-site-row-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.planning-site-row-editing { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; flex: 1; }
+.planning-site-row-editing input { min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
 .planning-proposal-form { display: grid; gap: 16px; }.planning-proposal-form .planning-info { margin-top: 0; }
 .planning-proposal-table { overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
 .planning-proposal-head, .planning-proposal-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 170px; align-items: center; gap: 12px; padding: 10px 14px; }

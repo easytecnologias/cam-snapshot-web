@@ -104,6 +104,21 @@ def projects_site_save(project_id: int, payload: Dict[str, Any]) -> Dict[str, An
         raise _handle_error(exc) from exc
 
 
+@router.put("/projects/{project_id}/sites/{site_id}")
+def projects_site_update(project_id: int, site_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return {"ok": True, "item": planning_service.update_site(project_id, site_id, payload)}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.delete("/projects/{project_id}/sites/{site_id}")
+def projects_site_delete(project_id: int, site_id: int) -> Dict[str, Any]:
+    if not planning_service.delete_site(project_id, site_id):
+        raise HTTPException(404, "Site nao encontrado")
+    return {"ok": True, "removed": True}
+
+
 @router.post("/projects/{project_id}/devices")
 def projects_device_create(project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
