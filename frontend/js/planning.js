@@ -370,11 +370,17 @@ function refreshPlanningCatalogLists(root) {
 async function openPlanningDeviceModal(deviceId = 0) {
   if (!_planningCurrent) return;
   await loadPlanningCatalog();
-  const item = (_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'camera' };
+  const isNew = !deviceId;
+  // Por enquanto so criamos Caixa de CFTV -- os demais tipos entram aos
+  // poucos, conforme o usuario for aprovando cada etapa do fluxo novo.
+  const item = isNew ? { device_type: 'box' } : ((_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'box' });
+  const typeOptions = isNew
+    ? `<option value="box" selected>${planningEscape(PLANNING_TYPES.box)}</option>`
+    : Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('');
   const modal = planningModal({
-    title: item.id ? 'Editar equipamento planejado' : 'Adicionar equipamento', wide: true,
+    title: item.id ? 'Editar equipamento planejado' : 'Adicionar Caixa de CFTV', wide: true,
     body: `<div class="planning-form-grid">
-      <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label class="planning-field"><span>Tipo</span><select id="planDeviceType" ${isNew ? 'disabled' : ''}>${typeOptions}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
