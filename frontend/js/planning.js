@@ -676,6 +676,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceMacField: { showOnlyFor: ['onu', 'ont', 'camera'] },
   planDeviceVlanField: { showOnlyFor: ['onu'] },
+  planDeviceRouteField: { showOnlyFor: ['camera'] },
 };
 
 // Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
@@ -899,6 +900,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
       ${planningField('Patrimonio', 'planDevicePatrimonio', metadata.patrimonio || '', 'placeholder="Numero do patrimonio"')}
+      ${planningField('Percurso viario ate a caixa (m)', 'planDeviceRoute', metadata.route_distance_m ?? '', 'type="number" min="0" step="1" placeholder="Ex: 45"', 'id="planDeviceRouteField"')}
       ${planningField('Coordenadas', 'planDeviceCoords', (item.latitude != null && item.longitude != null) ? `${item.latitude}, ${item.longitude}` : '', 'placeholder="-9.750000, -36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
       <label class="planning-field full"><span>Observacoes</span><textarea id="planDeviceNotes" rows="3">${planningEscape(item.notes || '')}</textarea></label>
@@ -950,6 +952,8 @@ function planningDevicePayload(root, metadata = {}) {
   // depende de tipo -- so guarda o que foi preenchido.
   const patrimonio = value('planDevicePatrimonio');
   if (patrimonio) nextMetadata.patrimonio = patrimonio; else delete nextMetadata.patrimonio;
+  const routeDistance = value('planDeviceRoute');
+  if (routeDistance) nextMetadata.route_distance_m = Number(routeDistance); else delete nextMetadata.route_distance_m;
   const deviceType = value('planDeviceType');
   if (deviceType === 'onu') {
     nextMetadata.eth_port_capacity = Math.max(1, Number(value('planDeviceOnuPorts')) || 1);
