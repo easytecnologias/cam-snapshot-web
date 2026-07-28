@@ -42,11 +42,35 @@ async function planningCopyFromButton(event) {
   const btn = event.currentTarget;
   const value = btn?.dataset.copyValue || '';
   if (!value) return;
+  if (await planningCopyText(value)) showToast('Copiado para a area de transferencia.');
+  else showToast('Nao foi possivel copiar automaticamente. Selecione o texto e copie manualmente.', true);
+}
+
+// navigator.clipboard exige contexto seguro (https) -- em http (ou se o
+// navegador negar a permissao) cai pro jeito antigo via textarea oculta,
+// que funciona em qualquer contexto.
+async function planningCopyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) { /* segue pro fallback */ }
+  }
   try {
-    await navigator.clipboard.writeText(value);
-    showToast('Copiado para a area de transferencia.');
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    el.style.left = '-9999px';
+    document.body.appendChild(el);
+    el.select();
+    el.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
   } catch (err) {
-    showToast('Nao foi possivel copiar.', true);
+    return false;
   }
 }
 
