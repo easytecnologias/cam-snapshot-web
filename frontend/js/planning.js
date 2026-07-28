@@ -7,6 +7,37 @@ let _planningMarkers = {};
 let _planningCatalog = null;
 let _planningExpandedRows = new Set();
 
+// Overlay de progresso pra operacoes longas (ex: duplicar caixa em lote) --
+// sem isso, a tela fica parada varios segundos sem nenhum sinal de que
+// esta fazendo algo.
+function planningShowProgress(text) {
+  let el = document.getElementById('planningProgressOverlay');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'planningProgressOverlay';
+    el.className = 'planning-progress-overlay';
+    el.innerHTML = `<div class="planning-progress-card">
+      <div class="planning-progress-spinner"></div>
+      <strong id="planningProgressText"></strong>
+      <div class="planning-progress-bar"><div class="planning-progress-bar-fill" id="planningProgressFill"></div></div>
+    </div>`;
+    document.body.appendChild(el);
+  }
+  el.classList.remove('hidden');
+  planningUpdateProgress(text, 0);
+}
+
+function planningUpdateProgress(text, pct) {
+  const textEl = document.getElementById('planningProgressText');
+  const fillEl = document.getElementById('planningProgressFill');
+  if (textEl && text) textEl.textContent = text;
+  if (fillEl) fillEl.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+
+function planningHideProgress() {
+  document.getElementById('planningProgressOverlay')?.classList.add('hidden');
+}
+
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
   injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste', other: 'Outro',
@@ -155,13 +186,25 @@ function showPlanningEmpty() {
 
 async function selectPlanningProject(projectId) {
   const data = await apiJson(`/api/planning/projects/${Number(projectId)}`, { forceRefresh: true, cacheTtl: 0 });
-  if (!data?.item) return;
+  if (!data?.item) return false;
   _planningCurrent = data.item;
   document.getElementById('planningEmpty')?.classList.add('hidden');
   document.getElementById('planningDetail')?.classList.remove('hidden');
   renderPlanningProjects();
   renderPlanningDetail();
   setTimeout(() => renderPlanningMap(), 50);
+  return true;
+}
+
+// selectPlanningProject falha em silencio se a resposta vier vazia (ex: pico
+// de escrita apos criar muitos equipamentos de uma vez, tipo duplicar caixa).
+// Tenta de novo algumas vezes antes de pedir pro usuario atualizar a pagina.
+async function planningRefreshCurrentProject(retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (await selectPlanningProject(_planningCurrent.id)) return true;
+    if (attempt < retries) await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
 }
 
 function renderPlanningDetail() {
@@ -405,18 +448,31 @@ function openPlanningDuplicateModal(boxId) {
       const start = value('planDupStart');
       const digitsCount = Math.max(1, value('planDupDigits') || 2);
       closePlanningModal();
-      showToast(`Duplicando ${count} caixa(s)... isso pode levar um instante.`);
+      const nodesPerCopy = 1 + planningDescendants(box.id).length;
+      const totalNodes = nodesPerCopy * count;
+      let nodesDone = 0;
+      planningShowProgress(`Duplicando caixa 1 de ${count}...`);
       try {
         for (let i = 0; i < count; i++) {
+          planningUpdateProgress(`Duplicando caixa ${i + 1} de ${count}...`, (nodesDone / totalNodes) * 100);
           const newToken = String(start + i).padStart(digitsCount, '0');
-          await planningCloneSubtree(box.id, found ? found.token : null, newToken);
+          await planningCloneSubtree(box.id, found ? found.token : null, newToken, () => {
+            nodesDone++;
+            planningUpdateProgress(null, (nodesDone / totalNodes) * 100);
+          });
         }
+        planningHideProgress();
         _planningCatalog = null;
         showToast(`${count} caixa(s) criada(s).`);
-        await selectPlanningProject(_planningCurrent.id);
+        if (!(await planningRefreshCurrentProject())) {
+          showToast('Caixas criadas, mas a lista nao atualizou sozinha -- de um Ctrl+Shift+R.', true);
+        }
       } catch (err) {
+        planningHideProgress();
         showToast(err.message || 'Nao foi possivel duplicar a caixa.', true);
-        await selectPlanningProject(_planningCurrent.id);
+        if (!(await planningRefreshCurrentProject())) {
+          showToast('Atualize a pagina pra ver o que ja foi criado.', true);
+        }
       }
     },
   });
@@ -438,7 +494,7 @@ function planningCloneItemPayload(item, name, parentId, isRoot) {
 // Clona a caixa e toda a arvore dentro dela (ONU > switch/injetor > camera),
 // nivel por nivel -- um filho so pode ser criado depois que o pai dele ja
 // tiver o novo id, entao processa em ondas (BFS) a partir da raiz.
-async function planningCloneSubtree(rootId, oldToken, newToken) {
+async function planningCloneSubtree(rootId, oldToken, newToken, onProgress) {
   const devices = _planningCurrent?.devices || [];
   const root = devices.find(d => Number(d.id) === Number(rootId));
   if (!root) return;
@@ -457,6 +513,7 @@ async function planningCloneSubtree(rootId, oldToken, newToken) {
   });
   const newRootId = rootResult?.item?.id;
   if (!newRootId) throw new Error('Nao foi possivel criar a copia da caixa.');
+  onProgress?.();
 
   let currentOldIds = [rootId];
   let currentNewIds = [newRootId];
@@ -471,7 +528,7 @@ async function planningCloneSubtree(rootId, oldToken, newToken) {
           method: 'POST', body: JSON.stringify(payload),
         });
         const newId = created?.item?.id;
-        if (newId) { nextOldIds.push(child.id); nextNewIds.push(newId); }
+        if (newId) { nextOldIds.push(child.id); nextNewIds.push(newId); onProgress?.(); }
       }
     }
     currentOldIds = nextOldIds;
@@ -692,7 +749,7 @@ function openPlanningSiteModal() {
       const name = root.querySelector('#planSiteName').value.trim();
       if (!name) throw new Error('Informe o site/local.');
       await planningRequest(`/api/planning/projects/${_planningCurrent.id}/sites`, { method: 'POST', body: JSON.stringify({ name, notes: root.querySelector('#planSiteNotes').value.trim() }) });
-      closePlanningModal(); showToast('Site adicionado.'); await selectPlanningProject(_planningCurrent.id);
+      closePlanningModal(); showToast('Site adicionado.'); await planningRefreshCurrentProject();
     },
   });
 }
@@ -852,7 +909,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       const path = `/api/planning/projects/${_planningCurrent.id}/devices${item.id ? `/${item.id}` : ''}`;
       await planningRequest(path, { method: item.id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
       _planningCatalog = null;
-      closePlanningModal(); showToast(item.id ? 'Equipamento atualizado.' : 'Equipamento adicionado.'); await selectPlanningProject(_planningCurrent.id);
+      closePlanningModal(); showToast(item.id ? 'Equipamento atualizado.' : 'Equipamento adicionado.'); await planningRefreshCurrentProject();
     },
   });
   const refreshParent = () => {
@@ -957,7 +1014,7 @@ function openPlanningGenerateModal() {
       const payload = { device_type: value('planGenType'), site_id: value('planGenSite') || null, start_ip: value('planGenIp'), count: Number(value('planGenCount')), first_number: Number(value('planGenFirst')), digits: Number(value('planGenDigits')), name_template: value('planGenTemplate'), parent_id: value('planGenParent') || null, manufacturer: value('planGenManufacturer'), model: value('planGenModel'), reference_image_url: value('planGenImage'), pon: value('planGenPon'), status: 'planned' };
       const data = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/generate`, { method: 'POST', body: JSON.stringify(payload) });
       _planningCatalog = null;
-      closePlanningModal(); showToast(`${data.count} equipamento(s) gerado(s).`); await selectPlanningProject(_planningCurrent.id);
+      closePlanningModal(); showToast(`${data.count} equipamento(s) gerado(s).`); await planningRefreshCurrentProject();
     },
   });
 }
@@ -1012,7 +1069,7 @@ async function openPlanningBoxModal() {
       };
       if (!payload.box_name) throw new Error('Informe o nome da caixa de CFTV.');
       const data = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/assemble-gpon-box`, { method: 'POST', body: JSON.stringify(payload) });
-      _planningCatalog = null; closePlanningModal(); showToast(`Caixa montada com ${data.count - 1} equipamento(s).`); await selectPlanningProject(_planningCurrent.id);
+      _planningCatalog = null; closePlanningModal(); showToast(`Caixa montada com ${data.count - 1} equipamento(s).`); await planningRefreshCurrentProject();
     },
   });
   const catalogFor = type => (_planningCatalog || []).filter(item => item.device_type === type || (type === 'ont' && item.device_type === 'onu'));
@@ -1090,7 +1147,7 @@ function openPlanningCsvModal() {
       const typeFilter = document.getElementById('planningTypeFilter');
       if (typeFilter) typeFilter.value = 'box';
       showToast(`${data.imported} item(ns) importado(s)${data.errors?.length ? `; ${data.errors.length} linha(s) com erro` : ''}.`, !!data.errors?.length);
-      await selectPlanningProject(_planningCurrent.id);
+      await planningRefreshCurrentProject();
     },
   });
   const input = modal.querySelector('#planCsvFile');
@@ -1165,7 +1222,7 @@ async function deletePlanningDevice(deviceId) {
   const item = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(deviceId));
   if (!item || !await showConfirm({ eyebrow: 'Projeto', title: 'Excluir equipamento planejado?', msg: item.name, label: 'Excluir' })) return;
   await planningRequest(`/api/planning/projects/${_planningCurrent.id}/devices/${deviceId}`, { method: 'DELETE' });
-  showToast('Equipamento removido.'); await selectPlanningProject(_planningCurrent.id);
+  showToast('Equipamento removido.'); await planningRefreshCurrentProject();
 }
 
 async function deletePlanningProject() {
