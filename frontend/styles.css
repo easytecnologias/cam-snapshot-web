@@ -5740,7 +5740,7 @@ body.cam-live-lock {
 .planning-kpis strong { font-size: 22px; }
 .planning-work-grid { display: grid; grid-template-columns: minmax(560px, 1.45fr) minmax(380px, .9fr); gap: 16px; align-items: start; }
 .planning-work-grid-list-only { grid-template-columns: minmax(0, 1fr); }
-.planning-devices-panel, .planning-map-panel { display: flex; min-height: 540px; flex-direction: column; overflow: hidden; }
+.planning-devices-panel, .planning-map-panel { display: flex; position: sticky; top: 84px; min-height: 540px; max-height: calc(100vh - 100px); flex-direction: column; overflow: hidden; }
 .planning-work-grid-list-only .planning-devices-panel { min-height: 610px; }
 .planning-devices-panel .panel-header, .planning-map-panel .panel-header { padding: 14px 16px; }
 .planning-devices-panel.is-empty { min-height: 0; }
@@ -5755,7 +5755,7 @@ body.cam-live-lock {
 .planning-filters input, .planning-filters select { width: 100%; min-width: 0; height: 42px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface); }
 .planning-filters input { padding: 0 12px 0 38px; }
 .planning-filters select { padding: 0 34px 0 12px; }
-.planning-device-list { flex: 1; min-height: 0; max-height: 680px; overflow-y: auto; }
+.planning-device-list { flex: 1; min-height: 0; overflow-y: auto; }
 .planning-device-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid var(--border); }
 .planning-device-row:last-child { border-bottom: 0; }
 .planning-device-row.is-child { background: var(--surface-soft); }
@@ -5775,6 +5775,8 @@ body.cam-live-lock {
 .planning-device-parent { color: var(--muted); font-size: 12px; }
 .planning-row-actions { display: flex; align-items: center; gap: 4px; padding-right: 10px; }
 .planning-box-details { display: grid; gap: 14px; }
+.planning-box-duplicate-bar { display: flex; }
+.planning-box-duplicate-bar .secondary-action { width: 100%; justify-content: center; }
 .planning-box-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .planning-box-summary-grid > div { display: grid; min-width: 0; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .planning-box-summary-grid span { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
@@ -5884,6 +5886,10 @@ body.cam-live-lock {
 @media (max-width: 1280px) {
   .planning-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .planning-work-grid { grid-template-columns: 1fr; }
+  /* Empilhado numa coluna so, sticky nos dois painies um por cima do outro
+     nao faz sentido -- cada um rola dentro do proprio espaco. */
+  .planning-devices-panel, .planning-map-panel { position: static; max-height: none; }
+  .planning-device-list { max-height: 60vh; }
   .planning-map-panel { min-height: 480px; }
   .planning-device-focus { grid-template-columns: 42px minmax(150px, 1.4fr) 108px minmax(120px, 1fr); }
   .planning-device-parent { display: none; }

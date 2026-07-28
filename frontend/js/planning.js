@@ -361,6 +361,7 @@ function openPlanningBoxDetails(deviceId) {
         <div><span>Equipamentos internos</span><strong>${internal.length}</strong></div>
         <div><span>Cameras atendidas</span><strong>${cameras.length}</strong></div>
       </div>
+      <div class="planning-box-duplicate-bar"><button class="secondary-action" type="button" onclick="openPlanningDuplicateModal(${Number(item.id)})"><i data-lucide="copy-plus"></i> Duplicar esta caixa (com tudo dentro)</button></div>
       <div class="planning-box-capacity ${capacity && usedPorts > capacity ? 'danger' : ''}">
         <span><i data-lucide="network"></i><strong>Distribuicao PoE</strong></span>
         <span>${capacity ? `${usedPorts} de ${capacity} portas planejadas` : `${usedPorts} camera(s), capacidade ainda nao informada`}</span>
@@ -370,6 +371,112 @@ function openPlanningBoxDetails(deviceId) {
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
   });
+}
+
+// Acha a ultima sequencia de digitos no nome (ex: "CAIXA - 01" -> "01") pra
+// trocar so o numero em cada copia, mantendo o resto do nome igual.
+function planningFindTrailingNumber(name) {
+  const match = String(name || '').match(/(\d+)(?!.*\d)/);
+  return match ? { token: match[1] } : null;
+}
+
+function planningCloneName(name, oldToken, newToken) {
+  if (!oldToken) return name;
+  const value = String(name || '');
+  return value.includes(oldToken) ? value.split(oldToken).join(newToken) : value;
+}
+
+function openPlanningDuplicateModal(boxId) {
+  const box = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(boxId));
+  if (!box) return;
+  const found = planningFindTrailingNumber(box.name);
+  const digits = found ? found.token.length : 2;
+  const defaultStart = found ? Number(found.token) + 1 : 2;
+  planningModal({
+    title: `Duplicar ${planningEscape(box.name)}`, primary: 'Duplicar',
+    body: `<div class="planning-form-grid">
+      ${planningField('Quantidade de copias', 'planDupCount', '1', 'type="number" min="1" max="60"')}
+      ${planningField('Numero inicial', 'planDupStart', String(defaultStart), 'type="number" min="0"')}
+      ${planningField('Digitos', 'planDupDigits', String(digits), 'type="number" min="1" max="4"')}
+    </div><div class="planning-info"><i data-lucide="info"></i><span>Cria uma copia completa da caixa -- ONU, switch, injetor, camera, portas e tudo mais que estiver dentro dela${found ? `, trocando o numero "${planningEscape(found.token)}" pelo numero de cada copia` : ''}. A copia nao herda o vinculo com CTO/OLT nem a porta ocupada -- ajuste IP, site, vinculo e demais detalhes depois em cada uma.</span></div>`,
+    onSave: async root => {
+      const value = id => Number(root.querySelector(`#${id}`).value) || 0;
+      const count = Math.max(1, Math.min(60, value('planDupCount') || 1));
+      const start = value('planDupStart');
+      const digitsCount = Math.max(1, value('planDupDigits') || 2);
+      closePlanningModal();
+      showToast(`Duplicando ${count} caixa(s)... isso pode levar um instante.`);
+      try {
+        for (let i = 0; i < count; i++) {
+          const newToken = String(start + i).padStart(digitsCount, '0');
+          await planningCloneSubtree(box.id, found ? found.token : null, newToken);
+        }
+        _planningCatalog = null;
+        showToast(`${count} caixa(s) criada(s).`);
+        await selectPlanningProject(_planningCurrent.id);
+      } catch (err) {
+        showToast(err.message || 'Nao foi possivel duplicar a caixa.', true);
+        await selectPlanningProject(_planningCurrent.id);
+      }
+    },
+  });
+}
+
+function planningCloneItemPayload(item, name, parentId, isRoot) {
+  const metadata = { ...(item.metadata || {}) };
+  if (isRoot) delete metadata.port_number; // a copia ainda nao tem porta de CTO/OLT escolhida
+  return {
+    device_type: item.device_type, name, ip: item.ip || '',
+    site_id: item.site_id || null, manufacturer: item.manufacturer || '', model: item.model || '',
+    parent_id: parentId, pon: item.pon || '', onu_position: item.onu_position || '',
+    latitude: item.latitude ?? null, longitude: item.longitude ?? null,
+    reference_image_url: item.reference_image_url || '', notes: item.notes || '',
+    metadata, status: 'planned',
+  };
+}
+
+// Clona a caixa e toda a arvore dentro dela (ONU > switch/injetor > camera),
+// nivel por nivel -- um filho so pode ser criado depois que o pai dele ja
+// tiver o novo id, entao processa em ondas (BFS) a partir da raiz.
+async function planningCloneSubtree(rootId, oldToken, newToken) {
+  const devices = _planningCurrent?.devices || [];
+  const root = devices.find(d => Number(d.id) === Number(rootId));
+  if (!root) return;
+  const descendants = planningDescendants(rootId);
+  const byParent = new Map();
+  descendants.forEach(d => {
+    const key = Number(d.parent_id);
+    const list = byParent.get(key) || [];
+    list.push(d);
+    byParent.set(key, list);
+  });
+
+  const rootPayload = planningCloneItemPayload(root, planningCloneName(root.name, oldToken, newToken), null, true);
+  const rootResult = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/devices`, {
+    method: 'POST', body: JSON.stringify(rootPayload),
+  });
+  const newRootId = rootResult?.item?.id;
+  if (!newRootId) throw new Error('Nao foi possivel criar a copia da caixa.');
+
+  let currentOldIds = [rootId];
+  let currentNewIds = [newRootId];
+  while (currentOldIds.length) {
+    const nextOldIds = [];
+    const nextNewIds = [];
+    for (let i = 0; i < currentOldIds.length; i++) {
+      const children = byParent.get(Number(currentOldIds[i])) || [];
+      for (const child of children) {
+        const payload = planningCloneItemPayload(child, planningCloneName(child.name, oldToken, newToken), currentNewIds[i], false);
+        const created = await planningRequest(`/api/planning/projects/${_planningCurrent.id}/devices`, {
+          method: 'POST', body: JSON.stringify(payload),
+        });
+        const newId = created?.item?.id;
+        if (newId) { nextOldIds.push(child.id); nextNewIds.push(newId); }
+      }
+    }
+    currentOldIds = nextOldIds;
+    currentNewIds = nextNewIds;
+  }
 }
 
 function openPlanningAddToBox(boxId, deviceType = 'onu') {
