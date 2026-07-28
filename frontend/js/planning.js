@@ -286,15 +286,24 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 
 // Caixa/poste/CTO sao elementos fisicos sem endereco de rede proprio. ONU
 // (bridge transparente) tambem nao tem IP de gerenciamento -- so a ONT
-// (VEIP/roteador) e "gerenciavel" e tem IP, igual no menu OLT.
+// (VEIP/roteador) e "gerenciavel" e tem IP, igual no menu OLT. ONU e ONT sao
+// um so "cartao" no formulario (Tipo = onu); o campo Modo decide qual das
+// duas funcoes se aplica, em vez de serem duas opcoes separadas de Tipo.
 const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu'];
 const PLANNING_DEVICE_FIELD_RULES = {
-  planDeviceIpField: { hideFor: PLANNING_TYPES_WITHOUT_IP },
+  planDeviceOnuModeField: { showOnlyFor: ['onu'] },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceMacField: { showOnlyFor: ['onu', 'ont'] },
 };
+
+// Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
+// decidir campos/IP/parentesco vem do Modo quando o Tipo e o grupo onu.
+function planningEffectiveType(modal) {
+  const type = modal.querySelector('#planDeviceType')?.value || '';
+  return type === 'onu' ? (modal.querySelector('#planDeviceOnuMode')?.value || 'onu') : type;
+}
 
 function refreshPlanningDeviceFields(modal) {
   const type = modal.querySelector('#planDeviceType')?.value || 'camera';
@@ -304,6 +313,8 @@ function refreshPlanningDeviceFields(modal) {
     const hide = rule.hideFor ? rule.hideFor.includes(type) : !rule.showOnlyFor.includes(type);
     field.classList.toggle('hidden', hide);
   }
+  const ipField = modal.querySelector('#planDeviceIpField');
+  if (ipField) ipField.classList.toggle('hidden', PLANNING_TYPES_WITHOUT_IP.includes(planningEffectiveType(modal)));
 }
 
 function openPlanningProjectModal(isNew = false) {
@@ -353,8 +364,20 @@ function planningSiteOptions(selected = '') {
   return '<option value="">Sem site</option>' + (_planningCurrent?.sites || []).map(site => `<option value="${Number(site.id)}" ${String(selected) === String(site.id) ? 'selected' : ''}>${planningEscape(site.name)}</option>`).join('');
 }
 
-function planningParentOptions(selected = '', selfId = '') {
-  return '<option value="">Sem equipamento pai</option>' + (_planningCurrent?.devices || []).filter(item => Number(item.id) !== Number(selfId) && ['olt','onu','ont','switch','recorder','box','pole'].includes(item.device_type)).map(item => `<option value="${Number(item.id)}" ${String(selected) === String(item.id) ? 'selected' : ''}>${planningEscape(item.name)} (${planningEscape(PLANNING_TYPES[item.device_type])})</option>`).join('');
+// Quem pode ser "pai" depende de quem e o "filho": ONU/ONT nasce dentro de
+// uma caixa (sub-produto dela, nao um item avulso), enquanto a propria caixa
+// so faz sentido pendurada em algo upstream (CTO/OLT/poste) -- nunca numa
+// ONU, que e uma ponta, nao um ponto de distribuicao.
+const PLANNING_PARENT_TYPES = {
+  box: ['cto', 'olt', 'pole'],
+  onu: ['box'],
+  ont: ['box'],
+};
+const PLANNING_DEFAULT_PARENT_TYPES = ['olt', 'onu', 'ont', 'switch', 'recorder', 'box', 'pole'];
+
+function planningParentOptions(childType = '', selected = '', selfId = '') {
+  const allowed = PLANNING_PARENT_TYPES[childType] || PLANNING_DEFAULT_PARENT_TYPES;
+  return '<option value="">Sem equipamento pai</option>' + (_planningCurrent?.devices || []).filter(item => Number(item.id) !== Number(selfId) && allowed.includes(item.device_type)).map(item => `<option value="${Number(item.id)}" ${String(selected) === String(item.id) ? 'selected' : ''}>${planningEscape(item.name)} (${planningEscape(PLANNING_TYPES[item.device_type])})</option>`).join('');
 }
 
 async function loadPlanningCatalog() {
@@ -370,7 +393,7 @@ function planningCatalogDatalists(item = {}) {
 }
 
 function refreshPlanningCatalogLists(root) {
-  const type = root.querySelector('#planDeviceType')?.value || 'camera';
+  const type = planningEffectiveType(root) || 'camera';
   const manufacturer = root.querySelector('#planDeviceManufacturer')?.value.trim().toLowerCase() || '';
   const relevant = (_planningCatalog || []).filter(item => item.device_type === type || (type === 'ont' && item.device_type === 'onu'));
   const manufacturers = [...new Set(relevant.map(item => item.manufacturer).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -383,7 +406,19 @@ function refreshPlanningCatalogLists(root) {
 
 // Tipos que o usuario ja aprovou pro fluxo novo de "Adicionar". Vai crescendo
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
-const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'ont'];
+// "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
+// decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
+const PLANNING_ADDABLE_TYPES = ['box', 'onu'];
+
+function planningTypeOptionLabel(key) {
+  return key === 'onu' ? 'ONU / ONT' : (PLANNING_TYPES[key] || key);
+}
+
+// ONT e so um "modo" do cartao ONU/ONT -- normaliza pra 'onu' na hora de
+// escolher qual opcao do <select> Tipo fica marcada.
+function planningTypeOptionValue(deviceType) {
+  return deviceType === 'ont' ? 'onu' : deviceType;
+}
 
 async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   if (!_planningCurrent) return;
@@ -392,20 +427,25 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   const item = isNew
     ? { device_type: 'box', parent_id: null, metadata: {}, ...defaults }
     : ((_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'box' });
+  const groupType = planningTypeOptionValue(item.device_type);
   const typeOptions = isNew
-    ? PLANNING_ADDABLE_TYPES.map(key => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${planningEscape(PLANNING_TYPES[key])}</option>`).join('')
-    : Object.entries(PLANNING_TYPES).map(([key,label]) => `<option value="${key}" ${item.device_type === key ? 'selected' : ''}>${label}</option>`).join('');
+    ? PLANNING_ADDABLE_TYPES.map(key => `<option value="${key}" ${groupType === key ? 'selected' : ''}>${planningEscape(planningTypeOptionLabel(key))}</option>`).join('')
+    : Object.keys(PLANNING_TYPES).filter(key => key !== 'ont').map(key => `<option value="${key}" ${groupType === key ? 'selected' : ''}>${planningEscape(planningTypeOptionLabel(key))}</option>`).join('');
   const metadata = item.metadata || {};
   const modal = planningModal({
-    title: item.id ? 'Editar equipamento planejado' : `Adicionar ${planningEscape(PLANNING_TYPES[item.device_type] || 'equipamento')}`, wide: true,
+    title: item.id ? 'Editar equipamento planejado' : `Adicionar ${planningEscape(planningTypeOptionLabel(groupType) || 'equipamento')}`, wide: true,
     body: `<div class="planning-form-grid">
       <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${typeOptions}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
+      <label class="planning-field" id="planDeviceOnuModeField"><span>Modo</span><select id="planDeviceOnuMode">
+        <option value="onu" ${item.device_type !== 'ont' ? 'selected' : ''}>ONU - bridge transparente (sem IP)</option>
+        <option value="ont" ${item.device_type === 'ont' ? 'selected' : ''}>ONT - roteador/VEIP (com IP, gerenciavel)</option>
+      </select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
-      <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.parent_id, item.id)}</select></label>
+      <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.device_type, item.parent_id, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
@@ -425,9 +465,16 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       closePlanningModal(); showToast(item.id ? 'Equipamento atualizado.' : 'Equipamento adicionado.'); await selectPlanningProject(_planningCurrent.id);
     },
   });
-  refreshPlanningCatalogLists(modal);
-  refreshPlanningDeviceFields(modal);
-  modal.querySelector('#planDeviceType')?.addEventListener('change', () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); });
+  const refreshParent = () => {
+    const parentSelect = modal.querySelector('#planDeviceParent');
+    if (!parentSelect) return;
+    const current = parentSelect.value;
+    parentSelect.innerHTML = planningParentOptions(planningEffectiveType(modal), current, item.id);
+  };
+  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); };
+  refreshAll();
+  modal.querySelector('#planDeviceType')?.addEventListener('change', refreshAll);
+  modal.querySelector('#planDeviceOnuMode')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
@@ -438,7 +485,7 @@ function planningDevicePayload(root, metadata = {}) {
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
   return {
-    device_type: value('planDeviceType'), name: value('planDeviceName'), ip: value('planDeviceIp'),
+    device_type: planningEffectiveType(root), name: value('planDeviceName'), ip: value('planDeviceIp'),
     site_id: value('planDeviceSite') || null, manufacturer: value('planDeviceManufacturer'), model: value('planDeviceModel'),
     parent_id: value('planDeviceParent') || null, pon: value('planDevicePon'), onu_position: value('planDeviceOnu'),
     latitude: value('planDeviceLat') || null, longitude: value('planDeviceLon') || null,
