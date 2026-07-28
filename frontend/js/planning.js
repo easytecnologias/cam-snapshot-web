@@ -89,7 +89,7 @@ function planningDevicePath(item) {
   }
   const parts = [];
   chainUp.reverse().forEach(node => {
-    if (node.device_type === 'camera' && node.metadata?.port_number) parts.push(`Porta ${node.metadata.port_number}`);
+    if (node.metadata?.port_number) parts.push(`Porta ${node.metadata.port_number}`);
     parts.push(node.name);
   });
   return parts.join(' > ');
@@ -241,8 +241,10 @@ function renderPlanningDevices() {
     const childCount = children.length;
     const relation = ['switch', 'injector'].includes(item.device_type) && metadata.port_capacity
       ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
+      : ['onu', 'ont'].includes(item.device_type) && metadata.eth_port_capacity
+      ? `${childCount}/${Number(metadata.eth_port_capacity)} portas ETH usadas`
       : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
-      : item.device_type === 'camera' && item.parent_name && metadata.port_number
+      : ['camera', 'switch', 'injector'].includes(item.device_type) && item.parent_name && metadata.port_number
       ? `${item.parent_name} · Porta ${metadata.port_number}`
       : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
     const expandable = canExpand && childCount > 0;
@@ -253,7 +255,7 @@ function renderPlanningDevices() {
     const row = `
     <article class="planning-device-row${depth ? ' is-child' : ''}" data-device-id="${Number(item.id)}" style="${depth ? `grid-template-columns:${28 + depth * 20}px minmax(0, 1fr) auto` : ''}">
       ${toggle}
-      <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : ['switch', 'injector'].includes(item.device_type) ? 'Ver e cadastrar cameras deste equipamento' : 'Abrir detalhes do equipamento'}">
+      <button class="planning-device-focus" onclick="openPlanningDeviceDetails(${Number(item.id)})" title="${item.device_type === 'box' ? 'Ver equipamentos e cameras desta caixa' : PLANNING_PORT_HOLDER_CONFIG[item.device_type] ? 'Ver e cadastrar equipamentos ligados por porta' : 'Abrir detalhes do equipamento'}">
         <span class="planning-device-icon ${planningEscape(item.device_type)}">${item.reference_image_url ? `<img src="${planningEscape(item.reference_image_url)}" alt="Imagem ilustrativa" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{innerHTML:'&bull;'}))">` : `<i data-lucide="${planningDeviceIcon(item.device_type)}"></i>`}</span>
         <span class="planning-device-primary"><strong title="${planningEscape(item.name)}">${planningEscape(item.name)}</strong><small>${planningEscape(PLANNING_TYPES[item.device_type] || item.device_type)} · ${planningEscape(item.site_name || 'Sem site')}</small></span>
         <span class="planning-device-ip">${planningItemHasNoIp(item) ? '' : planningEscape(item.ip || 'IP a definir')}</span>
@@ -261,7 +263,7 @@ function renderPlanningDevices() {
         <span class="planning-device-parent">${planningEscape(relation)}</span>
       </button>
       <div class="planning-row-actions">
-        ${item.device_type === 'camera' ? `<button class="icon-button" onclick="planningCopyDevicePath(${Number(item.id)})" aria-label="Copiar caminho"><i data-lucide="copy"></i></button>` : ''}
+        ${['camera', 'switch', 'injector'].includes(item.device_type) ? `<button class="icon-button" onclick="planningCopyDevicePath(${Number(item.id)})" aria-label="Copiar caminho"><i data-lucide="copy"></i></button>` : ''}
         <button class="icon-button" onclick="openPlanningDeviceModal(${Number(item.id)})" aria-label="Editar"><i data-lucide="pencil"></i></button>
         <button class="icon-button danger" onclick="deletePlanningDevice(${Number(item.id)})" aria-label="Excluir"><i data-lucide="trash-2"></i></button>
       </div>
@@ -292,7 +294,7 @@ function openPlanningDeviceDetails(deviceId) {
   const item = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(deviceId));
   if (!item) return;
   if (item.device_type === 'box') { openPlanningBoxDetails(deviceId); return; }
-  if (['switch', 'injector'].includes(item.device_type)) { openPlanningSwitchDetails(deviceId); return; }
+  if (PLANNING_PORT_HOLDER_CONFIG[item.device_type]) { openPlanningPortHolderDetails(deviceId); return; }
   openPlanningDeviceModal(deviceId);
 }
 
@@ -339,7 +341,7 @@ function openPlanningBoxDetails(deviceId) {
         <span><i data-lucide="network"></i><strong>Distribuicao PoE</strong></span>
         <span>${capacity ? `${usedPorts} de ${capacity} portas planejadas` : `${usedPorts} camera(s), capacidade ainda nao informada`}</span>
       </div>
-      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT, switch, injetor PoE e demais componentes no mesmo ponto da caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'onu')"><i data-lucide="plus"></i> Adicionar ONU</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'switch')"><i data-lucide="plus"></i> Adicionar Switch</button><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'injector')"><i data-lucide="plus"></i> Adicionar Injetor</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Dentro da caixa</h3><p>ONU/ONT que recebe a fibra. Switch e injetor ligam na porta ETH dela, nao direto na caixa.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddToBox(${Number(item.id)},'onu')"><i data-lucide="plus"></i> Adicionar ONU</button><span>${internal.length}</span></div></div>${equipmentRows}</section>
       <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras ligadas</h3><p>As cameras permanecem nas coordenadas individuais e aparecem pelo vinculo com o switch ou injetor.</p></div><span>${cameras.length}</span></div>${cameraRows}</section>
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
@@ -356,36 +358,50 @@ function openPlanningAddToBox(boxId, deviceType = 'onu') {
   });
 }
 
-function openPlanningAddCameraTo(parentId) {
+function openPlanningAddPortChild(parentId, deviceType) {
   const parent = (_planningCurrent?.devices || []).find(row => Number(row.id) === Number(parentId));
   if (!parent) return;
   closePlanningModal();
   openPlanningDeviceModal(0, {
-    parent_id: parent.id, device_type: 'camera', site_id: parent.site_id ?? null,
+    parent_id: parent.id, device_type: deviceType, site_id: parent.site_id ?? null,
     latitude: parent.latitude ?? null, longitude: parent.longitude ?? null,
   });
 }
 
-// Detalhe de Switch/Injetor: lista as cameras ja ligadas em cada porta e
-// deixa cadastrar mais uma direto daqui, igual o detalhe da caixa faz com
-// ONU/Switch/Injetor.
-function openPlanningSwitchDetails(deviceId) {
+// Quem tem porta pra ligar equipamento embaixo, e o que pode ser ligado:
+// ONU/ONT tem portas ETH onde entra switch/injetor; switch/injetor tem
+// portas PoE onde entra camera. Mesma tela de detalhe serve pros dois
+// niveis, so muda a config.
+const PLANNING_PORT_HOLDER_CONFIG = {
+  onu: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
+  ont: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
+  switch: { childTypes: ['camera'], addButtons: [['camera', 'Adicionar Camera']], portsLabel: 'Portas PoE' },
+  injector: { childTypes: ['camera'], addButtons: [['camera', 'Adicionar Camera']], portsLabel: 'Portas PoE' },
+};
+
+function openPlanningPortHolderDetails(deviceId) {
   const devices = _planningCurrent?.devices || [];
   const item = devices.find(row => Number(row.id) === Number(deviceId));
   if (!item) return;
+  const config = PLANNING_PORT_HOLDER_CONFIG[item.device_type];
+  if (!config) return;
   const metadata = item.metadata || {};
-  const cameras = devices.filter(row => Number(row.parent_id) === Number(item.id) && row.device_type === 'camera')
+  const children = devices.filter(row => Number(row.parent_id) === Number(item.id) && config.childTypes.includes(row.device_type))
     .sort((a, b) => (Number(a.metadata?.port_number) || 999) - (Number(b.metadata?.port_number) || 999) || planningNaturalCompare(a.name, b.name));
-  const capacity = planningPoeCapacity(metadata);
-  const modeLabel = item.device_type === 'switch' ? (metadata.switch_mode === 'smart' ? 'Smart - gerenciavel (com IP)' : 'Normal - sem gerenciamento (bridge)') : '';
+  const capacity = planningParentPortCapacity(item);
+  const modeLabel = item.device_type === 'switch' ? (metadata.switch_mode === 'smart' ? 'Smart - gerenciavel (com IP)' : 'Normal - sem gerenciamento (bridge)')
+    : item.device_type === 'ont' ? 'ONT - roteador/VEIP (gerenciavel)'
+    : item.device_type === 'onu' ? 'ONU - bridge transparente'
+    : '';
   const typeLabel = PLANNING_TYPES[item.device_type] || item.device_type;
-  const cameraRows = cameras.length ? cameras.map(row => `
-    <button class="planning-box-camera-row" type="button" onclick="closePlanningModal();openPlanningDeviceModal(${Number(row.id)})">
-      <span class="planning-device-icon camera"><i data-lucide="camera"></i></span>
-      <span class="planning-box-camera-main"><strong>${planningEscape(row.name)}</strong><small>${row.metadata?.port_number ? `Porta ${planningEscape(row.metadata.port_number)}` : 'Porta a definir'}</small></span>
-      <span class="planning-box-camera-location"><strong>${planningEscape(row.ip || 'IP a definir')}</strong></span>
+  const childRows = children.length ? children.map(row => `
+    <button class="planning-box-camera-row" type="button" onclick="closePlanningModal();openPlanningDeviceDetails(${Number(row.id)})">
+      <span class="planning-device-icon ${planningEscape(row.device_type)}"><i data-lucide="${planningDeviceIcon(row.device_type)}"></i></span>
+      <span class="planning-box-camera-main"><strong>${planningEscape(row.name)}</strong><small>${row.metadata?.port_number ? `Porta ${planningEscape(row.metadata.port_number)}` : 'Porta a definir'} · ${planningEscape(PLANNING_TYPES[row.device_type] || row.device_type)}</small></span>
+      <span class="planning-box-camera-location"><strong>${planningItemHasNoIp(row) ? '' : planningEscape(row.ip || 'IP a definir')}</strong></span>
       <i data-lucide="chevron-right"></i>
-    </button>`).join('') : '<div class="planning-box-empty">Nenhuma camera ligada ainda.</div>';
+    </button>`).join('') : '<div class="planning-box-empty">Nada ligado ainda.</div>';
+  const addButtonsHtml = config.addButtons.map(([type, label]) => `<button class="secondary-action" type="button" onclick="openPlanningAddPortChild(${Number(item.id)},'${type}')"><i data-lucide="plus"></i> ${planningEscape(label)}</button>`).join('');
 
   planningModal({
     eyebrow: typeLabel, title: item.name, wide: true, primary: `Editar ${typeLabel.toLowerCase()}`,
@@ -393,10 +409,10 @@ function openPlanningSwitchDetails(deviceId) {
       <div class="planning-box-summary-grid">
         <div><span>Site/local</span><strong>${planningEscape(item.site_name || 'Sem site')}</strong></div>
         ${modeLabel ? `<div><span>Modo</span><strong>${planningEscape(modeLabel)}</strong></div>` : ''}
-        <div><span>Portas PoE</span><strong>${capacity || '-'}</strong></div>
-        <div><span>Cameras ligadas</span><strong>${cameras.length}</strong></div>
+        <div><span>${planningEscape(config.portsLabel)}</span><strong>${capacity || '-'}</strong></div>
+        <div><span>Equipamentos ligados</span><strong>${children.length}</strong></div>
       </div>
-      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Cameras por porta</h3><p>Cada camera ocupa uma porta PoE deste equipamento.</p></div><div class="planning-box-section-head-actions"><button class="secondary-action" type="button" onclick="openPlanningAddCameraTo(${Number(item.id)})"><i data-lucide="plus"></i> Adicionar Camera</button><span>${cameras.length}</span></div></div>${cameraRows}</section>
+      <section class="planning-box-section"><div class="planning-box-section-head"><div><h3>Ligado por porta</h3><p>Cada equipamento ocupa uma porta deste equipamento.</p></div><div class="planning-box-section-head-actions">${addButtonsHtml}<span>${children.length}</span></div></div>${childRows}</section>
     </div>`,
     onSave: async () => { closePlanningModal(); await openPlanningDeviceModal(item.id); },
   });
@@ -457,9 +473,10 @@ function planningItemHasNoIp(item) {
 
 const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuModeField: { showOnlyFor: ['onu'] },
+  planDeviceOnuPortsField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
-  planDeviceCameraPortField: { showOnlyFor: ['camera'] },
+  planDeviceParentPortField: { showOnlyFor: ['camera', 'switch', 'injector'] },
   planDevicePonField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceOnuField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
@@ -556,8 +573,10 @@ const PLANNING_PARENT_TYPES = {
   box: ['cto', 'olt', 'pole'],
   onu: ['box'],
   ont: ['box'],
-  switch: ['box'],
-  injector: ['box'],
+  // Switch/injetor ligam na porta ETH da ONU/ONT que esta na caixa, nao
+  // direto na caixa -- a ONU e quem fisicamente entrega a rede pra dentro.
+  switch: ['onu', 'ont'],
+  injector: ['onu', 'ont'],
   camera: ['switch', 'injector'],
 };
 const PLANNING_DEFAULT_PARENT_TYPES = ['olt', 'onu', 'ont', 'switch', 'recorder', 'box', 'pole'];
@@ -600,15 +619,24 @@ const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector', 'camera'];
 // Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
 // camera ocupa uma porta so dela, entao portas com outra camera aparecem
 // desabilitadas (exceto a propria porta de quem esta sendo editado).
+// Capacidade de porta de quem pode ser "pai com porta": switch/injetor
+// contam PoE (poe_port_capacity); ONU/ONT contam portas ETH (eth_port_capacity).
+function planningParentPortCapacity(parent) {
+  if (!parent) return 0;
+  if (['switch', 'injector'].includes(parent.device_type)) return planningPoeCapacity(parent.metadata || {});
+  if (['onu', 'ont'].includes(parent.device_type)) return Number(parent.metadata?.eth_port_capacity || 1);
+  return 0;
+}
+
 function planningPortOptions(parentId, selectedPort, selfId) {
   const devices = _planningCurrent?.devices || [];
   const parent = devices.find(d => Number(d.id) === Number(parentId));
-  if (!parent) return '<option value="">Escolha o switch/injetor em "Ligado a" primeiro</option>';
-  const capacity = planningPoeCapacity(parent.metadata || {});
-  if (!capacity) return '<option value="">Esse equipamento nao tem portas PoE definidas</option>';
+  if (!parent) return '<option value="">Escolha o equipamento em "Ligado a" primeiro</option>';
+  const capacity = planningParentPortCapacity(parent);
+  if (!capacity) return '<option value="">Esse equipamento nao tem portas definidas</option>';
   const occupied = new Map();
   devices.forEach(d => {
-    if (Number(d.parent_id) === Number(parentId) && d.device_type === 'camera' && Number(d.id) !== Number(selfId)) {
+    if (Number(d.parent_id) === Number(parentId) && Number(d.id) !== Number(selfId)) {
       const port = Number(d.metadata?.port_number);
       if (port) occupied.set(port, d.name);
     }
@@ -653,6 +681,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
         <option value="onu" ${item.device_type !== 'ont' ? 'selected' : ''}>ONU - bridge transparente (sem IP)</option>
         <option value="ont" ${item.device_type === 'ont' ? 'selected' : ''}>ONT - roteador/VEIP (com IP, gerenciavel)</option>
       </select></label>
+      <label class="planning-field" id="planDeviceOnuPortsField"><span>Quantidade de portas ETH</span><select id="planDeviceOnuPorts">${[1, 2, 4].map(n => `<option value="${n}" ${Number(metadata.eth_port_capacity || 1) === n ? 'selected' : ''}>${n} porta${n === 1 ? '' : 's'} ETH</option>`).join('')}</select></label>
       <label class="planning-field" id="planDeviceSwitchModeField"><span>Modo</span><select id="planDeviceSwitchMode">
         <option value="normal" ${metadata.switch_mode !== 'smart' ? 'selected' : ''}>Normal - sem gerenciamento (bridge, sem IP)</option>
         <option value="smart" ${metadata.switch_mode === 'smart' ? 'selected' : ''}>Smart - gerenciavel (com IP)</option>
@@ -663,7 +692,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
       <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.device_type, item.parent_id, item.id)}</select></label>
-      <label class="planning-field" id="planDeviceCameraPortField"><span>Porta do switch/injetor</span><select id="planDeviceCameraPort">${planningPortOptions(item.parent_id, metadata.port_number, item.id)}</select></label>
+      <label class="planning-field" id="planDeviceParentPortField"><span>Porta no equipamento pai</span><select id="planDeviceParentPort">${planningPortOptions(item.parent_id, metadata.port_number, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
@@ -689,19 +718,19 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
     const current = parentSelect.value;
     parentSelect.innerHTML = planningParentOptions(planningEffectiveType(modal), current, item.id);
   };
-  const refreshCameraPort = () => {
-    const portSelect = modal.querySelector('#planDeviceCameraPort');
+  const refreshParentPort = () => {
+    const portSelect = modal.querySelector('#planDeviceParentPort');
     if (!portSelect) return;
     const parentId = modal.querySelector('#planDeviceParent')?.value || '';
     const current = portSelect.value;
     portSelect.innerHTML = planningPortOptions(parentId, current, item.id);
   };
-  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); refreshCameraPort(); };
+  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); refreshParentPort(); };
   refreshAll();
   modal.querySelector('#planDeviceType')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceOnuMode')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceSwitchMode')?.addEventListener('change', refreshAll);
-  modal.querySelector('#planDeviceParent')?.addEventListener('change', refreshCameraPort);
+  modal.querySelector('#planDeviceParent')?.addEventListener('change', refreshParentPort);
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
@@ -712,10 +741,15 @@ function planningDevicePayload(root, metadata = {}) {
   if (serial) nextMetadata.serial = serial; else delete nextMetadata.serial;
   if (mac) nextMetadata.mac = mac; else delete nextMetadata.mac;
   const deviceType = value('planDeviceType');
+  if (deviceType === 'onu') {
+    nextMetadata.eth_port_capacity = Math.max(1, Number(value('planDeviceOnuPorts')) || 1);
+  } else {
+    delete nextMetadata.eth_port_capacity;
+  }
   if (deviceType === 'switch') {
     nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
-    // 1 porta reservada pro uplink (liga a caixa na rede) -- so as demais
-    // contam como capacidade real pra camera, igual a regra da caixa GPON.
+    // 1 porta reservada pro uplink (liga na ONU/ONT) -- so as demais contam
+    // como capacidade real pra camera, igual a regra da caixa GPON.
     const portCapacity = Math.max(1, Number(value('planDeviceSwitchPorts')) || 5);
     const uplinkPorts = portCapacity > 1 ? 1 : 0;
     nextMetadata.port_capacity = portCapacity;
@@ -729,8 +763,8 @@ function planningDevicePayload(root, metadata = {}) {
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
     delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
   }
-  if (deviceType === 'camera') {
-    const port = value('planDeviceCameraPort');
+  if (['camera', 'switch', 'injector'].includes(deviceType)) {
+    const port = value('planDeviceParentPort');
     if (port) nextMetadata.port_number = Number(port); else delete nextMetadata.port_number;
   } else {
     delete nextMetadata.port_number;
