@@ -895,14 +895,20 @@ async function _loadCamForMode(mode) {
   let cameras = camData?.cameras || (Array.isArray(camData) ? camData : []);
 
   if (mode === 'switch' && swData) {
+    // MAC aprendido so na porta uplink e trafego de equipamento atras do
+    // switch (outro segmento), nao a porta fisica real da camera -- fora do
+    // casamento (mesmo criterio da tela Switch e do enrich no backend).
     const swByMac = {};
-    (swData?.rows || []).forEach(r => { if (r.mac) swByMac[r.mac.toLowerCase()] = r; });
+    (swData?.rows || []).forEach(r => {
+      if (r.mac && r.port_role_guess !== 'uplink') swByMac[r.mac.toLowerCase()] = r;
+    });
     cameras = cameras.map(c => {
       const sw = swByMac[(c.mac||'').toLowerCase()] || null;
       return { ...c,
-        switch_ip:   sw ? (sw.switch_ip||sw.olt_ip||'')  : '',
-        switch_port: sw ? (sw.switch_port||sw.port||'')   : '',
-        switch_vlan: sw ? (sw.switch_vlan||sw.vlan||'')   : '',
+        switch_name: sw ? (sw.switch_name || '') : (c.switch_name || ''),
+        switch_ip:   sw ? (sw.switch_ip || '')   : (c.switch_ip   || ''),
+        switch_port: sw ? (sw.port || '')        : (c.switch_port || ''),
+        switch_vlan: sw ? (sw.vlan || '')        : (c.switch_vlan || ''),
       };
     });
   }
