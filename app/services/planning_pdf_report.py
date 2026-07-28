@@ -39,6 +39,12 @@ TYPE_LABELS = {
     "switch": "Switch", "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador",
     "pole": "Poste", "other": "Outro",
 }
+# Mesmos padroes default do "Calcular cabo UTP" no front (margem sobre a
+# rota e folga tecnica por camera) -- sem isso, camera no mesmo poste da
+# caixa mostraria 0,0 m, o que nao existe na pratica (sempre sobra um
+# trecho de cabo, folga, curva etc.).
+CABLE_ROUTE_MARGIN_PCT = 15.0
+CABLE_SLACK_METERS = 5.0
 
 
 def _text(value: Any, fallback: str = "—") -> str:
@@ -351,7 +357,8 @@ def generate_project_network_pdf(project: Dict[str, Any]) -> bytes:
             metadata = camera.get("metadata") or {}
             route = metadata.get("route_distance_m", metadata.get("distance_to_box_m"))
             if route in (None, ""):
-                estimate = _straight_line_meters(box, camera)
+                straight = _straight_line_meters(box, camera)
+                estimate = straight * (1 + CABLE_ROUTE_MARGIN_PCT / 100) + CABLE_SLACK_METERS if straight is not None else None
                 route_label = f"{estimate:.1f} m (estimado)" if estimate is not None else "A definir"
             else:
                 route_label = f"{float(route):.1f} m"
