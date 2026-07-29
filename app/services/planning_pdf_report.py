@@ -161,7 +161,7 @@ def _header_footer(canvas, doc, title: str) -> None:
 def _table(data: List[List[Any]], widths: List[float], header: bool = True, alignments: Dict[int, str] | None = None) -> LongTable:
     table = LongTable(data, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT", splitByRow=1)
     commands = [
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
@@ -357,7 +357,7 @@ def generate_project_network_pdf(
              _p(item.get("parent_name"), styles["small"], box.get("name"))]
             for item in internal
         ] or [[_p("—", styles["small"]), _p("Nenhum equipamento interno", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])]] )
-        story.extend([_table(internal_rows, [20 * mm, 38 * mm, 34 * mm, 28 * mm, 28 * mm, 30.6 * mm]), _p("Câmeras atendidas", styles["h2"])])
+        story.extend([_table(internal_rows, [18 * mm, 34 * mm, 42 * mm, 22 * mm, 28 * mm, 34.6 * mm]), _p("Câmeras atendidas", styles["h2"])])
         camera_rows = [[_p("CÂMERA", styles["th"]), _p("IP", styles["th"]), _p("MAC", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("ROTA", styles["th"]), _p("COORDENADAS", styles["th"])]]
         for camera in cameras:
             metadata = camera.get("metadata") or {}
@@ -376,7 +376,7 @@ def generate_project_network_pdf(
             ])
         if len(camera_rows) == 1:
             camera_rows.append([_p("Nenhuma câmera vinculada", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])])
-        story.extend([_table(camera_rows, [38 * mm, 20 * mm, 26 * mm, 34 * mm, 18 * mm, 40.6 * mm], alignments={4: "RIGHT"}), Spacer(1, 3 * mm)])
+        story.extend([_table(camera_rows, [46 * mm, 20 * mm, 28 * mm, 34 * mm, 22 * mm, 28.6 * mm], alignments={4: "RIGHT"}), Spacer(1, 3 * mm)])
 
     story.extend([PageBreak(), _p("Quantitativos e especificações", styles["h1"]), _p("Consolidação dos equipamentos que compõem a mesma revisão apresentada no KMZ.", styles["body"])])
     grouped = Counter((TYPE_LABELS.get(str(item.get("device_type")), _text(item.get("device_type"))), _model(item)) for item in devices)

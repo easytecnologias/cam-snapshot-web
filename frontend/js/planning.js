@@ -265,6 +265,15 @@ function filteredPlanningDevices() {
   });
 }
 
+function planningDescendantCount(itemId, allDevices) {
+  let count = 0;
+  for (const child of allDevices) {
+    if (Number(child.parent_id) !== Number(itemId)) continue;
+    count += 1 + planningDescendantCount(child.id, allDevices);
+  }
+  return count;
+}
+
 function togglePlanningRowExpand(id) {
   const key = Number(id);
   if (_planningExpandedRows.has(key)) _planningExpandedRows.delete(key);
@@ -310,7 +319,7 @@ function renderPlanningDevices() {
       ? `${childCount}/${Number(metadata.eth_port_capacity)} portas ETH usadas`
       : item.device_type === 'cto' && metadata.port_capacity
       ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
-      : item.device_type === 'box' ? `${childCount} equipamento(s) dentro`
+      : item.device_type === 'box' ? `${planningDescendantCount(item.id, allDevices)} equipamento(s) dentro`
       : ['camera', 'switch', 'injector'].includes(item.device_type) && item.parent_name && metadata.port_number
       ? `${item.parent_name} · Porta ${metadata.port_number}`
       : (item.parent_name || (item.pon ? `PON ${item.pon}` : 'Sem vinculo'));
