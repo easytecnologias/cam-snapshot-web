@@ -17,7 +17,7 @@ from app.services.db_store import _conn, _current_tenant_slug
 
 
 PROJECT_STATUSES = {"draft", "planned", "approved", "deploying", "completed"}
-DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "other"}
+DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "rack", "other"}
 
 KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     "camera": {
@@ -638,11 +638,11 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     type_labels = {
         "camera": "Camera", "onu": "ONU", "ont": "ONT", "olt": "OLT", "switch": "Switch",
         "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador", "box": "Caixa de CFTV",
-        "pole": "Poste", "other": "Outro",
+        "pole": "Poste", "rack": "Rack", "other": "Outro",
     }
     type_icons = {
         "camera": "📷", "onu": "📡", "ont": "📶", "olt": "🛰️", "switch": "🔀",
-        "injector": "⚡", "cto": "🧷", "recorder": "💾", "box": "📦", "pole": "🗼", "other": "⚙️",
+        "injector": "⚡", "cto": "🧷", "recorder": "💾", "box": "📦", "pole": "🗼", "rack": "🗄️", "other": "⚙️",
     }
     # Mesma regra do frontend (planningItemHasNoIp): esses tipos nao tem IP
     # proprio, entao a linha de IP so polui o balao sem informacao real.
@@ -783,9 +783,21 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         ) or '<div style="padding:5px 0;color:#5f6368;">Nenhuma camera vinculada</div>'
         box_placemarks.append(placemark(box, "box", extra))
 
+    racks = [item for item in devices if item.get("device_type") == "rack"]
+    rack_placemarks: List[str] = []
+    for rack in racks:
+        members = descendants(int(rack["id"]))
+        extra = section_header("Equipamentos internos", len(members))
+        extra += "".join(
+            item_chip(item, " / ".join(filter(None, [item.get("manufacturer"), item.get("model")])) or "Modelo a definir")
+            for item in members
+        ) or '<div style="padding:5px 0;color:#5f6368;">Nenhum equipamento interno</div>'
+        rack_placemarks.append(placemark(rack, "box", extra))
+
     folders = (
         '<Folder><name>Cameras</name><open>0</open>' + camera_placemarks + '</Folder>'
         '<Folder><name>Caixas de CFTV</name><open>1</open>' + ''.join(box_placemarks) + '</Folder>'
+        '<Folder><name>Racks</name><open>1</open>' + ''.join(rack_placemarks) + '</Folder>'
     )
     document = (
         '<?xml version="1.0" encoding="UTF-8"?>'

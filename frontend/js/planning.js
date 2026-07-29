@@ -40,7 +40,8 @@ function planningHideProgress() {
 
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
-  injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste', other: 'Outro',
+  injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste',
+  rack: 'Rack', other: 'Outro',
 };
 function planningPoeCapacity(metadata) {
   const poe = Number(metadata?.poe_port_capacity);
@@ -352,7 +353,7 @@ function renderPlanningDevices() {
 }
 
 function planningDeviceIcon(type) {
-  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole' })[type] || 'box';
+  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole', rack: 'server-cog' })[type] || 'box';
 }
 
 function planningDescendants(parentId) {
@@ -660,7 +661,7 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // Switch segue o mesmo principio: Normal (sem gerenciamento, bridge, sem IP)
 // vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
 // sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
-const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector'];
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector', 'rack'];
 
 // Switch normal (sem gerenciamento) tambem nao tem IP -- mas isso vem do
 // metadata.switch_mode salvo no item, nao do device_type (que e sempre
@@ -831,9 +832,13 @@ function planningSiteOptions(selected = '') {
 // ONU, que e uma ponta, nao um ponto de distribuicao.
 const PLANNING_PARENT_TYPES = {
   box: ['cto', 'olt', 'pole'],
+  rack: ['cto', 'olt', 'pole'],
   cto: ['olt'],
-  onu: ['box'],
-  ont: ['box'],
+  // ONU/ONT nasce numa caixa de CFTV (poste/rua) ou num rack (predio/CTO
+  // do cliente) -- os dois sao so lugares fisicos diferentes pra pendurar
+  // a mesma ONU.
+  onu: ['box', 'rack'],
+  ont: ['box', 'rack'],
   // Switch/injetor ligam na porta ETH da ONU/ONT que esta na caixa, nao
   // direto na caixa -- a ONU e quem fisicamente entrega a rede pra dentro.
   switch: ['onu', 'ont'],
@@ -875,7 +880,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'onu', 'switch', 'injector', 'camera', 'cto'];
+const PLANNING_ADDABLE_TYPES = ['box', 'rack', 'onu', 'switch', 'injector', 'camera', 'cto', 'recorder'];
 
 // Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
 // camera ocupa uma porta so dela, entao portas com outra camera aparecem

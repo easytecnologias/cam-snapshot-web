@@ -5767,7 +5767,7 @@ body.cam-live-lock {
 .planning-device-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 8px; color: var(--primary); background: var(--primary-soft); }
 .planning-device-icon.onu, .planning-device-icon.ont { color: var(--blue); background: var(--blue-soft); }
 .planning-device-icon img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
-.planning-device-icon.olt, .planning-device-icon.switch, .planning-device-icon.recorder, .planning-device-icon.box, .planning-device-icon.pole { color: var(--amber); background: var(--amber-soft); }
+.planning-device-icon.olt, .planning-device-icon.switch, .planning-device-icon.recorder, .planning-device-icon.box, .planning-device-icon.pole, .planning-device-icon.rack { color: var(--amber); background: var(--amber-soft); }
 .planning-device-primary, .planning-device-model { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .planning-device-primary strong, .planning-device-model strong, .planning-device-parent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .planning-device-primary small, .planning-device-model small { color: var(--muted); font-size: 11px; }

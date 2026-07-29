@@ -37,7 +37,7 @@ RED = colors.HexColor("#C92A2A")
 TYPE_LABELS = {
     "box": "Caixa de CFTV", "camera": "Câmera", "onu": "ONU", "ont": "ONT", "olt": "OLT",
     "switch": "Switch", "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador",
-    "pole": "Poste", "other": "Outro",
+    "pole": "Poste", "rack": "Rack", "other": "Outro",
 }
 # Mesmos padroes default do "Calcular cabo UTP" no front (margem sobre a
 # rota e folga tecnica por camera) -- sem isso, camera no mesmo poste da
@@ -378,13 +378,42 @@ def generate_project_network_pdf(
             camera_rows.append([_p("Nenhuma câmera vinculada", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])])
         story.extend([_table(camera_rows, [46 * mm, 20 * mm, 28 * mm, 34 * mm, 22 * mm, 28.6 * mm], alignments={4: "RIGHT"}), Spacer(1, 3 * mm)])
 
+    racks = sorted((item for item in devices if item.get("device_type") == "rack"), key=lambda item: _text(item.get("name")))
+    if racks:
+        story.extend([
+            PageBreak(),
+            _p("Topologia por rack", styles["h1"]),
+            _p("Relação física e lógica entre cada rack e os equipamentos que ele abriga (ONU/ONT, switch/roteador e gravadores).", styles["body"]),
+        ])
+    for number, rack in enumerate(racks, 1):
+        members = descendants(int(rack["id"]))
+        story.extend([
+            CondPageBreak(58 * mm),
+            _p(f"{number:02d}. {_text(rack.get('name'))}", styles["h1"]),
+            _table([
+                [_p("SITE", styles["th"]), _p("COORDENADAS", styles["th"]), _p("EQUIP. INTERNOS", styles["th"])],
+                [_p(rack.get("site_name"), styles["small_bold"], "Sem site"), _p(_coords(rack), styles["small"]), _p(str(len(members)), styles["center"])],
+            ], [58 * mm, 91.6 * mm, 28.6 * mm], alignments={2: "CENTER"}),
+            _p("Equipamentos dentro do rack", styles["h2"]),
+        ])
+        rack_rows = [[_p("TIPO", styles["th"]), _p("NOME", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("SERIAL", styles["th"]), _p("MAC", styles["th"]), _p("LIGADO A", styles["th"])]]
+        rack_rows.extend([
+            [_p(TYPE_LABELS.get(str(item.get("device_type")), item.get("device_type")), styles["small"]),
+             _p(item.get("name"), styles["small_bold"]), _p(_model(item), styles["small"]),
+             _p((item.get("metadata") or {}).get("serial"), styles["small"]),
+             _p((item.get("metadata") or {}).get("mac"), styles["small"]),
+             _p(item.get("parent_name"), styles["small"], rack.get("name"))]
+            for item in members
+        ] or [[_p("—", styles["small"]), _p("Nenhum equipamento interno", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])]])
+        story.extend([_table(rack_rows, [18 * mm, 34 * mm, 42 * mm, 22 * mm, 28 * mm, 34.6 * mm]), Spacer(1, 3 * mm)])
+
     story.extend([PageBreak(), _p("Quantitativos e especificações", styles["h1"]), _p("Consolidação dos equipamentos que compõem a mesma revisão apresentada no KMZ.", styles["body"])])
     grouped = Counter((TYPE_LABELS.get(str(item.get("device_type")), _text(item.get("device_type"))), _model(item)) for item in devices)
     quantity_rows = [[_p("TIPO", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("QUANTIDADE", styles["th"])]]
     quantity_rows.extend([[_p(kind, styles["small_bold"]), _p(model, styles["small"]), _p(str(count), styles["center"])] for (kind, model), count in sorted(grouped.items())])
     story.append(_table(quantity_rows, [48 * mm, 93 * mm, 28.6 * mm], alignments={2: "CENTER"}))
 
-    unlinked = [item for item in devices if item.get("device_type") != "box" and not item.get("parent_id")]
+    unlinked = [item for item in devices if item.get("device_type") not in ("box", "rack") and not item.get("parent_id")]
     if unlinked:
         story.extend([_p("Itens sem vínculo", styles["h1"]), _p("Estes equipamentos existem no projeto, mas ainda não estão ligados a uma caixa ou equipamento pai.", styles["body"])])
         unlinked_rows = [[_p("TIPO", styles["th"]), _p("NOME", styles["th"]), _p("SITE", styles["th"]), _p("COORDENADAS", styles["th"])]]
