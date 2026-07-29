@@ -348,15 +348,17 @@ def generate_project_network_pdf(
             ], [38 * mm, 72 * mm, 31 * mm, 28.6 * mm], alignments={2: "CENTER", 3: "CENTER"}),
             _p("Equipamentos dentro da caixa", styles["h2"]),
         ])
-        internal_rows = [[_p("TIPO", styles["th"]), _p("NOME", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("LIGADO A", styles["th"])]]
+        internal_rows = [[_p("TIPO", styles["th"]), _p("NOME", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("SERIAL", styles["th"]), _p("MAC", styles["th"]), _p("LIGADO A", styles["th"])]]
         internal_rows.extend([
             [_p(TYPE_LABELS.get(str(item.get("device_type")), item.get("device_type")), styles["small"]),
              _p(item.get("name"), styles["small_bold"]), _p(_model(item), styles["small"]),
+             _p((item.get("metadata") or {}).get("serial"), styles["small"]),
+             _p((item.get("metadata") or {}).get("mac"), styles["small"]),
              _p(item.get("parent_name"), styles["small"], box.get("name"))]
             for item in internal
-        ] or [[_p("—", styles["small"]), _p("Nenhum equipamento interno", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])]] )
-        story.extend([_table(internal_rows, [24 * mm, 54 * mm, 47 * mm, 44.6 * mm]), _p("Câmeras atendidas", styles["h2"])])
-        camera_rows = [[_p("CÂMERA", styles["th"]), _p("IP", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("ROTA", styles["th"]), _p("COORDENADAS", styles["th"])]]
+        ] or [[_p("—", styles["small"]), _p("Nenhum equipamento interno", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])]] )
+        story.extend([_table(internal_rows, [20 * mm, 38 * mm, 34 * mm, 28 * mm, 28 * mm, 30.6 * mm]), _p("Câmeras atendidas", styles["h2"])])
+        camera_rows = [[_p("CÂMERA", styles["th"]), _p("IP", styles["th"]), _p("MAC", styles["th"]), _p("FABRICANTE / MODELO", styles["th"]), _p("ROTA", styles["th"]), _p("COORDENADAS", styles["th"])]]
         for camera in cameras:
             metadata = camera.get("metadata") or {}
             route = metadata.get("route_distance_m", metadata.get("distance_to_box_m"))
@@ -368,12 +370,13 @@ def generate_project_network_pdf(
                 route_label = f"{float(route):.1f} m"
             camera_rows.append([
                 _p(camera.get("name"), styles["small_bold"]), _p(camera.get("ip"), styles["small"], "A definir"),
+                _p(metadata.get("mac"), styles["small"]),
                 _p(_model(camera), styles["small"]), _p(route_label, styles["right"]),
                 _p(_coords(camera), styles["small"]),
             ])
         if len(camera_rows) == 1:
-            camera_rows.append([_p("Nenhuma câmera vinculada", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])])
-        story.extend([_table(camera_rows, [45 * mm, 22 * mm, 43 * mm, 18 * mm, 41.6 * mm], alignments={3: "RIGHT"}), Spacer(1, 3 * mm)])
+            camera_rows.append([_p("Nenhuma câmera vinculada", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"]), _p("—", styles["small"])])
+        story.extend([_table(camera_rows, [38 * mm, 20 * mm, 26 * mm, 34 * mm, 18 * mm, 40.6 * mm], alignments={4: "RIGHT"}), Spacer(1, 3 * mm)])
 
     story.extend([PageBreak(), _p("Quantitativos e especificações", styles["h1"]), _p("Consolidação dos equipamentos que compõem a mesma revisão apresentada no KMZ.", styles["body"])])
     grouped = Counter((TYPE_LABELS.get(str(item.get("device_type")), _text(item.get("device_type"))), _model(item)) for item in devices)
