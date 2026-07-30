@@ -17,7 +17,7 @@ from app.services.db_store import _conn, _current_tenant_slug
 
 
 PROJECT_STATUSES = {"draft", "planned", "approved", "deploying", "completed"}
-DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "rack", "other"}
+DEVICE_TYPES = {"camera", "onu", "ont", "olt", "switch", "injector", "cto", "recorder", "box", "pole", "rack", "dio", "other"}
 
 KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     "camera": {
@@ -638,15 +638,15 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     type_labels = {
         "camera": "Camera", "onu": "ONU", "ont": "ONT", "olt": "OLT", "switch": "Switch",
         "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador", "box": "Caixa de CFTV",
-        "pole": "Poste", "rack": "Rack", "other": "Outro",
+        "pole": "Poste", "rack": "Rack", "dio": "DIO", "other": "Outro",
     }
     type_icons = {
         "camera": "📷", "onu": "📡", "ont": "📶", "olt": "🛰️", "switch": "🔀",
-        "injector": "⚡", "cto": "🧷", "recorder": "💾", "box": "📦", "pole": "🗼", "rack": "🗄️", "other": "⚙️",
+        "injector": "⚡", "cto": "🧷", "recorder": "💾", "box": "📦", "pole": "🗼", "rack": "🗄️", "dio": "🔗", "other": "⚙️",
     }
     # Mesma regra do frontend (planningItemHasNoIp): esses tipos nao tem IP
     # proprio, entao a linha de IP so polui o balao sem informacao real.
-    types_without_ip = {"box", "pole", "cto", "onu", "injector"}
+    types_without_ip = {"box", "pole", "cto", "onu", "injector", "rack", "dio"}
 
     def has_ip(item: Dict[str, Any]) -> bool:
         dtype = str(item.get("device_type") or "other")

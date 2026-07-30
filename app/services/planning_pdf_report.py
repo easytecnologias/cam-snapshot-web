@@ -37,7 +37,7 @@ RED = colors.HexColor("#C92A2A")
 TYPE_LABELS = {
     "box": "Caixa de CFTV", "camera": "Câmera", "onu": "ONU", "ont": "ONT", "olt": "OLT",
     "switch": "Switch", "injector": "Injetor PoE", "cto": "CTO", "recorder": "Gravador",
-    "pole": "Poste", "rack": "Rack", "other": "Outro",
+    "pole": "Poste", "rack": "Rack", "dio": "DIO", "other": "Outro",
 }
 # Mesmos padroes default do "Calcular cabo UTP" no front (margem sobre a
 # rota e folga tecnica por camera) -- sem isso, camera no mesmo poste da

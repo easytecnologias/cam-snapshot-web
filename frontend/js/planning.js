@@ -41,7 +41,7 @@ function planningHideProgress() {
 const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
   injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste',
-  rack: 'Rack', other: 'Outro',
+  rack: 'Rack', dio: 'DIO', other: 'Outro',
 };
 function planningPoeCapacity(metadata) {
   const poe = Number(metadata?.poe_port_capacity);
@@ -318,7 +318,7 @@ function renderPlanningDevices() {
       ? `${childCount}/${planningPoeCapacity(metadata)} portas PoE usadas`
       : ['onu', 'ont'].includes(item.device_type) && metadata.eth_port_capacity
       ? `${childCount}/${Number(metadata.eth_port_capacity)} portas ETH usadas`
-      : item.device_type === 'cto' && metadata.port_capacity
+      : ['cto', 'dio'].includes(item.device_type) && metadata.port_capacity
       ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
       : item.device_type === 'olt' && metadata.pon_port_capacity
       ? `${childCount}/${Number(metadata.pon_port_capacity)} portas PON usadas`
@@ -355,7 +355,7 @@ function renderPlanningDevices() {
 }
 
 function planningDeviceIcon(type) {
-  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole', rack: 'server-cog' })[type] || 'box';
+  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole', rack: 'server-cog', dio: 'layout-grid' })[type] || 'box';
 }
 
 function planningDescendants(parentId) {
@@ -573,7 +573,8 @@ function openPlanningAddPortChild(parentId, deviceType) {
 // portas PoE onde entra camera. Mesma tela de detalhe serve pros dois
 // niveis, so muda a config.
 const PLANNING_PORT_HOLDER_CONFIG = {
-  olt: { childTypes: ['cto', 'box'], addButtons: [['cto', 'Adicionar CDO/CTO'], ['box', 'Adicionar Caixa']], portsLabel: 'Portas PON' },
+  olt: { childTypes: ['dio', 'cto', 'box'], addButtons: [['dio', 'Adicionar DIO'], ['cto', 'Adicionar CDO/CTO'], ['box', 'Adicionar Caixa']], portsLabel: 'Portas PON' },
+  dio: { childTypes: ['cto'], addButtons: [['cto', 'Adicionar Splitter/CTO']], portsLabel: 'Portas' },
   cto: { childTypes: ['box'], addButtons: [['box', 'Adicionar Caixa']], portsLabel: 'Portas' },
   onu: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
   ont: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
@@ -664,7 +665,7 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // Switch segue o mesmo principio: Normal (sem gerenciamento, bridge, sem IP)
 // vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
 // sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
-const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector', 'rack'];
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector', 'rack', 'dio'];
 
 // Switch normal (sem gerenciamento) tambem nao tem IP -- mas isso vem do
 // metadata.switch_mode salvo no item, nao do device_type (que e sempre
@@ -680,7 +681,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuPortsField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
-  planDeviceCtoPortsField: { showOnlyFor: ['cto'] },
+  planDeviceCtoPortsField: { showOnlyFor: ['cto', 'dio'] },
   planDeviceOltPortsField: { showOnlyFor: ['olt'] },
   // planDeviceParentPortField NAO entra aqui -- a visibilidade dele depende
   // de quem esta selecionado em "Ligado a" ter portas (CTO, ONU/ONT,
@@ -837,7 +838,11 @@ function planningSiteOptions(selected = '') {
 const PLANNING_PARENT_TYPES = {
   box: ['cto', 'olt', 'pole'],
   rack: ['cto', 'olt', 'pole'],
-  cto: ['olt'],
+  // Arvore GPON de verdade: a porta da OLT liga num DIO (patch panel), que
+  // segue pro splitter primario (tipo CTO, fica dentro da caixa de emenda).
+  // O splitter tambem pode ligar direto na OLT quando nao ha DIO no meio.
+  dio: ['olt'],
+  cto: ['olt', 'dio'],
   // ONU/ONT nasce numa caixa de CFTV (poste/rua) ou num rack (predio/CTO
   // do cliente) -- os dois sao so lugares fisicos diferentes pra pendurar
   // a mesma ONU.
@@ -884,7 +889,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'rack', 'onu', 'switch', 'injector', 'camera', 'cto', 'recorder'];
+const PLANNING_ADDABLE_TYPES = ['box', 'rack', 'dio', 'onu', 'switch', 'injector', 'camera', 'cto', 'recorder'];
 
 // Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
 // camera ocupa uma porta so dela, entao portas com outra camera aparecem
@@ -898,6 +903,8 @@ function planningParentPortCapacity(parent) {
   // CTO e um splitter optico: cada porta de saida atende uma caixa/cliente.
   // Sem reserva de uplink (nao e PoE) -- todas as portas contam.
   if (parent.device_type === 'cto') return Number(parent.metadata?.port_capacity || 8);
+  // DIO e um patch panel: cada porta liga (1 pra 1) num splitter primario/CTO.
+  if (parent.device_type === 'dio') return Number(parent.metadata?.port_capacity || 12);
   // OLT: cada porta PON atende um CDO/CTO/caixa ligado direto nela.
   if (parent.device_type === 'olt') return Number(parent.metadata?.pon_port_capacity || 8);
   return 0;
@@ -1049,11 +1056,12 @@ function planningDevicePayload(root, metadata = {}) {
     // Injetor PoE e sempre porta unica -- nao ha uplink separado a reservar.
     delete nextMetadata.switch_mode;
     nextMetadata.port_capacity = 1; nextMetadata.poe_port_capacity = 1; nextMetadata.uplink_ports = 0;
-  } else if (deviceType === 'cto') {
+  } else if (deviceType === 'cto' || deviceType === 'dio') {
     // CTO e splitter optico -- todas as portas de saida contam, sem reserva
-    // de uplink (nao e PoE).
+    // de uplink (nao e PoE). DIO e patch panel -- mesma logica de porta
+    // simples (uma ponta por porta, sem reserva de uplink).
     delete nextMetadata.switch_mode; delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
-    nextMetadata.port_capacity = Math.max(1, Number(value('planDeviceCtoPorts')) || 8);
+    nextMetadata.port_capacity = Math.max(1, Number(value('planDeviceCtoPorts')) || (deviceType === 'dio' ? 12 : 8));
     delete nextMetadata.pon_port_capacity;
   } else if (deviceType === 'olt') {
     // OLT: portas PON, cada uma atende um CDO/CTO/caixa ligado direto nela.
