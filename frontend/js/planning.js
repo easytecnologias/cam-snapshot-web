@@ -320,6 +320,8 @@ function renderPlanningDevices() {
       ? `${childCount}/${Number(metadata.eth_port_capacity)} portas ETH usadas`
       : item.device_type === 'cto' && metadata.port_capacity
       ? `${childCount}/${Number(metadata.port_capacity)} portas usadas`
+      : item.device_type === 'olt' && metadata.pon_port_capacity
+      ? `${childCount}/${Number(metadata.pon_port_capacity)} portas PON usadas`
       : item.device_type === 'box' ? `${planningDescendantCount(item.id, allDevices)} equipamento(s) dentro`
       : ['camera', 'switch', 'injector'].includes(item.device_type) && item.parent_name && metadata.port_number
       ? `${item.parent_name} · Porta ${metadata.port_number}`
@@ -571,6 +573,7 @@ function openPlanningAddPortChild(parentId, deviceType) {
 // portas PoE onde entra camera. Mesma tela de detalhe serve pros dois
 // niveis, so muda a config.
 const PLANNING_PORT_HOLDER_CONFIG = {
+  olt: { childTypes: ['cto', 'box'], addButtons: [['cto', 'Adicionar CDO/CTO'], ['box', 'Adicionar Caixa']], portsLabel: 'Portas PON' },
   cto: { childTypes: ['box'], addButtons: [['box', 'Adicionar Caixa']], portsLabel: 'Portas' },
   onu: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
   ont: { childTypes: ['switch', 'injector'], addButtons: [['switch', 'Adicionar Switch'], ['injector', 'Adicionar Injetor']], portsLabel: 'Portas ETH' },
@@ -678,6 +681,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
   planDeviceCtoPortsField: { showOnlyFor: ['cto'] },
+  planDeviceOltPortsField: { showOnlyFor: ['olt'] },
   // planDeviceParentPortField NAO entra aqui -- a visibilidade dele depende
   // de quem esta selecionado em "Ligado a" ter portas (CTO, ONU/ONT,
   // switch/injetor), nao do tipo do proprio equipamento. Ver refreshParentPort.
@@ -894,6 +898,8 @@ function planningParentPortCapacity(parent) {
   // CTO e um splitter optico: cada porta de saida atende uma caixa/cliente.
   // Sem reserva de uplink (nao e PoE) -- todas as portas contam.
   if (parent.device_type === 'cto') return Number(parent.metadata?.port_capacity || 8);
+  // OLT: cada porta PON atende um CDO/CTO/caixa ligado direto nela.
+  if (parent.device_type === 'olt') return Number(parent.metadata?.pon_port_capacity || 8);
   return 0;
 }
 
@@ -957,6 +963,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       </select></label>
       <label class="planning-field" id="planDeviceSwitchPortsField"><span>Quantidade de portas</span><select id="planDeviceSwitchPorts">${[4, 5, 8, 16, 24, 48].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 5) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
       <label class="planning-field" id="planDeviceCtoPortsField"><span>Quantidade de portas</span><select id="planDeviceCtoPorts">${[1, 2, 4, 8, 12, 16, 24].map(n => `<option value="${n}" ${Number(metadata.port_capacity || 8) === n ? 'selected' : ''}>${n} portas</option>`).join('')}</select></label>
+      <label class="planning-field" id="planDeviceOltPortsField"><span>Quantidade de portas PON</span><select id="planDeviceOltPorts">${[1, 2, 4, 8, 16, 32].map(n => `<option value="${n}" ${Number(metadata.pon_port_capacity || 8) === n ? 'selected' : ''}>${n} porta${n === 1 ? '' : 's'} PON</option>`).join('')}</select></label>
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       ${planningField('MAC', 'planDeviceMac', metadata.mac || '', 'placeholder="AA:BB:CC:DD:EE:FF"', 'id="planDeviceMacField"')}
       ${planningField('VLAN', 'planDeviceVlan', metadata.vlan || '', 'placeholder="Default ou numero (ex: 10)"', 'id="planDeviceVlanField"')}
@@ -1047,9 +1054,16 @@ function planningDevicePayload(root, metadata = {}) {
     // de uplink (nao e PoE).
     delete nextMetadata.switch_mode; delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
     nextMetadata.port_capacity = Math.max(1, Number(value('planDeviceCtoPorts')) || 8);
+    delete nextMetadata.pon_port_capacity;
+  } else if (deviceType === 'olt') {
+    // OLT: portas PON, cada uma atende um CDO/CTO/caixa ligado direto nela.
+    delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
+    delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
+    nextMetadata.pon_port_capacity = Math.max(1, Number(value('planDeviceOltPorts')) || 8);
   } else {
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
     delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
+    delete nextMetadata.pon_port_capacity;
   }
   // A visibilidade do campo "Porta no equipamento pai" ja depende do pai
   // escolhido ter portas (ver refreshParentPort), entao aqui basta ler o
