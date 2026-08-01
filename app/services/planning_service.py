@@ -691,12 +691,16 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     def device_fields(item: Dict[str, Any]) -> str:
         metadata = item.get("metadata") or {}
         model = " / ".join(filter(None, [item.get("manufacturer"), item.get("model")]))
+        port_capacity = metadata.get("port_capacity") or metadata.get("pon_port_capacity")
         rows = [
             field_row("📍", "Site", item.get("site_name")),
             field_row("🌐", "IP", item.get("ip") if has_ip(item) else None),
             field_row("🏷️", "Fabricante/modelo", model),
             field_row("🔖", "Patrimonio", metadata.get("patrimonio")),
             field_row("🔗", "Ligado a", item.get("parent_name")),
+            field_row("🧷", "Papel", metadata.get("papel")),
+            field_row("🎨", "Cor da fibra", metadata.get("cor")),
+            field_row("🔢", "Capacidade de portas", port_capacity),
             field_row("🔌", "PON", item.get("pon")),
             field_row("#️⃣", "Posicao ONU", item.get("onu_position")),
             field_row("🔢", "Serial", metadata.get("serial")),
@@ -794,10 +798,38 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         ) or '<div style="padding:5px 0;color:#5f6368;">Nenhum equipamento interno</div>'
         rack_placemarks.append(placemark(rack, "box", extra))
 
+    # Rede PON (backbone): OLT, DIO e CTO/splitters -- projetos que modelam so
+    # a arvore de fibra (sem CFTV) nao tinham nenhuma dessas categorias
+    # exportadas, entao o KMZ saia vazio mesmo com dispositivos no projeto.
+    def backbone_placemarks(device_type: str) -> List[str]:
+        items = [item for item in devices if item.get("device_type") == device_type]
+        out: List[str] = []
+        for item in items:
+            members = descendants(int(item["id"]))
+            direct_cameras = [m for m in members if m.get("device_type") == "camera"]
+            other_members = [m for m in members if m.get("device_type") != "camera"]
+            extra = section_header("Equipamentos ligados", len(other_members))
+            extra += "".join(
+                item_chip(m, type_labels.get(str(m.get("device_type") or "other"), "Equipamento"))
+                for m in other_members
+            ) or '<div style="padding:5px 0;color:#5f6368;">Nenhum equipamento ligado</div>'
+            if direct_cameras:
+                extra += section_header("Cameras na arvore", len(direct_cameras))
+                extra += "".join(item_chip(m, m.get("ip") or "IP a definir") for m in direct_cameras)
+            out.append(placemark(item, "box", extra))
+        return out
+
+    olt_placemarks = backbone_placemarks("olt")
+    dio_placemarks = backbone_placemarks("dio")
+    cto_placemarks = backbone_placemarks("cto")
+
     folders = (
         '<Folder><name>Cameras</name><open>0</open>' + camera_placemarks + '</Folder>'
         '<Folder><name>Caixas de CFTV</name><open>1</open>' + ''.join(box_placemarks) + '</Folder>'
         '<Folder><name>Racks</name><open>1</open>' + ''.join(rack_placemarks) + '</Folder>'
+        '<Folder><name>OLT</name><open>1</open>' + ''.join(olt_placemarks) + '</Folder>'
+        '<Folder><name>DIO</name><open>1</open>' + ''.join(dio_placemarks) + '</Folder>'
+        '<Folder><name>CTO / Splitters</name><open>1</open>' + ''.join(cto_placemarks) + '</Folder>'
     )
     document = (
         '<?xml version="1.0" encoding="UTF-8"?>'

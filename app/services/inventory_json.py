@@ -256,7 +256,7 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
     state_obj = get_json_state(_inventory_state_key(norm_mode), None)
     if state_obj is not None:
         state_rows = _extract_rows_from_obj(state_obj)
-        if state_rows or norm_mode != "olt":
+        if state_rows:
             return _filter_rows_by_site(state_rows, site)
 
     if norm_mode == "olt":
@@ -278,21 +278,28 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
         pass
 
     inv_path = _inventory_path(norm_mode)
-    if not inv_path.exists():
-        return []
-
-    try:
-        with inv_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        rows = _normalize_inventory_rows(_normalize_rows(data))
+    if inv_path.exists():
         try:
-            set_json_state(_inventory_state_key(norm_mode), {"inventory": rows})
-        except Exception:
-            pass
-        return _filter_rows_by_site(rows, site)
-    except Exception as e:
-        logger.error(f"[inventory] erro ao ler JSON: {e}")
-        return []
+            with inv_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            rows = _normalize_inventory_rows(_normalize_rows(data))
+            try:
+                set_json_state(_inventory_state_key(norm_mode), {"inventory": rows})
+            except Exception:
+                pass
+            if rows:
+                return _filter_rows_by_site(rows, site)
+        except Exception as e:
+            logger.error(f"[inventory] erro ao ler JSON: {e}")
+
+    if norm_mode != "olt":
+        # Sem edicao propria salva neste modo (switch/basico): usa o
+        # inventario mestre (modo "olt", ligado ao DB) como base, em vez de
+        # ficar vazio para sempre — mesma logica de recuperacao que o modo
+        # "olt" ja tem contra o DB.
+        return load_inventory_json(site=site, mode="olt")
+
+    return []
 
 
 def save_inventory_json(rows: list[dict[str, Any]], mode: str = "olt") -> None:
