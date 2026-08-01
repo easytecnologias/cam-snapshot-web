@@ -706,6 +706,8 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         metadata = item.get("metadata") or {}
         model = " / ".join(filter(None, [item.get("manufacturer"), item.get("model")]))
         port_capacity = metadata.get("port_capacity") or metadata.get("pon_port_capacity")
+        cor_fibra = metadata.get("cor_fibra")
+        fibras_mencionadas = metadata.get("fibras_mencionadas")
         rows = [
             field_row("📍", "Site", item.get("site_name")),
             field_row("🌐", "IP", item.get("ip") if has_ip(item) else None),
@@ -713,7 +715,11 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             field_row("🔖", "Patrimonio", metadata.get("patrimonio")),
             field_row("🔗", "Ligado a", item.get("parent_name")),
             field_row("🧷", "Papel", metadata.get("papel")),
-            field_row("🎨", "Cor da fibra", metadata.get("cor")),
+            field_row("🎨", "Cor da fibra (banner do projeto)", metadata.get("cor")),
+            field_row("🧬", "Total de FO no tronco", metadata.get("total_fo")),
+            field_row("🔀", "Fibra fundida nesta caixa", ", ".join(cor_fibra) if cor_fibra else None),
+            field_row("📋", "Fibras mencionadas neste ponto (KMZ)", ", ".join(fibras_mencionadas) if fibras_mencionadas else None),
+            field_row("⚠️", "Nota de fusao", metadata.get("fibras_nota")),
             field_row("🔢", "Capacidade de portas", port_capacity),
             field_row("🔌", "PON", item.get("pon")),
             field_row("#️⃣", "Posicao ONU", item.get("onu_position")),
@@ -841,6 +847,10 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     # (OLT, DIO ou outro CTO acima), igual ao trecho que "Calcular fibra
     # (backbone)" ja calcula no planejamento -- aqui so desenha no mapa.
     by_id = {int(d["id"]): d for d in devices}
+    total_fo = next(
+        (d.get("metadata", {}).get("total_fo") for d in devices if d.get("device_type") == "olt" and d.get("metadata", {}).get("total_fo")),
+        None,
+    )
     fiber_lines: List[str] = []
     for item in devices:
         if str(item.get("device_type") or "") not in ("cto", "dio"):
@@ -855,13 +865,38 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         lat2, lon2 = parent.get("latitude"), parent.get("longitude")
         if lat1 in (None, "") or lon1 in (None, "") or lat2 in (None, "") or lon2 in (None, ""):
             continue
-        color_key = str((item.get("metadata") or {}).get("cor") or "").strip().lower()
+        item_meta = item.get("metadata") or {}
+        color_key = str(item_meta.get("cor") or "").strip().lower()
         style_id = f"fiber-{color_key}" if color_key in fiber_colors else "fiber-default"
         line_name = f"{parent.get('name') or 'Equipamento'} -> {item.get('name') or 'Equipamento'}"
+        # Balao do trecho: mostra o que se sabe sobre ocupacao de fibra nesse
+        # cabo -- fundida (spliced pra essa caixa/CTO) vs mencionada/livre,
+        # conforme registrado no KMZ de origem (pode nao ser um inventario
+        # completo, ver "Nota de fusao").
+        occupancy_rows = []
+        if total_fo:
+            occupancy_rows.append(field_row("🧬", "Total de FO no cabo", total_fo))
+        cor_fibra = item_meta.get("cor_fibra")
+        fibras_mencionadas = item_meta.get("fibras_mencionadas")
+        if cor_fibra:
+            occupancy_rows.append(field_row("🔀", "Fibra fundida neste trecho (usada)", ", ".join(cor_fibra)))
+        if fibras_mencionadas:
+            occupancy_rows.append(field_row("🟢", "Fibras livres/mencionadas a partir daqui", ", ".join(fibras_mencionadas)))
+        if item_meta.get("fibras_nota"):
+            occupancy_rows.append(field_row("⚠️", "Nota de fusao", item_meta["fibras_nota"]))
+        if not occupancy_rows:
+            occupancy_rows.append('<tr><td colspan="2" style="padding:4px 0;color:#5f6368;">Ocupacao de fibra nao registrada no KMZ de origem para este trecho.</td></tr>')
+        line_description = (
+            '<div style="font-family:Roboto,Arial,sans-serif;width:230px;">'
+            f'<div style="font-weight:700;margin-bottom:6px;">{esc(parent.get("name") or "")} → {esc(item.get("name") or "")}</div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:12px;">{"".join(occupancy_rows)}</table>'
+            '</div>'
+        )
         fiber_lines.append(
             "<Placemark>"
             f"<name>{xml_escape(str(line_name))}</name>"
             f"<styleUrl>#{style_id}</styleUrl>"
+            f"<description><![CDATA[{line_description}]]></description>"
             "<LineString><tessellate>1</tessellate><coordinates>"
             f"{float(lon2):.7f},{float(lat2):.7f},0 {float(lon1):.7f},{float(lat1):.7f},0"
             "</coordinates></LineString>"
