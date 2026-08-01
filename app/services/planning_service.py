@@ -656,12 +656,26 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             return (item.get("metadata") or {}).get("switch_mode", "normal") == "smart"
         return True
 
+    # Cores ABNT do cabo 12FO (mesmas do calculo de fibra/planning.js), em
+    # formato KML (aabbggrr, nao rgb) -- assim o tracado da fibra no Google
+    # Earth sai na mesma cor da CTO/DIO quando o metadata "cor" existe.
+    fiber_colors = {
+        "verde": "ff559d1f", "amarelo": "ff19c4f0", "branco": "ffe2dbd7", "azul": "ffae3f1c",
+        "vermelho": "ff2b35d1", "lilas": "ffd99cb1", "lilás": "ffd99cb1", "marrom": "ff2b4a7b", "rosa": "ff9948ec",
+    }
+    fiber_default_color = "ff1a6aff"
+    fiber_styles = "".join(
+        f'<Style id="fiber-{name}"><LineStyle><color>{color}</color><width>3</width></LineStyle></Style>'
+        for name, color in fiber_colors.items()
+    ) + f'<Style id="fiber-default"><LineStyle><color>{fiber_default_color}</color><width>3</width></LineStyle></Style>'
+
     styles = (
         '<Style id="camera"><IconStyle><scale>0.82</scale><Icon><href>files/icons/cctv-green.png</href></Icon>'
         '</IconStyle><LabelStyle><scale>0.8</scale></LabelStyle></Style>'
         '<Style id="box"><IconStyle><scale>0.9</scale>'
         '<Icon><href>files/icons/cctv-box.png</href></Icon>'
         '</IconStyle><LabelStyle><scale>0.85</scale></LabelStyle></Style>'
+        f'{fiber_styles}'
     )
     children_by_parent: Dict[int, List[Dict[str, Any]]] = {}
     for device in devices:
@@ -823,7 +837,39 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
     dio_placemarks = backbone_placemarks("dio")
     cto_placemarks = backbone_placemarks("cto")
 
+    # Tracado da fibra: uma linha reta de cada DIO/CTO ate o equipamento pai
+    # (OLT, DIO ou outro CTO acima), igual ao trecho que "Calcular fibra
+    # (backbone)" ja calcula no planejamento -- aqui so desenha no mapa.
+    by_id = {int(d["id"]): d for d in devices}
+    fiber_lines: List[str] = []
+    for item in devices:
+        if str(item.get("device_type") or "") not in ("cto", "dio"):
+            continue
+        parent_id = item.get("parent_id")
+        if not parent_id:
+            continue
+        parent = by_id.get(int(parent_id))
+        if not parent:
+            continue
+        lat1, lon1 = item.get("latitude"), item.get("longitude")
+        lat2, lon2 = parent.get("latitude"), parent.get("longitude")
+        if lat1 in (None, "") or lon1 in (None, "") or lat2 in (None, "") or lon2 in (None, ""):
+            continue
+        color_key = str((item.get("metadata") or {}).get("cor") or "").strip().lower()
+        style_id = f"fiber-{color_key}" if color_key in fiber_colors else "fiber-default"
+        line_name = f"{parent.get('name') or 'Equipamento'} -> {item.get('name') or 'Equipamento'}"
+        fiber_lines.append(
+            "<Placemark>"
+            f"<name>{xml_escape(str(line_name))}</name>"
+            f"<styleUrl>#{style_id}</styleUrl>"
+            "<LineString><tessellate>1</tessellate><coordinates>"
+            f"{float(lon2):.7f},{float(lat2):.7f},0 {float(lon1):.7f},{float(lat1):.7f},0"
+            "</coordinates></LineString>"
+            "</Placemark>"
+        )
+
     folders = (
+        '<Folder><name>Fibra (tracado)</name><open>1</open>' + ''.join(fiber_lines) + '</Folder>'
         '<Folder><name>Cameras</name><open>0</open>' + camera_placemarks + '</Folder>'
         '<Folder><name>Caixas de CFTV</name><open>1</open>' + ''.join(box_placemarks) + '</Folder>'
         '<Folder><name>Racks</name><open>1</open>' + ''.join(rack_placemarks) + '</Folder>'
