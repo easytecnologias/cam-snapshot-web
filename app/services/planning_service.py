@@ -702,24 +702,46 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             '</tr>'
         )
 
+    def field_block(icon: str, label: str, value: Any) -> str:
+        # Pra texto longo (frase, lista) -- rotulo em cima, valor embaixo
+        # ocupando a largura toda, em vez de espremer numa coluna estreita
+        # de tabela (era o que deixava os baloes ilegiveis no Google Earth).
+        if value in (None, ""):
+            return ""
+        return (
+            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #f1f3f4;">'
+            f'<div style="color:#5f6368;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">{icon} {esc(label)}</div>'
+            f'<div style="color:#202124;font-size:12px;line-height:1.5;">{esc(value)}</div>'
+            '</div>'
+        )
+
+    def field_block_chips(icon: str, label: str, values: Any) -> str:
+        if not values:
+            return ""
+        chips = "".join(
+            f'<span style="display:inline-block;background:#f1f3f4;border-radius:10px;padding:2px 8px;margin:0 4px 4px 0;font-size:11px;color:#202124;">{esc(v)}</span>'
+            for v in values
+        )
+        return (
+            '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #f1f3f4;">'
+            f'<div style="color:#5f6368;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-bottom:4px;">{icon} {esc(label)}</div>'
+            f'<div>{chips}</div>'
+            '</div>'
+        )
+
     def device_fields(item: Dict[str, Any]) -> str:
         metadata = item.get("metadata") or {}
         model = " / ".join(filter(None, [item.get("manufacturer"), item.get("model")]))
         port_capacity = metadata.get("port_capacity") or metadata.get("pon_port_capacity")
-        cor_fibra = metadata.get("cor_fibra")
-        fibras_mencionadas = metadata.get("fibras_mencionadas")
-        rows = [
+        table_rows = [
             field_row("📍", "Site", item.get("site_name")),
             field_row("🌐", "IP", item.get("ip") if has_ip(item) else None),
             field_row("🏷️", "Fabricante/modelo", model),
             field_row("🔖", "Patrimonio", metadata.get("patrimonio")),
             field_row("🔗", "Ligado a", item.get("parent_name")),
             field_row("🧷", "Papel", metadata.get("papel")),
-            field_row("🎨", "Cor da fibra (banner do projeto)", metadata.get("cor")),
+            field_row("🎨", "Cor (banner do projeto)", metadata.get("cor")),
             field_row("🧬", "Total de FO no tronco", metadata.get("total_fo")),
-            field_row("🔀", "Fibra fundida nesta caixa", ", ".join(cor_fibra) if cor_fibra else None),
-            field_row("📋", "Fibras mencionadas neste ponto (KMZ)", ", ".join(fibras_mencionadas) if fibras_mencionadas else None),
-            field_row("⚠️", "Nota de fusao", metadata.get("fibras_nota")),
             field_row("🔢", "Capacidade de portas", port_capacity),
             field_row("🔌", "PON", item.get("pon")),
             field_row("#️⃣", "Posicao ONU", item.get("onu_position")),
@@ -728,9 +750,16 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
             field_row("🧩", "VLAN", metadata.get("vlan")),
             field_row("📏", "Percurso ate a caixa", f"{metadata['route_distance_m']} m" if metadata.get("route_distance_m") not in (None, "") else None),
             field_row("📐", "Distancia ate a caixa", f"{metadata['distance_to_box_m']} m" if metadata.get("distance_to_box_m") not in (None, "") else None),
-            field_row("📝", "Observacoes", item.get("notes")),
         ]
-        return "".join(rows)
+        table_html = "".join(table_rows)
+        blocks_html = (
+            field_block_chips("🔀", "Fibra fundida nesta caixa", metadata.get("cor_fibra"))
+            + field_block_chips("📋", "Fibras mencionadas neste ponto (KMZ)", metadata.get("fibras_mencionadas"))
+            + field_block("⚠️", "Nota de fusao", metadata.get("fibras_nota"))
+            + field_block("📝", "Observacoes", item.get("notes"))
+        )
+        table_part = f'<table style="width:100%;border-collapse:collapse;font-size:12px;">{table_html}</table>' if table_html else ""
+        return table_part + blocks_html
 
     def card_html(item: Dict[str, Any], extra_sections: str = "") -> str:
         dtype = str(item.get("device_type") or "other")
@@ -738,13 +767,13 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         label = type_labels.get(dtype, dtype)
         name = esc(item.get("name") or "Equipamento")
         return (
-            '<div style="font-family:Roboto,Arial,sans-serif;width:250px;">'
+            '<div style="font-family:Roboto,Arial,sans-serif;width:280px;">'
             '<div style="background:#0f9d58;color:#fff;padding:10px 12px;border-radius:8px 8px 0 0;">'
             f'<div style="font-size:15px;font-weight:700;">{icon} {name}</div>'
             f'<div style="font-size:11px;opacity:.9;letter-spacing:.03em;text-transform:uppercase;">{esc(label)}</div>'
             '</div>'
             '<div style="border:1px solid #e0e0e0;border-top:0;border-radius:0 0 8px 8px;padding:8px 10px;">'
-            f'<table style="width:100%;border-collapse:collapse;font-size:12px;">{device_fields(item)}</table>'
+            f'{device_fields(item)}'
             f'{extra_sections}'
             '</div>'
             '</div>'
@@ -872,24 +901,27 @@ def export_project_kmz(project_id: int) -> tuple[str, bytes]:
         # Balao do trecho: mostra o que se sabe sobre ocupacao de fibra nesse
         # cabo -- fundida (spliced pra essa caixa/CTO) vs mencionada/livre,
         # conforme registrado no KMZ de origem (pode nao ser um inventario
-        # completo, ver "Nota de fusao").
-        occupancy_rows = []
-        if total_fo:
-            occupancy_rows.append(field_row("🧬", "Total de FO no cabo", total_fo))
+        # completo, ver "Nota de fusao"). Rotulo em cima / valor embaixo pro
+        # texto longo, senao o balao do Google Earth fica ilegivel.
         cor_fibra = item_meta.get("cor_fibra")
         fibras_mencionadas = item_meta.get("fibras_mencionadas")
-        if cor_fibra:
-            occupancy_rows.append(field_row("🔀", "Fibra fundida neste trecho (usada)", ", ".join(cor_fibra)))
-        if fibras_mencionadas:
-            occupancy_rows.append(field_row("🟢", "Fibras livres/mencionadas a partir daqui", ", ".join(fibras_mencionadas)))
-        if item_meta.get("fibras_nota"):
-            occupancy_rows.append(field_row("⚠️", "Nota de fusao", item_meta["fibras_nota"]))
-        if not occupancy_rows:
-            occupancy_rows.append('<tr><td colspan="2" style="padding:4px 0;color:#5f6368;">Ocupacao de fibra nao registrada no KMZ de origem para este trecho.</td></tr>')
+        occupancy_blocks = (
+            field_block("🧬", "Total de FO no cabo", total_fo)
+            + field_block_chips("🔀", "Fibra fundida neste trecho (usada)", cor_fibra)
+            + field_block_chips("🟢", "Fibras livres/mencionadas a partir daqui", fibras_mencionadas)
+            + field_block("⚠️", "Nota de fusao", item_meta.get("fibras_nota"))
+        )
+        if not occupancy_blocks:
+            occupancy_blocks = '<div style="color:#5f6368;font-size:12px;">Ocupacao de fibra nao registrada no KMZ de origem para este trecho.</div>'
         line_description = (
-            '<div style="font-family:Roboto,Arial,sans-serif;width:230px;">'
-            f'<div style="font-weight:700;margin-bottom:6px;">{esc(parent.get("name") or "")} → {esc(item.get("name") or "")}</div>'
-            f'<table style="width:100%;border-collapse:collapse;font-size:12px;">{"".join(occupancy_rows)}</table>'
+            '<div style="font-family:Roboto,Arial,sans-serif;width:280px;">'
+            '<div style="background:#ff6a1a;color:#fff;padding:10px 12px;border-radius:8px 8px 0 0;">'
+            f'<div style="font-size:14px;font-weight:700;">🧵 {esc(parent.get("name") or "")} → {esc(item.get("name") or "")}</div>'
+            '<div style="font-size:11px;opacity:.9;letter-spacing:.03em;text-transform:uppercase;">Trecho de fibra</div>'
+            '</div>'
+            '<div style="border:1px solid #e0e0e0;border-top:0;border-radius:0 0 8px 8px;padding:8px 10px;">'
+            f'{occupancy_blocks}'
+            '</div>'
             '</div>'
         )
         fiber_lines.append(
