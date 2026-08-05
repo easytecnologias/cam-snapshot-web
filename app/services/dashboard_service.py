@@ -24,7 +24,7 @@ from app.core.tenant_context import (
     tenant_snapshot_dir,
 )
 from app.services.db_store import legacy_rows_from_db
-from app.services.inventory_json import load_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json
 from app.services.windows_inventory_service import load_windows_inventory
 
 
@@ -271,7 +271,20 @@ def build_dashboard_summary() -> Dict[str, Any]:
     nvr_rows = _recorder_rows("nvr")
     windows_rows = load_windows_inventory()
 
-    ip_rows = list(ip_basic_rows) + list(ip_olt_rows) + list(ip_switch_rows)
+    # basico/olt/switch sao 3 vistas (potencialmente sobrepostas) da MESMA
+    # camera, nao 3 listas que se somam -- concatenar direto contava a
+    # mesma camera ate 3x quando os modos tinham dados coincidentes, e
+    # inflava ainda mais o card do Dashboard vs a tela Cameras IP real.
+    seen_ip_keys: set[str] = set()
+    ip_rows: list[dict[str, Any]] = []
+    for row in list(ip_basic_rows) + list(ip_olt_rows) + list(ip_switch_rows):
+        if not isinstance(row, dict):
+            continue
+        key = inventory_row_key(row, fallback=f"ROW:{id(row)}")
+        if key in seen_ip_keys:
+            continue
+        seen_ip_keys.add(key)
+        ip_rows.append(row)
     all_rows = list(ip_rows) + list(dvr_rows) + list(nvr_rows) + list(windows_rows)
     site_names = _sites(all_rows)
 
