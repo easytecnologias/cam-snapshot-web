@@ -1612,7 +1612,7 @@ async function updateCameraSnapshot(cam, cred) {
   showToast('Capturando snapshot...');
   const res = await api('/api/cameras/snapshot/capture', {
     method: 'POST',
-    body: JSON.stringify({ ip: cam.ip, user: cred.user, password: cred.pass }),
+    body: JSON.stringify({ ip: cam.ip, user: cred.user, password: cred.pass, mode: _invOltView || 'olt' }),
   });
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {

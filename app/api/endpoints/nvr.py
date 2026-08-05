@@ -1469,6 +1469,26 @@ def _snapshot_for_channel(base: str, auth: Any, timeout: float, channel: int, ou
 
 @router.get("/inventory")
 def api_dvr_inventory(site: str = "") -> Dict[str, Any]:
+    # Tenant com arquivo proprio: essa e a UNICA fonte que /save, /delete e
+    # /clear tocam (ver _read_rows/_write_rows). Consultar o banco primeiro
+    # aqui faria a tela voltar a mostrar dados congelados sempre que a tabela
+    # `recorders` tiver qualquer linha para o tenant, ignorando exclusoes e
+    # edicoes feitas pela UI -- o mesmo bug ja corrigido no inventario de
+    # cameras (ver load_inventory_json).
+    if get_current_tenant_slug():
+        rows = _read_rows()
+        site_norm = str(site or "").strip().lower()
+        if site_norm:
+            def _matches(row: Dict[str, Any]) -> bool:
+                vals = [
+                    str(row.get("site") or "").strip(),
+                    str(row.get("site_name") or "").strip(),
+                    str(row.get("local") or "").strip(),
+                ]
+                return any(v.lower() == site_norm for v in vals if v)
+            rows = [r for r in rows if isinstance(r, dict) and _matches(r)]
+        return {"ok": True, "inventory": rows}
+
     rows = legacy_rows_from_db("nvr", site=site)
     if not rows:
         rows = _read_rows()

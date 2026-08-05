@@ -478,6 +478,7 @@ class SnapshotCaptureRequest(BaseModel):
     user: str = "admin"
     password: str = ""
     timeout_sec: float = 5.0
+    mode: str = "olt"
 
 
 class PTZMoveRequest(BaseModel):
@@ -627,7 +628,8 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     if not out_path.exists() or not out_path.is_file():
         raise HTTPException(status_code=502, detail="Nao foi possivel capturar snapshot da camera.")
 
-    rows = load_inventory_json() or []
+    mode = (req.mode or "olt").strip().lower()
+    rows = load_inventory_json(mode=mode) or []
     updated = False
     for cam in rows:
         if not isinstance(cam, dict):
@@ -640,7 +642,7 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
         cam = {"ip": ip, "titulo": "Captura manual"}
         attach_snapshot_fields(cam, ip, out_name)
         rows.append(cam)
-    save_inventory_json(rows)
+    save_inventory_json(rows, mode=mode)
     return {"ok": True, "url": f"/data/snapshot/{out_name}", "filename": out_name}
 
 @router.get("/cameras/ptz_capability", tags=["cameras"])

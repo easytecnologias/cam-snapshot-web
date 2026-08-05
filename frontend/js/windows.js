@@ -436,8 +436,22 @@ async function enrichWindowsPhotos() {
 let _snapCamAll = [];
 
 async function loadSnapCam() {
-  const data = await apiJson('/api/cameras');
-  _snapCamAll = (data?.cameras || (Array.isArray(data) ? data : []))
+  // /api/cameras sozinho so devolve o modo OLT -- busca os 3 modos e
+  // mescla por chave, senao cameras cadastradas so em Basico/Switch nunca
+  // aparecem aqui (mesmo tendo snapshot).
+  const [basico, olt, sw] = await Promise.all([
+    apiJson('/api/cameras?mode=basico').catch(() => ({ cameras: [] })),
+    apiJson('/api/cameras?mode=olt').catch(() => ({ cameras: [] })),
+    apiJson('/api/cameras?mode=switch').catch(() => ({ cameras: [] })),
+  ]);
+  const merged = new Map();
+  [basico, olt, sw].forEach(data => {
+    (data?.cameras || []).forEach(c => {
+      const key = c.inventory_key || c.ip;
+      if (key && !merged.has(key)) merged.set(key, c);
+    });
+  });
+  _snapCamAll = [...merged.values()]
     .sort((a, b) => {
       const toInt = ip => (ip||'0.0.0.0').split('.').reduce((a,b) => (a<<8)|(parseInt(b)||0), 0) >>> 0;
       return toInt(a.ip) - toInt(b.ip);

@@ -155,9 +155,14 @@ let _switchCamByMac = {};
 let _switchPlatform = '';
 
 async function loadSwitch() {
-  const [swData, camData] = await Promise.all([
+  // /api/cameras sozinho so devolve o modo OLT -- busca os 3 modos pro
+  // cruzamento MAC->camera, senao cameras cadastradas so em Basico/Switch
+  // aparecem como se a porta nao tivesse camera nenhuma.
+  const [swData, camBasico, camOlt, camSwitch] = await Promise.all([
     apiJson('/api/switch/rows'),
-    apiJson('/api/cameras').catch(() => ({ cameras: [] })),
+    apiJson('/api/cameras?mode=basico').catch(() => ({ cameras: [] })),
+    apiJson('/api/cameras?mode=olt').catch(() => ({ cameras: [] })),
+    apiJson('/api/cameras?mode=switch').catch(() => ({ cameras: [] })),
   ]);
   const rawRows = swData?.rows || (Array.isArray(swData) ? swData : []);
   const ports = swData?.ports || [];
@@ -201,8 +206,10 @@ async function loadSwitch() {
   });
 
   _switchCamByMac = {};
-  const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
-  cams.forEach(c => { if (c.mac) _switchCamByMac[String(c.mac).toLowerCase()] = c; });
+  [camBasico, camOlt, camSwitch].forEach(camData => {
+    const cams = camData?.cameras || (Array.isArray(camData) ? camData : []);
+    cams.forEach(c => { if (c.mac) _switchCamByMac[String(c.mac).toLowerCase()] = c; });
+  });
 
   populateSwitchFilters();
   renderSwitchTable(_switchRows);
