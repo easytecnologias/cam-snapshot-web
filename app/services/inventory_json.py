@@ -255,9 +255,13 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
     norm_mode = _normalize_inventory_mode(mode)
     state_obj = get_json_state(_inventory_state_key(norm_mode), None)
     if state_obj is not None:
+        # Chave ja existe no cache (mesmo que vazia): isso significa que este
+        # modo ja foi salvo explicitamente antes (inclusive um "apagar tudo"),
+        # entao e a fonte da verdade e NAO deve cair no fallback de
+        # arquivo/OLT abaixo -- do contrario um inventario esvaziado de
+        # proposito "ressuscita" a partir do modo OLT no proximo load.
         state_rows = _extract_rows_from_obj(state_obj)
-        if state_rows:
-            return _filter_rows_by_site(state_rows, site)
+        return _filter_rows_by_site(state_rows, site)
 
     if norm_mode == "olt":
         try:
