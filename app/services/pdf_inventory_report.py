@@ -17,6 +17,30 @@ A4_H = 3508
 MARGIN_X = 120
 MARGIN_Y = 90
 
+# Teto de fotos por relatorio: independe do front mandar `ips` ou nao,
+# isso e o que garante que a galeria nunca volte a estourar memoria em
+# inventarios com centenas de cameras (o motivo dela ter sido desligada
+# por completo antes).
+MAX_PHOTOS = 120
+
+# Paleta neutra com leve tom frio, para nao competir com a cor de destaque
+# (report_color, escolhida por tenant/relatorio).
+INK = "#101828"
+INK_MUTED = "#5b6779"
+BORDER = "#dbe2ec"
+BORDER_SOFT = "#e8edf5"
+PAGE_BG = "#f6f8fb"
+CARD_BG = "#ffffff"
+ROW_STRIPE = "#eef2f8"
+SHADOW = "#c7d1e0"
+
+STATUS_OK_BG = "#e3f6ea"
+STATUS_OK_FG = "#0d7a3f"
+STATUS_BAD_BG = "#fbe7e6"
+STATUS_BAD_FG = "#b3261e"
+STATUS_MUTED_BG = "#eef1f6"
+STATUS_MUTED_FG = "#51607a"
+
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = []
@@ -48,6 +72,32 @@ def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageF
     return ImageFont.load_default()
 
 
+def _load_mono_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = []
+    if bold:
+        candidates.extend(
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationMono-Bold.ttf",
+                "C:/Windows/Fonts/consolab.ttf",
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
+                "C:/Windows/Fonts/consola.ttf",
+            ]
+        )
+    for fp in candidates:
+        try:
+            return ImageFont.truetype(fp, size=size)
+        except Exception:
+            continue
+    return _load_font(size, bold=bold)
+
+
 def _to_text(v: Any) -> str:
     return str(v or "").strip()
 
@@ -59,6 +109,25 @@ def _report_color(value: str = "") -> str:
     if re.fullmatch(r"[0-9a-fA-F]{6}", raw):
         return "#" + raw
     return "#0b2242"
+
+
+def _hex_to_rgb(color: str) -> Tuple[int, int, int]:
+    c = color.lstrip("#")
+    return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
+
+
+def _shade(color: str, amount: float) -> str:
+    """amount<0 escurece, amount>0 clareia (fracao de 0 a 1)."""
+    r, g, b = _hex_to_rgb(color)
+    if amount >= 0:
+        r = int(r + (255 - r) * amount)
+        g = int(g + (255 - g) * amount)
+        b = int(b + (255 - b) * amount)
+    else:
+        r = int(r * (1 + amount))
+        g = int(g * (1 + amount))
+        b = int(b * (1 + amount))
+    return f"#{max(0, min(255, r)):02x}{max(0, min(255, g)):02x}{max(0, min(255, b)):02x}"
 
 
 def _fit_text(draw: ImageDraw.ImageDraw, txt: str, font: ImageFont.ImageFont, max_w: int) -> str:
@@ -74,6 +143,38 @@ def _fit_text(draw: ImageDraw.ImageDraw, txt: str, font: ImageFont.ImageFont, ma
         if draw.textlength(candidate, font=font) <= max_w:
             return candidate
     return "..."
+
+
+def _status_colors(status: str) -> Tuple[str, str]:
+    s = (status or "").strip().lower()
+    if s == "online":
+        return STATUS_OK_BG, STATUS_OK_FG
+    if s in ("offline", "auth_failed", "camera_offline"):
+        return STATUS_BAD_BG, STATUS_BAD_FG
+    return STATUS_MUTED_BG, STATUS_MUTED_FG
+
+
+def _draw_pill(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    text: str,
+    font: ImageFont.ImageFont,
+    bg: str,
+    fg: str,
+    pad_x: int = 16,
+    pad_y: int = 7,
+) -> int:
+    """Desenha um badge arredondado e retorna a largura ocupada."""
+    label = text if text else "-"
+    tw = draw.textlength(label, font=font)
+    asc, desc = font.getmetrics()
+    th = asc + desc
+    w = int(tw + pad_x * 2)
+    h = th + pad_y * 2
+    draw.rounded_rectangle((x, y, x + w, y + h), radius=h / 2, fill=bg)
+    draw.text((x + pad_x, y + pad_y - 1), label, font=font, fill=fg)
+    return w
 
 
 def _ip_snapshot_name(ip: str) -> str:
@@ -210,7 +311,7 @@ def _sort_inventory_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _new_page() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
-    page = Image.new("RGB", (A4_W, A4_H), "#f4f7fc")
+    page = Image.new("RGB", (A4_W, A4_H), PAGE_BG)
     draw = ImageDraw.Draw(page)
     return page, draw
 
@@ -224,30 +325,117 @@ def _draw_header(
     logo_path: Optional[Path] = None,
     report_color: str = "",
 ) -> int:
-    f_title = _load_font(54, bold=True)
-    f_sub = _load_font(25, bold=False)
-    f_company = _load_font(30, bold=True)
-    y = MARGIN_Y
+    f_title = _load_font(46, bold=True)
+    f_sub = _load_font(23, bold=False)
+    f_company = _load_font(24, bold=True)
     color = _report_color(report_color)
-    draw.rounded_rectangle((MARGIN_X, y, A4_W - MARGIN_X, y + 160), radius=24, fill=color)
-    draw.text((MARGIN_X + 34, y + 26), title, font=f_title, fill="#ffffff")
-    draw.text((MARGIN_X + 34, y + 90), subtitle, font=f_sub, fill="#d9e4f8")
+    color_dark = _shade(color, -0.28)
+
+    y = MARGIN_Y
+    band_h = 172
+    band_w = A4_W - (2 * MARGIN_X)
+    band_radius = 26
+
+    # Gradiente vertical desenhado numa imagem a parte (simulado em fatias),
+    # depois recortado com uma mascara arredondada e colado na pagina --
+    # e a unica forma de ter cantos redondos com um preenchimento em
+    # degrade no Pillow, que nao tem fill de gradiente nativo.
+    band_img = Image.new("RGB", (band_w, band_h), color)
+    band_draw = ImageDraw.Draw(band_img)
+    steps = 32
+    c0 = _hex_to_rgb(color_dark)
+    c1 = _hex_to_rgb(color)
+    for i in range(steps):
+        blend = i / (steps - 1)
+        rgb = tuple(int(c0[k] + (c1[k] - c0[k]) * blend) for k in range(3))
+        y0 = int(band_h * i / steps)
+        y1 = int(band_h * (i + 1) / steps) + 1
+        band_draw.rectangle((0, y0, band_w, y1), fill=rgb)
+
+    mask = Image.new("L", (band_w, band_h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, band_w, band_h), radius=band_radius, fill=255)
+    page.paste(band_img, (MARGIN_X, y), mask)
+    draw = ImageDraw.Draw(page)
+
+    # Contorno fino, efeito "capa"
+    draw.rounded_rectangle((MARGIN_X, y, A4_W - MARGIN_X, y + band_h), radius=band_radius, outline=_shade(color, -0.4), width=2)
+
+    pad = 40
+    draw.text((MARGIN_X + pad, y + 34), title, font=f_title, fill="#ffffff")
+    draw.text((MARGIN_X + pad, y + 96), subtitle, font=f_sub, fill="#dbe6fb")
+
     company = _to_text(company_name)
     if company:
-        label = "Empresa: " + company
-        draw.text((MARGIN_X + 34, y + 122), _fit_text(draw, label, f_company, A4_W - (2 * MARGIN_X) - 260), font=f_company, fill="#ffffff")
+        label = company.upper()
+        draw.text(
+            (MARGIN_X + pad, y + band_h - 44),
+            _fit_text(draw, label, f_company, A4_W - (2 * MARGIN_X) - 260),
+            font=f_company,
+            fill="#c9d8f5",
+        )
+
     if logo_path is not None and logo_path.exists():
         try:
             logo = Image.open(logo_path).convert("RGBA")
-            box_w = 170
-            box_h = 100
+            box_w, box_h = 190, 110
             logo.thumbnail((box_w, box_h))
-            ox = A4_W - MARGIN_X - 28 - logo.width
-            oy = y + 46
-            page.paste(logo, (ox, oy), logo)
+            plate_w, plate_h = logo.width + 32, logo.height + 24
+            ox = A4_W - MARGIN_X - pad - plate_w
+            oy = y + (band_h - plate_h) // 2
+            draw.rounded_rectangle((ox, oy, ox + plate_w, oy + plate_h), radius=16, fill="#ffffff")
+            page.paste(logo, (ox + 16, oy + 12), logo)
         except Exception:
             pass
-    return y + 195
+
+    return y + band_h + 44
+
+
+def _draw_footer(draw: ImageDraw.ImageDraw, page_num: int, total_pages: int, note: str = "") -> None:
+    f_note = _load_font(19, bold=False)
+    f_page = _load_font(19, bold=True)
+    fy = A4_H - MARGIN_Y + 8
+    draw.line((MARGIN_X, fy - 18, A4_W - MARGIN_X, fy - 18), fill=BORDER, width=2)
+    if note:
+        draw.text((MARGIN_X, fy), note, font=f_note, fill=INK_MUTED)
+    page_label = f"Pagina {page_num} de {total_pages}"
+    tw = draw.textlength(page_label, font=f_page)
+    draw.text((A4_W - MARGIN_X - tw, fy), page_label, font=f_page, fill=INK_MUTED)
+
+
+def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]]:
+    if include_switch:
+        return [
+            ("IP", 215),
+            ("Titulo", 400),
+            ("Status", 150),
+            ("Local", 170),
+            ("Modelo", 180),
+            ("MAC", 240),
+            ("Switch IP", 180),
+            ("Switch Porta", 120),
+            ("Switch VLAN", 120),
+        ]
+    if include_olt:
+        return [
+            ("IP", 215),
+            ("Titulo", 430),
+            ("Status", 150),
+            ("Local", 180),
+            ("Modelo", 210),
+            ("MAC", 280),
+            ("PON", 85),
+            ("ONU ID", 95),
+            ("ONU Name", 235),
+            ("ONU Serial", 285),
+        ]
+    return [
+        ("IP", 290),
+        ("Titulo", 590),
+        ("Status", 200),
+        ("Local", 260),
+        ("Modelo", 330),
+        ("MAC", 590),
+    ]
 
 
 def _draw_table_pages(
@@ -261,45 +449,15 @@ def _draw_table_pages(
     module_label: str = "Cameras IP",
     report_color: str = "",
 ) -> None:
-    f_h = _load_font(25, bold=True)
-    f = _load_font(24, bold=False)
+    f_h = _load_font(23, bold=True)
+    f = _load_font(23, bold=False)
+    f_status = _load_font(19, bold=True)
+    f_mono = _load_mono_font(22, bold=False)
 
-    if include_switch:
-        cols = [
-            ("IP", 215),
-            ("Titulo", 430),
-            ("Status", 130),
-            ("Local", 170),
-            ("Modelo", 180),
-            ("MAC", 240),
-            ("Switch IP", 180),
-            ("Switch Porta", 120),
-            ("Switch VLAN", 120),
-        ]
-    elif include_olt:
-        cols = [
-            ("IP", 215),
-            ("Titulo", 460),
-            ("Status", 130),
-            ("Local", 180),
-            ("Modelo", 210),
-            ("MAC", 280),
-            ("PON", 85),
-            ("ONU ID", 95),
-            ("ONU Name", 240),
-            ("ONU Serial", 290),
-        ]
-    else:
-        cols = [
-            ("IP", 290),
-            ("Titulo", 620),
-            ("Status", 180),
-            ("Local", 260),
-            ("Modelo", 330),
-            ("MAC", 560),
-        ]
-    line_h = 50
-    header_h = 54
+    color = _report_color(report_color)
+    cols = _column_set(include_switch, include_olt)
+    line_h = 54
+    header_h = 58
 
     idx = 0
     total = len(rows)
@@ -308,73 +466,70 @@ def _draw_table_pages(
         y = _draw_header(
             page,
             draw,
-            f"Relatorio de Inventario - {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Site: {site_label}",
+            f"Relatorio de inventario | {module_label}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} camera{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
         )
-        draw.text((MARGIN_X, y), "1) Tabela do inventario", font=_load_font(30, bold=True), fill="#0d1f3a")
-        y += 56
+        draw = ImageDraw.Draw(page)
+        draw.text((MARGIN_X, y), "Inventario detalhado", font=_load_font(28, bold=True), fill=INK)
+        y += 50
 
         x0 = MARGIN_X
         w = A4_W - (2 * MARGIN_X)
-        draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=14, fill=_report_color(report_color))
-        x = x0 + 12
+        draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
+        x = x0 + 20
         for name, cw in cols:
-            draw.text((x, y + 13), name, font=f_h, fill="#ffffff")
+            draw.text((x, y + 17), name.upper(), font=f_h, fill="#ffffff")
             x += cw
-        y += header_h + 8
+        y += header_h + 6
 
         if total == 0:
-            draw.text((x0 + 14, y + 8), "Nenhuma camera encontrada para o filtro atual.", font=f, fill="#334155")
+            draw.rounded_rectangle((x0, y, x0 + w, y + 90), radius=12, fill=CARD_BG, outline=BORDER_SOFT, width=2)
+            draw.text((x0 + 24, y + 32), "Nenhuma camera encontrada para o filtro atual.", font=f, fill=INK_MUTED)
             pages.append(page)
             break
 
-        while idx < total and y + line_h < A4_H - MARGIN_Y - 40:
+        row_top = y
+        while idx < total and y + line_h < A4_H - MARGIN_Y - 30:
             r = rows[idx]
-            bg = "#ffffff" if (idx % 2 == 0) else "#eef3fb"
+            bg = CARD_BG if (idx % 2 == 0) else ROW_STRIPE
             draw.rectangle((x0, y, x0 + w, y + line_h), fill=bg)
-            vals = [
-                _to_text(r.get("ip") or r.get("IP")),
-                _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
-                _to_text(r.get("status")),
-                _to_text(r.get("local") or r.get("LOCAL")),
-                _to_text(r.get("modelo")),
-                _to_text(r.get("mac") or r.get("MAC")),
-            ]
-            if include_switch:
-                vals.extend(
-                    [
-                        _to_text(r.get("switch_ip")),
-                        _to_text(r.get("switch_port")),
-                        _to_text(r.get("switch_vlan") or r.get("vlan")),
-                    ]
-                )
-            elif include_olt:
-                vals.extend(
-                    [
-                        _to_text(r.get("pon") or r.get("PON")),
-                        _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
-                        _to_text(r.get("onu_name") or r.get("ONU_NAME")),
-                        _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
-                    ]
-                )
-            x = x0 + 12
-            for (col_name, cw), val in zip(cols, vals):
-                color = "#0f172a"
-                if col_name == "Status":
-                    s = val.lower()
-                    if s == "online":
-                        color = "#0a7a35"
-                    elif s in ("offline", "auth_failed"):
-                        color = "#b42318"
-                draw.text((x, y + 13), _fit_text(draw, val, f, cw - 20), font=f, fill=color)
+            x = x0 + 20
+            for col_name, cw in cols:
+                if col_name == "IP":
+                    val = _to_text(r.get("ip") or r.get("IP"))
+                    draw.text((x, y + 15), _fit_text(draw, val, f_mono, cw - 20), font=f_mono, fill=INK)
+                elif col_name == "MAC":
+                    val = _to_text(r.get("mac") or r.get("MAC"))
+                    draw.text((x, y + 16), _fit_text(draw, val, f_mono, cw - 20), font=f_mono, fill=INK_MUTED)
+                elif col_name == "Status":
+                    val = _to_text(r.get("status"))
+                    bgp, fgp = _status_colors(val)
+                    _draw_pill(draw, x, y + 8, (val or "-").upper(), f_status, bgp, fgp, pad_x=14, pad_y=6)
+                else:
+                    field_map = {
+                        "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
+                        "Local": _to_text(r.get("local") or r.get("LOCAL")),
+                        "Modelo": _to_text(r.get("modelo")),
+                        "Switch IP": _to_text(r.get("switch_ip")),
+                        "Switch Porta": _to_text(r.get("switch_port")),
+                        "Switch VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
+                        "PON": _to_text(r.get("pon") or r.get("PON")),
+                        "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
+                        "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
+                        "ONU Serial": _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
+                    }
+                    val = field_map.get(col_name, "")
+                    fnt = f_h if col_name == "Titulo" else f
+                    fill = INK if col_name == "Titulo" else INK_MUTED
+                    draw.text((x, y + 15), _fit_text(draw, val, fnt, cw - 20), font=fnt, fill=fill)
                 x += cw
             y += line_h
             idx += 1
 
-        draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), f"Total de cameras: {total}", font=_load_font(20, False), fill="#475569")
+        draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
         pages.append(page)
 
 
@@ -389,37 +544,43 @@ def _draw_photo_pages(
     module_label: str = "Cameras IP",
     report_color: str = "",
 ) -> None:
-    f_title = _load_font(38, bold=True)
-    f_txt = _load_font(28, bold=False)
+    f_txt = _load_font(24, bold=False)
+    f_txt_b = _load_font(24, bold=True)
     f_cap = _load_font(30, bold=True)
+    f_ip = _load_mono_font(23, bold=False)
+    f_status = _load_font(19, bold=True)
+    f_note = _load_font(21, bold=False)
 
+    color = _report_color(report_color)
     card_w = 1060
-    card_h = 930
+    card_h = 960
     gap_x = 80
-    gap_y = 118
+    gap_y = 96
     x_start = MARGIN_X
-    y_start_base = MARGIN_Y + 250
+    y_start_base = MARGIN_Y + 258
     per_page = 6
 
     photo_rows = [r for r in rows if _pick_image_path(r) is not None]
+    truncated = len(photo_rows) > MAX_PHOTOS
+    photo_rows = photo_rows[:MAX_PHOTOS]
     idx = 0
     total = len(photo_rows)
 
     while idx < total or (total == 0 and idx == 0):
         page, draw = _new_page()
-        _draw_header(
+        y0 = _draw_header(
             page,
             draw,
-            f"Relatorio de Inventario - {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Site: {site_label}",
+            f"Galeria de snapshots | {module_label}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} foto{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
         )
-        draw.text((MARGIN_X, MARGIN_Y + 190), "2) Galeria de snapshots", font=f_title, fill="#0d1f3a")
+        draw = ImageDraw.Draw(page)
 
         if total == 0:
-            draw.text((MARGIN_X, y_start_base), "Nenhuma foto disponivel no inventario atual.", font=f_txt, fill="#334155")
+            draw.text((MARGIN_X, y0), "Nenhuma foto disponivel para o recorte atual.", font=f_txt, fill=INK_MUTED)
             pages.append(page)
             break
 
@@ -430,71 +591,46 @@ def _draw_photo_pages(
             row = slot // 2
             x = x_start + col * (card_w + gap_x)
             y = y_start_base + row * (card_h + gap_y)
-            draw.rounded_rectangle((x, y, x + card_w, y + card_h), radius=22, fill="#ffffff", outline="#b8c8df", width=3)
+
+            # Sombra suave: retangulo levemente maior e deslocado, atras do card.
+            shadow_off = 8
+            draw.rounded_rectangle(
+                (x + shadow_off, y + shadow_off, x + card_w + shadow_off, y + card_h + shadow_off),
+                radius=22,
+                fill=SHADOW,
+            )
+            draw.rounded_rectangle((x, y, x + card_w, y + card_h), radius=22, fill=CARD_BG, outline=BORDER, width=2)
 
             r = photo_rows[idx]
             title = _to_text(r.get("titulo") or r.get("title") or r.get("nome") or r.get("ip") or "Camera")
             ip = _to_text(r.get("ip") or r.get("IP"))
             local = _to_text(r.get("local") or r.get("LOCAL"))
             st = _to_text(r.get("status"))
-            cap = f"{title} | {ip or '-'}"
-            info_lines = [f"Status: {st or '-'}   Local: {local or '-'}"]
-            if include_switch:
-                info_lines.append(
-                    "Switch: "
-                    + (_to_text(r.get("switch_name")) or "-")
-                    + "   IP: "
-                    + (_to_text(r.get("switch_ip")) or "-")
-                )
-                info_lines.append(
-                    "Porta: "
-                    + (_to_text(r.get("switch_port")) or "-")
-                    + "   VLAN: "
-                    + (_to_text(r.get("switch_vlan") or r.get("vlan")) or "-")
-                    + "   Tipo: "
-                    + (_to_text(r.get("port_role_guess")) or "-")
-                )
-            elif include_olt:
-                info_lines.append(
-                    "OLT: "
-                    + (_to_text(r.get("olt_name")) or "-")
-                    + "   IP: "
-                    + (_to_text(r.get("olt_ip")) or "-")
-                )
-                info_lines.append(
-                    "PON: "
-                    + (_to_text(r.get("pon") or r.get("PON")) or "-")
-                    + "   ONU ID: "
-                    + (_to_text(r.get("onu_id") or r.get("ONU_ID")) or "-")
-                    + "   VLAN: "
-                    + (_to_text(r.get("vlan")) or "-")
-                )
-                info_lines.append(
-                    "ONU Name: "
-                    + (_to_text(r.get("onu_name") or r.get("ONU_NAME")) or "-")
-                    + "   ONU Serial: "
-                    + (_to_text(r.get("onu_serial") or r.get("ONU_SERIAL")) or "-")
-                )
 
-            pad_x = 28
-            draw.text((x + pad_x, y + 22), _fit_text(draw, cap, f_cap, card_w - (pad_x * 2)), font=f_cap, fill="#0f172a")
-            txt_y = y + 70
-            for line in info_lines:
-                draw.text((x + pad_x, txt_y), _fit_text(draw, line, f_txt, card_w - (pad_x * 2)), font=f_txt, fill="#334155")
-                txt_y += 43
+            pad_x = 30
+            head_y = y + 24
+            draw.text((x + pad_x, head_y), _fit_text(draw, title, f_cap, card_w - (pad_x * 2) - 170), font=f_cap, fill=INK)
+            bgp, fgp = _status_colors(st)
+            pill_w_guess = len(st or "-") * 16 + 32
+            _draw_pill(draw, x + card_w - pad_x - pill_w_guess, head_y - 2, (st or "-").upper(), f_status, bgp, fgp, pad_x=14, pad_y=7)
 
-            img_top = y + 250
+            sub_y = head_y + 46
+            draw.text((x + pad_x, sub_y), ip or "-", font=f_ip, fill=INK_MUTED)
+            if local:
+                ip_w = draw.textlength(ip or "-", font=f_ip)
+                draw.text((x + pad_x + ip_w + 18, sub_y + 1), f"· {local}", font=f_txt, fill=INK_MUTED)
+
+            img_top = y + 130
             img_h = 560
             img_box = (x + pad_x, img_top, x + card_w - pad_x, img_top + img_h)
-            draw.rounded_rectangle(img_box, radius=18, outline="#a9bdd6", width=4, fill="#f8fafc")
-            inner_pad = 14
+            draw.rounded_rectangle(img_box, radius=16, outline=BORDER, width=3, fill="#eef2f8")
+            inner_pad = 10
             inner_box = (
                 img_box[0] + inner_pad,
                 img_box[1] + inner_pad,
                 img_box[2] - inner_pad,
                 img_box[3] - inner_pad,
             )
-
             p = _pick_image_path(r)
             try:
                 if p is not None and p.exists():
@@ -504,15 +640,32 @@ def _draw_photo_pages(
                     im.thumbnail((bw, bh))
                     ox = inner_box[0] + (bw - im.width) // 2
                     oy = inner_box[1] + (bh - im.height) // 2
-                    draw.rectangle(inner_box, fill="#eef3f8")
                     page.paste(im, (ox, oy))
+                    draw = ImageDraw.Draw(page)
                 else:
-                    draw.text((inner_box[0] + 20, inner_box[1] + 20), "Sem snapshot", font=f_txt, fill="#64748b")
+                    draw.text((inner_box[0] + 20, inner_box[1] + 20), "Sem snapshot", font=f_txt, fill=INK_MUTED)
             except Exception:
-                draw.text((inner_box[0] + 20, inner_box[1] + 20), "Falha ao carregar imagem", font=f_txt, fill="#b42318")
+                draw.text((inner_box[0] + 20, inner_box[1] + 20), "Falha ao carregar imagem", font=f_txt, fill=STATUS_BAD_FG)
+
+            info_y = img_top + img_h + 20
+            info_pairs: List[Tuple[str, str]] = [("Modelo", _to_text(r.get("modelo")))]
+            if include_switch:
+                info_pairs.append(("Switch", _to_text(r.get("switch_name")) or "-"))
+                info_pairs.append(("Porta / VLAN", f"{_to_text(r.get('switch_port')) or '-'} / {_to_text(r.get('switch_vlan') or r.get('vlan')) or '-'}"))
+            elif include_olt:
+                info_pairs.append(("PON / ONU ID", f"{_to_text(r.get('pon') or r.get('PON')) or '-'} / {_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-'}"))
+                info_pairs.append(("ONU Serial", _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")) or "-"))
+
+            for label, value in info_pairs:
+                draw.text((x + pad_x, info_y), f"{label}:", font=f_note, fill=INK_MUTED)
+                lbl_w = draw.textlength(f"{label}:", font=f_note)
+                draw.text((x + pad_x + lbl_w + 10, info_y - 1), _fit_text(draw, value, f_txt_b, card_w - (pad_x * 2) - lbl_w - 10), font=f_txt_b, fill=INK)
+                info_y += 34
+
             idx += 1
 
-        draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), f"Fotos no relatorio: {total}", font=_load_font(20, False), fill="#475569")
+        note = "Galeria limitada as primeiras 120 fotos do recorte atual." if truncated else ""
+        draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), note, font=_load_font(19, False), fill=INK_MUTED) if note else None
         pages.append(page)
 
 
@@ -556,6 +709,11 @@ def build_inventory_pdf_report(
             report_color=report_color,
         )
 
+    total_pages = len(pages)
+    for i, page in enumerate(pages, start=1):
+        draw = ImageDraw.Draw(page)
+        _draw_footer(draw, i, total_pages, note=f"{len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
+
     reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -587,109 +745,77 @@ def build_inventory_preview_image(
     y = _draw_header(
         page,
         draw,
-        f"Preview do relatorio - {module_label}",
-        f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} | Site: {site_label}",
+        f"Preview do relatorio | {module_label}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}",
         company_name=company_name,
         logo_path=logo_path,
         report_color=report_color,
     )
-    draw.text((MARGIN_X, y), "Tabela (preview)", font=_load_font(30, bold=True), fill="#0d1f3a")
-    y += 56
+    draw = ImageDraw.Draw(page)
+    draw.text((MARGIN_X, y), "Inventario detalhado (preview)", font=_load_font(28, bold=True), fill=INK)
+    y += 50
 
-    f_h = _load_font(25, bold=True)
-    f = _load_font(24, bold=False)
-    if include_switch:
-        cols = [
-            ("IP", 215),
-            ("Titulo", 430),
-            ("Status", 130),
-            ("Local", 170),
-            ("Modelo", 180),
-            ("MAC", 240),
-            ("Switch IP", 180),
-            ("Switch Porta", 120),
-            ("Switch VLAN", 120),
-        ]
-    elif include_olt:
-        cols = [
-            ("IP", 215),
-            ("Titulo", 460),
-            ("Status", 130),
-            ("Local", 180),
-            ("Modelo", 210),
-            ("MAC", 280),
-            ("PON", 85),
-            ("ONU ID", 95),
-            ("ONU Name", 240),
-            ("ONU Serial", 290),
-        ]
-    else:
-        cols = [
-            ("IP", 290),
-            ("Titulo", 620),
-            ("Status", 180),
-            ("Local", 260),
-            ("Modelo", 330),
-            ("MAC", 560),
-        ]
-    line_h = 50
-    header_h = 54
+    color = _report_color(report_color)
+    f_h = _load_font(23, bold=True)
+    f = _load_font(23, bold=False)
+    f_mono = _load_mono_font(22, bold=False)
+    f_status = _load_font(19, bold=True)
+    cols = _column_set(include_switch, include_olt)
+    line_h = 54
+    header_h = 58
     x0 = MARGIN_X
     w = A4_W - (2 * MARGIN_X)
-    draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=14, fill=_report_color(report_color))
-    x = x0 + 12
+    draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
+    x = x0 + 20
     for name, cw in cols:
-        draw.text((x, y + 13), name, font=f_h, fill="#ffffff")
+        draw.text((x, y + 17), name.upper(), font=f_h, fill="#ffffff")
         x += cw
-    y += header_h + 8
+    y += header_h + 6
 
     max_rows = min(26, len(rows_list))
+    row_top = y
     if max_rows == 0:
-        draw.text((x0 + 14, y + 8), "Nenhuma camera encontrada para o filtro atual.", font=f, fill="#334155")
+        draw.rounded_rectangle((x0, y, x0 + w, y + 90), radius=12, fill=CARD_BG, outline=BORDER_SOFT, width=2)
+        draw.text((x0 + 24, y + 32), "Nenhuma camera encontrada para o filtro atual.", font=f, fill=INK_MUTED)
     else:
         for idx in range(max_rows):
             r = rows_list[idx]
-            bg = "#ffffff" if (idx % 2 == 0) else "#eef3fb"
+            bg = CARD_BG if (idx % 2 == 0) else ROW_STRIPE
             draw.rectangle((x0, y, x0 + w, y + line_h), fill=bg)
-            vals = [
-                _to_text(r.get("ip") or r.get("IP")),
-                _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
-                _to_text(r.get("status")),
-                _to_text(r.get("local") or r.get("LOCAL")),
-                _to_text(r.get("modelo")),
-                _to_text(r.get("mac") or r.get("MAC")),
-            ]
-            if include_switch:
-                vals.extend(
-                    [
-                        _to_text(r.get("switch_ip")),
-                        _to_text(r.get("switch_port")),
-                        _to_text(r.get("switch_vlan") or r.get("vlan")),
-                    ]
-                )
-            elif include_olt:
-                vals.extend(
-                    [
-                        _to_text(r.get("pon") or r.get("PON")),
-                        _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
-                        _to_text(r.get("onu_name") or r.get("ONU_NAME")),
-                        _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
-                    ]
-                )
-            x = x0 + 12
-            for (col_name, cw), val in zip(cols, vals):
-                color = "#0f172a"
-                if col_name == "Status":
-                    s = val.lower()
-                    if s == "online":
-                        color = "#0a7a35"
-                    elif s in ("offline", "auth_failed"):
-                        color = "#b42318"
-                draw.text((x, y + 13), _fit_text(draw, val, f, cw - 20), font=f, fill=color)
+            x = x0 + 20
+            for col_name, cw in cols:
+                if col_name == "IP":
+                    val = _to_text(r.get("ip") or r.get("IP"))
+                    draw.text((x, y + 15), _fit_text(draw, val, f_mono, cw - 20), font=f_mono, fill=INK)
+                elif col_name == "MAC":
+                    val = _to_text(r.get("mac") or r.get("MAC"))
+                    draw.text((x, y + 16), _fit_text(draw, val, f_mono, cw - 20), font=f_mono, fill=INK_MUTED)
+                elif col_name == "Status":
+                    val = _to_text(r.get("status"))
+                    bgp, fgp = _status_colors(val)
+                    _draw_pill(draw, x, y + 8, (val or "-").upper(), f_status, bgp, fgp, pad_x=14, pad_y=6)
+                else:
+                    field_map = {
+                        "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
+                        "Local": _to_text(r.get("local") or r.get("LOCAL")),
+                        "Modelo": _to_text(r.get("modelo")),
+                        "Switch IP": _to_text(r.get("switch_ip")),
+                        "Switch Porta": _to_text(r.get("switch_port")),
+                        "Switch VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
+                        "PON": _to_text(r.get("pon") or r.get("PON")),
+                        "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
+                        "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
+                        "ONU Serial": _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")),
+                    }
+                    val = field_map.get(col_name, "")
+                    fnt = f_h if col_name == "Titulo" else f
+                    fill = INK if col_name == "Titulo" else INK_MUTED
+                    draw.text((x, y + 15), _fit_text(draw, val, fnt, cw - 20), font=fnt, fill=fill)
                 x += cw
             y += line_h
+        draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
 
-    draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), f"Preview rapido | Cameras: {len(rows_list)}", font=_load_font(20, False), fill="#475569")
+    _draw_footer(draw, 1, 1, note=f"Preview rapido · {len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
 
     # Reduz resolucao para carregar rapido no browser
     preview = page.resize((1240, 1754))

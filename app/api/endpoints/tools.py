@@ -835,21 +835,23 @@ async def api_inventory_report_pdf(site: str = "", company_name: str = "", repor
     color = _report_color(report_color or rep_cfg.get("report_color") or "")
     report_logo_path = tenant_report_logo_path("inventory") if get_current_tenant_slug() else (DATA_DIR / "input" / "inventory-report-logo.png")
     logo = report_logo_path if report_logo_path.exists() else None
-    # O relatório operacional deve ser rápido e não pode bloquear a API.
-    # A antiga galeria rasterizava centenas de snapshots A4 em memória e podia
-    # consumir mais de 1 GB em inventários grandes. A galeria continua disponível
-    # nos relatórios específicos de gravadores; aqui exportamos a tabela completa.
+    # A galeria de fotos volta a aparecer, mas so para o recorte que o
+    # front manda em `ips` (o que esta filtrado/selecionado na tela no
+    # momento do clique) -- e por isso que fica rapido mesmo com fotos.
+    # Sem filtro nenhum (ips vazio), build_inventory_pdf_report ainda
+    # aplica um teto interno de fotos para nao repetir o estouro de memoria
+    # que tirou a galeria da versao anterior.
     pdf_path = await asyncio.to_thread(
         build_inventory_pdf_report,
         rows,
         site=site,
         company_name=company,
         logo_path=logo,
-        include_olt=(report_mode != "switch"),
+        include_olt=(report_mode == "olt"),
         include_switch=(report_mode == "switch"),
-        module_label="Cameras IP Switch" if report_mode == "switch" else "Cameras IP OLT",
+        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
         report_color=color,
-        include_photos=False,
+        include_photos=True,
     )
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
@@ -883,9 +885,9 @@ async def api_inventory_report_preview(site: str = "", company_name: str = "", r
         site=site,
         company_name=company,
         logo_path=logo,
-        include_olt=(report_mode != "switch"),
+        include_olt=(report_mode == "olt"),
         include_switch=(report_mode == "switch"),
-        module_label="Cameras IP Switch" if report_mode == "switch" else "Cameras IP OLT",
+        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
         report_color=color,
     )
     data = pdf_path.read_bytes()
@@ -922,9 +924,9 @@ async def api_inventory_report_preview_jpg(site: str = "", company_name: str = "
         site=site,
         company_name=company,
         logo_path=logo,
-        include_olt=(report_mode != "switch"),
+        include_olt=(report_mode == "olt"),
         include_switch=(report_mode == "switch"),
-        module_label="Cameras IP Switch" if report_mode == "switch" else "Cameras IP OLT",
+        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
         report_color=color,
     )
     return FileResponse(path=img_path, media_type="image/jpeg", filename=img_path.name)
