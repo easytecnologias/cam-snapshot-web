@@ -873,6 +873,13 @@ def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     add_attempt("configManager_fallback", "GET", f"http://{ip}/cgi-bin/configManager.cgi?action=reboot")
 
     last_err = ""
+    # Guarda separadamente o ultimo erro que veio de uma resposta HTTP real
+    # (a camera respondeu, so recusou) -- isso e muito mais util pro usuario
+    # do que "Sem resposta" de uma tentativa https tardia numa porta que
+    # nem esta aberta. Sem isso, um 401 real (senha errada/sem permissao no
+    # endpoint certo) podia ficar escondido atras do erro de conexao da
+    # ultima tentativa da lista.
+    best_status_err = ""
     for name, method, url in attempts:
         try:
             auths = [HTTPDigestAuth(user, password), (user, password)]
@@ -898,11 +905,13 @@ def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
             if r.status_code in (200, 201, 202, 204):
                 return {"ok": True, "method": name, "status": r.status_code}
             last_err = f"{name}: HTTP {r.status_code}"
+            if not best_status_err:
+                best_status_err = last_err
         except Exception as e:
             last_err = f"{name}: {str(e)}"
             continue
 
-    return {"ok": False, "error": last_err or "Falha ao reiniciar"}
+    return {"ok": False, "error": best_status_err or last_err or "Falha ao reiniciar"}
 
 
 @router.post("/cameras/rename", tags=["cameras"])
