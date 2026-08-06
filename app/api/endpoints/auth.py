@@ -207,10 +207,34 @@ def _login_record_success(key: str) -> None:
     _LOGIN_FAILS.pop(key, None)
 
 
+def _optional_current_user(request: Request) -> Dict[str, Any] | None:
+    """Versao de current_user que nao derruba a requisicao se nao tiver
+    sessao -- /status precisa continuar publico (a tela de login chama antes
+    de qualquer login existir), mas so quem e admin de PLATAFORMA pode ver
+    quantos tenants/usuarios o SaaS tem no total."""
+    raw = str(request.headers.get("authorization") or "").strip()
+    token = ""
+    if raw:
+        scheme, _, tok = raw.partition(" ")
+        if scheme.lower() == "bearer":
+            token = tok.strip()
+    if not token:
+        token = str(request.cookies.get(AUTH_COOKIE_NAME) or "").strip()
+    if not token:
+        return None
+    return get_user_by_token(token)
+
+
 @router.get("/status")
-def api_auth_status() -> Dict[str, Any]:
+def api_auth_status(request: Request) -> Dict[str, Any]:
     init_auth_db()
     storage = auth_status()
+    actor = _optional_current_user(request)
+    is_platform_admin = bool(actor and actor.get("is_platform_admin"))
+    # Cliente comum (ou visitante sem login) nunca deve saber quantos outros
+    # clientes/usuarios existem no SaaS inteiro -- so o backend/tipo de banco,
+    # que nao e informacao sensivel de negocio.
+    visible_storage = storage if is_platform_admin else {"backend": storage.get("backend")}
     return {
         "ok": True,
         "enabled": auth_enabled(),
@@ -218,7 +242,7 @@ def api_auth_status() -> Dict[str, Any]:
         "legacy_open": str(os.getenv("AUTH_LEGACY_OPEN", "1")).strip().lower() in ("1", "true", "yes", "on"),
         "bootstrap_allowed": int(storage.get("users", 0) or 0) == 0,
         "setup_required": False,
-        "storage": storage,
+        "storage": visible_storage,
     }
 
 

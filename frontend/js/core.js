@@ -194,10 +194,17 @@ function applyModuleVisibility() {
 // outros clientes existem.
 function applyPlatformAdminVisibility() {
   const isPlatformAdmin = !!_currentUser?.is_platform_admin;
-  document.querySelectorAll('[data-settings-tab="tenants"], [data-settings-panel="tenants"]').forEach(el => {
+  // "Clientes" (lista outros tenants) e "Plataforma e segurança" (contagens
+  // globais de tenants/usuarios, backend do banco) sao informacao da
+  // PLATAFORMA, nao do cliente -- um dono de cliente real nao deve nem saber
+  // que outros clientes existem, quanto mais ver contagem deles.
+  document.querySelectorAll(
+    '[data-settings-tab="tenants"], [data-settings-panel="tenants"], [data-settings-tab="platform"], [data-settings-panel="platform"]'
+  ).forEach(el => {
     el.classList.toggle('nav-item-hidden', !isPlatformAdmin);
   });
-  if (!isPlatformAdmin && document.querySelector('[data-settings-tab="tenants"]')?.classList.contains('active')) {
+  const activeTab = document.querySelector('.settings-nav-item.active')?.dataset.settingsTab;
+  if (!isPlatformAdmin && (activeTab === 'tenants' || activeTab === 'platform')) {
     activateSettingsTab('overview');
   }
 }
@@ -435,14 +442,21 @@ async function loadSettings() {
   const overview = document.getElementById('settingsOverviewStatus');
   if (overview) {
     const telegramState = telegram?.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Não configurado';
-    overview.innerHTML = [
+    // "Clientes SaaS" e "Banco principal" sao enquadramento de PLATAFORMA
+    // (revelam que existe um SaaS multi-cliente por tras e como ele roda) --
+    // um dono de cliente real so quer ver o que importa pra empresa dele.
+    const stats = [
       ['Cliente atual', currentUser.tenant_name || currentUser.tenant_slug || '-'],
       ['Seu perfil', currentUser.role || '-'],
-      ['Clientes SaaS', tenantRows.length],
-      ['Usuários do cliente', userRows.length],
+      ['Usuários da equipe', userRows.length],
       ['Notificações', telegramState],
-      ['Banco principal', dbStatus?.backend || '-'],
-    ].map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
+    ];
+    if (currentUser.is_platform_admin) {
+      stats.splice(2, 0, ['Clientes SaaS', tenantRows.length]);
+      stats.push(['Banco principal', dbStatus?.backend || '-']);
+    }
+    overview.innerHTML = stats
+      .map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
   }
 
   setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
@@ -451,13 +465,17 @@ async function loadSettings() {
   if (tenantsBody) {
     tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => {
       const modulesLabel = Array.isArray(t.enabled_modules) ? `${t.enabled_modules.length} módulo(s)` : 'Sem restrição';
-      const isCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
+      const isEffectiveCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
+      const isHomeTenant = currentUser.tenant_slug === t.slug;
+      // O botao "Operar como" fica disponivel pra TODAS as linhas, inclusive
+      // a sua propria -- clicar nele na sua propria linha so limpa o act-as
+      // (volta pra casa), em vez de marcar "operando como" a propria conta.
+      const actAsCall = isHomeTenant ? `actAsTenant('')` : `actAsTenant('${esc(t.slug || '')}')`;
       const actions = isPlatformAdmin ? `
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <button class="ghost-action" style="padding:4px 8px;font-size:11px" title="${esc(modulesLabel)}" onclick="openTenantModulesModal(${Number(t.id)}, '${esc(t.name || t.slug || '')}')"><i data-lucide="sliders-horizontal"></i> Módulos</button>
-          ${isCurrent
-            ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>`
-            : `<button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="actAsTenant('${esc(t.slug || '')}')"><i data-lucide="log-in"></i> Operar como</button>`}
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="${actAsCall}"><i data-lucide="log-in"></i> Operar como</button>
+          ${isEffectiveCurrent ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>` : ''}
         </div>` : '';
       return `
       <tr>
