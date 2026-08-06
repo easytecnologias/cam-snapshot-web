@@ -137,6 +137,12 @@
         </div>
       </header>
 
+      <div class="acting-as-banner" id="actingAsBanner" hidden>
+        <i data-lucide="user-cog"></i>
+        <span id="actingAsBannerText">Operando como: -</span>
+        <button type="button" id="btnStopActingAs"><i data-lucide="log-out"></i> Voltar para minha conta</button>
+      </div>
+
       <!-- --- VIEW: DASHBOARD --- -->
       <section class="workspace dashboard-workspace" id="viewDashboard">
         <div class="page-heading">
@@ -1967,8 +1973,8 @@
             </div>
             <div class="table-wrap settings-table-wrap">
               <table class="data-table settings-table settings-tenants-table">
-                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"></colgroup>
-                <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th></tr></thead>
+                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"><col style="width:220px"></colgroup>
+                <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th><th>Ações</th></tr></thead>
                 <tbody id="settingsTenantsBody"></tbody>
               </table>
             </div>
@@ -3406,6 +3412,31 @@
   </div>
 
   <!-- --- MODAL: TROCAR SENHA --- -->
+  <div id="modalTenantModules" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Configuracoes · Clientes</p>
+          <h2>Modulos do cliente</h2>
+          <p id="tenantModulesSubtitle" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p>
+        </div>
+        <button class="icon-button" onclick="document.getElementById('modalTenantModules').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:14px;background:var(--surface-soft)">
+          <input type="checkbox" id="tenantModulesUnrestricted">
+          <span><strong>Sem restrição</strong> — este cliente enxerga todas as telas, inclusive as que forem adicionadas no futuro.</span>
+        </label>
+        <div id="tenantModulesBody"></div>
+        <p id="tenantModulesErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" onclick="document.getElementById('modalTenantModules').classList.add('hidden')">Cancelar</button>
+        <button class="primary-action" id="btnSaveTenantModules"><i data-lucide="check"></i> Salvar módulos</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalTrocarSenha" class="modal-backdrop hidden">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">

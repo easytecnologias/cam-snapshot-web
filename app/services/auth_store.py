@@ -409,33 +409,37 @@ def _ensure_tenant(c: Any, slug: str, name: str) -> int:
 def list_tenants(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Lista clientes SaaS.
 
-    Owner enxerga todos os clientes para operacao/admin. Admin comum fica
-    restrito ao proprio tenant para evitar vazamento entre clientes.
+    Admin de PLATAFORMA (is_platform_admin) enxerga todos os clientes, pra
+    operar/dar suporte. Qualquer outro usuario -- inclusive um owner de
+    cliente, que e o dono daquele cliente, nao da plataforma -- fica restrito
+    ao proprio tenant. Antes disso usar `actor.role == "owner"` misturava as
+    duas coisas: todo owner de cliente novo enxergava a lista de TODOS os
+    outros clientes do SaaS.
     """
     _ensure_schema()
-    actor_role = str(actor.get("role") or "").strip().lower()
+    is_platform_admin = bool(actor.get("is_platform_admin"))
     with _conn() as c:
-        if actor_role == "owner":
+        if is_platform_admin:
             return _fetchall(
                 c,
                 """
-                SELECT t.id, t.slug, t.name, t.active, t.created_at,
+                SELECT t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules,
                        COUNT(u.id) AS users
                 FROM tenants t
                 LEFT JOIN users u ON u.tenant_id = t.id
-                GROUP BY t.id, t.slug, t.name, t.active, t.created_at
+                GROUP BY t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules
                 ORDER BY t.name
                 """,
             )
         return _fetchall(
             c,
             """
-            SELECT t.id, t.slug, t.name, t.active, t.created_at,
+            SELECT t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules,
                    COUNT(u.id) AS users
             FROM tenants t
             LEFT JOIN users u ON u.tenant_id = t.id
             WHERE t.id=?
-            GROUP BY t.id, t.slug, t.name, t.active, t.created_at
+            GROUP BY t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules
             """,
             (int(actor["tenant_id"]),),
         )
@@ -451,8 +455,8 @@ def create_tenant(
     owner_email: str = "",
 ) -> Dict[str, Any]:
     """Cria um cliente SaaS e opcionalmente o primeiro owner dele."""
-    if str(actor.get("role") or "").strip().lower() != "owner":
-        raise ValueError("somente owner pode criar clientes")
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode criar clientes")
     s = _slugify(slug or name)
     n = str(name or slug or "").strip()
     if not n:
@@ -509,6 +513,126 @@ def create_tenant(
     return {"tenant": tenant or {}, "owner_user": created_user or None}
 
 
+# Catalogo de modulos (telas) que dao pra ligar/desligar por cliente. A chave
+# de cada modulo E o `data-view` do item de menu correspondente no frontend
+# (frontend/index.html) -- de proposito, pra nao precisar manter um mapeamento
+# separado em dois lugares. Dashboard e Configuracoes nao entram aqui: ficam
+# sempre visiveis (Configuracoes ja e controlada por role, nao por modulo).
+MODULE_CATALOG: List[Dict[str, str]] = [
+    {"key": "planning", "label": "Projetos", "section": "Implantacao"},
+    {"key": "deploy-olt", "label": "Implantar OLT", "section": "Implantacao"},
+    {"key": "deploy-onu", "label": "Implantar ONU", "section": "Implantacao"},
+    {"key": "deploy-recorder", "label": "Implantar Gravador", "section": "Implantacao"},
+    {"key": "deploy-new", "label": "Implantar CFTV", "section": "Implantacao"},
+    {"key": "inv-olt", "label": "Cameras IP", "section": "Inventario"},
+    {"key": "inv-nvr", "label": "Gravadores", "section": "Inventario"},
+    {"key": "olt", "label": "OLT", "section": "Inventario"},
+    {"key": "snap-cam", "label": "Snapshots - Cameras IP", "section": "Inventario"},
+    {"key": "snap-dvr", "label": "Snapshots - Gravadores", "section": "Inventario"},
+    {"key": "switch", "label": "Switch", "section": "Inventario"},
+    {"key": "inv-windows", "label": "Windows", "section": "Inventario"},
+    {"key": "script-grafana", "label": "Grafana", "section": "Integracoes"},
+    {"key": "kmz", "label": "Mapa", "section": "Integracoes"},
+    {"key": "script-zabbix", "label": "Zabbix", "section": "Integracoes"},
+    {"key": "connectors", "label": "Conectores", "section": "Integracoes"},
+    {"key": "mnt-cam", "label": "Cameras IP", "section": "Manutencao"},
+    {"key": "mnt-nvr", "label": "Gravadores", "section": "Manutencao"},
+    {"key": "monitoring", "label": "Monitoramento", "section": "Manutencao"},
+    {"key": "net-operate", "label": "Operacoes", "section": "Manutencao"},
+    {"key": "playback", "label": "Reproducao", "section": "Analise"},
+    {"key": "ia-nvr", "label": "IA - NVR", "section": "Analise"},
+]
+_MODULE_KEYS = {m["key"] for m in MODULE_CATALOG}
+
+
+def module_catalog() -> List[Dict[str, str]]:
+    return list(MODULE_CATALOG)
+
+
+def parse_enabled_modules(raw: Any) -> Optional[List[str]]:
+    """None = todos os modulos habilitados (tenant nunca configurado)."""
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return None
+    if not isinstance(data, list):
+        return None
+    return [str(x) for x in data if str(x) in _MODULE_KEYS]
+
+
+def set_tenant_modules(
+    actor: Dict[str, Any], tenant_id: int, modules: List[str], unrestricted: bool = False
+) -> Dict[str, Any]:
+    """Define quais modulos (telas) um cliente enxerga. So admin de plataforma.
+
+    `unrestricted=True` volta o cliente pro estado padrao (enabled_modules=NULL
+    no banco): todos os modulos liberados, inclusive os que forem adicionados
+    no futuro sem precisar reconfigurar esse cliente."""
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode configurar modulos de um cliente")
+    clean = None if unrestricted else sorted({str(m).strip() for m in (modules or []) if str(m).strip() in _MODULE_KEYS})
+    _ensure_schema()
+    with _conn() as c:
+        tenant = _fetchone(c, "SELECT id, slug, name FROM tenants WHERE id=?", (int(tenant_id),))
+        if not tenant:
+            raise ValueError("cliente nao encontrado")
+        _execute(
+            c,
+            "UPDATE tenants SET enabled_modules=? WHERE id=?",
+            (json.dumps(clean, ensure_ascii=False) if clean is not None else None, int(tenant_id)),
+        )
+        _audit(
+            c,
+            action="tenant.set_modules",
+            tenant_id=int(tenant_id),
+            user_id=int(actor["id"]),
+            resource_type="tenant",
+            resource_id=str(tenant.get("slug") or tenant_id),
+            detail_json=json.dumps({"modules": clean, "unrestricted": unrestricted}, ensure_ascii=False),
+        )
+    return {"tenant_id": int(tenant_id), "enabled_modules": clean}
+
+
+def act_as_tenant(actor: Dict[str, Any], token: str, tenant_slug: str) -> Dict[str, Any]:
+    """Admin de plataforma passa a operar como outro cliente nesta sessao (token),
+    sem precisar da senha dele. `tenant_slug` vazio volta a sessao pro proprio tenant."""
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode operar como outro cliente")
+    raw_token = str(token or "").strip()
+    if not raw_token:
+        raise ValueError("sessao invalida")
+    _ensure_schema()
+    slug = str(tenant_slug or "").strip().lower()
+    with _conn() as c:
+        token_row = _fetchone(c, "SELECT id FROM auth_tokens WHERE token_hash=?", (_token_hash(raw_token),))
+        if not token_row:
+            raise ValueError("sessao invalida")
+        target_id: Optional[int] = None
+        if slug:
+            target = _fetchone(c, "SELECT id, active FROM tenants WHERE slug=?", (slug,))
+            if not target:
+                raise ValueError("cliente nao encontrado")
+            if not bool(target.get("active")):
+                raise ValueError("cliente inativo")
+            target_id = int(target["id"])
+        _execute(
+            c,
+            "UPDATE auth_tokens SET acting_tenant_id=? WHERE id=?",
+            (target_id, int(token_row["id"])),
+        )
+        _audit(
+            c,
+            action="auth.act_as" if target_id else "auth.act_as_clear",
+            tenant_id=target_id or int(actor["tenant_id"]),
+            user_id=int(actor["id"]),
+            resource_type="tenant",
+            resource_id=slug or "",
+        )
+    return {"acting_tenant_slug": slug or None}
+
+
 def _ensure_default_bootstrap_user(c: Any) -> None:
     existing = int((_fetchone(c, "SELECT COUNT(1) AS n FROM users") or {}).get("n") or 0)
     if existing > 0:
@@ -522,11 +646,14 @@ def _ensure_default_bootstrap_user(c: Any) -> None:
     if len(password) < 8:
         password = "admin_teste"
     tenant_id = _ensure_tenant(c, "default", "Default")
+    # O admin de bootstrap representa voce, o dono da plataforma, ate que uma
+    # conta de admin de plataforma real seja criada -- por isso ja nasce com
+    # is_platform_admin=1 (unico jeito de enxergar/criar outros clientes).
     _execute(
         c,
         """
-        INSERT INTO users(tenant_id, username, full_name, email, password_hash, role, active, updated_at)
-        VALUES(?, ?, ?, '', ?, 'owner', 1, ?)
+        INSERT INTO users(tenant_id, username, full_name, email, password_hash, role, active, is_platform_admin, updated_at)
+        VALUES(?, ?, ?, '', ?, 'owner', 1, 1, ?)
         """,
         (tenant_id, username, "Administrador inicial", hash_password(password), _utc_text(_utc_now())),
     )
@@ -698,7 +825,7 @@ def create_user(
 
     _ensure_schema()
     with _conn() as c:
-        tenant_id = int(actor["tenant_id"])
+        tenant_id = _actor_tenant_id(actor)
         exists = _fetchone(c, "SELECT id FROM users WHERE username=?", (u,))
         if exists:
             raise ValueError("username ja existe")
@@ -779,6 +906,13 @@ def create_user(
     return created or {}
 
 
+def _actor_tenant_id(actor: Dict[str, Any]) -> int:
+    """Tenant em que o ator esta OPERANDO agora: o efetivo (considera act-as),
+    nao o tenant real dele. E o que faz um admin de plataforma "operando como"
+    um cliente gerenciar os usuarios DAQUELE cliente, nao os da propria conta."""
+    return int(actor.get("effective_tenant_id") or actor.get("tenant_id"))
+
+
 def _get_user_for_tenant(c: Any, tenant_id: int, user_id: int) -> Optional[Dict[str, Any]]:
     return _fetchone(
         c,
@@ -799,7 +933,7 @@ def update_user_status(actor: Dict[str, Any], target_user_id: int, active: bool)
         raise ValueError("permissao insuficiente")
     _ensure_schema()
     with _conn() as c:
-        tenant_id = int(actor["tenant_id"])
+        tenant_id = _actor_tenant_id(actor)
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
@@ -839,7 +973,7 @@ def update_user_password(actor: Dict[str, Any], target_user_id: int, new_passwor
         raise ValueError("password deve ter ao menos 8 caracteres")
     _ensure_schema()
     with _conn() as c:
-        tenant_id = int(actor["tenant_id"])
+        tenant_id = _actor_tenant_id(actor)
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
@@ -885,7 +1019,7 @@ def update_user_profile(
 
     _ensure_schema()
     with _conn() as c:
-        tenant_id = int(actor["tenant_id"])
+        tenant_id = _actor_tenant_id(actor)
         current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
         if not current:
             raise ValueError("usuario nao encontrado")
@@ -938,7 +1072,8 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
             c,
             """
             SELECT u.id, u.tenant_id, u.username, u.full_name, u.email, u.password_hash, u.role, u.active,
-                   t.slug AS tenant_slug, t.name AS tenant_name, t.active AS tenant_active
+                   u.is_platform_admin,
+                   t.slug AS tenant_slug, t.name AS tenant_name, t.active AS tenant_active, t.enabled_modules AS tenant_enabled_modules
             FROM users u
             JOIN tenants t ON t.id = u.tenant_id
             WHERE u.username=?
@@ -951,6 +1086,13 @@ def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
         return None
     if not verify_password(password, str(user.get("password_hash") or "")):
         return None
+    # Login e sempre no proprio tenant (act-as so existe depois, numa sessao
+    # ja aberta) -- efetivo == real aqui, sem consultar acting_tenant_id.
+    user["effective_tenant_id"] = user["tenant_id"]
+    user["effective_tenant_slug"] = user["tenant_slug"]
+    user["effective_tenant_name"] = user["tenant_name"]
+    user["effective_enabled_modules"] = parse_enabled_modules(user.get("tenant_enabled_modules"))
+    user["acting_as"] = False
     return user
 
 
@@ -990,11 +1132,16 @@ def get_user_by_token(token: str) -> Optional[Dict[str, Any]]:
             c,
             """
             SELECT u.id, u.tenant_id, u.username, u.full_name, u.email, u.role, u.active,
+                   u.is_platform_admin,
                    t.slug AS tenant_slug, t.name AS tenant_name, t.active AS tenant_active,
-                   at.id AS token_id, at.expires_at, at.revoked_at
+                   at.id AS token_id, at.expires_at, at.revoked_at, at.acting_tenant_id,
+                   act.slug AS acting_tenant_slug, act.name AS acting_tenant_name, act.active AS acting_tenant_active,
+                   act.enabled_modules AS acting_tenant_enabled_modules,
+                   t.enabled_modules AS tenant_enabled_modules
             FROM auth_tokens at
             JOIN users u ON u.id = at.user_id
             JOIN tenants t ON t.id = u.tenant_id
+            LEFT JOIN tenants act ON act.id = at.acting_tenant_id
             WHERE at.token_hash = ?
             """,
             (_token_hash(raw),),
@@ -1008,6 +1155,23 @@ def get_user_by_token(token: str) -> Optional[Dict[str, Any]]:
         if not bool(user.get("active")) or not bool(user.get("tenant_active")):
             return None
         _execute(c, "UPDATE auth_tokens SET last_seen_at=? WHERE id=?", (now_text, int(user["token_id"])))
+    # Tenant "efetivo": se o admin de plataforma estiver "operando como" outro
+    # cliente (acting_tenant_id setado nesta sessao), tudo no request usa
+    # aquele tenant -- senao, cai no tenant real do proprio usuario. So um
+    # admin de plataforma pode ter acting_tenant_id setado (act_as_tenant
+    # confere isso na hora de gravar), entao nao precisa reconferir aqui.
+    if user.get("acting_tenant_id") and user.get("acting_tenant_active"):
+        user["effective_tenant_id"] = user["acting_tenant_id"]
+        user["effective_tenant_slug"] = user["acting_tenant_slug"]
+        user["effective_tenant_name"] = user["acting_tenant_name"]
+        user["effective_enabled_modules"] = parse_enabled_modules(user.get("acting_tenant_enabled_modules"))
+        user["acting_as"] = True
+    else:
+        user["effective_tenant_id"] = user["tenant_id"]
+        user["effective_tenant_slug"] = user["tenant_slug"]
+        user["effective_tenant_name"] = user["tenant_name"]
+        user["effective_enabled_modules"] = parse_enabled_modules(user.get("tenant_enabled_modules"))
+        user["acting_as"] = False
     return user
 
 
@@ -1047,7 +1211,7 @@ def list_users(actor: Dict[str, Any]) -> List[Dict[str, Any]]:
             WHERE u.tenant_id=?
             ORDER BY u.username
             """,
-            (int(actor["tenant_id"]),),
+            (_actor_tenant_id(actor),),
         )
 
 
@@ -1064,7 +1228,7 @@ def recent_audit_events(actor: Dict[str, Any], limit: int = 50) -> List[Dict[str
             ORDER BY id DESC
             LIMIT ?
             """,
-            (int(actor["tenant_id"]), lim),
+            (_actor_tenant_id(actor), lim),
         )
 
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.core.security import AUTH_COOKIE_NAME
 from app.services.auth_store import (
+    act_as_tenant,
     auth_enabled,
     auth_status,
     authenticate_user,
@@ -21,8 +22,10 @@ from app.services.auth_store import (
     list_tenants,
     list_users,
     migrate_auth_storage,
+    module_catalog,
     recent_audit_events,
     revoke_token,
+    set_tenant_modules,
     update_user_profile,
     update_user_password,
     update_user_status,
@@ -89,6 +92,15 @@ class AuthStorageMigrateRequest(BaseModel):
     force: bool = False
 
 
+class ActAsRequest(BaseModel):
+    tenant_slug: str = ""
+
+
+class TenantModulesRequest(BaseModel):
+    modules: list[str] = []
+    unrestricted: bool = False
+
+
 def _cookie_secure(request: Request) -> bool:
     raw = str(os.getenv("AUTH_COOKIE_SECURE", "")).strip().lower()
     if raw in ("1", "true", "yes", "on"):
@@ -144,6 +156,27 @@ def current_user(token: str = Depends(_extract_bearer_token)) -> Dict[str, Any]:
     if not user:
         raise HTTPException(status_code=401, detail="token invalido ou expirado")
     return user
+
+
+def _user_public(user: Dict[str, Any]) -> Dict[str, Any]:
+    setup_required = user_requires_initial_setup(user)
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "full_name": user.get("full_name", ""),
+        "email": user.get("email", ""),
+        "role": user["role"],
+        "is_platform_admin": bool(user.get("is_platform_admin")),
+        "tenant_id": user.get("tenant_id"),
+        "tenant_slug": user.get("tenant_slug"),
+        "tenant_name": user.get("tenant_name"),
+        "acting_as": bool(user.get("acting_as")),
+        "effective_tenant_id": user.get("effective_tenant_id", user.get("tenant_id")),
+        "effective_tenant_slug": user.get("effective_tenant_slug", user.get("tenant_slug")),
+        "effective_tenant_name": user.get("effective_tenant_name", user.get("tenant_name")),
+        "enabled_modules": user.get("effective_enabled_modules"),
+        "setup_required": setup_required,
+    }
 
 
 def _login_key(request: Request, username: str) -> str:
@@ -227,16 +260,7 @@ def api_auth_login(req: LoginRequest, request: Request, response: Response) -> D
         "ok": True,
         **token,
         "setup_required": setup_required,
-        "user": {
-            "id": user["id"],
-            "username": user["username"],
-            "full_name": user.get("full_name", ""),
-            "email": user.get("email", ""),
-            "role": user["role"],
-            "tenant_slug": user["tenant_slug"],
-            "tenant_name": user["tenant_name"],
-            "setup_required": setup_required,
-        },
+        "user": _user_public(user),
     }
 
 
@@ -254,22 +278,45 @@ def api_auth_logout(
 
 @router.get("/me")
 def api_auth_me(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
-    setup_required = user_requires_initial_setup(user)
     return {
         "ok": True,
-        "setup_required": setup_required,
-        "user": {
-            "id": user["id"],
-            "username": user["username"],
-            "full_name": user.get("full_name", ""),
-            "email": user.get("email", ""),
-            "role": user["role"],
-            "tenant_id": user["tenant_id"],
-            "tenant_slug": user["tenant_slug"],
-            "tenant_name": user["tenant_name"],
-            "setup_required": setup_required,
-        },
+        "setup_required": user_requires_initial_setup(user),
+        "user": _user_public(user),
     }
+
+
+@router.post("/act-as")
+def api_auth_act_as(
+    req: ActAsRequest,
+    user: Dict[str, Any] = Depends(current_user),
+    token: str = Depends(_extract_bearer_token),
+) -> Dict[str, Any]:
+    """Admin de plataforma passa a operar como outro cliente nesta sessao
+    (sem saber a senha dele). tenant_slug vazio volta pro proprio tenant."""
+    try:
+        act_as_tenant(user, token, req.tenant_slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    refreshed = get_user_by_token(token)
+    if not refreshed:
+        raise HTTPException(status_code=401, detail="sessao invalida")
+    return {"ok": True, "user": _user_public(refreshed)}
+
+
+@router.get("/modules/catalog")
+def api_auth_modules_catalog(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    return {"ok": True, "modules": module_catalog()}
+
+
+@router.put("/tenants/{tenant_id}/modules")
+def api_auth_set_tenant_modules(
+    tenant_id: int, req: TenantModulesRequest, user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    try:
+        result = set_tenant_modules(user, tenant_id, req.modules, unrestricted=req.unrestricted)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **result}
 
 
 @router.get("/users")

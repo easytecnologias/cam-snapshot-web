@@ -50,6 +50,9 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("GET",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/auth/users", "admin"),
             (("POST",), "/api/auth/tenants", "admin"),
+            (("POST",), "/api/auth/tenants/", "admin"),
+            (("PUT",), "/api/auth/tenants/", "admin"),
+            (("POST",), "/api/auth/act-as", "admin"),
             (("POST",), "/api/system/product", "admin"),
             (("POST",), "/api/db/init", "admin"),
             (("POST",), "/api/db/migrate", "admin"),
@@ -203,7 +206,10 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
                 reset_current_tenant_slug(ctx_token)
 
         request.state.current_user = user
-        request.state.current_tenant_slug = str(user.get("tenant_slug") or "").strip().lower()
+        # Usa o tenant EFETIVO (considera "operar como" outro cliente via
+        # act-as), nao o tenant_slug fixo do usuario -- ver get_user_by_token
+        # em app/services/auth_store.py.
+        request.state.current_tenant_slug = str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
         reset_current_tenant_slug(ctx_token)
         ctx_token = set_current_tenant_slug(request.state.current_tenant_slug)
         try:

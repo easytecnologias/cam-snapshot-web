@@ -52,6 +52,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Logout
   document.getElementById('logoutBtn').addEventListener('click', logout);
   document.getElementById('logoutBtnTop').addEventListener('click', logout);
+  document.getElementById('btnStopActingAs')?.addEventListener('click', () => actAsTenant(''));
+  document.getElementById('tenantModulesUnrestricted')?.addEventListener('change', _tenantModulesToggleUnrestricted);
+  document.getElementById('btnSaveTenantModules')?.addEventListener('click', saveTenantModules);
 
   // Configuracoes SaaS
   document.getElementById('btnSettingsRefresh')?.addEventListener('click', loadSettings);

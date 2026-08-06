@@ -10,6 +10,8 @@ let _token = null;
 let _currentView = 'dashboard';
 let _scanWs = null;
 let _camAuthAction = null;
+let _currentUser = null; // ultimo /api/auth/me: role, is_platform_admin, acting_as, enabled_modules...
+let _moduleCatalogCache = null; // /api/auth/modules/catalog, buscado uma vez por sessao
 
 // Cache curto, somente em memoria e por sessao autenticada. Evita repetir
 // respostas grandes ao alternar entre telas sem guardar dados entre usuarios.
@@ -151,14 +153,75 @@ function logout() {
 }
 
 async function loadProfile() {
-  const data = await apiJson('/api/auth/me');
+  const data = await apiJson('/api/auth/me', { forceRefresh: true });
   if (!data) return;
   const user = data.user || data;
+  _currentUser = user;
   const name = user.full_name || user.username || user.email || '?';
   const role = user.role || user.perfil || '';
   document.getElementById('profileName').textContent = name;
   document.getElementById('profileRole').textContent = role;
   document.getElementById('profileAvatar').textContent = name[0].toUpperCase();
+  applyModuleVisibility();
+  applyPlatformAdminVisibility();
+  renderActingAsBanner();
+}
+
+// Esconde do menu lateral qualquer tela que nao faca parte do "pacote" do
+// cliente logado. `enabled_modules` nulo = sem restricao (mostra tudo,
+// inclusive modulos criados depois que ninguem configurou ainda pra esse
+// cliente). A chave de cada modulo E o data-view do item de menu -- ver
+// MODULE_CATALOG em app/services/auth_store.py.
+function applyModuleVisibility() {
+  const enabled = _currentUser?.enabled_modules;
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    const key = btn.dataset.view;
+    const restricted = Array.isArray(enabled);
+    const visible = !restricted || enabled.includes(key);
+    btn.classList.toggle('nav-item-hidden', !visible);
+  });
+  // Grupo "Snapshots": some por completo se as duas telas dele estiverem escondidas.
+  const snapGroup = document.getElementById('ngSnapshots');
+  if (snapGroup) {
+    const subVisible = [...snapGroup.querySelectorAll('.nav-sub-item[data-view]')]
+      .some(btn => !btn.classList.contains('nav-item-hidden'));
+    snapGroup.classList.toggle('nav-item-hidden', !subVisible);
+  }
+}
+
+// A aba "Clientes" (lista/cria outros tenants do SaaS) so faz sentido pra
+// quem administra a PLATAFORMA -- um cliente comum nao deve nem saber que
+// outros clientes existem.
+function applyPlatformAdminVisibility() {
+  const isPlatformAdmin = !!_currentUser?.is_platform_admin;
+  document.querySelectorAll('[data-settings-tab="tenants"], [data-settings-panel="tenants"]').forEach(el => {
+    el.classList.toggle('nav-item-hidden', !isPlatformAdmin);
+  });
+  if (!isPlatformAdmin && document.querySelector('[data-settings-tab="tenants"]')?.classList.contains('active')) {
+    activateSettingsTab('overview');
+  }
+}
+
+function renderActingAsBanner() {
+  const el = document.getElementById('actingAsBanner');
+  if (!el) return;
+  if (_currentUser?.acting_as) {
+    setText('actingAsBannerText', `Operando como: ${_currentUser.effective_tenant_name || _currentUser.effective_tenant_slug || ''}`);
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
+
+async function actAsTenant(tenantSlug) {
+  const res = await api('/api/auth/act-as', { method: 'POST', body: JSON.stringify({ tenant_slug: tenantSlug || '' }) });
+  const data = await jsonOrReadableError(res, 'Nao foi possivel trocar de cliente.');
+  showToast(tenantSlug ? `Operando como ${data?.user?.effective_tenant_name || tenantSlug}.` : 'Voltou para a propria conta.');
+  // Recarrega a pagina inteira: e a forma mais segura de garantir que TODA
+  // tela (cada uma com seu proprio cache/estado em memoria) recarregue os
+  // dados do tenant novo, em vez de misturar dados de dois clientes na
+  // mesma sessao de navegador.
+  window.location.reload();
 }
 
 //  Telas
@@ -384,16 +447,29 @@ async function loadSettings() {
 
   setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
   const tenantsBody = document.getElementById('settingsTenantsBody');
+  const isPlatformAdmin = !!currentUser.is_platform_admin;
   if (tenantsBody) {
-    tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => `
+    tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => {
+      const modulesLabel = Array.isArray(t.enabled_modules) ? `${t.enabled_modules.length} módulo(s)` : 'Sem restrição';
+      const isCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
+      const actions = isPlatformAdmin ? `
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px" title="${esc(modulesLabel)}" onclick="openTenantModulesModal(${Number(t.id)}, '${esc(t.name || t.slug || '')}')"><i data-lucide="sliders-horizontal"></i> Módulos</button>
+          ${isCurrent
+            ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>`
+            : `<button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="actAsTenant('${esc(t.slug || '')}')"><i data-lucide="log-in"></i> Operar como</button>`}
+        </div>` : '';
+      return `
       <tr>
         <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
         <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
         <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
         <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
         <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
-      </tr>
-    `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado.</td></tr>';
+        <td>${actions}</td>
+      </tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado.</td></tr>';
+    lucide.createIcons();
   }
 
   setText('settingsUsersSummary', `${userRows.length} usuario${userRows.length === 1 ? '' : 's'} no cliente atual (${currentUser.tenant_name || currentUser.tenant_slug || '-'}).`);
@@ -487,6 +563,91 @@ async function createTenantFromSettings() {
     if (el) el.value = '';
   });
   showToast('Cliente criado.');
+  loadSettings();
+}
+
+let _tenantModulesTarget = null; // { id, name }
+
+async function _getModuleCatalog() {
+  if (_moduleCatalogCache) return _moduleCatalogCache;
+  const data = await apiJson('/api/auth/modules/catalog');
+  _moduleCatalogCache = data?.modules || [];
+  return _moduleCatalogCache;
+}
+
+async function openTenantModulesModal(tenantId, tenantName) {
+  const tenants = await apiJson('/api/auth/tenants', { forceRefresh: true });
+  const tenant = (tenants?.tenants || []).find(t => Number(t.id) === Number(tenantId));
+  const current = Array.isArray(tenant?.enabled_modules) ? tenant.enabled_modules : null;
+  const catalog = await _getModuleCatalog();
+
+  _tenantModulesTarget = { id: tenantId, name: tenantName };
+  setText('tenantModulesSubtitle', tenantName);
+  document.getElementById('tenantModulesErro').hidden = true;
+
+  const bySection = {};
+  catalog.forEach(m => {
+    bySection[m.section] = bySection[m.section] || [];
+    bySection[m.section].push(m);
+  });
+  const body = document.getElementById('tenantModulesBody');
+  body.innerHTML = Object.entries(bySection).map(([section, mods]) => `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:6px">${esc(section)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        ${mods.map(m => `
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+            <input type="checkbox" class="tenant-module-chk" value="${esc(m.key)}" ${(!current || current.includes(m.key)) ? 'checked' : ''}>
+            ${esc(m.label)}
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  const unrestrictedChk = document.getElementById('tenantModulesUnrestricted');
+  unrestrictedChk.checked = current === null;
+  body.style.opacity = current === null ? '.45' : '1';
+  body.style.pointerEvents = current === null ? 'none' : 'auto';
+
+  document.getElementById('modalTenantModules').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function _tenantModulesToggleUnrestricted() {
+  const body = document.getElementById('tenantModulesBody');
+  const on = document.getElementById('tenantModulesUnrestricted').checked;
+  body.style.opacity = on ? '.45' : '1';
+  body.style.pointerEvents = on ? 'none' : 'auto';
+}
+
+async function saveTenantModules() {
+  if (!_tenantModulesTarget) return;
+  const unrestricted = document.getElementById('tenantModulesUnrestricted').checked;
+  const modules = unrestricted
+    ? []
+    : [...document.querySelectorAll('.tenant-module-chk:checked')].map(c => c.value);
+  const btn = document.getElementById('btnSaveTenantModules');
+  btn.disabled = true;
+  const res = await api(`/api/auth/tenants/${_tenantModulesTarget.id}/modules`, {
+    method: 'PUT',
+    body: JSON.stringify({ modules, unrestricted }),
+  });
+  btn.disabled = false;
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    const el = document.getElementById('tenantModulesErro');
+    el.textContent = data?.detail || 'Não foi possível salvar os módulos.';
+    el.hidden = false;
+    return;
+  }
+  showToast(`Módulos de ${_tenantModulesTarget.name} atualizados.`);
+  document.getElementById('modalTenantModules').classList.add('hidden');
+  // Se o admin estiver operando como esse cliente agora, o proprio menu dele
+  // muda -- recarrega pra refletir na hora, nao so na proxima troca de tela.
+  if ((_currentUser?.effective_tenant_id) === _tenantModulesTarget.id) {
+    await loadProfile();
+  }
   loadSettings();
 }
 
