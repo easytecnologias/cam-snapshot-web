@@ -1256,12 +1256,16 @@ function closeCamPanel() {
 
 //  Ping Terminal
 let _pingIp    = null;
+let _pingConnectorId = '';
+let _pingConnectorTried = false;
 let _pingCount = 0;
 let _pingOk    = 0;
 let _pingFail  = 0;
 
-function openPingTerminal(ip) {
+function openPingTerminal(ip, remoteConnectorId = '') {
   _pingIp = ip;
+  _pingConnectorId = remoteConnectorId || '';
+  _pingConnectorTried = false;
   document.getElementById('pingTermTitle').textContent = `ping ${ip}`;
   document.getElementById('pingTermBody').innerHTML = '';
   document.getElementById('pingTermStats').textContent = '';
@@ -1281,7 +1285,16 @@ function runPing() {
   _pingInterval = setInterval(async () => {
     _pingCount++;
     const startedAt = performance.now();
-    const res = await apiJson(`/api/cameras/ping?ip=${encodeURIComponent(ip)}&force=1`);
+    // Camera remota (atras de conector MikroTik, sem rota direta do servidor
+    // ate a LAN do cliente): so tenta o fallback via conector UMA VEZ por
+    // sessao, no primeiro tick que falhar -- o fallback pergunta ao proprio
+    // MikroTik (pode levar ate ~45s) e repetir isso a cada segundo encheria
+    // a fila de jobs do conector sem necessidade.
+    const useConnector = _pingConnectorId && !_pingConnectorTried;
+    if (useConnector) _pingConnectorTried = true;
+    const url = `/api/cameras/ping?ip=${encodeURIComponent(ip)}&force=1`
+      + (useConnector ? `&remote_connector_id=${encodeURIComponent(_pingConnectorId)}` : '');
+    const res = await apiJson(url);
     const elapsedMs = performance.now() - startedAt;
     const rawMs = res?.ping_ms ?? res?.ms ?? res?.latency;
     const ms = Number.isFinite(Number(rawMs)) ? Number(rawMs) : elapsedMs;
@@ -1289,10 +1302,12 @@ function runPing() {
 
     if (ok) {
       _pingOk++;
-      pingLine(`[${_pingCount}] ${ip}: ${formatPingMs(ms)} (${res?.method || 'ping'})`, 'ok');
+      const viaConn = res?.via_connector ? ' (via conector)' : '';
+      pingLine(`[${_pingCount}] ${ip}: ${formatPingMs(ms)} (${res?.method || 'ping'})${viaConn}`, 'ok');
     } else {
       _pingFail++;
-      pingLine(`[${_pingCount}] ${ip}: offline (${res?.error || formatPingMs(elapsedMs)})`, 'fail');
+      const note = useConnector && res?.via_connector === null ? ' -- conector nao confirmou a tempo' : '';
+      pingLine(`[${_pingCount}] ${ip}: offline (${res?.error || formatPingMs(elapsedMs)})${note}`, 'fail');
     }
     updatePingStats();
   }, 1000);
@@ -1330,7 +1345,7 @@ function closePingTerminal() {
 
 function startPing() {
   if (!_invOltActive) return;
-  openPingTerminal(_invOltActive.ip);
+  openPingTerminal(_invOltActive.ip, _invOltActive.remote_connector_id || '');
 }
 
 function openCamPanelLive() {

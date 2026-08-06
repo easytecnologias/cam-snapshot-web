@@ -11,6 +11,7 @@ import shutil
 from fastapi import APIRouter, HTTPException
 from fastapi import Query
 from app.services.ping_service import ping as ping_with_cache
+from app.services.ws_scan_service import ping_via_connector
 
 from pydantic import BaseModel
 
@@ -363,6 +364,7 @@ async def api_cameras_ping(
     method: str = "auto",
     force: int = 0,
     persist: int = 0,
+    remote_connector_id: str = "",
 ):
     """
     Ping (ICMP/TCP) com cache para evitar excesso de requisiÃ§Ãµes.
@@ -371,6 +373,12 @@ async def api_cameras_ping(
     - force=1 forÃ§a novo ping
     - method: auto|icmp|tcp
     - ip pode conter porta (ex: 45.164.52.138:81) â€” nesse caso faz TCP nessa porta.
+    - remote_connector_id: camera marcada como remota (atras de um conector
+      MikroTik, ver ws_scan_service._tag_rows_for_connector). Se o ping
+      direto falhar, cai pro ping_many do proprio MikroTik antes de marcar
+      offline -- sem isso, uma camera sem rota real ate a LAN do cliente
+      (VPN ainda nao sincronizada) sempre aparecia offline mesmo estando
+      online, porque o servidor nunca tinha como alcanca-la direto.
     """
     target = (ip or "").strip()
     if not target:
@@ -381,6 +389,12 @@ async def api_cameras_ping(
         raise HTTPException(status_code=400, detail="method invÃ¡lido: use auto|icmp|tcp")
 
     result = await ping_with_cache(ip=target, timeout=timeout, method=method_n, force=force)
+    connector_id = str(remote_connector_id or "").strip()
+    if connector_id and not bool(result.get("online")):
+        via_connector = await ping_via_connector(connector_id, target)
+        result["via_connector"] = via_connector
+        if via_connector:
+            result["online"] = True
     status = _status_from_ping(result)
     result["status"] = status
     result["reachable"] = bool(result.get("online"))

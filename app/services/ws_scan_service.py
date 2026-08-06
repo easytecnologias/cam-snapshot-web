@@ -193,6 +193,42 @@ def _parse_routeros_ping(result: Any) -> dict[str, bool]:
     return parsed
 
 
+async def ping_via_connector(connector_id: str, ip: str, timeout_s: float = 45.0) -> bool | None:
+    """Pinga um unico IP atraves do job ping_many de um conector MikroTik.
+
+    Usado como fallback pro "Testar ping" de uma camera remota (atras de um
+    conector, sem rota direta do servidor ate a LAN do cliente) -- mesmo
+    primitivo que `_remote_inventory_via_connector` usa pra varredura, so que
+    pra um alvo so. Mais lento que ping direto (depende do ciclo de polling
+    do agente RouterOS, ate ~1min), por isso NAO substitui o ping direto --
+    so entra quando ele falhar.
+
+    Retorna True/False se o conector respondeu a tempo, None se nao
+    respondeu dentro do timeout (job nunca saiu de "queued"/"running") --
+    nesse caso quem chamou deve tratar como "nao foi possivel confirmar",
+    nao como "offline".
+    """
+    target = str(ip or "").strip()
+    connector_id = str(connector_id or "").strip()
+    if not connector_id or not target:
+        return None
+    job = create_job({"connector_id": connector_id, "type": "ping_many", "payload": {"targets": [target]}}).get("job") or {}
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return None
+    deadline = time.time() + timeout_s
+    final_job: dict[str, Any] | None = None
+    while time.time() < deadline:
+        await anyio.sleep(2)
+        jobs = list_jobs(connector_id).get("jobs") or []
+        final_job = next((item for item in jobs if str(item.get("id") or "") == job_id), None)
+        if final_job and final_job.get("status") in {"done", "failed"}:
+            break
+    if not final_job or final_job.get("status") != "done":
+        return None
+    return bool(_parse_routeros_ping(final_job.get("result") or {}).get(target))
+
+
 def _tag_rows_for_connector(payload: Dict[str, Any], result: Dict[str, Any], tenant_slug: str = "") -> Dict[str, Any]:
     site = str(payload.get("local") or "").strip()
     connector = _connector_from_payload(payload)
