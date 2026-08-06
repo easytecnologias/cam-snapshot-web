@@ -269,12 +269,12 @@ def migrate_auth_storage(source_backend: str = "sqlite", target_backend: str = "
             for table in ("auth_tokens", "audit_log", "users", "tenants"):
                 _execute_on(dst, dst_backend, f"DELETE FROM {table}")
 
-        tenants = _fetchall_on(src, src_backend, "SELECT id, slug, name, active, created_at FROM tenants ORDER BY id")
+        tenants = _fetchall_on(src, src_backend, "SELECT id, slug, name, active, created_at, enabled_modules FROM tenants ORDER BY id")
         users = _fetchall_on(
             src,
             src_backend,
             """
-            SELECT id, tenant_id, username, full_name, email, password_hash, role, active, created_at, updated_at
+            SELECT id, tenant_id, username, full_name, email, password_hash, role, active, is_platform_admin, created_at, updated_at
             FROM users
             ORDER BY id
             """,
@@ -283,7 +283,7 @@ def migrate_auth_storage(source_backend: str = "sqlite", target_backend: str = "
             src,
             src_backend,
             """
-            SELECT id, user_id, token_hash, label, created_at, expires_at, revoked_at, last_seen_at
+            SELECT id, user_id, token_hash, label, created_at, expires_at, revoked_at, last_seen_at, acting_tenant_id
             FROM auth_tokens
             ORDER BY id
             """,
@@ -299,20 +299,25 @@ def migrate_auth_storage(source_backend: str = "sqlite", target_backend: str = "
         )
 
         for row in tenants:
-            _execute_on(dst, dst_backend, "INSERT INTO tenants(id, slug, name, active, created_at) VALUES(?, ?, ?, ?, ?)", (row["id"], row["slug"], row["name"], row["active"], row["created_at"]))
+            _execute_on(
+                dst,
+                dst_backend,
+                "INSERT INTO tenants(id, slug, name, active, created_at, enabled_modules) VALUES(?, ?, ?, ?, ?, ?)",
+                (row["id"], row["slug"], row["name"], row["active"], row["created_at"], row.get("enabled_modules")),
+            )
         for row in users:
             _execute_on(
                 dst,
                 dst_backend,
-                "INSERT INTO users(id, tenant_id, username, full_name, email, password_hash, role, active, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (row["id"], row["tenant_id"], row["username"], row.get("full_name") or "", row.get("email") or "", row["password_hash"], row["role"], row["active"], row["created_at"], row["updated_at"]),
+                "INSERT INTO users(id, tenant_id, username, full_name, email, password_hash, role, active, is_platform_admin, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row["id"], row["tenant_id"], row["username"], row.get("full_name") or "", row.get("email") or "", row["password_hash"], row["role"], row["active"], row.get("is_platform_admin") or 0, row["created_at"], row["updated_at"]),
             )
         for row in tokens:
             _execute_on(
                 dst,
                 dst_backend,
-                "INSERT INTO auth_tokens(id, user_id, token_hash, label, created_at, expires_at, revoked_at, last_seen_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                (row["id"], row["user_id"], row["token_hash"], row.get("label") or "", row["created_at"], row["expires_at"], row.get("revoked_at"), row.get("last_seen_at")),
+                "INSERT INTO auth_tokens(id, user_id, token_hash, label, created_at, expires_at, revoked_at, last_seen_at, acting_tenant_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (row["id"], row["user_id"], row["token_hash"], row.get("label") or "", row["created_at"], row["expires_at"], row.get("revoked_at"), row.get("last_seen_at"), row.get("acting_tenant_id")),
             )
         for row in audit:
             _execute_on(
@@ -786,11 +791,15 @@ def bootstrap_admin(
             raise ValueError("bootstrap bloqueado: ja existem usuarios cadastrados")
         tenant_id = _ensure_tenant(c, tenant_slug, tenant_name)
         pwd_hash = hash_password(password)
+        # So roda quando NENHUM usuario existe ainda no sistema inteiro (checado
+        # acima): quem bootstrap-a aqui e literalmente a primeira pessoa a
+        # configurar a plataforma, entao nasce admin de plataforma -- mesma
+        # regra do bootstrap automatico via env var em _ensure_default_bootstrap_user.
         _execute(
             c,
             """
-            INSERT INTO users(tenant_id, username, full_name, email, password_hash, role, active, updated_at)
-            VALUES(?, ?, ?, ?, ?, 'owner', 1, ?)
+            INSERT INTO users(tenant_id, username, full_name, email, password_hash, role, active, is_platform_admin, updated_at)
+            VALUES(?, ?, ?, ?, ?, 'owner', 1, 1, ?)
             """,
             (tenant_id, u, str(full_name or "").strip(), str(email or "").strip(), pwd_hash, _utc_text(_utc_now())),
         )
