@@ -11,6 +11,7 @@ import asyncio
 import re
 import requests
 import secrets
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -811,8 +812,9 @@ async def api_inventory_last(site: str = "", enrich: str = "") -> Dict[str, Any]
     return {"ok": True, "count": len(rows), "inventory": rows}
 
 
-@router.get("/inventory/report.pdf")
-async def api_inventory_report_pdf(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> FileResponse:
+def _load_report_rows_and_config(
+    site: str, company_name: str, report_color: str, mode: str, ips: str
+) -> tuple[list[dict[str, Any]], Dict[str, Any]]:
     report_mode = str(mode or "").strip().lower()
     rows = _load_inventory_rows(mode=(report_mode or "olt"), site=site)
     if report_mode == "olt":
@@ -835,61 +837,137 @@ async def api_inventory_report_pdf(site: str = "", company_name: str = "", repor
     color = _report_color(report_color or rep_cfg.get("report_color") or "")
     report_logo_path = tenant_report_logo_path("inventory") if get_current_tenant_slug() else (DATA_DIR / "input" / "inventory-report-logo.png")
     logo = report_logo_path if report_logo_path.exists() else None
-    # A galeria de fotos volta a aparecer, mas so para o recorte que o
-    # front manda em `ips` (o que esta filtrado/selecionado na tela no
-    # momento do clique) -- e por isso que fica rapido mesmo com fotos.
-    # Sem filtro nenhum (ips vazio), build_inventory_pdf_report ainda
-    # aplica um teto interno de fotos para nao repetir o estouro de memoria
-    # que tirou a galeria da versao anterior.
+    cfg = {
+        "site": site,
+        "company_name": company,
+        "logo_path": logo,
+        "include_olt": (report_mode == "olt"),
+        "include_switch": (report_mode == "switch"),
+        "module_label": {"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
+        "report_color": color,
+    }
+    return rows, cfg
+
+
+@router.get("/inventory/report.pdf")
+async def api_inventory_report_pdf(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> FileResponse:
+    rows, cfg = _load_report_rows_and_config(site, company_name, report_color, mode, ips)
     pdf_path = await asyncio.to_thread(
         build_inventory_pdf_report,
         rows,
-        site=site,
-        company_name=company,
-        logo_path=logo,
-        include_olt=(report_mode == "olt"),
-        include_switch=(report_mode == "switch"),
-        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
-        report_color=color,
         include_photos=True,
+        **cfg,
     )
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 
+# Job assincrono com progresso: gerar o PDF (principalmente a galeria de
+# fotos, que le/decodifica/redimensiona uma imagem por camera) pode levar
+# de alguns segundos a alguns minutos num inventario grande. Uma unica
+# requisicao sincrona nesse caso deixa o navegador parado sem feedback --
+# aqui o front dispara o job, recebe um job_id e fica consultando o status
+# (done/total/etapa) pra mostrar progresso real, so baixando o arquivo no
+# final. Mesmo padrao ja usado pelas auditorias offline de OLT.
+_report_jobs: dict[str, dict[str, Any]] = {}
+_report_tasks: set[asyncio.Task[Any]] = set()
+_REPORT_JOB_TTL_SECONDS = 30 * 60
+
+
+def _prune_report_jobs() -> None:
+    now = datetime.now()
+    stale = [
+        jid for jid, job in _report_jobs.items()
+        if job.get("status") in ("done", "error")
+        and (now - job.get("_created", now)).total_seconds() > _REPORT_JOB_TTL_SECONDS
+    ]
+    for jid in stale:
+        job = _report_jobs.pop(jid, None)
+        path = job.get("path") if job else None
+        if path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+async def _run_inventory_report_job(job_id: str, rows: list[dict[str, Any]], cfg: Dict[str, Any]) -> None:
+    job = _report_jobs[job_id]
+    job["status"] = "running"
+
+    def _cb(done: int, total: int, stage: str) -> None:
+        job["done"] = int(done)
+        job["total"] = int(total)
+        job["stage"] = stage
+
+    try:
+        pdf_path = await asyncio.to_thread(
+            build_inventory_pdf_report,
+            rows,
+            include_photos=True,
+            progress_cb=_cb,
+            **cfg,
+        )
+        job["status"] = "done"
+        job["path"] = str(pdf_path)
+        job["filename"] = pdf_path.name
+    except Exception as exc:
+        job["status"] = "error"
+        job["error"] = str(exc) or repr(exc)
+
+
+@router.post("/inventory/report/job")
+async def api_inventory_report_job_start(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> Dict[str, Any]:
+    _prune_report_jobs()
+    rows, cfg = _load_report_rows_and_config(site, company_name, report_color, mode, ips)
+    job_id = uuid.uuid4().hex
+    _report_jobs[job_id] = {
+        "status": "queued",
+        "done": 0,
+        "total": 0,
+        "stage": "preparando",
+        "total_rows": len(rows),
+        "_created": datetime.now(),
+    }
+    task = asyncio.create_task(_run_inventory_report_job(job_id, rows, cfg), name=f"inv-report-{job_id[:8]}")
+    _report_tasks.add(task)
+    task.add_done_callback(_report_tasks.discard)
+    return {"ok": True, "job_id": job_id, "total_rows": len(rows)}
+
+
+@router.get("/inventory/report/job/{job_id}/status")
+def api_inventory_report_job_status(job_id: str) -> Dict[str, Any]:
+    job = _report_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    return {
+        "ok": True,
+        "status": job.get("status"),
+        "done": job.get("done", 0),
+        "total": job.get("total", 0),
+        "stage": job.get("stage", ""),
+        "total_rows": job.get("total_rows", 0),
+        "error": job.get("error"),
+        "ready": job.get("status") == "done",
+    }
+
+
+@router.get("/inventory/report/job/{job_id}/download")
+def api_inventory_report_job_download(job_id: str) -> FileResponse:
+    job = _report_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job nao encontrado ou expirado")
+    if job.get("status") != "done":
+        raise HTTPException(status_code=409, detail="relatorio ainda esta sendo gerado")
+    path = Path(job.get("path") or "")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="arquivo do relatorio nao encontrado")
+    return FileResponse(path=path, media_type="application/pdf", filename=job.get("filename") or path.name)
+
+
 @router.get("/inventory/report/preview")
 async def api_inventory_report_preview(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> StreamingResponse:
-    report_mode = str(mode or "").strip().lower()
-    rows = _load_inventory_rows(mode=(report_mode or "olt"), site=site)
-    if report_mode == "olt":
-        rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
-    elif report_mode == "switch":
-        rows, _ = _enrich_inventory_with_switch(list(rows), DATA_DIR / "switch-mac-table.json")
-    selected_ips = {str(part or "").strip() for part in str(ips or "").split(",")}
-    selected_ips.discard("")
-    if selected_ips:
-        rows = [
-            r for r in rows
-            if isinstance(r, dict) and str(r.get("ip") or r.get("IP") or "").strip() in selected_ips
-        ]
-    settings = load_app_settings()
-    if not isinstance(settings, dict):
-        settings = {}
-    rep_cfg = settings.get("inventory_pdf_report") if isinstance(settings, dict) else {}
-    rep_cfg = rep_cfg if isinstance(rep_cfg, dict) else {}
-    company = str(company_name or rep_cfg.get("company_name") or "").strip()
-    color = _report_color(report_color or rep_cfg.get("report_color") or "")
-    report_logo_path = tenant_report_logo_path("inventory") if get_current_tenant_slug() else (DATA_DIR / "input" / "inventory-report-logo.png")
-    logo = report_logo_path if report_logo_path.exists() else None
-    pdf_path = build_inventory_pdf_report(
-        rows,
-        site=site,
-        company_name=company,
-        logo_path=logo,
-        include_olt=(report_mode == "olt"),
-        include_switch=(report_mode == "switch"),
-        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
-        report_color=color,
-    )
+    rows, cfg = _load_report_rows_and_config(site, company_name, report_color, mode, ips)
+    pdf_path = build_inventory_pdf_report(rows, **cfg)
     data = pdf_path.read_bytes()
     headers = {"Content-Disposition": f'inline; filename="{pdf_path.name}"'}
     return StreamingResponse(io.BytesIO(data), media_type="application/pdf", headers=headers)
@@ -897,38 +975,8 @@ async def api_inventory_report_preview(site: str = "", company_name: str = "", r
 
 @router.get("/inventory/report/preview.jpg")
 async def api_inventory_report_preview_jpg(site: str = "", company_name: str = "", report_color: str = "", mode: str = "", ips: str = "") -> FileResponse:
-    report_mode = str(mode or "").strip().lower()
-    rows = _load_inventory_rows(mode=(report_mode or "olt"), site=site)
-    if report_mode == "olt":
-        rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
-    elif report_mode == "switch":
-        rows, _ = _enrich_inventory_with_switch(list(rows), DATA_DIR / "switch-mac-table.json")
-    selected_ips = {str(part or "").strip() for part in str(ips or "").split(",")}
-    selected_ips.discard("")
-    if selected_ips:
-        rows = [
-            r for r in rows
-            if isinstance(r, dict) and str(r.get("ip") or r.get("IP") or "").strip() in selected_ips
-        ]
-    settings = load_app_settings()
-    if not isinstance(settings, dict):
-        settings = {}
-    rep_cfg = settings.get("inventory_pdf_report")
-    rep_cfg = rep_cfg if isinstance(rep_cfg, dict) else {}
-    company = str(company_name or rep_cfg.get("company_name") or "").strip()
-    color = _report_color(report_color or rep_cfg.get("report_color") or "")
-    report_logo_path = tenant_report_logo_path("inventory") if get_current_tenant_slug() else (DATA_DIR / "input" / "inventory-report-logo.png")
-    logo = report_logo_path if report_logo_path.exists() else None
-    img_path = build_inventory_preview_image(
-        rows,
-        site=site,
-        company_name=company,
-        logo_path=logo,
-        include_olt=(report_mode == "olt"),
-        include_switch=(report_mode == "switch"),
-        module_label={"olt": "Cameras IP OLT", "switch": "Cameras IP Switch"}.get(report_mode, "Cameras IP Basico"),
-        report_color=color,
-    )
+    rows, cfg = _load_report_rows_and_config(site, company_name, report_color, mode, ips)
+    img_path = build_inventory_preview_image(rows, **cfg)
     return FileResponse(path=img_path, media_type="image/jpeg", filename=img_path.name)
 
 

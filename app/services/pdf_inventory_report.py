@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 import ipaddress
+import os
 import re
+import shutil
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -17,11 +19,16 @@ A4_H = 3508
 MARGIN_X = 120
 MARGIN_Y = 90
 
-# Teto de fotos por relatorio: independe do front mandar `ips` ou nao,
-# isso e o que garante que a galeria nunca volte a estourar memoria em
-# inventarios com centenas de cameras (o motivo dela ter sido desligada
-# por completo antes).
-MAX_PHOTOS = 120
+ProgressCb = Optional[Callable[[int, int, str], None]]
+
+# Teto de seguranca (nao um limite pratico): cada pagina e desenhada e
+# gravada em disco como JPEG temporario assim que fica pronta (ver
+# _PageSink), entao a memoria usada nao cresce com o numero de fotos --
+# um inventario com 1000+ cameras funciona, so demora mais (por isso o
+# endpoint de relatorio roda como job com progresso em vez de request
+# sincrono). Este numero e so uma trava contra um pedido acidentalmente
+# gigantesco.
+MAX_PHOTOS = 4000
 
 # Paleta neutra com leve tom frio, para nao competir com a cor de destaque
 # (report_color, escolhida por tenant/relatorio).
@@ -316,6 +323,25 @@ def _new_page() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
     return page, draw
 
 
+class _PageSink:
+    """Recebe paginas prontas e grava cada uma em disco na hora, descartando
+    o bitmap da memoria em seguida. E o que permite montar um relatorio com
+    milhares de paginas sem acumular gigabytes de imagens RGBA em RAM --
+    antes, todas as paginas ficavam numa lista em memoria ate o fim."""
+
+    def __init__(self, tmp_dir: Path) -> None:
+        self.tmp_dir = tmp_dir
+        self.paths: List[Path] = []
+
+    def add(self, page: Image.Image) -> None:
+        p = self.tmp_dir / f"page_{len(self.paths) + 1:05d}.jpg"
+        page.convert("RGB").save(p, "JPEG", quality=88)
+        self.paths.append(p)
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+
 def _draw_header(
     page: Image.Image,
     draw: ImageDraw.ImageDraw,
@@ -440,7 +466,7 @@ def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]
 
 def _draw_table_pages(
     rows: List[Dict[str, Any]],
-    pages: List[Image.Image],
+    sink: "_PageSink",
     site_label: str,
     company_name: str = "",
     logo_path: Optional[Path] = None,
@@ -448,6 +474,7 @@ def _draw_table_pages(
     include_switch: bool = False,
     module_label: str = "Cameras IP",
     report_color: str = "",
+    progress_cb: ProgressCb = None,
 ) -> None:
     f_h = _load_font(23, bold=True)
     f = _load_font(23, bold=False)
@@ -488,7 +515,7 @@ def _draw_table_pages(
         if total == 0:
             draw.rounded_rectangle((x0, y, x0 + w, y + 90), radius=12, fill=CARD_BG, outline=BORDER_SOFT, width=2)
             draw.text((x0 + 24, y + 32), "Nenhuma camera encontrada para o filtro atual.", font=f, fill=INK_MUTED)
-            pages.append(page)
+            sink.add(page)
             break
 
         row_top = y
@@ -530,12 +557,14 @@ def _draw_table_pages(
             idx += 1
 
         draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
-        pages.append(page)
+        sink.add(page)
+        if progress_cb:
+            progress_cb(idx, total, "tabela")
 
 
 def _draw_photo_pages(
     rows: List[Dict[str, Any]],
-    pages: List[Image.Image],
+    sink: "_PageSink",
     site_label: str,
     company_name: str = "",
     logo_path: Optional[Path] = None,
@@ -543,22 +572,26 @@ def _draw_photo_pages(
     include_switch: bool = False,
     module_label: str = "Cameras IP",
     report_color: str = "",
+    progress_cb: ProgressCb = None,
 ) -> None:
-    f_txt = _load_font(24, bold=False)
-    f_txt_b = _load_font(24, bold=True)
-    f_cap = _load_font(30, bold=True)
-    f_ip = _load_mono_font(23, bold=False)
-    f_status = _load_font(19, bold=True)
-    f_note = _load_font(21, bold=False)
+    f_txt = _load_font(19, bold=False)
+    f_txt_b = _load_font(19, bold=True)
+    f_cap = _load_font(25, bold=True)
+    f_ip = _load_mono_font(19, bold=False)
+    f_status = _load_font(15, bold=True)
+    f_note = _load_font(17, bold=False)
 
     color = _report_color(report_color)
-    card_w = 1060
-    card_h = 960
-    gap_x = 80
-    gap_y = 96
+    # Grade 3x5 (15 fotos/pagina): card dimensionado pro conteudo real (foto
+    # + 2 linhas de info), sem sobra vazia embaixo como na versao 2x3 antiga.
+    cols_n, rows_n = 3, 5
+    gap_x, gap_y = 56, 40
+    page_w = A4_W - (2 * MARGIN_X)
+    card_w = (page_w - gap_x * (cols_n - 1)) // cols_n
+    card_h = 460
     x_start = MARGIN_X
-    y_start_base = MARGIN_Y + 258
-    per_page = 6
+    y_start_base = MARGIN_Y + 250
+    per_page = cols_n * rows_n
 
     photo_rows = [r for r in rows if _pick_image_path(r) is not None]
     truncated = len(photo_rows) > MAX_PHOTOS
@@ -581,25 +614,27 @@ def _draw_photo_pages(
 
         if total == 0:
             draw.text((MARGIN_X, y0), "Nenhuma foto disponivel para o recorte atual.", font=f_txt, fill=INK_MUTED)
-            pages.append(page)
+            sink.add(page)
+            if progress_cb:
+                progress_cb(0, 0, "fotos")
             break
 
         for slot in range(per_page):
             if idx >= total:
                 break
-            col = slot % 2
-            row = slot // 2
+            col = slot % cols_n
+            row = slot // cols_n
             x = x_start + col * (card_w + gap_x)
             y = y_start_base + row * (card_h + gap_y)
 
             # Sombra suave: retangulo levemente maior e deslocado, atras do card.
-            shadow_off = 8
+            shadow_off = 6
             draw.rounded_rectangle(
                 (x + shadow_off, y + shadow_off, x + card_w + shadow_off, y + card_h + shadow_off),
-                radius=22,
+                radius=16,
                 fill=SHADOW,
             )
-            draw.rounded_rectangle((x, y, x + card_w, y + card_h), radius=22, fill=CARD_BG, outline=BORDER, width=2)
+            draw.rounded_rectangle((x, y, x + card_w, y + card_h), radius=16, fill=CARD_BG, outline=BORDER, width=2)
 
             r = photo_rows[idx]
             title = _to_text(r.get("titulo") or r.get("title") or r.get("nome") or r.get("ip") or "Camera")
@@ -607,24 +642,21 @@ def _draw_photo_pages(
             local = _to_text(r.get("local") or r.get("LOCAL"))
             st = _to_text(r.get("status"))
 
-            pad_x = 30
-            head_y = y + 24
-            draw.text((x + pad_x, head_y), _fit_text(draw, title, f_cap, card_w - (pad_x * 2) - 170), font=f_cap, fill=INK)
+            pad_x = 18
+            head_y = y + 14
+            draw.text((x + pad_x, head_y), _fit_text(draw, title, f_cap, card_w - (pad_x * 2)), font=f_cap, fill=INK)
+
+            sub_y = head_y + 32
             bgp, fgp = _status_colors(st)
-            pill_w_guess = len(st or "-") * 16 + 32
-            _draw_pill(draw, x + card_w - pad_x - pill_w_guess, head_y - 2, (st or "-").upper(), f_status, bgp, fgp, pad_x=14, pad_y=7)
+            pill_w = _draw_pill(draw, x + pad_x, sub_y, (st or "-").upper(), f_status, bgp, fgp, pad_x=10, pad_y=4)
+            id_text = _fit_text(draw, ip or "-", f_ip, card_w - (pad_x * 2) - pill_w - 14)
+            draw.text((x + pad_x + pill_w + 14, sub_y + 3), id_text, font=f_ip, fill=INK_MUTED)
 
-            sub_y = head_y + 46
-            draw.text((x + pad_x, sub_y), ip or "-", font=f_ip, fill=INK_MUTED)
-            if local:
-                ip_w = draw.textlength(ip or "-", font=f_ip)
-                draw.text((x + pad_x + ip_w + 18, sub_y + 1), f"· {local}", font=f_txt, fill=INK_MUTED)
-
-            img_top = y + 130
-            img_h = 560
+            img_top = y + 66
+            img_h = 300
             img_box = (x + pad_x, img_top, x + card_w - pad_x, img_top + img_h)
-            draw.rounded_rectangle(img_box, radius=16, outline=BORDER, width=3, fill="#eef2f8")
-            inner_pad = 10
+            draw.rounded_rectangle(img_box, radius=12, outline=BORDER, width=2, fill="#eef2f8")
+            inner_pad = 8
             inner_box = (
                 img_box[0] + inner_pad,
                 img_box[1] + inner_pad,
@@ -642,31 +674,39 @@ def _draw_photo_pages(
                     oy = inner_box[1] + (bh - im.height) // 2
                     page.paste(im, (ox, oy))
                     draw = ImageDraw.Draw(page)
+                    del im
                 else:
-                    draw.text((inner_box[0] + 20, inner_box[1] + 20), "Sem snapshot", font=f_txt, fill=INK_MUTED)
+                    draw.text((inner_box[0] + 14, inner_box[1] + 14), "Sem snapshot", font=f_txt, fill=INK_MUTED)
             except Exception:
-                draw.text((inner_box[0] + 20, inner_box[1] + 20), "Falha ao carregar imagem", font=f_txt, fill=STATUS_BAD_FG)
+                draw.text((inner_box[0] + 14, inner_box[1] + 14), "Falha na imagem", font=f_txt, fill=STATUS_BAD_FG)
 
-            info_y = img_top + img_h + 20
-            info_pairs: List[Tuple[str, str]] = [("Modelo", _to_text(r.get("modelo")))]
+            info_y = img_top + img_h + 12
+            info_bits: List[str] = []
+            if local:
+                info_bits.append(local)
+            modelo = _to_text(r.get("modelo"))
+            if modelo:
+                info_bits.append(modelo)
+            if info_bits:
+                draw.text((x + pad_x, info_y), _fit_text(draw, "  ·  ".join(info_bits), f_txt, card_w - (pad_x * 2)), font=f_txt, fill=INK_MUTED)
+                info_y += 26
+
+            detail = ""
             if include_switch:
-                info_pairs.append(("Switch", _to_text(r.get("switch_name")) or "-"))
-                info_pairs.append(("Porta / VLAN", f"{_to_text(r.get('switch_port')) or '-'} / {_to_text(r.get('switch_vlan') or r.get('vlan')) or '-'}"))
+                detail = f"Switch {(_to_text(r.get('switch_name')) or '-')}  ·  Porta {(_to_text(r.get('switch_port')) or '-')}  ·  VLAN {(_to_text(r.get('switch_vlan') or r.get('vlan')) or '-')}"
             elif include_olt:
-                info_pairs.append(("PON / ONU ID", f"{_to_text(r.get('pon') or r.get('PON')) or '-'} / {_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-'}"))
-                info_pairs.append(("ONU Serial", _to_text(r.get("onu_serial") or r.get("ONU_SERIAL")) or "-"))
-
-            for label, value in info_pairs:
-                draw.text((x + pad_x, info_y), f"{label}:", font=f_note, fill=INK_MUTED)
-                lbl_w = draw.textlength(f"{label}:", font=f_note)
-                draw.text((x + pad_x + lbl_w + 10, info_y - 1), _fit_text(draw, value, f_txt_b, card_w - (pad_x * 2) - lbl_w - 10), font=f_txt_b, fill=INK)
-                info_y += 34
+                detail = f"PON {(_to_text(r.get('pon') or r.get('PON')) or '-')}  ·  ONU {(_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-')}  ·  SN {(_to_text(r.get('onu_serial') or r.get('ONU_SERIAL')) or '-')}"
+            if detail:
+                draw.text((x + pad_x, info_y), _fit_text(draw, detail, f_txt_b, card_w - (pad_x * 2)), font=f_txt_b, fill=INK)
 
             idx += 1
+            if progress_cb:
+                progress_cb(idx, total, "fotos")
 
-        note = "Galeria limitada as primeiras 120 fotos do recorte atual." if truncated else ""
-        draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), note, font=_load_font(19, False), fill=INK_MUTED) if note else None
-        pages.append(page)
+        note = f"Galeria limitada as primeiras {MAX_PHOTOS} fotos do recorte atual." if truncated else ""
+        if note:
+            draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), note, font=_load_font(19, False), fill=INK_MUTED)
+        sink.add(page)
 
 
 def build_inventory_pdf_report(
@@ -679,27 +719,27 @@ def build_inventory_pdf_report(
     module_label: str = "Cameras IP",
     report_color: str = "",
     include_photos: bool = True,
+    progress_cb: ProgressCb = None,
 ) -> Path:
     rows_list = [dict(r) for r in rows if isinstance(r, dict)]
     rows_list = _sort_inventory_rows(rows_list)
     site_label = _to_text(site) or "Todos os sites"
 
-    pages: List[Image.Image] = []
-    _draw_table_pages(
-        rows_list,
-        pages,
-        site_label,
-        company_name=company_name,
-        logo_path=logo_path,
-        include_olt=include_olt,
-        include_switch=include_switch,
-        module_label=module_label,
-        report_color=report_color,
-    )
-    if include_photos:
-        _draw_photo_pages(
+    reports_dir = OUTPUT_DIR / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    fname_site = site_label.replace(" ", "_").replace("/", "_")
+    out = reports_dir / f"inventory-report-{fname_site}-{ts}.pdf"
+    tmp_dir = reports_dir / f".tmp-{ts}-{os.getpid()}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        sink = _PageSink(tmp_dir)
+        if progress_cb:
+            progress_cb(0, len(rows_list), "tabela")
+        _draw_table_pages(
             rows_list,
-            pages,
+            sink,
             site_label,
             company_name=company_name,
             logo_path=logo_path,
@@ -707,22 +747,53 @@ def build_inventory_pdf_report(
             include_switch=include_switch,
             module_label=module_label,
             report_color=report_color,
+            progress_cb=progress_cb,
         )
+        if include_photos:
+            _draw_photo_pages(
+                rows_list,
+                sink,
+                site_label,
+                company_name=company_name,
+                logo_path=logo_path,
+                include_olt=include_olt,
+                include_switch=include_switch,
+                module_label=module_label,
+                report_color=report_color,
+                progress_cb=progress_cb,
+            )
 
-    total_pages = len(pages)
-    for i, page in enumerate(pages, start=1):
-        draw = ImageDraw.Draw(page)
-        _draw_footer(draw, i, total_pages, note=f"{len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
+        total_pages = len(sink)
+        note = f"{len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total"
+        if progress_cb:
+            progress_cb(0, total_pages, "finalizando")
+        # Reabre cada pagina do disco uma de cada vez so pra carimbar o
+        # rodape (precisa saber o total de paginas, que so existe depois
+        # que todas ja foram desenhadas) -- ainda uma pagina por vez em
+        # memoria, nunca o documento inteiro.
+        for i, p in enumerate(sink.paths, start=1):
+            img = Image.open(p)
+            img.load()
+            draw = ImageDraw.Draw(img)
+            _draw_footer(draw, i, total_pages, note=note)
+            img.save(p, "JPEG", quality=88)
+            img.close()
+            if progress_cb:
+                progress_cb(i, total_pages, "finalizando")
 
-    reports_dir = OUTPUT_DIR / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    fname_site = site_label.replace(" ", "_").replace("/", "_")
-    out = reports_dir / f"inventory-report-{fname_site}-{ts}.pdf"
+        # Monta o PDF final lendo cada pagina do disco sob demanda: os
+        # objetos abaixo ficam "preguicosos" (Image.open sem .load()), entao
+        # o Pillow decodifica uma pagina por vez durante o save, em vez de
+        # manter o documento inteiro rasterizado na RAM ao mesmo tempo --
+        # e o que permite um relatorio com milhares de paginas.
+        imgs = [Image.open(p) for p in sink.paths]
+        first, rest = imgs[0], imgs[1:]
+        first.save(out, "PDF", save_all=True, append_images=rest, resolution=200.0)
+        for im in imgs:
+            im.close()
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    rgb_pages = [p.convert("RGB") for p in pages]
-    first, rest = rgb_pages[0], rgb_pages[1:]
-    first.save(out, "PDF", save_all=True, append_images=rest, resolution=200.0)
     return out
 
 

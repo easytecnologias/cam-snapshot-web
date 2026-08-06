@@ -387,38 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Rodape inventario OLT
   document.getElementById('btnOltBackup')?.addEventListener('click', () => window.open(`${API_BASE}/api/backup/export`, '_blank'));
-  document.getElementById('btnOltPdf')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    if (button.disabled) return;
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    const originalTip = button.dataset.tip;
-    button.dataset.tip = 'Gerando relatório...';
-    try {
-      // O relatorio reflete exatamente o que esta na tela no momento do
-      // clique: aba ativa (basico/olt/switch), filtro de site e a lista
-      // filtrada/pesquisada na tabela -- ou so as marcadas, se houver
-      // alguma selecionada. Sem isso o relatorio sempre trazia TODAS as
-      // cameras do modo OLT, ignorando qualquer filtro da tela.
-      const mode = _invOltView || 'olt';
-      const checked = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.value);
-      const visibleIps = [...document.querySelectorAll('#invOltTable .inv-olt-row')].map(tr => tr.dataset.ip).filter(Boolean);
-      const totalInMode = (_invCam[mode] || []).length;
-      const narrowed = checked.length > 0 || visibleIps.length !== totalInMode;
-      const ips = checked.length ? checked : visibleIps;
-
-      const params = new URLSearchParams({ mode });
-      const site = document.getElementById('filterSiteOlt')?.value || '';
-      if (site) params.set('site', site);
-      if (narrowed) params.set('ips', ips.join(','));
-
-      await downloadWithAuth(`/api/inventory/report.pdf?${params.toString()}`, `relatorio-cameras-ip-${mode}.pdf`);
-    } finally {
-      button.disabled = false;
-      button.removeAttribute('aria-busy');
-      button.dataset.tip = originalTip || 'Relatório PDF';
-    }
-  });
+  document.getElementById('btnOltPdf')?.addEventListener('click', (event) => runInvOltReport(event.currentTarget));
   document.getElementById('btnOltImgbb')?.addEventListener('click', () => {
     const checked = [...document.querySelectorAll('.chk-olt:checked')];
     const ips = checked.map(c => c.value);

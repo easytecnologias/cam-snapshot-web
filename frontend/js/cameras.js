@@ -1752,4 +1752,94 @@ async function camAction(action) {
   }
 }
 
+// Relatorio PDF de Cameras IP: roda como job assincrono (POST inicia,
+// GET status acompanha done/total/etapa) em vez de uma unica requisicao
+// sincrona -- com a galeria de fotos de volta, gerar pode levar de
+// segundos a minutos num inventario grande, e sem progresso visivel a
+// tela parece travada. O icone do botao gira e o texto/toast atualizam
+// a cada etapa (tabela -> fotos -> finalizando) com contagem real.
+async function runInvOltReport(button) {
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  const originalTip = button.dataset.tip;
+  const originalIcon = button.innerHTML;
+  button.innerHTML = '<i data-lucide="loader-2" class="spin"></i>';
+  lucide.createIcons();
+
+  const setProgress = (text) => {
+    button.dataset.tip = text;
+    showToast(text);
+  };
+
+  try {
+    // O relatorio reflete exatamente o que esta na tela no momento do
+    // clique: aba ativa (basico/olt/switch), filtro de site e a lista
+    // filtrada/pesquisada na tabela -- ou so as marcadas, se houver
+    // alguma selecionada.
+    const mode = _invOltView || 'olt';
+    const checked = [...document.querySelectorAll('.chk-olt:checked')].map(c => c.value);
+    const visibleIps = [...document.querySelectorAll('#invOltTable .inv-olt-row')].map(tr => tr.dataset.ip).filter(Boolean);
+    const totalInMode = (_invCam[mode] || []).length;
+    const narrowed = checked.length > 0 || visibleIps.length !== totalInMode;
+    const ips = checked.length ? checked : visibleIps;
+
+    const params = new URLSearchParams({ mode });
+    const site = document.getElementById('filterSiteOlt')?.value || '';
+    if (site) params.set('site', site);
+    if (narrowed) params.set('ips', ips.join(','));
+
+    setProgress('Preparando relatório...');
+    const start = await jsonOrReadableError(
+      await api(`/api/inventory/report/job?${params.toString()}`, { method: 'POST' }),
+      'Não foi possível iniciar a geração do relatório.'
+    );
+    const jobId = start?.job_id;
+    if (!jobId) throw new Error('Não foi possível iniciar a geração do relatório.');
+
+    const startedAt = Date.now();
+    let state = null;
+    while (Date.now() - startedAt < 15 * 60 * 1000) {
+      state = await jsonOrReadableError(
+        await api(`/api/inventory/report/job/${jobId}/status`),
+        'Não foi possível acompanhar a geração do relatório.'
+      );
+      if (state?.status === 'done' || state?.status === 'error') break;
+      const stageLabel = {
+        preparando: 'Preparando relatório...',
+        tabela: `Montando tabela... ${state?.done ?? 0}/${state?.total ?? 0}`,
+        fotos: `Gerando fotos... ${state?.done ?? 0}/${state?.total ?? 0}`,
+        finalizando: 'Finalizando PDF...',
+      }[state?.stage] || 'Gerando relatório...';
+      setProgress(stageLabel);
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
+
+    if (state?.status === 'error') throw new Error(state?.error || 'Falha ao gerar o relatório.');
+    if (state?.status !== 'done') throw new Error('A geração está demorando mais que o esperado. Tente novamente em instantes.');
+
+    setProgress('Baixando PDF...');
+    const res = await api(`/api/inventory/report/job/${jobId}/download`);
+    if (!res || !res.ok) throw new Error('Não foi possível baixar o relatório gerado.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-cameras-ip-${mode}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Relatório gerado. O download foi iniciado.');
+  } catch (err) {
+    showToast(err?.message || 'Não foi possível gerar o relatório.', true);
+  } finally {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.dataset.tip = originalTip || 'Relatório PDF';
+    button.innerHTML = originalIcon;
+    lucide.createIcons();
+  }
+}
+
 //  Inventario DVR
