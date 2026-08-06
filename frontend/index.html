@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=134">
+  <link rel="stylesheet" href="styles.css?v=135">
 </head>
 <body>
 
@@ -42,14 +42,15 @@
 
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <div class="brand-mark">S</div>
+        <div class="brand-mark" id="brandMark">S</div>
         <div>
           <strong>SightOps</strong>
-          <span>Gestao de CFTV</span>
+          <span id="brandSubtitle">Gestao de CFTV</span>
         </div>
       </div>
 
       <div class="nav-scroll">
+        <div id="navClientMode">
         <!-- Dashboard -->
         <button class="nav-item active" data-view="dashboard">
           <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
@@ -100,6 +101,15 @@
         <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
 
+        </div>
+
+        <div id="navOwnerMode" hidden>
+          <button class="nav-item active" data-view="owner-overview"><i data-lucide="layout-dashboard"></i><span>Visão geral</span></button>
+          <div class="nav-section-label">Administração SaaS</div>
+          <button class="nav-item" data-view="owner-clients"><i data-lucide="building-2"></i><span>Clientes</span></button>
+          <button class="nav-item" data-view="owner-audit"><i data-lucide="history"></i><span>Auditoria</span></button>
+          <button class="nav-item nav-item-owner-cta" id="btnEnterOperation" type="button"><i data-lucide="arrow-right-circle"></i><span>Ir para a operação</span></button>
+        </div>
       </div>
 
       <div class="sidebar-footer">
@@ -124,8 +134,10 @@
             <strong>Dashboard</strong>
             <span>Visão geral do parque</span>
           </div>
+          <span class="owner-mode-badge" id="ownerModeBadge" hidden><i data-lucide="shield-check"></i> Administração da plataforma</span>
         </div>
         <div class="topbar-actions">
+          <button class="ghost-action" id="btnBackToOwnerPanel" type="button" hidden><i data-lucide="arrow-left-circle"></i> Voltar ao Painel do Dono</button>
           <div class="profile" id="profileMenu">
             <div class="avatar" id="profileAvatar">?</div>
             <div><strong id="profileName">-</strong><span id="profileRole">-</span></div>
@@ -1893,46 +1905,15 @@
           <aside class="settings-navigation" aria-label="Áreas de configuração">
             <div class="settings-navigation-head"><span>Console administrativo</span><small>Gerencie o ambiente atual</small></div>
             <button type="button" class="settings-nav-item active" data-settings-tab="overview"><i data-lucide="layout-dashboard"></i><span><strong>Visão geral</strong><small>Resumo da conta</small></span><i data-lucide="chevron-right"></i></button>
-            <button type="button" class="settings-nav-item" data-settings-tab="tenants"><i data-lucide="building-2"></i><span><strong>Clientes</strong><small>Organizações SaaS</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="users"><i data-lucide="users"></i><span><strong>Usuários e acessos</strong><small>Perfis e permissões</small></span><i data-lucide="chevron-right"></i></button>
             <button type="button" class="settings-nav-item" data-settings-tab="notifications"><i data-lucide="bell-ring"></i><span><strong>Notificações</strong><small>Alertas operacionais</small></span><i data-lucide="chevron-right"></i></button>
-            <button type="button" class="settings-nav-item" data-settings-tab="platform"><i data-lucide="shield-check"></i><span><strong>Plataforma e segurança</strong><small>Banco e autenticação</small></span><i data-lucide="chevron-right"></i></button>
           </aside>
           <div class="settings-saas-grid">
           <div class="panel settings-wide-panel settings-area active" data-settings-panel="overview">
             <div class="panel-header"><div><h2>Visão geral da conta</h2><p>Estado administrativo do cliente e da plataforma.</p></div><span class="badge badge-green">Ambiente ativo</span></div>
             <div class="settings-status-grid settings-overview-grid" id="settingsOverviewStatus"></div>
-            <div class="settings-overview-help"><i data-lucide="info"></i><span>Use o menu ao lado para administrar cada área sem misturar configurações operacionais e de plataforma.</span></div>
+            <div class="settings-overview-help"><i data-lucide="info"></i><span>Use o menu ao lado para administrar a equipe e as notificações deste cliente.</span></div>
           </div>
-          <div class="panel settings-area settings-admin-form-panel" data-settings-panel="tenants">
-            <div class="panel-header">
-              <div><h2>Novo cliente</h2><p>Crie um tenant independente para operacao SaaS.</p></div>
-            </div>
-            <div class="settings-form">
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="tenantName">Cliente</label>
-                  <input id="tenantName" placeholder="Ex: Condominio Reserva">
-                </div>
-                <div class="form-group">
-                  <label for="tenantSlug">Slug</label>
-                  <input id="tenantSlug" placeholder="reserva">
-                </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="tenantOwnerUser">Owner inicial</label>
-                  <input id="tenantOwnerUser" placeholder="usuario do cliente">
-                </div>
-                <div class="form-group">
-                  <label for="tenantOwnerPass">Senha</label>
-                  <input id="tenantOwnerPass" type="password" placeholder="opcional, minimo 8">
-                </div>
-              </div>
-              <button class="primary-action" id="btnCreateTenant" type="button"><i data-lucide="building-2"></i> Criar cliente</button>
-            </div>
-          </div>
-
           <div class="panel settings-area settings-admin-form-panel" data-settings-panel="users">
             <div class="panel-header">
               <div><h2>Novo usuario</h2><p>Usuarios sao criados dentro do cliente logado.</p></div>
@@ -1967,19 +1948,6 @@
             </div>
           </div>
 
-          <div class="panel settings-wide-panel settings-area" data-settings-panel="tenants">
-            <div class="panel-header">
-              <div><h2>Clientes</h2><p id="settingsTenantsSummary">Carregando clientes.</p></div>
-            </div>
-            <div class="table-wrap settings-table-wrap">
-              <table class="data-table settings-table settings-tenants-table">
-                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"><col style="width:220px"></colgroup>
-                <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th><th>Ações</th></tr></thead>
-                <tbody id="settingsTenantsBody"></tbody>
-              </table>
-            </div>
-          </div>
-
           <div class="panel settings-wide-panel settings-area" data-settings-panel="users">
             <div class="panel-header">
               <div><h2>Usuarios</h2><p id="settingsUsersSummary">Carregando usuarios.</p></div>
@@ -1993,13 +1961,6 @@
             </div>
           </div>
 
-          <div class="panel settings-wide-panel settings-area" data-settings-panel="platform">
-            <div class="panel-header">
-              <div><h2>Plataforma e segurança</h2><p>Banco, autenticação, sessões e isolamento do SaaS.</p></div>
-            </div>
-            <div class="settings-status-grid" id="settingsStorageStatus"></div>
-            <div class="settings-security-note"><i data-lucide="shield-check"></i><div><strong>Segurança por tenant</strong><span>O isolamento e as permissões são aplicados pelo backend em todas as operações administrativas.</span></div></div>
-          </div>
           <div class="panel settings-wide-panel settings-area" data-settings-panel="notifications">
             <div class="panel-header">
               <div><h2>Notificacoes pelo Telegram</h2><p>Alertas de queda, recuperacao e degradacao do sinal optico por cliente.</p></div>
@@ -2024,6 +1985,98 @@
               </div>
             </div>
           </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: PAINEL DO DONO / VISAO GERAL --- -->
+      <section class="workspace hidden" id="viewOwnerOverview">
+        <div class="page-heading">
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Visão geral</h1><p>Panorama de todos os clientes SaaS e da infraestrutura.</p></div>
+          <button class="secondary-action" id="btnOwnerOverviewRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+        <div class="settings-status-grid settings-overview-grid" id="ownerOverviewStatus"></div>
+        <div class="panel settings-wide-panel" style="margin-top:20px">
+          <div class="panel-header">
+            <div><h2>Clientes recentes</h2><p id="ownerOverviewRecentSummary">Carregando clientes.</p></div>
+            <button class="secondary-action" type="button" onclick="navigateTo('owner-clients')"><i data-lucide="building-2"></i> Ver todos</button>
+          </div>
+          <div class="table-wrap settings-table-wrap">
+            <table class="data-table settings-table settings-tenants-table">
+              <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"></colgroup>
+              <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th></tr></thead>
+              <tbody id="ownerOverviewRecentBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: PAINEL DO DONO / CLIENTES --- -->
+      <section class="workspace hidden" id="viewOwnerClients">
+        <div class="page-heading">
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Clientes</h1><p>Organizações SaaS, módulos habilitados e operação como cliente.</p></div>
+          <button class="secondary-action" id="btnOwnerClientsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+        <div class="settings-saas-grid">
+          <div class="panel settings-area settings-admin-form-panel">
+            <div class="panel-header">
+              <div><h2>Novo cliente</h2><p>Crie um tenant independente para operacao SaaS.</p></div>
+            </div>
+            <div class="settings-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="tenantName">Cliente</label>
+                  <input id="tenantName" placeholder="Ex: Condominio Reserva">
+                </div>
+                <div class="form-group">
+                  <label for="tenantSlug">Slug</label>
+                  <input id="tenantSlug" placeholder="reserva">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="tenantOwnerUser">Owner inicial</label>
+                  <input id="tenantOwnerUser" placeholder="usuario do cliente">
+                </div>
+                <div class="form-group">
+                  <label for="tenantOwnerPass">Senha</label>
+                  <input id="tenantOwnerPass" type="password" placeholder="opcional, minimo 8">
+                </div>
+              </div>
+              <button class="primary-action" id="btnCreateTenant" type="button"><i data-lucide="building-2"></i> Criar cliente</button>
+            </div>
+          </div>
+
+          <div class="panel settings-wide-panel">
+            <div class="panel-header">
+              <div><h2>Clientes</h2><p id="settingsTenantsSummary">Carregando clientes.</p></div>
+            </div>
+            <div class="table-wrap settings-table-wrap">
+              <table class="data-table settings-table settings-tenants-table">
+                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"><col style="width:220px"></colgroup>
+                <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th><th>Ações</th></tr></thead>
+                <tbody id="settingsTenantsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: PAINEL DO DONO / AUDITORIA --- -->
+      <section class="workspace hidden" id="viewOwnerAudit">
+        <div class="page-heading">
+          <div><p class="eyebrow">Administração da plataforma</p><h1>Auditoria</h1><p>Ações administrativas em todos os clientes.</p></div>
+          <button class="secondary-action" id="btnOwnerAuditRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+        </div>
+        <div class="panel settings-wide-panel">
+          <div class="panel-header">
+            <div><h2>Eventos recentes</h2><p id="ownerAuditSummary">Carregando eventos.</p></div>
+          </div>
+          <div class="table-wrap settings-table-wrap">
+            <table class="data-table settings-table">
+              <thead><tr><th>Quando</th><th>Cliente</th><th>Ação</th><th>Recurso</th><th>Detalhe</th></tr></thead>
+              <tbody id="ownerAuditBody"></tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -4534,7 +4587,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=150"></script>
+  <script src="js/core.js?v=151"></script>
   <script src="js/dashboard.js?v=150"></script>
   <script src="js/cameras.js?v=155"></script>
   <script src="js/recorders.js?v=143"></script>
@@ -4549,6 +4602,6 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/bootstrap.js?v=163"></script>
+  <script src="js/bootstrap.js?v=164"></script>
 </body>
 </html>

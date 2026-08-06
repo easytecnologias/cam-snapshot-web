@@ -56,6 +56,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tenantModulesUnrestricted')?.addEventListener('change', _tenantModulesToggleUnrestricted);
   document.getElementById('btnSaveTenantModules')?.addEventListener('click', saveTenantModules);
 
+  // Painel do Dono <-> Painel operacional (so admin de plataforma ve esses botoes)
+  document.getElementById('btnEnterOperation')?.addEventListener('click', () => {
+    setShellMode('client');
+    navigateTo('dashboard');
+  });
+  document.getElementById('btnBackToOwnerPanel')?.addEventListener('click', () => {
+    setShellMode('owner');
+    navigateTo('owner-overview');
+  });
+  document.getElementById('btnOwnerOverviewRefresh')?.addEventListener('click', loadOwnerOverview);
+  document.getElementById('btnOwnerClientsRefresh')?.addEventListener('click', loadOwnerClients);
+  document.getElementById('btnOwnerAuditRefresh')?.addEventListener('click', loadOwnerAudit);
+
   // Configuracoes SaaS
   document.getElementById('btnSettingsRefresh')?.addEventListener('click', loadSettings);
   document.getElementById('btnCreateTenant')?.addEventListener('click', createTenantFromSettings);

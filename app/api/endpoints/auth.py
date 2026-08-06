@@ -23,6 +23,7 @@ from app.services.auth_store import (
     list_users,
     migrate_auth_storage,
     module_catalog,
+    platform_audit_events,
     recent_audit_events,
     revoke_token,
     set_tenant_modules,
@@ -424,6 +425,15 @@ def api_auth_update_user(user_id: int, req: UserUpdateRequest, user: Dict[str, A
 @router.get("/audit")
 def api_auth_audit(limit: int = 50, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     return {"ok": True, "events": recent_audit_events(user, limit=limit)}
+
+
+@router.get("/audit/platform")
+def api_auth_audit_platform(limit: int = 50, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    try:
+        events = platform_audit_events(user, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {"ok": True, "events": events}
 
 
 @router.post("/storage/migrate")

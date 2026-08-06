@@ -151,6 +151,10 @@ a { color: inherit; text-decoration: none; }
   font-size: 13px;
 }
 .nav-item svg { width: 16px; }
+/* Modulo desligado pra esse cliente, ou aba de admin de plataforma escondida
+   de quem nao e admin de plataforma (ver applyModuleVisibility/
+   applyPlatformAdminVisibility em frontend/js/core.js). */
+.nav-item-hidden { display: none !important; }
 .nav-item b {
   margin-left: auto;
   min-width: 20px;
@@ -195,6 +199,42 @@ a { color: inherit; text-decoration: none; }
 .topbar-context strong { font-size: 14px; color: var(--text); }
 .topbar-context span { font-size: 11px; color: var(--muted); }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
+
+/* Faixa "operando como outro cliente" (admin de plataforma usando act-as).
+   Cor propositalmente diferente de qualquer outro estado (amber), pra nunca
+   ser confundida com sucesso/erro -- e um lembrete constante de que os dados
+   na tela sao de OUTRO cliente, nao do proprio tenant do admin. */
+.acting-as-banner {
+  position: sticky;
+  top: 68px;
+  z-index: 19;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 28px;
+  background: #fff3d6;
+  border-bottom: 1px solid #f0c766;
+  color: #7a5200;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.acting-as-banner svg { width: 15px; height: 15px; flex-shrink: 0; }
+.acting-as-banner span { flex: 1; }
+.acting-as-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid #d99a1f;
+  border-radius: 6px;
+  background: #fff;
+  color: #7a5200;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.acting-as-banner button svg { width: 13px; height: 13px; }
+.acting-as-banner button:hover { background: #fff8ea; }
 
 .icon-button {
   display: grid;
@@ -5828,6 +5868,26 @@ body.cam-live-lock {
 .planning-cable-box { overflow: hidden; border: 1px solid var(--border); border-radius: 9px; }.planning-cable-box summary { display: flex; min-height: 50px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--surface-soft); cursor: pointer; }.planning-cable-box summary > span { display: grid; gap: 2px; }.planning-cable-box summary small { color: var(--muted); font-size: 11px; }.planning-cable-box summary > strong { color: var(--primary); }
 .planning-cable-table-head, .planning-cable-row { display: grid; grid-template-columns: minmax(180px, 1fr) 78px 78px 92px 92px 92px; align-items: center; gap: 10px; padding: 9px 12px; }.planning-cable-table-head { color: var(--muted); background: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; }.planning-cable-row { border-top: 1px solid var(--border); font-size: 12px; }.planning-cable-row > span:not(:first-child), .planning-cable-table-head > span:not(:first-child) { text-align: right; }.planning-cable-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.planning-cable-status { justify-self: end; padding: 4px 7px; border-radius: 999px; color: var(--primary); background: var(--primary-soft); font-size: 10px; font-weight: 700; }.planning-cable-status.danger { color: #c92a2a; background: #fff0f0; }
 .planning-cable-warning { padding: 13px; border: 1px solid #f0c36d; border-radius: 8px; color: #855100; background: #fff8e6; }.planning-cable-empty { padding: 24px; color: var(--muted); text-align: center; }
+.planning-net-tool { display: flex; flex-direction: column; gap: 12px; }
+.planning-net-canvas { overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); max-height: 70vh; }
+.planning-net-canvas-inner { position: relative; }
+.planning-net-svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+.planning-net-line { stroke: var(--primary); stroke-width: 2; fill: none; opacity: .55; }
+.planning-net-card-slot { position: absolute; width: 220px; }
+.planning-net-card { background: #fff; border: 1.5px solid var(--border); border-radius: 10px; padding: 8px 10px; cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.planning-net-card:hover { border-color: var(--primary); box-shadow: 0 2px 10px rgba(8,127,91,.15); }
+.planning-net-card.is-root { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.planning-net-card.is-terminal { border-style: dashed; }
+.planning-net-card-head { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.planning-net-card-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planning-net-role { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); margin-top: 2px; }
+.planning-net-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 10px; color: var(--muted); }
+.planning-net-row > span:first-child { flex: none; font-weight: 700; text-transform: uppercase; }
+.planning-net-chips { display: flex; flex-wrap: wrap; gap: 3px; }
+.planning-net-chip { padding: 1px 6px; border-radius: 999px; font-size: 9px; font-weight: 700; background: var(--surface-soft); border: 1px solid var(--border); color: var(--text); }
+.planning-net-chip.is-used { background: rgba(201,42,42,.08); border-color: #c92a2a; color: #c92a2a; }
+.planning-net-chip.is-free { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.planning-net-count { font-weight: 700; color: var(--text); }
 @media (max-width: 720px) { .planning-cable-settings, .planning-cable-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .planning-cable-table-head { display: none; } .planning-cable-row { grid-template-columns: minmax(0, 1fr) auto; }.planning-cable-row > span { text-align: right; }.planning-cable-row > span:first-child { grid-column: 1 / -1; text-align: left; } }
 .planning-list-empty { display: flex; min-height: 132px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 20px; color: var(--muted); text-align: center; }
 .planning-list-empty .secondary-action { margin-top: 10px; }
@@ -5851,6 +5911,19 @@ body.cam-live-lock {
 .planning-field.full, .planning-check.full { grid-column: 1 / -1; }
 .planning-field input, .planning-field select, .planning-field textarea { width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; outline: none; color: var(--text); background: var(--surface); resize: vertical; }
 .planning-field input:focus, .planning-field select:focus, .planning-field textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(8,127,91,.09); }
+.planning-splitter-fibers { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.planning-splitter-output-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.planning-splitter-output-grid .planning-field select, .planning-splitter-fibers > .planning-field select { min-height: 38px; padding: 6px 8px; font-size: 12px; }
+.planning-splitter-readonly { min-height: 38px; padding: 6px 8px; font-size: 12px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); background: var(--surface); display: flex; align-items: center; }
+.planning-splitter-readonly.is-used { border-style: solid; border-color: var(--primary); color: var(--text); font-weight: 600; background: rgba(8,127,91,.06); }
+.planning-fiber-row { display: flex; flex-direction: column; gap: 6px; }
+.planning-fiber-row-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; color: var(--muted); }
+.planning-fiber-chips, .planning-fiber-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.planning-fiber-chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.planning-fiber-chip.is-free { background: rgba(8,127,91,.08); border-color: var(--primary); color: var(--primary); }
+.planning-fiber-check { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); color: var(--text); cursor: pointer; }
+.planning-fiber-check input { width: 14px; height: 14px; min-height: 0; }
+.planning-fiber-empty { font-size: 12px; color: var(--muted); font-style: italic; }
 .planning-check { display: flex; min-height: 54px; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
 .planning-check input { width: 18px; height: 18px; accent-color: var(--primary); }
 .planning-check span { display: flex; flex-direction: column; gap: 2px; }
@@ -5946,3 +6019,32 @@ body.cam-live-lock {
   .planning-modal { width: 100vw; max-width: none; height: 100dvh; max-height: 100dvh; border-radius: 0; }
   .planning-modal-footer button { flex: 1; }
 }
+
+/* ── PAINEL DO DONO (shell-owner) ──
+   Identidade visual do modo "administracao da plataforma", ligada via
+   setShellMode() em frontend/js/core.js (classe .shell-owner no <body>).
+   --primary e usado em ~150 lugares no resto do app -- recolori-lo mudaria
+   o app inteiro, entao o acento do dono fica preso ao sidebar/topbar. */
+.nav-item-owner-cta { margin-top: 10px; color: #f4d29b; }
+.nav-item-owner-cta:hover { color: #fff; }
+
+.owner-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #7a5200;
+  background: #fff3d6;
+  border: 1px solid #f0c766;
+}
+.owner-mode-badge svg { width: 13px; }
+
+body.shell-owner .sidebar { background: #1a1f36; }
+body.shell-owner .brand-mark { background: #c9962c; }
+body.shell-owner .nav-item:hover,
+body.shell-owner .nav-item.active { background: #262c4a; }
+body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }

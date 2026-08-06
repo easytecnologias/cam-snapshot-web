@@ -12,6 +12,7 @@ let _scanWs = null;
 let _camAuthAction = null;
 let _currentUser = null; // ultimo /api/auth/me: role, is_platform_admin, acting_as, enabled_modules...
 let _moduleCatalogCache = null; // /api/auth/modules/catalog, buscado uma vez por sessao
+let _shellMode = 'client'; // 'owner' (painel do dono) ou 'client' (painel operacional) -- so admin de plataforma pode estar em 'owner'
 
 // Cache curto, somente em memoria e por sessao autenticada. Evita repetir
 // respostas grandes ao alternar entre telas sem guardar dados entre usuarios.
@@ -189,24 +190,40 @@ function applyModuleVisibility() {
   }
 }
 
-// A aba "Clientes" (lista/cria outros tenants do SaaS) so faz sentido pra
-// quem administra a PLATAFORMA -- um cliente comum nao deve nem saber que
-// outros clientes existem.
+// Painel do Dono (menu, badge, atalhos) so existe pra quem administra a
+// PLATAFORMA -- um cliente comum nunca deve ver nem saber que esse modo
+// existe. Revalida o _shellMode atual contra o usuario logado (chamada toda
+// vez que o perfil e recarregado, ex: apos "Operar como").
 function applyPlatformAdminVisibility() {
+  setShellMode(_shellMode);
+}
+
+// Alterna entre o painel operacional (o que um cliente real ve) e o painel
+// do dono (administracao da plataforma: clientes, modulos, auditoria).
+// Diferente de "Operar como" (acting_as): essa troca e so uma lente local no
+// navegador, sempre dentro do proprio tenant do dono, sem chamada de API nem
+// reload. Enquanto acting_as estiver ativo (o dono esta de fato dentro dos
+// dados de outro cliente), o modo fica travado em 'client'.
+function setShellMode(mode) {
   const isPlatformAdmin = !!_currentUser?.is_platform_admin;
-  // "Clientes" (lista outros tenants) e "Plataforma e segurança" (contagens
-  // globais de tenants/usuarios, backend do banco) sao informacao da
-  // PLATAFORMA, nao do cliente -- um dono de cliente real nao deve nem saber
-  // que outros clientes existem, quanto mais ver contagem deles.
-  document.querySelectorAll(
-    '[data-settings-tab="tenants"], [data-settings-panel="tenants"], [data-settings-tab="platform"], [data-settings-panel="platform"]'
-  ).forEach(el => {
-    el.classList.toggle('nav-item-hidden', !isPlatformAdmin);
-  });
-  const activeTab = document.querySelector('.settings-nav-item.active')?.dataset.settingsTab;
-  if (!isPlatformAdmin && (activeTab === 'tenants' || activeTab === 'platform')) {
-    activateSettingsTab('overview');
-  }
+  const actingAs = !!_currentUser?.acting_as;
+  _shellMode = (mode === 'owner' && isPlatformAdmin && !actingAs) ? 'owner' : 'client';
+
+  const navClient = document.getElementById('navClientMode');
+  const navOwner = document.getElementById('navOwnerMode');
+  if (navClient) navClient.hidden = _shellMode === 'owner';
+  if (navOwner) navOwner.hidden = !(_shellMode === 'owner' && isPlatformAdmin);
+
+  document.body.classList.toggle('shell-owner', _shellMode === 'owner');
+  setText('brandSubtitle', _shellMode === 'owner' ? 'Painel do Dono' : 'Gestao de CFTV');
+
+  const badge = document.getElementById('ownerModeBadge');
+  if (badge) badge.hidden = _shellMode !== 'owner';
+
+  const backLink = document.getElementById('btnBackToOwnerPanel');
+  if (backLink) backLink.hidden = !(isPlatformAdmin && !actingAs && _shellMode === 'client');
+
+  lucide.createIcons();
 }
 
 function renderActingAsBanner() {
@@ -240,11 +257,15 @@ function showLoginScreen() {
   document.getElementById('loginPassword').value = '';
 }
 
-function showApp() {
+async function showApp() {
   document.getElementById('loginScreen').setAttribute('hidden', '');
   document.getElementById('appShell').removeAttribute('hidden');
-  loadProfile();
-  navigateTo('dashboard');
+  await loadProfile();
+  // Admin de plataforma cai direto no Painel do Dono, exceto se ja estiver
+  // "operando como" um cliente (acting_as) -- ai o pouso e o mesmo do cliente.
+  const landingIsOwner = !!(_currentUser?.is_platform_admin && !_currentUser?.acting_as);
+  setShellMode(landingIsOwner ? 'owner' : 'client');
+  navigateTo(landingIsOwner ? 'owner-overview' : 'dashboard');
   lucide.createIcons();
 }
 
@@ -279,6 +300,9 @@ const VIEW_META = {
   tools:           { title: 'Ferramentas',       sub: '' },
   backup:          { title: 'Backup',            sub: 'Exportacao e importacao' },
   settings:        { title: 'Configuracoes',     sub: '' },
+  'owner-overview':{ title: 'Visão geral',       sub: 'Administração da plataforma' },
+  'owner-clients': { title: 'Clientes',          sub: 'Organizações SaaS' },
+  'owner-audit':   { title: 'Auditoria',         sub: 'Eventos de todos os clientes' },
 };
 
 const VIEW_ID_MAP = {
@@ -309,9 +333,16 @@ const VIEW_ID_MAP = {
   connectors:       'viewConnectors',
   monitoring:       'viewMonitoring',
   settings:         'viewSettings',
+  'owner-overview': 'viewOwnerOverview',
+  'owner-clients':  'viewOwnerClients',
+  'owner-audit':    'viewOwnerAudit',
 };
 
 function navigateTo(view) {
+  // Painel do Dono e reservado a admin de plataforma -- se alguem tentar
+  // (ex: digitando no console) sem ser, cai no Dashboard normal.
+  if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
+
   // Esconde todas as views
   document.querySelectorAll('[id^="view"]').forEach(el => el.classList.add('hidden'));
 
@@ -372,6 +403,9 @@ function loadView(view) {
     case 'settings':
       loadSettings();
       break;
+    case 'owner-overview': loadOwnerOverview(); break;
+    case 'owner-clients':  loadOwnerClients();  break;
+    case 'owner-audit':    loadOwnerAudit();    break;
     default:
       loadStaticView();
       break;
@@ -427,67 +461,27 @@ function activateSettingsTab(tab = 'overview') {
 }
 
 async function loadSettings() {
-  const [me, tenants, users, authStatus, dbStatus, telegram] = await Promise.all([
+  const [me, users, telegram] = await Promise.all([
     apiJson('/api/auth/me'),
-    apiJson('/api/auth/tenants'),
     apiJson('/api/auth/users'),
-    apiJson('/api/auth/status'),
-    apiJson('/api/db/status'),
     apiJson('/api/monitoring/telegram', { forceRefresh: true }),
   ]);
   const currentUser = me?.user || {};
-  const tenantRows = tenants?.tenants || [];
   const userRows = users?.users || [];
 
   const overview = document.getElementById('settingsOverviewStatus');
   if (overview) {
     const telegramState = telegram?.configured ? (telegram.enabled ? 'Ativo' : 'Configurado') : 'Não configurado';
-    // "Clientes SaaS" e "Banco principal" sao enquadramento de PLATAFORMA
-    // (revelam que existe um SaaS multi-cliente por tras e como ele roda) --
-    // um dono de cliente real so quer ver o que importa pra empresa dele.
+    // Configuracoes so mostra o que e do proprio cliente -- contagem de
+    // outros clientes/infraestrutura da plataforma vive no Painel do Dono.
     const stats = [
       ['Cliente atual', currentUser.tenant_name || currentUser.tenant_slug || '-'],
       ['Seu perfil', currentUser.role || '-'],
       ['Usuários da equipe', userRows.length],
       ['Notificações', telegramState],
     ];
-    if (currentUser.is_platform_admin) {
-      stats.splice(2, 0, ['Clientes SaaS', tenantRows.length]);
-      stats.push(['Banco principal', dbStatus?.backend || '-']);
-    }
     overview.innerHTML = stats
       .map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
-  }
-
-  setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
-  const tenantsBody = document.getElementById('settingsTenantsBody');
-  const isPlatformAdmin = !!currentUser.is_platform_admin;
-  if (tenantsBody) {
-    tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => {
-      const modulesLabel = Array.isArray(t.enabled_modules) ? `${t.enabled_modules.length} módulo(s)` : 'Sem restrição';
-      const isEffectiveCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
-      const isHomeTenant = currentUser.tenant_slug === t.slug;
-      // O botao "Operar como" fica disponivel pra TODAS as linhas, inclusive
-      // a sua propria -- clicar nele na sua propria linha so limpa o act-as
-      // (volta pra casa), em vez de marcar "operando como" a propria conta.
-      const actAsCall = isHomeTenant ? `actAsTenant('')` : `actAsTenant('${esc(t.slug || '')}')`;
-      const actions = isPlatformAdmin ? `
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <button class="ghost-action" style="padding:4px 8px;font-size:11px" title="${esc(modulesLabel)}" onclick="openTenantModulesModal(${Number(t.id)}, '${esc(t.name || t.slug || '')}')"><i data-lucide="sliders-horizontal"></i> Módulos</button>
-          <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="${actAsCall}"><i data-lucide="log-in"></i> Operar como</button>
-          ${isEffectiveCurrent ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>` : ''}
-        </div>` : '';
-      return `
-      <tr>
-        <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
-        <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
-        <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
-        <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
-        <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
-        <td>${actions}</td>
-      </tr>`;
-    }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado.</td></tr>';
-    lucide.createIcons();
   }
 
   setText('settingsUsersSummary', `${userRows.length} usuario${userRows.length === 1 ? '' : 's'} no cliente atual (${currentUser.tenant_name || currentUser.tenant_slug || '-'}).`);
@@ -503,22 +497,6 @@ async function loadSettings() {
       </tr>
     `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum usuario cadastrado.</td></tr>';
   }
-
-  const storage = document.getElementById('settingsStorageStatus');
-  if (storage) {
-    const auth = authStatus?.storage || authStatus || {};
-    const db = dbStatus || {};
-    storage.innerHTML = [
-      ['Auth backend', auth.backend || '-'],
-      ['Tenants', auth.tenants ?? '-'],
-      ['Usuarios', auth.users ?? '-'],
-      ['Tokens ativos', auth.active_tokens ?? '-'],
-      ['DB backend', db.backend || '-'],
-      ['Sites', db.sites ?? '-'],
-      ['Auth required', authStatus?.auth_required ? 'sim' : 'nao'],
-      ['Legacy open', authStatus?.legacy_open ? 'sim' : 'nao'],
-    ].map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
-  }
   if (telegram) {
     document.getElementById('telegramChatId').value = telegram.chat_id || '';
     document.getElementById('telegramWarnRx').value = telegram.warn_rx ?? -27;
@@ -532,6 +510,115 @@ async function loadSettings() {
 
   scheduleResponsiveHydration(document.getElementById('viewSettings'));
   activateSettingsTab(sessionStorage.getItem('sightops.settings.tab') || 'overview');
+  lucide.createIcons();
+}
+
+//  Painel do Dono (administracao da plataforma SaaS)
+
+async function loadOwnerOverview() {
+  if (!_currentUser?.is_platform_admin) return;
+  const [tenants, authStatus, dbStatus] = await Promise.all([
+    apiJson('/api/auth/tenants', { forceRefresh: true }),
+    apiJson('/api/auth/status', { forceRefresh: true }),
+    apiJson('/api/db/status'),
+  ]);
+  const tenantRows = tenants?.tenants || [];
+  const auth = authStatus?.storage || authStatus || {};
+  const db = dbStatus || {};
+
+  const overview = document.getElementById('ownerOverviewStatus');
+  if (overview) {
+    const stats = [
+      ['Clientes SaaS', tenantRows.length],
+      ['Usuários (todos os clientes)', auth.users ?? '-'],
+      ['Tokens ativos', auth.active_tokens ?? '-'],
+      ['Auth backend', auth.backend || '-'],
+      ['Banco principal', db.backend || '-'],
+      ['Sites', db.sites ?? '-'],
+      ['Auth obrigatória', authStatus?.auth_required ? 'sim' : 'não'],
+      ['Modo legado', authStatus?.legacy_open ? 'sim' : 'não'],
+    ];
+    overview.innerHTML = stats
+      .map(([label, value]) => `<div class="settings-status-card"><span>${esc(label)}</span><strong title="${esc(value)}">${esc(value)}</strong></div>`).join('');
+  }
+
+  const recent = [...tenantRows]
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    .slice(0, 5);
+  setText('ownerOverviewRecentSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} no total.`);
+  const body = document.getElementById('ownerOverviewRecentBody');
+  if (body) {
+    body.innerHTML = recent.length ? recent.map(t => `
+      <tr>
+        <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
+        <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
+        <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
+        <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
+      </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado.</td></tr>';
+  }
+  scheduleResponsiveHydration(document.getElementById('viewOwnerOverview'));
+  lucide.createIcons();
+}
+
+async function loadOwnerClients() {
+  if (!_currentUser?.is_platform_admin) return;
+  const [me, tenants] = await Promise.all([
+    apiJson('/api/auth/me'),
+    apiJson('/api/auth/tenants', { forceRefresh: true }),
+  ]);
+  const currentUser = me?.user || _currentUser || {};
+  const tenantRows = tenants?.tenants || [];
+
+  setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
+  const tenantsBody = document.getElementById('settingsTenantsBody');
+  if (tenantsBody) {
+    tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => {
+      const modulesLabel = Array.isArray(t.enabled_modules) ? `${t.enabled_modules.length} módulo(s)` : 'Sem restrição';
+      const isEffectiveCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
+      const isHomeTenant = currentUser.tenant_slug === t.slug;
+      // O botao "Operar como" fica disponivel pra TODAS as linhas, inclusive
+      // a sua propria -- clicar nele na sua propria linha so limpa o act-as
+      // (volta pra casa), em vez de marcar "operando como" a propria conta.
+      const actAsCall = isHomeTenant ? `actAsTenant('')` : `actAsTenant('${esc(t.slug || '')}')`;
+      const actions = `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px" title="${esc(modulesLabel)}" onclick="openTenantModulesModal(${Number(t.id)}, '${esc(t.name || t.slug || '')}')"><i data-lucide="sliders-horizontal"></i> Módulos</button>
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="${actAsCall}"><i data-lucide="log-in"></i> Operar como</button>
+          ${isEffectiveCurrent ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>` : ''}
+        </div>`;
+      return `
+      <tr>
+        <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
+        <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
+        <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
+        <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
+        <td>${actions}</td>
+      </tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado.</td></tr>';
+  }
+  scheduleResponsiveHydration(document.getElementById('viewOwnerClients'));
+  lucide.createIcons();
+}
+
+async function loadOwnerAudit() {
+  if (!_currentUser?.is_platform_admin) return;
+  const data = await apiJson('/api/auth/audit/platform', { forceRefresh: true });
+  const events = data?.events || [];
+  setText('ownerAuditSummary', `${events.length} evento${events.length === 1 ? '' : 's'} recente${events.length === 1 ? '' : 's'}.`);
+  const body = document.getElementById('ownerAuditBody');
+  if (body) {
+    body.innerHTML = events.length ? events.map(e => `
+      <tr>
+        <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(e.created_at || ''))}</span></td>
+        <td class="settings-cell-truncate" title="${esc(e.tenant_name || e.tenant_slug || '')}">${esc(e.tenant_name || e.tenant_slug || '-')}</td>
+        <td>${esc(e.action || '')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.resource_type || '')} ${esc(e.resource_id || '')}">${esc(e.resource_type || '')} ${esc(e.resource_id || '')}</td>
+        <td class="settings-cell-truncate" title="${esc(e.detail_json || '')}">${esc(e.detail_json || '-')}</td>
+      </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhum evento registrado.</td></tr>';
+  }
+  scheduleResponsiveHydration(document.getElementById('viewOwnerAudit'));
   lucide.createIcons();
 }
 
@@ -581,7 +668,7 @@ async function createTenantFromSettings() {
     if (el) el.value = '';
   });
   showToast('Cliente criado.');
-  loadSettings();
+  loadOwnerClients();
 }
 
 let _tenantModulesTarget = null; // { id, name }
@@ -666,7 +753,7 @@ async function saveTenantModules() {
   if ((_currentUser?.effective_tenant_id) === _tenantModulesTarget.id) {
     await loadProfile();
   }
-  loadSettings();
+  loadOwnerClients();
 }
 
 async function createUserFromSettings() {

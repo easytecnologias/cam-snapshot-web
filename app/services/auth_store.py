@@ -1241,6 +1241,27 @@ def recent_audit_events(actor: Dict[str, Any], limit: int = 50) -> List[Dict[str
         )
 
 
+def platform_audit_events(actor: Dict[str, Any], limit: int = 50) -> List[Dict[str, Any]]:
+    """Auditoria cross-tenant para o painel do dono. So admin de plataforma."""
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode ver a auditoria de todos os clientes")
+    _ensure_schema()
+    lim = max(1, min(int(limit or 50), 200))
+    with _conn() as c:
+        return _fetchall(
+            c,
+            """
+            SELECT a.id, a.action, a.resource_type, a.resource_id, a.detail_json, a.created_at, a.user_id,
+                   t.slug AS tenant_slug, t.name AS tenant_name
+            FROM audit_log a
+            LEFT JOIN tenants t ON t.id = a.tenant_id
+            ORDER BY a.id DESC
+            LIMIT ?
+            """,
+            (lim,),
+        )
+
+
 def auth_enabled() -> bool:
     raw = str(os.getenv("AUTH_ENABLED", "1")).strip().lower()
     return raw in ("1", "true", "yes", "on")
