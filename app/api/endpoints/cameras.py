@@ -883,14 +883,19 @@ def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
                         r = requests.put(url, auth=auth, timeout=5, verify=False, headers={"Accept": "application/xml"}, data=b"")
                     else:
                         r = requests.get(url, auth=auth, timeout=5, verify=False, headers={"Accept": "application/xml"})
-                    if r.status_code in (200, 201, 202, 204, 401, 403):
+                    if r.status_code in (200, 201, 202, 204):
                         break
                 except Exception:
                     r = None
                     continue
             if r is None:
                 raise Exception("Sem resposta")
-            if r.status_code in (200, 201, 202, 204, 401, 403):
+            # 401/403 NAO e sucesso: e a camera recusando o comando por
+            # credencial errada ou usuario sem permissao de "Gerenciamento
+            # do Sistema" no ISAPI (comum na Hikvision) -- contar isso como
+            # "ok" fazia o front mostrar "reboot enviado" mesmo quando a
+            # camera nunca recebeu um comando autenticado e nao reiniciava.
+            if r.status_code in (200, 201, 202, 204):
                 return {"ok": True, "method": name, "status": r.status_code}
             last_err = f"{name}: HTTP {r.status_code}"
         except Exception as e:
