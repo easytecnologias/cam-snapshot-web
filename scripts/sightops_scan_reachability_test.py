@@ -11,6 +11,13 @@ rapida (poucos segundos) prova que a rede nao responde. Este teste NUNCA abre
 socket de verdade -- o "probe_fn" e trocado por uma funcao falsa, e o teste
 prova que ele so e chamado quando genuinamente precisa.
 
+Bug real corrigido aqui (SAN MARINE, 06/08/2026): a sondagem so rodava pra
+inventory_mode=="olt" -- uma varredura basico/switch (o caso mais comum, usado
+pra cameras) atraves de um conector com tunel confiava cegamente que "tunel
+configurado" == "rota ja aplicada", e voltava vazia em silencio quando a rota
+ainda nao tinha sido sincronizada (conector recem-criado). Agora a sondagem
+vale pra qualquer modo -- `_decide_remote_only` nem recebe mais `inventory_mode`.
+
 Roda direto:  python scripts/sightops_scan_reachability_test.py
 """
 
@@ -43,7 +50,6 @@ def main() -> None:
         scan_origin="connector",
         connector_id="conn-1",
         connector_has_tunnel=True,
-        inventory_mode="olt",
         remote_only_requested=False,
         probe_targets=["10.200.0.3", "10.200.0.1"],
     )
@@ -66,10 +72,9 @@ def main() -> None:
     ok = _decide_remote_only(**explicito)
     check(ok is True, "remote_only explicito deveria ser respeitado mesmo com rede alcancavel")
 
-    # --- modo diferente de OLT (basico/switch): nao e o caso que motivou isso, nao sonda ---
-    outro_modo = {**base, "inventory_mode": "basico", "probe_fn": _poison}
-    ok = _decide_remote_only(**outro_modo)
-    check(ok is False, "modo basico/switch nao deveria acionar a sondagem nem forcar remote_only")
+    # `_decide_remote_only` nao recebe mais inventory_mode -- os dois casos
+    # acima (rede alcancavel/inalcancavel) ja cobrem basico/switch/olt igual,
+    # que e exatamente o bug corrigido: antes so sondava em modo "olt".
 
     # --- sem conector: scan local comum, nao sonda ---
     sem_conector = {**base, "connector_id": "", "scan_origin": "", "probe_fn": _poison}

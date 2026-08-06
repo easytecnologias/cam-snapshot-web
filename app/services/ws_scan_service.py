@@ -150,7 +150,6 @@ def _decide_remote_only(
     scan_origin: str,
     connector_id: str,
     connector_has_tunnel: bool,
-    inventory_mode: str,
     remote_only_requested: bool,
     probe_targets: list[str],
     probe_fn=_lan_reachable,
@@ -161,12 +160,20 @@ def _decide_remote_only(
     So chama `probe_fn` (I/O real de rede) quando as regras anteriores nao ja
     decidiram sozinhas -- e por isso da pra testar sem rede nenhuma: injete um
     probe_fn falso e nenhum socket e aberto.
+
+    Antes so sondava em inventory_mode=="olt" -- varreduras basico/switch
+    (o caminho mais comum, usado pra cameras) confiavam cegamente que "tunel
+    configurado" significava "rota ate a LAN do cliente ja aplicada", e
+    voltavam vazias em silencio quando isso nao era verdade ainda (ex:
+    conector recem-criado, scripts/sightops_wireguard_sync.py so aplica a
+    rota depois de rodar, ate 60s). A sondagem e barata (poucos alvos, timeout
+    curto) e vale pra qualquer modo, entao passou a valer sempre.
     """
     if scan_origin == "connector" and not connector_has_tunnel:
         return True
     if connector_id and remote_only_requested:
         return True
-    if connector_id and inventory_mode == "olt" and connector_has_tunnel and probe_targets:
+    if connector_id and connector_has_tunnel and probe_targets:
         return not bool(probe_fn(probe_targets))
     return False
 
@@ -392,7 +399,6 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
     connector = _connector_from_payload(payload) if connector_id or scan_origin == "connector" else None
     connector_has_tunnel = _connector_has_tunnel(connector)
-    inventory_mode = str(payload.get("inventory_mode") or "olt").strip().lower() or "olt"
 
     if scan_origin == "connector" and not connector_id:
         await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
@@ -406,14 +412,13 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     # snapshot, igual funcionou pra Incoforte; se nao, caminho MikroTik --
     # mais lento, so descoberta, mas nunca marca tudo como offline por engano.
     probe_targets = _pick_probe_targets(alvo)
-    if connector_id and inventory_mode == "olt" and connector_has_tunnel and probe_targets:
+    if connector_id and connector_has_tunnel and probe_targets:
         await _ws_send(ws, {"type": "status", "message": "Testando se a rede do cliente responde direto..."})
     remote_only = await anyio.to_thread.run_sync(
         lambda: _decide_remote_only(
             scan_origin=scan_origin,
             connector_id=connector_id,
             connector_has_tunnel=connector_has_tunnel,
-            inventory_mode=inventory_mode,
             remote_only_requested=bool(payload.get("remote_only")),
             probe_targets=probe_targets,
         )
