@@ -49,6 +49,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("GET",), "/api/auth/audit", "admin"),
             (("GET",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/auth/users", "admin"),
+            (("DELETE",), "/api/auth/users", "admin"),
             (("POST",), "/api/auth/tenants", "admin"),
             (("POST",), "/api/auth/tenants/", "admin"),
             (("PUT",), "/api/auth/tenants/", "admin"),

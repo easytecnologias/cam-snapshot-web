@@ -55,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnStopActingAs')?.addEventListener('click', () => actAsTenant(''));
   document.getElementById('tenantModulesUnrestricted')?.addEventListener('change', _tenantModulesToggleUnrestricted);
   document.getElementById('btnSaveTenantModules')?.addEventListener('click', saveTenantModules);
+  document.getElementById('btnSaveEditUser')?.addEventListener('click', saveEditUser);
 
   // Painel do Dono <-> Painel operacional (so admin de plataforma ve esses botoes)
   document.getElementById('btnEnterOperation')?.addEventListener('click', () => {

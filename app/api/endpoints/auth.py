@@ -17,6 +17,7 @@ from app.services.auth_store import (
     create_access_token,
     create_tenant,
     create_user,
+    delete_user,
     get_user_by_token,
     init_auth_db,
     list_tenants,
@@ -405,6 +406,15 @@ def api_auth_reset_user_password(user_id: int, req: UserPasswordResetRequest, us
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "user": updated}
+
+
+@router.delete("/users/{user_id}")
+def api_auth_delete_user(user_id: int, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    try:
+        result = delete_user(user, target_user_id=user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 @router.post("/users/{user_id}")

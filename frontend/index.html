@@ -1954,8 +1954,8 @@
             </div>
             <div class="table-wrap settings-table-wrap">
               <table class="data-table settings-table settings-users-table">
-                <colgroup><col class="settings-col-user"><col class="settings-col-name"><col class="settings-col-role"><col class="settings-col-status"><col class="settings-col-tenant"></colgroup>
-                <thead><tr><th>Usuario</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Cliente</th></tr></thead>
+                <colgroup><col class="settings-col-user"><col class="settings-col-name"><col class="settings-col-role"><col class="settings-col-status"><col class="settings-col-tenant"><col style="width:170px"></colgroup>
+                <thead><tr><th>Usuario</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Cliente</th><th>Ações</th></tr></thead>
                 <tbody id="settingsUsersBody"></tbody>
               </table>
             </div>
@@ -3490,6 +3490,43 @@
     </div>
   </div>
 
+  <div id="modalEditUser" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Configurações · Usuários</p>
+          <h2>Editar usuário</h2>
+          <p id="editUserSubtitle" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p>
+        </div>
+        <button class="icon-button" onclick="document.getElementById('modalEditUser').classList.add('hidden')"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="editUserFullName">Nome</label>
+          <input id="editUserFullName" placeholder="nome completo">
+        </div>
+        <div class="form-group">
+          <label for="editUserEmail">Email</label>
+          <input id="editUserEmail" type="email" placeholder="opcional">
+        </div>
+        <div class="form-group">
+          <label for="editUserRole">Perfil</label>
+          <select id="editUserRole">
+            <option value="viewer">Visualizador</option>
+            <option value="operator">Operador</option>
+            <option value="admin">Administrador</option>
+            <option value="owner">Proprietário</option>
+          </select>
+        </div>
+        <p id="editUserErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" onclick="document.getElementById('modalEditUser').classList.add('hidden')">Cancelar</button>
+        <button class="primary-action" id="btnSaveEditUser"><i data-lucide="check"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalTrocarSenha" class="modal-backdrop hidden">
     <div class="modal" style="max-width:380px">
       <div class="modal-header">
@@ -4587,7 +4624,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=151"></script>
+  <script src="js/core.js?v=152"></script>
   <script src="js/dashboard.js?v=150"></script>
   <script src="js/cameras.js?v=155"></script>
   <script src="js/recorders.js?v=143"></script>
@@ -4602,6 +4639,6 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/bootstrap.js?v=164"></script>
+  <script src="js/bootstrap.js?v=165"></script>
 </body>
 </html>

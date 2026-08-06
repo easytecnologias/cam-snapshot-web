@@ -974,6 +974,48 @@ def update_user_status(actor: Dict[str, Any], target_user_id: int, active: bool)
     return fresh or {}
 
 
+def delete_user(actor: Dict[str, Any], target_user_id: int) -> Dict[str, Any]:
+    """Apaga o usuario definitivamente (nao e so desativar).
+
+    auth_tokens.user_id tem ON DELETE CASCADE (sessoes do usuario somem
+    junto) e audit_log.user_id tem ON DELETE SET NULL (historico de auditoria
+    fica, so perde o vinculo com a conta apagada) -- ver migrations/auth/*/
+    001_baseline.sql. Por isso um DELETE simples em `users` basta.
+    """
+    actor_role = str(actor.get("role") or "").strip().lower()
+    if actor_role not in ("owner", "admin"):
+        raise ValueError("permissao insuficiente")
+    _ensure_schema()
+    with _conn() as c:
+        tenant_id = _actor_tenant_id(actor)
+        current = _get_user_for_tenant(c, tenant_id, int(target_user_id))
+        if not current:
+            raise ValueError("usuario nao encontrado")
+        if int(current["id"]) == int(actor["id"]):
+            raise ValueError("voce nao pode excluir a propria conta")
+        current_role = str(current.get("role") or "").strip().lower()
+        if current_role == "owner" and actor_role != "owner":
+            raise ValueError("somente owner pode excluir outro owner")
+        if current_role == "owner":
+            remaining = _fetchone(
+                c,
+                "SELECT COUNT(*) AS n FROM users WHERE tenant_id=? AND role='owner' AND active=1 AND id<>?",
+                (tenant_id, int(target_user_id)),
+            )
+            if not remaining or int(remaining["n"] or 0) < 1:
+                raise ValueError("nao e possivel excluir o unico owner ativo do cliente")
+        _execute(c, "DELETE FROM users WHERE id=?", (int(target_user_id),))
+        _audit(
+            c,
+            action="user.delete",
+            tenant_id=tenant_id,
+            user_id=int(actor["id"]),
+            resource_type="user",
+            resource_id=str(current.get("username") or target_user_id),
+        )
+    return {"ok": True, "id": int(target_user_id)}
+
+
 def update_user_password(actor: Dict[str, Any], target_user_id: int, new_password: str) -> Dict[str, Any]:
     actor_role = str(actor.get("role") or "").strip().lower()
     if actor_role not in ("owner", "admin"):

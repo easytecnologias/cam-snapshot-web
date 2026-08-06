@@ -255,6 +255,11 @@ function showLoginScreen() {
   document.getElementById('loginError').hidden = true;
   document.getElementById('loginUser').value = '';
   document.getElementById('loginPassword').value = '';
+  // Sem isso, o visual do Painel do Dono (fundo dourado do brand-mark, que a
+  // tela de login tambem usa) ficava grudado na tela de login apos logout ou
+  // expiracao de sessao (401), porque body.shell-owner nunca era removido.
+  _currentUser = null;
+  setShellMode('client');
 }
 
 async function showApp() {
@@ -487,15 +492,27 @@ async function loadSettings() {
   setText('settingsUsersSummary', `${userRows.length} usuario${userRows.length === 1 ? '' : 's'} no cliente atual (${currentUser.tenant_name || currentUser.tenant_slug || '-'}).`);
   const usersBody = document.getElementById('settingsUsersBody');
   if (usersBody) {
-    usersBody.innerHTML = userRows.length ? userRows.map(u => `
+    usersBody.innerHTML = userRows.length ? userRows.map(u => {
+      const isSelf = Number(u.id) === Number(currentUser.id);
+      const toggleLabel = Number(u.active) ? 'Desativar' : 'Ativar';
+      const toggleIcon = Number(u.active) ? 'user-x' : 'user-check';
+      const actions = `
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="openEditUserModal(${Number(u.id)})"><i data-lucide="pencil"></i> Editar</button>
+          ${isSelf ? '' : `<button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="toggleUserActive(${Number(u.id)}, ${Number(u.active) ? 'false' : 'true'})"><i data-lucide="${toggleIcon}"></i> ${toggleLabel}</button>
+          <button class="ghost-action" style="padding:4px 8px;font-size:11px;color:var(--danger)" onclick="deleteUserRow(${Number(u.id)}, '${esc(u.username || '')}')"><i data-lucide="trash-2"></i> Excluir</button>`}
+        </div>`;
+      return `
       <tr>
         <td class="settings-cell-truncate" title="${esc(u.username || '')}"><strong>${esc(u.username || '')}</strong></td>
         <td class="settings-cell-truncate" title="${esc(u.full_name || '-')}">${esc(u.full_name || '-')}</td>
         <td class="settings-cell-center"><span class="badge badge-gray">${esc(u.role || '')}</span></td>
         <td class="settings-cell-center">${Number(u.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
         <td class="settings-cell-truncate" title="${esc(u.tenant_name || u.tenant_slug || '')}">${esc(u.tenant_name || u.tenant_slug || '')}</td>
-      </tr>
-    `).join('') : '<tr class="empty-row"><td colspan="5">Nenhum usuario cadastrado.</td></tr>';
+        <td>${actions}</td>
+      </tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum usuario cadastrado.</td></tr>';
+    lucide.createIcons();
   }
   if (telegram) {
     document.getElementById('telegramChatId').value = telegram.chat_id || '';
@@ -779,6 +796,82 @@ async function createUserFromSettings() {
     if (el) el.value = '';
   });
   showToast('Usuario criado.');
+  loadSettings();
+}
+
+let _editUserTarget = null; // { id, username }
+
+async function openEditUserModal(userId) {
+  const data = await apiJson('/api/auth/users', { forceRefresh: true });
+  const u = (data?.users || []).find(row => Number(row.id) === Number(userId));
+  if (!u) {
+    showToast('Usuario nao encontrado.', true);
+    return;
+  }
+  _editUserTarget = { id: u.id, username: u.username };
+  setText('editUserSubtitle', u.username || '');
+  document.getElementById('editUserFullName').value = u.full_name || '';
+  document.getElementById('editUserEmail').value = u.email || '';
+  document.getElementById('editUserRole').value = u.role || 'viewer';
+  document.getElementById('editUserErro').hidden = true;
+  document.getElementById('modalEditUser').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+async function saveEditUser() {
+  if (!_editUserTarget) return;
+  const full_name = document.getElementById('editUserFullName')?.value.trim() || '';
+  const email = document.getElementById('editUserEmail')?.value.trim() || '';
+  const role = document.getElementById('editUserRole')?.value || 'viewer';
+  const btn = document.getElementById('btnSaveEditUser');
+  btn.disabled = true;
+  const res = await api(`/api/auth/users/${_editUserTarget.id}`, {
+    method: 'POST',
+    body: JSON.stringify({ full_name, email, role }),
+  });
+  btn.disabled = false;
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    const el = document.getElementById('editUserErro');
+    el.textContent = data?.detail || 'Nao foi possivel salvar o usuario.';
+    el.hidden = false;
+    return;
+  }
+  showToast(`Usuario ${_editUserTarget.username} atualizado.`);
+  document.getElementById('modalEditUser').classList.add('hidden');
+  loadSettings();
+}
+
+async function toggleUserActive(userId, active) {
+  const res = await api(`/api/auth/users/${userId}/active`, {
+    method: 'POST',
+    body: JSON.stringify({ active }),
+  });
+  const data = await jsonOrReadableError(res, 'Nao foi possivel alterar o status do usuario.').catch(err => {
+    showToast(err.message, true);
+    return null;
+  });
+  if (!data) return;
+  showToast(active ? 'Usuario ativado.' : 'Usuario desativado.');
+  loadSettings();
+}
+
+async function deleteUserRow(userId, username) {
+  const ok = await showConfirm({
+    eyebrow: 'Usuários',
+    title: `Excluir ${username}?`,
+    msg: 'Apaga a conta definitivamente. Nao da pra desfazer.',
+    label: 'Excluir',
+    danger: true,
+  });
+  if (!ok) return;
+  const res = await api(`/api/auth/users/${userId}`, { method: 'DELETE' });
+  const data = await jsonOrReadableError(res, 'Nao foi possivel excluir o usuario.').catch(err => {
+    showToast(err.message, true);
+    return null;
+  });
+  if (!data) return;
+  showToast(`Usuario ${username} excluido.`);
   loadSettings();
 }
 
