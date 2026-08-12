@@ -25,9 +25,10 @@ from app.cli.tools.ruijie_reyee import RuijieAuthError, lan_inventory as ruijie_
 
 CONNECTORS_PATH = DATA_DIR / "connectors.json"
 CONNECTOR_JOBS_PATH = DATA_DIR / "connector-jobs.json"
-DEFAULT_WG_ENDPOINT = "201.182.184.80:51820"
+DEFAULT_WG_ENDPOINT = "201.182.184.84:51820"
 DEFAULT_WG_NETWORK_PREFIX = "10.250.0"
 DEFAULT_WG_SERVER_PUBLIC_KEY = "yR9WCTtf6Yp9ZqWLffqdQmWuBeqEB4WSLrzcztP1xQQ="
+CGNAT_LAN_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 _lock = threading.RLock()
 
@@ -50,7 +51,7 @@ def _normalize_cidr(value: Any) -> str:
         return ""
     if net.version != 4 or net.prefixlen >= 32:
         return ""
-    if not net.is_private:
+    if not (net.is_private or net.subnet_of(CGNAT_LAN_NETWORK)):
         return ""
     cidr = str(net)
     if cidr == "10.250.0.0/24":
@@ -87,21 +88,48 @@ def _split_cidr_values(value: Any) -> List[str]:
     return []
 
 
-def _trusted_lans_from_connector(row: Dict[str, Any]) -> List[str]:
+def _looks_like_wan_interface(value: Any) -> bool:
+    name = _text(value).lower()
+    if not name:
+        return False
+    return (
+        name == "ether1"
+        or "wan" in name
+        or "internet" in name
+        or "pppoe" in name
+        or name.startswith("lte")
+    )
+
+
+def _cidrs_from_address_sample(value: Any) -> List[str]:
+    cidrs: List[str] = []
+    for item in re.split(r"[;\r\n]+", _text(value)):
+        parts = [part.strip() for part in item.split("|")]
+        first = parts[0] if parts else ""
+        iface = parts[1] if len(parts) > 1 else ""
+        if _looks_like_wan_interface(iface):
+            continue
+        if "/" in first:
+            cidrs.append(first)
+    return _unique_cidrs(cidrs)
+
+
+def _trusted_lans_from_connector(row: Dict[str, Any], include_saved_tunnel: bool = True) -> List[str]:
     inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
     host = row.get("host") if isinstance(row.get("host"), dict) else {}
     tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
     candidates: List[Any] = []
-    for key in ("lan_networks", "networks", "routes"):
-        candidates.extend(_split_cidr_values(inventory.get(key)))
-    candidates.extend(_split_cidr_values(host.get("lan_networks")))
-    candidates.extend(_split_cidr_values(tunnel.get("client_lans")))
-
     address_sample = _text(inventory.get("address_sample") or inventory.get("ip_address_sample"))
-    for item in re.split(r"[;\r\n]+", address_sample):
-        first = _text((item.split("|") or [""])[0])
-        if "/" in first:
-            candidates.append(first)
+    sample_cidrs = _cidrs_from_address_sample(address_sample)
+    if sample_cidrs:
+        candidates.extend(sample_cidrs)
+    else:
+        for key in ("lan_networks", "networks", "routes"):
+            candidates.extend(_split_cidr_values(inventory.get(key)))
+    candidates.extend(_split_cidr_values(host.get("lan_networks")))
+    if include_saved_tunnel:
+        candidates.extend(_split_cidr_values(tunnel.get("client_lans")))
+
     return _unique_cidrs(candidates)
 
 
@@ -111,7 +139,9 @@ def _private_24_from_ip(value: Any) -> str:
         ip = ipaddress.ip_address(raw)
     except Exception:
         return ""
-    if ip.version != 4 or not ip.is_private:
+    if ip.version != 4:
+        return ""
+    if not (ip.is_private or ip in CGNAT_LAN_NETWORK):
         return ""
     parts = raw.split(".")
     if len(parts) != 4:
@@ -473,6 +503,7 @@ def accept_register(connector_id: str, token: str, payload: Dict[str, Any], remo
                     item["inventory"] = payload.get("inventory")
                 item["remote_ip"] = _text(remote_ip)
                 item["status"] = "online"
+                _refresh_auto_tunnel_lans(item)
                 row = item
                 break
         _save_connectors(rows)
@@ -592,9 +623,9 @@ def _parse_routeros_lan_inventory(result: str) -> Dict[str, Any]:
     }
 
 
-def _extract_connector_lans(row: Dict[str, Any]) -> List[str]:
+def _extract_connector_lans(row: Dict[str, Any], include_saved_tunnel: bool = True) -> List[str]:
     inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
-    trusted = _trusted_lans_from_connector(row)
+    trusted = _trusted_lans_from_connector(row, include_saved_tunnel=include_saved_tunnel)
     if trusted:
         return trusted[:64]
 
@@ -602,6 +633,27 @@ def _extract_connector_lans(row: Dict[str, Any]) -> List[str]:
     for key in ("dhcp_sample", "arp_sample", "neighbor_sample"):
         candidates.extend(_sample_lans_from_text(inventory.get(key)))
     return _unique_cidrs(candidates)[:64]
+
+
+def _refresh_auto_tunnel_lans(row: Dict[str, Any]) -> bool:
+    tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
+    if not tunnel.get("enabled") or _text(tunnel.get("type")).lower() != "wireguard":
+        return False
+    mode = _text(tunnel.get("client_lans_mode") or "manual").lower()
+    if mode not in {"auto", "all", "detected", "bootstrap"}:
+        return False
+    detected = _extract_connector_lans(row, include_saved_tunnel=False)
+    if not detected:
+        return False
+    current = _unique_cidrs(tunnel.get("client_lans") or [])
+    if current == detected:
+        return False
+    tunnel["client_lans"] = detected
+    tunnel["client_lans_mode"] = "auto"
+    tunnel["client_lans_detected_at"] = _now()
+    tunnel["updated_at"] = _now()
+    row["tunnel"] = tunnel
+    return True
 
 
 def _update_connector_inventory_from_job(connector_id: str, job: Dict[str, Any], result: str) -> None:
@@ -618,6 +670,8 @@ def _update_connector_inventory_from_job(connector_id: str, job: Dict[str, Any],
             inventory.update(parsed)
             row["inventory"] = inventory
             changed = True
+            if _refresh_auto_tunnel_lans(row):
+                changed = True
             break
         if changed:
             _save_connectors(rows)
@@ -665,7 +719,10 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
         row = get_connector(connector_id, include_token=True) or {}
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         if not tunnel.get("client_private_key"):
-            ensure_wireguard_tunnel(connector_id, {})
+            ensure_wireguard_tunnel(
+                connector_id,
+                {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
+            )
             row = get_connector(connector_id, include_token=True) or {}
             tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         endpoint = _text(tunnel.get("endpoint") or DEFAULT_WG_ENDPOINT)
@@ -675,8 +732,7 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
         routeros_address = _wireguard_routeros_address(client_address)
         server_allowed = f"{DEFAULT_WG_NETWORK_PREFIX}.0/24"
         return f""":local result "wireguard_install:started";
-:local rosVersion [/system resource get version];
-:if ([:pick $rosVersion 0 1] != "7") do={{:set result ("wireguard_install:failed,RouterOS 7 required,current=" . $rosVersion); /tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json; :put ("ERRO SightOps: WireGuard exige RouterOS 7. Versao atual: " . $rosVersion); :error "routeros-7-required";}};
+:do {{/interface wireguard print count-only}} on-error={{:set result "wireguard_install:failed,RouterOS 7 required"; /tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json; :put "ERRO SightOps: WireGuard nao disponivel. Atualize o MikroTik para RouterOS 7."; :error "routeros-7-required";}};
 :do {{/interface wireguard peers remove [/interface wireguard peers find interface="sightops-wg"];}} on-error={{}};
 :do {{/ip address remove [find comment="SightOps WG"];}} on-error={{}};
 :do {{/ip firewall filter remove [find comment="SightOps WG input"];}} on-error={{}};
@@ -788,6 +844,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
     endpoint = _text(data.get("endpoint") or data.get("server_endpoint") or DEFAULT_WG_ENDPOINT)
     lan_mode = _text(data.get("lan_mode") or data.get("client_lans_mode") or "manual").lower()
     client_lans_raw = data.get("client_lans")
+    allow_empty_lans = bool(data.get("allow_empty_lans") or data.get("bootstrap"))
     with _lock:
         rows = _load_connectors()
         idx = next((i for i, row in enumerate(rows) if _text(row.get("id")) == cid), -1)
@@ -796,7 +853,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
         row = rows[idx]
         if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__":
             client_lans = _extract_connector_lans(row)
-            if not client_lans:
+            if not client_lans and not allow_empty_lans:
                 raise ValueError("nenhuma rede LAN detectada neste conector; atualize o conector ou informe uma rede especifica")
         elif isinstance(client_lans_raw, str):
             client_lans = _unique_cidrs([item.strip() for item in re.split(r"[\s,;]+", client_lans_raw) if item.strip()])
@@ -804,7 +861,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
             client_lans = _unique_cidrs(client_lans_raw)
         else:
             client_lans = []
-        if not client_lans:
+        if not client_lans and not allow_empty_lans:
             raise ValueError("informe pelo menos uma rede LAN valida em CIDR, exemplo 192.168.20.0/24")
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
         # Todos os conectores falam com a mesma interface WireGuard do servidor.
@@ -826,7 +883,7 @@ def ensure_wireguard_tunnel(connector_id: str, payload: Dict[str, Any] | None = 
             or saved_client_address
             or _next_wireguard_client_address(rows, cid),
             "client_lans": client_lans,
-            "client_lans_mode": "auto" if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__" else "manual",
+            "client_lans_mode": "auto" if lan_mode in {"auto", "all", "detected"} or _text(client_lans_raw) == "__auto__" or allow_empty_lans else "manual",
             "updated_at": _now(),
         })
         row["tunnel"] = tunnel
@@ -845,7 +902,11 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
         raise ValueError("conector nao encontrado")
     tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
     if not tunnel.get("client_private_key"):
-        tunnel = ensure_wireguard_tunnel(connector_id, {})["connector"].get("tunnel") or {}
+        ensure_wireguard_tunnel(
+            connector_id,
+            {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
+            enforce_tenant=True,
+        )
         row = get_connector(connector_id, include_token=True) or row
         tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else tunnel
     endpoint = _text(tunnel.get("endpoint") or DEFAULT_WG_ENDPOINT)
@@ -857,8 +918,7 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
     return f"""# SightOps WireGuard - RouterOS
 # Cole no terminal do MikroTik do cliente. Requer RouterOS 7.
 
-:local rosVersion [/system resource get version];
-:if ([:pick $rosVersion 0 1] != "7") do={{:put ("ERRO SightOps: WireGuard exige RouterOS 7. Versao atual: " . $rosVersion); :error "routeros-7-required";}};
+:do {{/interface wireguard print count-only}} on-error={{:put "ERRO SightOps: WireGuard nao disponivel. Atualize o MikroTik para RouterOS 7."; :error "routeros-7-required";}};
 
 :do {{/interface wireguard peers remove [/interface wireguard peers find interface="sightops-wg"];}} on-error={{}};
 :do {{/ip address remove [find comment="SightOps WG"];}} on-error={{}};
@@ -877,7 +937,7 @@ def build_routeros_wireguard_script(connector_id: str) -> str:
 /ip firewall filter add chain=forward in-interface="sightops-wg" action=accept comment="SightOps WG entrada";
 /ip firewall filter add chain=forward out-interface="sightops-wg" action=accept comment="SightOps WG saida";
 
-:put "SightOps WireGuard configurado. Agora configure o peer no servidor com a chave publica do cliente."
+:put "SightOps WireGuard configurado. O servidor sincroniza peer e rotas automaticamente."
 :put "Cliente public-key: {_text(tunnel.get("client_public_key"))}"
 :put "AllowedIPs servidor: {client_address}, {', '.join(_text(item) for item in (tunnel.get("client_lans") or []))}"
 """
@@ -1032,4 +1092,19 @@ def build_routeros_script(base_url: str, connector_id: str) -> str:
     row = get_connector(connector_id, include_token=True, enforce_tenant=True)
     if not row:
         raise ValueError("conector nao encontrado")
-    return _routeros_script_template(base_url=base_url, connector_id=_text(row.get("id")), token=_text(row.get("token")))
+    ensure_wireguard_tunnel(
+        connector_id,
+        {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
+        enforce_tenant=True,
+    )
+    wireguard_script = build_routeros_wireguard_script(connector_id)
+    heartbeat_script = _routeros_script_template(
+        base_url=base_url,
+        connector_id=_text(row.get("id")),
+        token=_text(row.get("token")),
+    )
+    return f"""{wireguard_script}
+
+# SightOps RouterOS Connector - heartbeat e jobs
+{heartbeat_script}
+"""

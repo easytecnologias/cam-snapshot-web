@@ -314,8 +314,21 @@ let _deployOltRows = [];
 
 function deployOltMatchesOrigin(row, originValue) {
   const rowConnector = String(row?.connector_id || '').trim();
+  const origin = String(originValue || '').trim();
   if (originValue === DEPLOY_LOCAL_ORIGIN || originValue === '__local__') return !rowConnector;
-  return !!originValue && rowConnector === String(originValue);
+  if (!origin) return false;
+  if (rowConnector === origin) return true;
+  const connector = typeof _connectorById === 'function' ? _connectorById(origin) : null;
+  if (!connector) return false;
+  const rowTerms = [row?.site, row?.name, row?.host].map(_connectorNorm).filter(Boolean);
+  const connectorTerms = [connector.site, connector.client, connector.name].map(_connectorNorm).filter(Boolean);
+  return rowTerms.some(rowTerm =>
+    connectorTerms.some(connTerm =>
+      rowTerm === connTerm
+      || rowTerm.includes(connTerm)
+      || connTerm.includes(rowTerm)
+    )
+  );
 }
 
 function deployOltOptionsForOrigin(originValue) {
@@ -2211,7 +2224,10 @@ function private24FromIp(value) {
   const nums = parts.map(part => Number(part));
   if (nums.some(num => !Number.isInteger(num) || num < 0 || num > 255)) return '';
   const [a, b, c] = nums;
-  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  const isPrivate = a === 10
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168)
+    || (a === 100 && b >= 64 && b <= 127);
   if (!isPrivate) return '';
   return `${a}.${b}.${c}.0/24`;
 }
@@ -2235,7 +2251,10 @@ function normalizePrivateCidr(value) {
   if (ipNum === null || !Number.isInteger(prefix) || prefix < 1 || prefix >= 32) return '';
   const parts = match[1].split('.').map(part => Number(part));
   const [a, b] = parts;
-  const privateLan = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  const privateLan = a === 10
+    || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168)
+    || (a === 100 && b >= 64 && b <= 127);
   if (!privateLan) return '';
   const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
   const network = numberToIp((ipNum & mask) >>> 0);

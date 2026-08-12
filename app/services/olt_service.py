@@ -40,7 +40,7 @@ from app.cli.tools.olt_8820i_add_onu import (
     profile_for_model,
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
-from app.services.inventory_json import load_inventory_json, save_inventory_json
+from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.connector_service import get_connector, list_connectors
 
 logger = logging.getLogger("cam-snapshot")
@@ -103,6 +103,13 @@ def _norm_mac(value: Any) -> str:
     return re.sub(r"[^0-9a-f]", "", _norm_text(value).lower())
 
 
+def _display_mac(value: Any) -> str:
+    mac = _norm_mac(value)
+    if len(mac) == 12:
+        return ":".join(mac[i:i + 2] for i in range(0, 12, 2))
+    return _norm_text(value).lower()
+
+
 def _norm_onu_serial(value: Any) -> str:
     raw = _norm_text(value).upper()
     # OLTs Intelbras costumam alternar entre VSOL00181583 e 00181583.
@@ -139,13 +146,20 @@ def _sync_camera_inventory_from_olt_rows(
         "onu_name": ("onu_name", "ONU_NAME"),
         "onu_serial": ("onu_serial", "serial", "SERIAL", "ONU_SERIAL"),
         "onu_model": ("onu_model", "model", "ONU_MODEL"),
+        "onu_oper_status": ("oper_status", "onu_oper_status"),
+        "onu_omci_status": ("omci_status", "onu_omci_status"),
+        "onu_rx": ("onu_rx", "rx_onu"),
+        "olt_rx": ("olt_rx", "rx_olt"),
+        "onu_telemetry_updated_at": ("telemetry_updated_at",),
         "olt_ip": ("olt_ip", "OLT_IP"),
         "olt_name": ("olt_name", "OLT_NAME"),
         "vlan": ("vlan", "VLAN"),
     }
     changed = 0
     cleared = 0
+    created = 0
     normalized_clear = {_norm_mac(mac) for mac in (clear_macs or set()) if _norm_mac(mac)}
+    existing_keys = {inventory_row_key(camera, fallback=f"ROW:{idx}") for idx, camera in enumerate(cameras)}
     for camera in cameras:
         mac = _norm_mac(camera.get("mac") or camera.get("MAC"))
         if not mac:
@@ -170,9 +184,48 @@ def _sync_camera_inventory_from_olt_rows(
                 cleared += 1
         if camera_changed:
             changed += 1
-    if changed:
+
+    for row in olt_rows:
+        ip = _norm_text(row.get("ip") or row.get("camera_ip"))
+        mac = _norm_mac(row.get("cpe_mac") or row.get("mac") or row.get("MAC"))
+        if not ip or not mac:
+            continue
+        connector_id = _norm_text(row.get("connector_id") or row.get("remote_connector_id"))
+        site = _norm_text(row.get("site") or row.get("SITE") or row.get("local"))
+        camera = {
+            "ip": ip,
+            "mac": _display_mac(mac),
+            "titulo": ip,
+            "status": "online",
+            "local": site,
+            "site": site,
+            "source": "olt-sync",
+            "remote": True,
+            "pon": _norm_text(row.get("pon") or row.get("PON")),
+            "onu_id": _norm_text(row.get("onu_id") or row.get("onu") or row.get("ONU")),
+            "onu_name": _norm_text(row.get("onu_name") or row.get("ONU_NAME")),
+            "onu_serial": _norm_text(row.get("onu_serial") or row.get("serial") or row.get("SERIAL")),
+            "onu_model": _norm_text(row.get("onu_model") or row.get("model") or row.get("ONU_MODEL")),
+            "onu_oper_status": _norm_text(row.get("oper_status") or row.get("onu_oper_status")),
+            "onu_omci_status": _norm_text(row.get("omci_status") or row.get("onu_omci_status")),
+            "olt_ip": _norm_text(row.get("olt_ip") or row.get("OLT_IP")),
+            "olt_name": _norm_text(row.get("olt_name") or row.get("OLT_NAME") or row.get("olt")),
+            "vlan": _norm_text(row.get("vlan") or row.get("VLAN")),
+        }
+        if connector_id:
+            camera["remote_connector_id"] = connector_id
+            camera["connector_id"] = connector_id
+            camera["remote_connector_name"] = _norm_text(row.get("remote_connector_name"))
+        key = inventory_row_key(camera, fallback=f"NEW:{created}")
+        if key in existing_keys:
+            continue
+        existing_keys.add(key)
+        cameras.append(camera)
+        created += 1
+
+    if changed or created:
         save_inventory_json(cameras, mode="olt")
-    return {"updated_cameras": changed, "cleared_cameras": cleared}
+    return {"updated_cameras": changed, "created_cameras": created, "cleared_cameras": cleared}
 
 
 def _req_connector_id(req: Any) -> str:
@@ -408,12 +461,20 @@ def _parse_connector_sample(sample: Any) -> list[dict[str, str]]:
     return rows
 
 
-def _known_mac_ip_index() -> dict[str, dict[str, str]]:
+def _known_mac_ip_index(connector_id: str = "", site: str = "") -> dict[str, dict[str, str]]:
     index: dict[str, dict[str, str]] = {}
+    wanted_connector = _norm_text(connector_id)
+    wanted_site = _norm_text(site).lower()
 
     for mode in ("olt", "basic", "switch"):
         try:
             for row in load_inventory_json(mode=mode) or []:
+                row_connector = _norm_text(row.get("connector_id") or row.get("remote_connector_id"))
+                row_site = _norm_text(row.get("site") or row.get("site_name") or row.get("local")).lower()
+                if wanted_connector and row_connector and row_connector != wanted_connector:
+                    continue
+                if wanted_site and row_site and row_site != wanted_site:
+                    continue
                 _add_mac_ip(index, row.get("mac") or row.get("MAC") or row.get("cpe_mac"), row.get("ip") or row.get("IP"), f"inventario-{mode}")
         except Exception:
             logger.debug("Nao consegui usar inventario %s como indice MAC->IP", mode, exc_info=True)
@@ -422,6 +483,12 @@ def _known_mac_ip_index() -> dict[str, dict[str, str]]:
         obj = load_olt_cpe_state() or {}
         for row in list(obj.get("cpes") or obj.get("rows") or []):
             if isinstance(row, dict):
+                row_connector = _norm_text(row.get("connector_id") or row.get("remote_connector_id"))
+                row_site = _norm_text(row.get("site") or row.get("SITE") or row.get("local")).lower()
+                if wanted_connector and row_connector and row_connector != wanted_connector:
+                    continue
+                if wanted_site and row_site and row_site != wanted_site:
+                    continue
                 _add_mac_ip(index, row.get("cpe_mac") or row.get("mac"), row.get("ip") or row.get("camera_ip"), "olt-cpe")
     except Exception:
         logger.debug("Nao consegui usar inventario OLT como indice MAC->IP", exc_info=True)
@@ -429,6 +496,12 @@ def _known_mac_ip_index() -> dict[str, dict[str, str]]:
     try:
         connectors = list_connectors(include_token=False).get("connectors") or []
         for connector in connectors:
+            row_connector = _norm_text(connector.get("id") or connector.get("connector_id"))
+            row_site = _norm_text(connector.get("site") or connector.get("client")).lower()
+            if wanted_connector and row_connector != wanted_connector:
+                continue
+            if wanted_site and row_site and row_site != wanted_site:
+                continue
             inventory = connector.get("inventory") if isinstance(connector.get("inventory"), dict) else {}
             for key in ("dhcp_rows", "arp_rows", "neighbor_rows"):
                 for row in inventory.get(key) or []:
@@ -620,6 +693,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                 site = str(getattr(req, "site", "") or "").strip()
                 if connector and not site:
                     site = str(connector.get("site") or connector.get("client") or "").strip()
+                mac_ip_index = _known_mac_ip_index(connector_id=connector_id, site=site)
                 new_cpes: list[dict[str, Any]] = []
                 old_by_mac = {
                     _norm_mac(item.get("cpe_mac") or item.get("mac")): item
@@ -633,6 +707,12 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                     rr["site"] = site
                     rr["olt_ip"] = req.olt_ip
                     rr["olt_model"] = req.olt_model or "8820i"
+                    mac_key = _norm_mac(rr.get("cpe_mac") or rr.get("mac"))
+                    if mac_key and not _norm_text(rr.get("ip") or rr.get("camera_ip")):
+                        found_ip = (mac_ip_index.get(mac_key) or {}).get("ip", "")
+                        if found_ip:
+                            rr["ip"] = found_ip
+                            rr["ip_source"] = (mac_ip_index.get(mac_key) or {}).get("source", "")
                     old = old_by_mac.get(_norm_mac(rr.get("cpe_mac") or rr.get("mac"))) or {}
                     old_serial = _norm_text(old.get("onu_serial") or old.get("serial"))
                     new_serial = _norm_text(rr.get("onu_serial") or rr.get("serial"))
@@ -643,6 +723,13 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                         rr["connector_id"] = connector_id
                         rr["remote_connector_name"] = connector_name
                     new_cpes.append(rr)
+
+                matched_connector_ips = sum(1 for item in new_cpes if _norm_text(item.get("ip") or item.get("camera_ip")))
+                if connector_id and new_cpes and mac_ip_index and matched_connector_ips == 0:
+                    raise RuntimeError(
+                        "A OLT respondeu, mas os MACs coletados nao batem com o conector selecionado. "
+                        "Verifique LANs duplicadas entre conectores (ex.: 192.168.50.0/30) ou use um IP unico da OLT neste cliente."
+                    )
 
                 if getattr(req, "reuse_json", False):
                     all_cpes = new_cpes + existing_cpes
