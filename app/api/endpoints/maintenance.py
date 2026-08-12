@@ -16,12 +16,12 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import requests
 from requests.auth import HTTPDigestAuth
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 
 from app.api.endpoints.cameras import api_cameras_reboot, api_cameras_rename
 from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, DVR_INVENTORY_JSON_PATH, NVR_INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
-from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_scoped_path
 from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.db_store import load_app_settings, save_app_settings, legacy_rows_from_db
 from app.services.windows_inventory_service import load_windows_inventory
@@ -66,23 +66,268 @@ def _as_str(v: Any) -> str:
     return str(v or "").strip()
 
 
+def _is_proxy_allowed_host(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(str(host or "").strip())
+    except ValueError:
+        return False
+    if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast:
+        return False
+    cgnat = ipaddress.ip_network("100.64.0.0/10")
+    return bool(ip.is_private or ip in cgnat)
+
+
+def _ip_belongs_to_current_tenant(ip: str) -> bool:
+    """So deixa o proxy web abrir um IP que esteja no inventario (camera IP
+    ou canal de gravador) do tenant atual -- sem isso, qualquer usuario
+    autenticado (mesmo viewer) conseguia usar o proxy pra acessar a camera
+    (ou qualquer servico HTTP privado) de OUTRO cliente, so sabendo o IP."""
+    wanted = _as_str(ip)
+    if not wanted:
+        return False
+    for row in _flatten_ip_rows_for_zabbix():
+        if _as_str(row.get("ip") or row.get("IP")) == wanted:
+            return True
+    for source in ("nvr", "dvr"):
+        for row in _load_rows_for_source(source):
+            if not isinstance(row, dict):
+                continue
+            if _as_str(row.get("camera_ip") or row.get("ip_camera")) == wanted:
+                return True
+    return False
+
+
+def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
+    host = _as_str(ip)
+    if not _is_proxy_allowed_host(host):
+        raise HTTPException(status_code=400, detail="proxy web permitido apenas para IP privado/CGNAT")
+    if not _ip_belongs_to_current_tenant(host):
+        raise HTTPException(status_code=403, detail="IP nao pertence ao inventario deste cliente")
+    clean_path = "/" + str(path or "").lstrip("/")
+    if ".." in clean_path.split("/"):
+        raise HTTPException(status_code=400, detail="caminho invalido")
+    return urlunsplit(("http", host, clean_path, str(query or ""), ""))
+
+
+def _rewrite_camera_web_content(content: bytes, *, ip: str, content_type: str) -> bytes:
+    low_type = str(content_type or "").lower()
+    if not any(marker in low_type for marker in ("text/html", "text/css", "javascript", "application/json", "text/xml", "application/xml")):
+        return content
+    try:
+        text = content.decode("utf-8")
+        encoding = "utf-8"
+    except UnicodeDecodeError:
+        text = content.decode("latin-1", errors="ignore")
+        encoding = "latin-1"
+
+    proxy_root = f"/api/maintenance/web/{quote(str(ip), safe='')}/"
+    proxy_prefixes = (
+        "ISAPI|doc|SDK|cgi-bin|web|js|jsBase|jsCore|css|image|images?|config|System|Streaming|RPC|RPC2|"
+        "RPC2_Login|RPC2_Logout|Language|plugin|current_config|custom"
+    )
+    replacements = [
+        (r'(href|src|action)=([\'"])/', rf'\1=\2{proxy_root}'),
+        (r'url\(([\'"]?)/', rf'url(\1{proxy_root}'),
+        (rf'([\'"])\/({proxy_prefixes})([\/\'"#?])', rf'\1{proxy_root}\2\3'),
+    ]
+    for pattern, repl in replacements:
+        text = re.sub(pattern, repl, text)
+    if "text/html" in low_type and "<base " not in text.lower():
+        shim = f"""
+<base href="{proxy_root}">
+<script>
+(function(){{
+  var root = {json.dumps(proxy_root)};
+  var host = {json.dumps(str(ip))};
+  function proxify(url) {{
+    try {{
+      if (!url || typeof url !== 'string') return url;
+      if (url.indexOf(root) === 0) return url;
+      if (/^https?:\\/\\//i.test(url)) {{
+        var a = document.createElement('a');
+        a.href = url;
+        if (a.hostname === host) return root + a.pathname.replace(/^\\/+/, '') + (a.search || '') + (a.hash || '');
+        return url;
+      }}
+      if (url.charAt(0) === '/' && url.indexOf('/api/maintenance/web/') !== 0) {{
+        return root + url.replace(/^\\/+/, '');
+      }}
+      return url;
+    }} catch (e) {{ return url; }}
+  }}
+  window.__sightopsCameraProxy = proxify;
+  if (window.XMLHttpRequest && XMLHttpRequest.prototype.open) {{
+    var xhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {{
+      arguments[1] = proxify(url);
+      return xhrOpen.apply(this, arguments);
+    }};
+  }}
+  if (window.fetch) {{
+    var oldFetch = window.fetch;
+    window.fetch = function(input, init) {{
+      if (typeof input === 'string') input = proxify(input);
+      else if (input && input.url) input = new Request(proxify(input.url), input);
+      return oldFetch.call(this, input, init);
+    }};
+  }}
+  if (window.Element && Element.prototype.setAttribute) {{
+    var oldSet = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {{
+      var n = String(name || '').toLowerCase();
+      if (n === 'src' || n === 'href' || n === 'action') value = proxify(value);
+      return oldSet.call(this, name, value);
+    }};
+  }}
+}})();
+</script>"""
+        text = re.sub(r"(?i)<head([^>]*)>", rf"<head\1>{shim}", text, count=1)
+    return text.encode(encoding, errors="ignore")
+
+
+def _proxy_location_header(location: str, *, ip: str) -> str:
+    loc = _as_str(location)
+    if not loc:
+        return loc
+    proxy_root = f"/api/maintenance/web/{quote(str(ip), safe='')}/"
+    parts = urlsplit(loc)
+    if parts.scheme in ("http", "https") and parts.hostname == ip:
+        path = parts.path.lstrip("/")
+        suffix = path + (("?" + parts.query) if parts.query else "")
+        return proxy_root + suffix
+    if loc.startswith("/"):
+        return proxy_root + loc.lstrip("/")
+    return loc
+
+
+def _camera_cookie_header(request: Request) -> str:
+    raw = request.headers.get("cookie") or ""
+    if not raw:
+        return ""
+    kept: list[str] = []
+    for part in raw.split(";"):
+        item = part.strip()
+        if not item:
+            continue
+        name = item.split("=", 1)[0].strip().lower()
+        if name in {"sightops_session"}:
+            continue
+        kept.append(item)
+    return "; ".join(kept)
+
+
+def _zabbix_tenant_slug() -> str:
+    return _as_str(get_current_tenant_slug() or "default").lower() or "default"
+
+
+def _zabbix_host_safe(value: Any) -> str:
+    safe = _as_str(value).upper()
+    safe = re.sub(r"[^A-Z0-9_.-]+", "-", safe)
+    safe = re.sub(r"-+", "-", safe).strip("-")
+    return safe or "DEFAULT"
+
+
+def _zabbix_tenant_group(group: str, tenant: str = "") -> str:
+    base = _as_str(group) or "Cameras"
+    slug = _zabbix_host_safe(tenant or _zabbix_tenant_slug())
+    marker = f" - {slug}"
+    return base if base.upper().endswith(marker.upper()) else f"{base}{marker}"
+
+
+def _zabbix_tmp_inventory_path(source: str, mode: str = "", suffix: str = "") -> Path:
+    tenant = _zabbix_tenant_slug()
+    src = re.sub(r"[^a-z0-9_-]+", "-", _as_str(source).lower() or "ip").strip("-")
+    md = re.sub(r"[^a-z0-9_-]+", "-", _as_str(mode).lower()).strip("-")
+    extra = re.sub(r"[^a-z0-9_-]+", "-", _as_str(suffix).lower()).strip("-")
+    parts = ["zabbix-source-inventory", src]
+    if md:
+        parts.append(md)
+    if extra:
+        parts.append(extra)
+    return tenant_scoped_path("tmp/" + ".".join(parts) + ".json", tenant)
+
+
+def _zabbix_host_belongs_to_tenant(host: Dict[str, Any], tenant: str = "") -> bool:
+    slug = _zabbix_host_safe(tenant or _zabbix_tenant_slug())
+    technical = _as_str(host.get("host"))
+    return technical.upper().startswith(f"{slug}-")
+
+
 def _normalize_zabbix_url(url: str) -> str:
-    """Use the Docker-internal Zabbix route when users paste the macvlan IP."""
+    """Use a Docker-internal Zabbix route when users paste a public/macvlan URL."""
     raw = _as_str(url)
     if not raw:
         return ""
     try:
-        parts = urlsplit(raw)
+        candidate = raw if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw) else f"http://{raw}"
+        parts = urlsplit(candidate)
         host = (parts.hostname or "").strip().lower()
-        if host in {"10.10.12.51", "zabbix-web"}:
+        if host in {"10.10.12.51", "zabbix-web", "zabbix-prod-web"}:
             scheme = parts.scheme or "http"
-            path = parts.path or "/api_jsonrpc.php"
-            if not path.endswith("/api_jsonrpc.php"):
-                path = "/api_jsonrpc.php"
-            return urlunsplit((scheme, "zabbix-web:8080", path, "", ""))
+            internal_host = os.getenv("SIGHTOPS_ZABBIX_WEB_HOST", "zabbix-prod-web").strip() or "zabbix-prod-web"
+            internal_port = os.getenv("SIGHTOPS_ZABBIX_WEB_PORT", "8080").strip() or "8080"
+            return urlunsplit((scheme, f"{internal_host}:{internal_port}", "/api_jsonrpc.php", "", ""))
     except Exception:
         pass
     return raw
+
+
+def _zabbix_default_url_candidates() -> list[str]:
+    configured = [
+        os.getenv("SIGHTOPS_ZABBIX_URL"),
+        os.getenv("ZBX_URL"),
+        os.getenv("ZABBIX_URL"),
+    ]
+    defaults = [
+        "http://zabbix-prod-web:8080/api_jsonrpc.php",
+        "http://zabbix-web:8080/api_jsonrpc.php",
+    ]
+    out: list[str] = []
+    for value in configured + defaults:
+        url = _normalize_zabbix_url(_as_str(value))
+        if url and url not in out:
+            out.append(url)
+    return out
+
+
+def _zabbix_default_user() -> str:
+    return (
+        _as_str(os.getenv("SIGHTOPS_ZABBIX_USER"))
+        or _as_str(os.getenv("ZBX_USER"))
+        or _as_str(os.getenv("ZABBIX_USER"))
+        or "Admin"
+    )
+
+
+def _zabbix_default_pass() -> str:
+    return (
+        _as_str(os.getenv("SIGHTOPS_ZABBIX_PASS"))
+        or _as_str(os.getenv("ZBX_PASS"))
+        or _as_str(os.getenv("ZABBIX_PASS"))
+        or "zabbix"
+    )
+
+
+def _zabbix_effective_sync_config(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    base = dict(cfg or {})
+    url = _normalize_zabbix_url(base.get("url"))
+    if not url:
+        url = (_zabbix_default_url_candidates() or [""])[0]
+    user = _as_str(base.get("user")) or _zabbix_default_user()
+    password = _as_str(base.get("pass") or base.get("password")) or _zabbix_default_pass()
+    return {
+        **base,
+        "enabled": True,
+        "url": url,
+        "user": user,
+        "pass": password,
+        "group": _as_str(base.get("group")) or "Cameras",
+        "template": _as_str(base.get("template")) or "Template Module ICMP Ping",
+        "template_dvr": _as_str(base.get("template_dvr")) or "Template Cam-Snapshot DVR Channel",
+        "site": _as_str(base.get("site")),
+        "inv_mode": _normalize_ip_inventory_mode(base.get("inv_mode") or base.get("mode") or "all"),
+        "tenant_slug": _zabbix_tenant_slug(),
+    }
 
 
 def _settings_path() -> Path:
@@ -343,11 +588,50 @@ def _run_script(script_path: Path, env: Dict[str, str], args: List[str] | None =
 
 def _normalize_ip_inventory_mode(mode: str = "") -> str:
     raw = _as_str(mode).lower()
+    if raw in {"all", "todos", "tudo", "*"}:
+        return "all"
     if raw in {"switch", "sw", "via_switch", "via-switch"}:
         return "switch"
     if raw in {"basic", "basico", "básico", "base"}:
         return "basic"
     return "olt"
+
+
+def _load_ip_rows_by_mode(site: str = "", mode: str = "olt") -> Dict[str, list[dict[str, Any]]]:
+    norm_mode = _normalize_ip_inventory_mode(mode)
+    modes = ["olt", "basic", "switch"] if norm_mode == "all" else [norm_mode]
+    out: Dict[str, list[dict[str, Any]]] = {}
+    olt_ip_set: set[str] = set()
+    for item_mode in modes:
+        rows = load_inventory_json(site=site, mode=item_mode) or []
+        ip_set = {_as_str(row.get("ip") or row.get("IP")) for row in rows if isinstance(row, dict)}
+        ip_set.discard("")
+        if norm_mode == "all" and item_mode == "olt":
+            olt_ip_set = set(ip_set)
+        elif norm_mode == "all" and item_mode != "olt" and olt_ip_set and ip_set == olt_ip_set:
+            # load_inventory_json tem fallback legado para OLT quando o modo
+            # ainda nao foi salvo; no agregado, isso viraria contagem duplicada.
+            rows = []
+        out[item_mode] = rows
+    return out
+
+
+def _flatten_ip_rows_for_zabbix(site: str = "", mode: str = "olt") -> list[dict[str, Any]]:
+    rows_by_mode = _load_ip_rows_by_mode(site=site, mode=mode)
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item_mode in ("basic", "olt", "switch"):
+        for row in rows_by_mode.get(item_mode, []):
+            if not isinstance(row, dict):
+                continue
+            ip = _as_str(row.get("ip") or row.get("IP"))
+            if not ip or ip in seen:
+                continue
+            enriched = dict(row)
+            enriched.setdefault("inventory_mode", item_mode)
+            out.append(enriched)
+            seen.add(ip)
+    return out
 
 
 def _load_rows_for_source(source: str, site: str = "", mode: str = "olt") -> list[dict[str, Any]]:
@@ -391,7 +675,10 @@ def _load_rows_for_source(source: str, site: str = "", mode: str = "olt") -> lis
             return rows
         except Exception:
             return []
-    return load_inventory_json(site=site_name, mode=_normalize_ip_inventory_mode(mode)) or []
+    inv_mode = _normalize_ip_inventory_mode(mode)
+    if src == "ip" and inv_mode == "all":
+        return _flatten_ip_rows_for_zabbix(site=site_name, mode=inv_mode)
+    return load_inventory_json(site=site_name, mode=inv_mode) or []
 
 
 def _build_zabbix_rows(source: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -908,6 +1195,82 @@ def maintenance_live_snapshot(ip: str, user: str = "admin", password: str = ""):
     return Response(status_code=503)
 
 
+@router.api_route("/maintenance/web/{ip}/", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+@router.api_route("/maintenance/web/{ip}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""):
+    """Proxy HTTP da interface web da camera via servidor/WireGuard."""
+    target_url = _camera_web_target_url(ip, path, request.url.query)
+    headers: dict[str, str] = {
+        "User-Agent": request.headers.get("user-agent") or "SightOps camera web proxy",
+        "Accept": request.headers.get("accept") or "*/*",
+        "Accept-Language": request.headers.get("accept-language") or "pt-BR,pt;q=0.9,en;q=0.8",
+    }
+    content_type = request.headers.get("content-type")
+    if content_type:
+        headers["Content-Type"] = content_type
+    authorization = request.headers.get("authorization")
+    if authorization:
+        headers["Authorization"] = authorization
+    cookie = _camera_cookie_header(request)
+    if cookie:
+        headers["Cookie"] = cookie
+    body = await request.body()
+    try:
+        upstream = requests.request(
+            request.method,
+            target_url,
+            headers=headers,
+            data=body if body else None,
+            timeout=(4.0, 25.0),
+            allow_redirects=False,
+            verify=False,
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"falha ao acessar web da camera {ip}: {exc}") from exc
+
+    resp_headers: dict[str, str] = {
+        "Cache-Control": "no-store",
+        "X-Frame-Options": "SAMEORIGIN",
+    }
+    for key, value in upstream.headers.items():
+        low = key.lower()
+        if low in {"content-length", "content-encoding", "transfer-encoding", "connection", "server"}:
+            continue
+        if low == "location":
+            resp_headers["Location"] = _proxy_location_header(value, ip=ip)
+            continue
+        if low == "set-cookie":
+            resp_headers["Set-Cookie"] = value
+            continue
+        if low in {"content-type", "cache-control", "pragma", "expires"}:
+            resp_headers[key] = value
+
+    media_type = upstream.headers.get("content-type") or "application/octet-stream"
+    content = _rewrite_camera_web_content(upstream.content or b"", ip=ip, content_type=media_type)
+    return Response(content=content, status_code=upstream.status_code, media_type=media_type, headers=resp_headers)
+
+
+def _stream_rtsp_path_for_camera(*, vendor: str = "", model: str = "", subtype: int = 1) -> str:
+    st = 0 if int(subtype or 0) == 0 else 1
+    vendor_l = str(vendor or "").strip().lower()
+    model_l = str(model or "").strip().lower()
+    is_intelbras = "intelbras" in vendor_l or "dahua" in vendor_l or model_l.startswith(("vip-", "vipc-", "vhd-"))
+    is_hikvision = (
+        not is_intelbras
+        and (
+            "hikvision" in vendor_l
+            or "hilook" in vendor_l
+            or model_l.startswith("ds-")
+            or model_l.startswith("ds2")
+            or model_l.startswith("ipc-")
+        )
+    )
+    if is_hikvision:
+        channel = "101" if st == 0 else "102"
+        return f"/Streaming/Channels/{channel}"
+    return f"/cam/realmonitor?channel=1&subtype={st}"
+
+
 @router.post("/maintenance/stream_register/{ip}")
 def maintenance_stream_register(
     ip: str,
@@ -926,12 +1289,7 @@ def maintenance_stream_register(
     stream_name = f"cam_{ip.replace('.', '_')}_{st}"
     user_q = quote(str(user or "admin"), safe="")
     pass_q = quote(str(password or ""), safe="")
-    hint = f"{vendor or ''} {model or ''}".lower()
-    if "hikvision" in hint or "ds-2" in hint or "ipc-" in hint:
-        channel = "101" if st == 0 else "102"
-        rtsp_path = f"/Streaming/Channels/{channel}"
-    else:
-        rtsp_path = f"/cam/realmonitor?channel=1&subtype={st}"
+    rtsp_path = _stream_rtsp_path_for_camera(vendor=vendor, model=model, subtype=st)
     rtsp_url = f"rtsp://{user_q}:{pass_q}@{ip}:554{rtsp_path}"
     # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
     source_url = f"ffmpeg:{rtsp_url}#video=h264#audio=opus"
@@ -1189,12 +1547,14 @@ def scripts_netwatch_download(site: str = "") -> FileResponse:
 
 @router.post("/scripts/zabbix")
 def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
-    url = _normalize_zabbix_url(payload.get("url"))
-    user = _as_str(payload.get("user"))
-    password = _as_str(payload.get("pass"))
-    group = _as_str(payload.get("group")) or "Cameras"
-    template = _as_str(payload.get("template")) or "Template Module ICMP Ping"
-    template_dvr = _as_str(payload.get("template_dvr")) or "Template Cam-Snapshot DVR Channel"
+    effective = _zabbix_effective_sync_config(payload)
+    url = _normalize_zabbix_url(payload.get("url") or effective.get("url"))
+    user = _as_str(payload.get("user") or effective.get("user"))
+    password = _as_str(payload.get("pass") or payload.get("password") or effective.get("pass"))
+    tenant_slug = _zabbix_tenant_slug()
+    group = _zabbix_tenant_group(_as_str(payload.get("group") or effective.get("group")) or "Cameras", tenant_slug)
+    template = _as_str(payload.get("template") or effective.get("template")) or "Template Module ICMP Ping"
+    template_dvr = _as_str(payload.get("template_dvr") or effective.get("template_dvr")) or "Template Cam-Snapshot DVR Channel"
     dvr_user = _as_str(payload.get("dvr_user")) or "admin"
     dvr_pass = _as_str(payload.get("dvr_pass"))
     tg_auto = bool(payload.get("tg_auto", False))
@@ -1211,8 +1571,9 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     script = BASE_DIR / "tools" / "mk_zabbix_from_inventory.py"
     inv_rows = _build_zabbix_rows(source, _load_rows_for_source(source, site=site, mode=inv_mode))
-    tmp_inv = SAIDA_DIR / "zabbix-source-inventory.json"
+    tmp_inv = _zabbix_tmp_inventory_path(source, inv_mode)
     try:
+        tmp_inv.parent.mkdir(parents=True, exist_ok=True)
         tmp_inv.write_text(json.dumps(inv_rows, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return {"error": f"falha ao preparar inventario para Zabbix: {e}"}
@@ -1227,7 +1588,8 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         # clientes com camera no mesmo IP privado colidem no mesmo host e um
         # sincronismo sobrescreve os dados do outro (ver build_host_name em
         # tools/mk_zabbix_from_inventory.py).
-        "ZBX_TENANT": get_current_tenant_slug() or "default",
+        "ZBX_TENANT": tenant_slug,
+        "ZBX_LEGACY_DEFAULT_HOSTNAMES": "1" if tenant_slug == "default" else "0",
         "ZBX_TEMPLATE": template,
         "ZBX_TEMPLATE_DVR": template_dvr,
         "ZBX_DVR_USER": dvr_user,
@@ -1258,6 +1620,7 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "dvr_pass": dvr_pass,
                 "site": site,
                 "inv_mode": inv_mode,
+                "tenant_slug": tenant_slug,
             }
             _save_settings(s)
         except Exception:
@@ -1289,7 +1652,9 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": "Por enquanto o status-sync Zabbix automatico e para Cameras IP."}
 
     settings = _load_settings()
-    cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
+    cfg_saved = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
+    cfg = _zabbix_effective_sync_config(cfg_saved)
+    tenant_slug = _zabbix_tenant_slug()
     url = _normalize_zabbix_url(payload.get("url") or cfg.get("url"))
     user = _as_str(payload.get("user") or cfg.get("user"))
     password = _as_str(payload.get("pass") or cfg.get("password") or cfg.get("pass"))
@@ -1300,13 +1665,7 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
     mode = _normalize_ip_inventory_mode(payload.get("mode") or payload.get("inv_mode") or cfg.get("inv_mode") or "olt")
     validate_offline = bool(payload.get("validate_offline", True))
 
-    if not url or not user or not password:
-        return {
-            "ok": False,
-            "error": "Zabbix nao configurado para Cameras IP. Sincronize o menu Zabbix com fonte Cameras IP primeiro.",
-        }
-
-    rows = load_inventory_json(mode=mode) or []
+    rows_by_mode = _load_ip_rows_by_mode(site="", mode=mode)
     wanted_site = site.strip().lower()
 
     def _row_matches_site(row: Dict[str, Any]) -> bool:
@@ -1319,15 +1678,49 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
         ]
         return any(v == wanted_site for v in vals if v)
 
-    ip_to_index: Dict[str, int] = {}
-    for idx, row in enumerate(rows):
-        if not _row_matches_site(row):
-            continue
-        ip = _as_str(row.get("ip") or row.get("IP"))
-        if ip:
-            ip_to_index[ip] = idx
-    if not ip_to_index:
+    ip_to_targets: Dict[str, List[tuple[str, int]]] = {}
+    for item_mode, rows in rows_by_mode.items():
+        for idx, row in enumerate(rows):
+            if not _row_matches_site(row):
+                continue
+            ip = _as_str(row.get("ip") or row.get("IP"))
+            if ip:
+                ip_to_targets.setdefault(ip, []).append((item_mode, idx))
+    if not ip_to_targets:
         return {"ok": True, "source": "zabbix", "total": 0, "online": 0, "offline": 0, "unknown": 0, "updated": 0}
+
+    if not url or not user or not password:
+        return {
+            "ok": False,
+            "error": "Zabbix nao configurado automaticamente: defina SIGHTOPS_ZABBIX_URL/USER/PASS ou suba o container zabbix-prod-web.",
+        }
+
+    ensure_hosts_raw = payload.get("ensure_hosts", True)
+    ensure_hosts = str(ensure_hosts_raw).strip().lower() not in {"0", "false", "no", "nao", "não", "off"}
+    bootstrapped = False
+    bootstrap_rows = 0
+    if ensure_hosts:
+        bootstrap = scripts_zabbix(
+            {
+                "source": "ip",
+                "mode": mode,
+                "inv_mode": mode,
+                "site": site,
+                "url": url,
+                "user": user,
+                "pass": password,
+                "group": cfg.get("group") or "Cameras",
+                "template": cfg.get("template") or "Template Module ICMP Ping",
+            }
+        )
+        if not bootstrap.get("ok"):
+            return {
+                "ok": False,
+                "error": "Falha ao garantir hosts das Cameras IP no Zabbix.",
+                "bootstrap_error": bootstrap.get("error") or bootstrap.get("stderr") or bootstrap.get("stdout"),
+            }
+        bootstrapped = True
+        bootstrap_rows = int(bootstrap.get("rows_used") or 0)
 
     try:
         auth = _zabbix_login(url, user, password)
@@ -1337,6 +1730,8 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "output": ["hostid", "host", "name", "available"],
                 "selectInterfaces": ["interfaceid", "ip", "available", "error"],
+                "search": {"host": f"{_zabbix_host_safe(tenant_slug)}-"},
+                "startSearch": True,
                 "monitored_hosts": True,
             },
             auth,
@@ -1344,16 +1739,38 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
         ) or []
         host_by_ip: Dict[str, Dict[str, Any]] = {}
         hostids: List[str] = []
-        for host in hosts:
-            if not isinstance(host, dict):
-                continue
-            hid = _as_str(host.get("hostid"))
-            if hid:
-                hostids.append(hid)
-            for iface in host.get("interfaces") or []:
-                ip = _as_str((iface or {}).get("ip"))
-                if ip in ip_to_index:
-                    host_by_ip[ip] = {"host": host, "interface": iface or {}}
+        def _collect_matching_hosts(zbx_hosts: Any, require_tenant_prefix: bool = True) -> None:
+            for host in zbx_hosts or []:
+                if not isinstance(host, dict):
+                    continue
+                if require_tenant_prefix and not _zabbix_host_belongs_to_tenant(host, tenant_slug):
+                    continue
+                hid = _as_str(host.get("hostid"))
+                if hid:
+                    hostids.append(hid)
+                for iface in host.get("interfaces") or []:
+                    ip = _as_str((iface or {}).get("ip"))
+                    if ip in ip_to_targets:
+                        host_by_ip[ip] = {"host": host, "interface": iface or {}}
+
+        _collect_matching_hosts(hosts, require_tenant_prefix=True)
+
+        used_legacy_hosts = False
+        if not host_by_ip and tenant_slug == "default":
+            legacy_hosts = _zabbix_api_call(
+                url,
+                "host.get",
+                {
+                    "output": ["hostid", "host", "name", "available"],
+                    "selectInterfaces": ["interfaceid", "ip", "available", "error"],
+                    "monitored_hosts": True,
+                },
+                auth,
+                req_id=22,
+            ) or []
+            hostids.clear()
+            _collect_matching_hosts(legacy_hosts, require_tenant_prefix=False)
+            used_legacy_hosts = bool(host_by_ip)
 
         host_status: Dict[str, str] = {}
         if hostids:
@@ -1389,10 +1806,10 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
         resolved: List[Dict[str, Any]] = []
         offline_probe_ips: List[str] = []
 
-        for ip, idx in ip_to_index.items():
+        for ip, targets in ip_to_targets.items():
             info = host_by_ip.get(ip)
             if not info:
-                unknown += 1
+                unknown += len(targets)
                 continue
             host = info.get("host") or {}
             iface = info.get("interface") or {}
@@ -1410,7 +1827,7 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             if status == "offline" and validate_offline:
                 offline_probe_ips.append(ip)
-            resolved.append({"ip": ip, "idx": idx, "status": status, "host": host, "hid": hid})
+            resolved.append({"ip": ip, "targets": targets, "status": status, "host": host, "hid": hid})
 
         probe_by_ip: Dict[str, Dict[str, Any]] = {}
         if offline_probe_ips:
@@ -1426,52 +1843,64 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
                     ip, probe = fut.result()
                     probe_by_ip[ip] = probe
 
+        touched_modes: set[str] = set()
         for item in resolved:
             ip = _as_str(item.get("ip"))
-            idx = int(item.get("idx") or 0)
+            targets = item.get("targets") if isinstance(item.get("targets"), list) else []
             status = _as_str(item.get("status"))
             host = item.get("host") or {}
             hid = _as_str(item.get("hid"))
-            row = rows[idx]
             status_source = "zabbix"
+            probe: Dict[str, Any] = {}
             if status == "offline" and validate_offline:
                 probe = probe_by_ip.get(ip) or {"online": False, "method": "auto"}
                 if bool(probe.get("online")):
                     status = "online"
                     status_source = "zabbix+tcp"
-                    row["status_detail"] = "zabbix_icmp_offline_but_tcp_online"
-                    row["status_check_method"] = _as_str(probe.get("method"))
                     validated_online += 1
-                else:
-                    row["status_detail"] = "zabbix_icmp_offline_tcp_unreachable"
+
+            for item_mode, idx in targets:
+                rows = rows_by_mode.get(item_mode) or []
+                if idx < 0 or idx >= len(rows):
+                    continue
+                row = rows[idx]
+                row["status"] = status
+                row["status_source"] = status_source
+                row["status_checked_at"] = now
+                row["zabbix_hostid"] = hid
+                row["zabbix_host"] = _as_str(host.get("name") or host.get("host"))
+                if status_source == "zabbix+tcp" or (status == "offline" and validate_offline):
+                    row["status_detail"] = (
+                        "zabbix_icmp_offline_but_tcp_online"
+                        if bool(probe.get("online"))
+                        else "zabbix_icmp_offline_tcp_unreachable"
+                    )
                     row["status_check_method"] = _as_str(probe.get("method"))
+                updated += 1
+                touched_modes.add(item_mode)
+                if status == "online":
+                    online += 1
+                else:
+                    offline += 1
 
-            row["status"] = status
-            row["status_source"] = status_source
-            row["status_checked_at"] = now
-            row["zabbix_hostid"] = hid
-            row["zabbix_host"] = _as_str(host.get("name") or host.get("host"))
-            updated += 1
-            if status == "online":
-                online += 1
-            else:
-                offline += 1
-
-        if updated:
-            save_inventory_json(rows, mode=mode)
+        for item_mode in touched_modes:
+            save_inventory_json(rows_by_mode.get(item_mode) or [], mode=item_mode)
 
         return {
             "ok": True,
             "source": "zabbix",
             "mode": mode,
             "site": site,
-            "total": len(ip_to_index),
+            "bootstrapped": bootstrapped,
+            "bootstrap_rows": bootstrap_rows,
+            "total": sum(len(v) for v in ip_to_targets.values()),
             "matched": len(host_by_ip),
             "updated": updated,
             "online": online,
             "offline": offline,
             "unknown": unknown,
             "validated_online": validated_online,
+            "legacy_hosts_used": used_legacy_hosts,
         }
     except Exception as e:
         return {"ok": False, "error": f"Falha ao consultar Zabbix: {e}"}

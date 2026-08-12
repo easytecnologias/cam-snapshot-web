@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List
 import asyncio
+import json
 import time
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
@@ -16,6 +17,7 @@ from app.services.ws_scan_service import ping_via_connector
 from pydantic import BaseModel
 
 from app.core.paths import INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
+from app.core.tenant_context import tenant_recorder_inventory_path
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
@@ -27,6 +29,110 @@ urllib3.disable_warnings(InsecureRequestWarning)
 
 
 router = APIRouter(tags=["cameras"], prefix="/api")
+
+
+def _txt(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _camera_inventory_mode(value: Any) -> str:
+    raw = _txt(value).lower()
+    if raw in {"switch", "sw", "via_switch", "via-switch"}:
+        return "switch"
+    if raw in {"basic", "basico", "básico", "base"}:
+        return "basic"
+    return "olt"
+
+
+def _site_matches(row: dict[str, Any], wanted_site: str) -> bool:
+    wanted = _txt(wanted_site).lower()
+    if not wanted:
+        return True
+    return any(_txt(row.get(k)).lower() == wanted for k in ("site", "site_name", "local", "LOCAL"))
+
+
+def _recorder_camera_ip(row: dict[str, Any]) -> str:
+    return _txt(row.get("camera_ip") or row.get("ip_camera"))
+
+
+def _recorder_snapshot_url(row: dict[str, Any]) -> str:
+    return _txt(row.get("imgbb_url") or row.get("snapshot_url") or row.get("imgbb_thumb_url"))
+
+
+def _load_recorder_camera_index(site: str = "", connector_id: str = "") -> dict[str, dict[str, Any]]:
+    wanted_connector = _txt(connector_id)
+    indexed: dict[str, dict[str, Any]] = {}
+    for source in ("nvr", "dvr"):
+        path = tenant_recorder_inventory_path(source)
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            camera_ip = _recorder_camera_ip(row)
+            if not camera_ip:
+                continue
+            if not _site_matches(row, site):
+                continue
+            row_connector = _txt(row.get("remote_connector_id") or row.get("connector_id"))
+            if wanted_connector and row_connector != wanted_connector:
+                continue
+            enriched = dict(row)
+            enriched["_recorder_source"] = source
+            current = indexed.get(camera_ip)
+            if current is None:
+                indexed[camera_ip] = enriched
+                continue
+            current_score = int(_txt(current.get("status")).lower() == "online") + int(bool(_recorder_snapshot_url(current)))
+            new_score = int(_txt(enriched.get("status")).lower() == "online") + int(bool(_recorder_snapshot_url(enriched)))
+            if new_score > current_score:
+                indexed[camera_ip] = enriched
+
+    return indexed
+
+
+def _is_empty_camera_value(value: Any) -> bool:
+    text = _txt(value)
+    if not text:
+        return True
+    return text.lower() in {"-", "n/d", "nao informado", "nao identificado"}
+
+
+def _apply_recorder_fallback(cam: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
+    if not rec:
+        return cam
+    rec_status = _txt(rec.get("status")).lower()
+    rec_video_loss = bool(rec.get("video_loss"))
+    if _is_empty_camera_value(cam.get("titulo")):
+        cam["titulo"] = _txt(rec.get("title") or rec.get("titulo"))
+    if _is_empty_camera_value(cam.get("local")):
+        cam["local"] = _txt(rec.get("local") or rec.get("site") or rec.get("site_name"))
+    if _is_empty_camera_value(cam.get("mac")):
+        cam["mac"] = _txt(rec.get("camera_mac") or rec.get("mac_camera") or rec.get("mac"))
+    if _is_empty_camera_value(cam.get("modelo")):
+        cam["modelo"] = _txt(rec.get("camera_model") or rec.get("modelo") or rec.get("model"))
+        cam["model"] = cam["modelo"]
+    if _is_empty_camera_value(cam.get("fabricante")) and cam.get("modelo"):
+        model = _txt(cam.get("modelo")).upper()
+        if model.startswith("DS-") or model.startswith("IPC-B"):
+            cam["fabricante"] = "Hikvision"
+    rec_snapshot = _recorder_snapshot_url(rec)
+    if not _txt(cam.get("snapshot_url")) and rec_snapshot:
+        cam["snapshot_url"] = rec_snapshot
+    if not _txt(cam.get("imgbb_url")) and _txt(rec.get("imgbb_url")):
+        cam["imgbb_url"] = _txt(rec.get("imgbb_url"))
+    if rec_status == "online" and not rec_video_loss and _txt(cam.get("status")).lower() != "online":
+        cam["direct_status"] = cam.get("status") or ""
+        cam["status"] = "online"
+    cam["via_recorder"] = True
+    cam["recorder_source"] = _txt(rec.get("_recorder_source"))
+    cam["recorder_host"] = _txt(rec.get("host") or rec.get("nvr_ip") or rec.get("dvr_ip"))
+    cam["recorder_channel"] = _txt(rec.get("channel") or rec.get("ch"))
+    return cam
 
 
 class CameraUpdate(BaseModel):
@@ -79,20 +185,23 @@ def api_cameras(
     connector_id: str = Query(default=""),
 ) -> Dict[str, Any]:
     """Compat com legado: retorna {cameras:[...]} mesclando campos."""
+    inventory_mode = _camera_inventory_mode(mode)
     rows = load_inventory_json(site=site, mode=mode) or []
+    recorder_by_ip = _load_recorder_camera_index(site=site, connector_id=connector_id) if inventory_mode == "olt" else {}
     wanted_connector = str(connector_id or "").strip()
     if wanted_connector:
         rows = [
             row for row in rows
             if str((row or {}).get("remote_connector_id") or (row or {}).get("connector_id") or "").strip() == wanted_connector
         ]
-    mode = (enrich or "").strip().lower()
+    mode = (enrich or "").strip().lower() or inventory_mode
     if mode == "olt":
         rows, _ = _enrich_inventory_with_olt(list(rows), SAIDA_DIR / "olt-cpe-macs.json")
     elif mode == "switch":
         rows, _ = _enrich_inventory_with_switch(list(rows), DATA_DIR / "switch-mac-table.json")
 
     by_key: dict[str, dict[str, Any]] = {}
+    seen_ips: set[str] = set()
 
     def make_key(row: dict) -> str:
         return inventory_row_key(row, fallback=f"ROW:{len(by_key)}")
@@ -130,6 +239,11 @@ def api_cameras(
             "onu_id": r.get("onu_id") or "",
             "onu_name": r.get("onu_name") or "",
             "onu_serial": r.get("onu_serial") or "",
+            "onu_oper_status": r.get("onu_oper_status") or r.get("oper_status") or "",
+            "onu_omci_status": r.get("onu_omci_status") or r.get("omci_status") or "",
+            "onu_rx": r.get("onu_rx") or "",
+            "olt_rx": r.get("olt_rx") or "",
+            "onu_telemetry_updated_at": r.get("onu_telemetry_updated_at") or r.get("telemetry_updated_at") or "",
             "switch_ip": r.get("switch_ip") or "",
             "switch_name": r.get("switch_name") or "",
             "switch_port": r.get("switch_port") or "",
@@ -140,6 +254,12 @@ def api_cameras(
             "site": r.get("site") or "",
             "site_name": r.get("site_name") or "",
         }
+        ip = str(cam.get("ip") or "").strip()
+        if ip:
+            seen_ips.add(ip)
+            rec = recorder_by_ip.get(ip)
+            if rec:
+                cam = _apply_recorder_fallback(cam, rec)
 
         health_label = r.get("ai_health_label") or ""
         if not health_label:
@@ -566,11 +686,12 @@ def api_portscan_apply(req: PortscanApplyRequest) -> Dict[str, Any]:
 
 @router.post("/snapshot/save", tags=["cameras"])
 def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
+    # resolve_snapshot_file so procura em diretorios de snapshot conhecidos
+    # (tenant-scoped + legado), usando so o nome do arquivo (Path(...).name).
+    # Nao aceitar mais um path absoluto arbitrario aqui -- isso permitia
+    # copiar qualquer arquivo legivel do disco do servidor (ex: .env) pra
+    # pasta publica de snapshots via /data/snapshot/<nome>.
     src = resolve_snapshot_file(path_hint=req.path, ip=(req.ip or ""))
-    if src is None:
-        cand = Path(req.path)
-        if cand.is_absolute() and cand.exists() and cand.is_file():
-            src = cand
 
     if src is None:
         raise HTTPException(status_code=404, detail=f"Arquivo de snapshot nao encontrado: {req.path}")

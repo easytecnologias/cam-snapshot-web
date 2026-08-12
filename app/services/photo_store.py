@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.paths import DATA_DIR, SAIDA_DIR
+from app.core.tenant_context import get_current_tenant_slug, tenant_snapshot_dir
 
 
 def ip_to_stem(ip: str) -> str:
@@ -31,7 +32,7 @@ def snapshot_url_from_name(filename: str) -> str:
 
 
 def snapshot_storage_dir() -> Path:
-    p = DATA_DIR / "snapshot"
+    p = tenant_snapshot_dir("ip") if get_current_tenant_slug() else DATA_DIR / "snapshot"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -43,12 +44,27 @@ def attach_snapshot_fields(cam: dict[str, Any], ip: str, filename: str) -> None:
     cam["thumb_url"] = f"/data/snapshot/{name}"
 
 
+def _allow_legacy_snapshot_fallback() -> bool:
+    return get_current_tenant_slug() in ("", "default")
+
+
 def _candidate_snapshot_paths(name: str) -> list[Path]:
-    return [
-        DATA_DIR / "snapshot" / name,
-        SAIDA_DIR / "snapshot" / name,
-        SAIDA_DIR / "snapshot_manual" / name,
-    ]
+    candidates = []
+    if get_current_tenant_slug():
+        candidates.append(tenant_snapshot_dir("ip") / name)
+    # So cai nos diretorios globais/legados quando nao ha tenant (auth
+    # desligada) ou e o tenant "default" -- sem isso, dois clientes com
+    # camera no mesmo IP privado (comum, ex 192.168.1.10) podiam ver o
+    # snapshot um do outro assim que um dos dois ainda nao tivesse foto
+    # propria salva. Mesma regra ja aplicada em app/main.py
+    # (_allow_legacy_media_fallback) pras rotas /data/snapshot/*.
+    if _allow_legacy_snapshot_fallback():
+        candidates.extend([
+            DATA_DIR / "snapshot" / name,
+            SAIDA_DIR / "snapshot" / name,
+            SAIDA_DIR / "snapshot_manual" / name,
+        ])
+    return candidates
 
 
 def resolve_snapshot_file(path_hint: str = "", ip: str = "") -> Path | None:
@@ -61,8 +77,8 @@ def resolve_snapshot_file(path_hint: str = "", ip: str = "") -> Path | None:
 
     ip_s = str(ip or "").strip()
     if ip_s:
-        fallback = DATA_DIR / "snapshot" / snapshot_filename_from_ip(ip_s)
+        base_dir = tenant_snapshot_dir("ip") if get_current_tenant_slug() else DATA_DIR / "snapshot"
+        fallback = base_dir / snapshot_filename_from_ip(ip_s)
         if fallback.exists() and fallback.is_file():
             return fallback
     return None
-

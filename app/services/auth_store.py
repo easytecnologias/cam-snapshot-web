@@ -14,7 +14,10 @@ from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from app.core.migrations import apply_migrations
+import shutil
+
 from app.core.paths import DATA_DIR
+from app.core.tenant_context import tenant_data_dir
 
 try:
     import psycopg
@@ -516,6 +519,159 @@ def create_tenant(
         )
         tenant = _fetchone(c, "SELECT id, slug, name, active, created_at FROM tenants WHERE id=?", (tenant_id,))
     return {"tenant": tenant or {}, "owner_user": created_user or None}
+
+
+def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
+    """Remove um cliente SaaS e seus dados escopados quando o banco e compartilhado."""
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode excluir clientes")
+    target_id = int(tenant_id or 0)
+    if target_id <= 0:
+        raise ValueError("cliente invalido")
+    if target_id in (int(actor.get("tenant_id") or 0), int(actor.get("effective_tenant_id") or 0)):
+        raise ValueError("nao e possivel excluir o cliente em uso na sua sessao")
+
+    _ensure_schema()
+    with _conn() as c:
+        tenant = _fetchone(c, "SELECT id, slug, name FROM tenants WHERE id=?", (target_id,))
+        if not tenant:
+            raise ValueError("cliente nao encontrado")
+        slug = str(tenant.get("slug") or "").strip()
+        if not slug:
+            raise ValueError("cliente sem slug")
+
+        # Se auth e dados operacionais compartilham o mesmo banco, remove o
+        # inventario do tenant. Se auth estiver separado, essas tabelas podem
+        # nao existir; por isso consultamos antes em vez de depender de erro.
+        wanted_tables = (
+            "notification_states",
+            "onu_signal_samples",
+            "monitoring_events",
+            "monitoring_entities",
+            "monitoring_profiles",
+            "planning_devices",
+            "planning_project_sites",
+            "planning_projects",
+            "olts",
+            "recorder_channels",
+            "recorders",
+            "ip_cameras",
+            "sites",
+            "json_state",
+        )
+        if _auth_backend() == "postgres":
+            existing_tables = {
+                str(row.get("table_name") or "")
+                for row in _fetchall(
+                    c,
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema='public'
+                      AND table_name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    wanted_tables,
+                )
+            }
+        else:
+            existing_tables = {
+                str(row.get("name") or "")
+                for row in _fetchall(
+                    c,
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type='table'
+                      AND name IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    wanted_tables,
+                )
+            }
+        for table in wanted_tables:
+            if table in existing_tables:
+                _execute(c, f"DELETE FROM {table} WHERE tenant_slug=?", (slug,))
+
+        _audit(
+            c,
+            action="tenant.delete",
+            tenant_id=target_id,
+            user_id=int(actor["id"]),
+            resource_type="tenant",
+            resource_id=slug,
+            detail_json=json.dumps({"name": tenant.get("name") or ""}, ensure_ascii=False),
+        )
+        _execute(c, "UPDATE auth_tokens SET acting_tenant_id=NULL WHERE acting_tenant_id=?", (target_id,))
+        _execute(c, "DELETE FROM tenants WHERE id=?", (target_id,))
+
+    # Sem isso, os arquivos do cliente (snapshots, KMZ, relatorios, tokens
+    # do agente Windows) ficavam no disco pra sempre depois de "excluido" --
+    # problema de retencao/privacidade numa oferta SaaS.
+    try:
+        shutil.rmtree(tenant_data_dir(slug), ignore_errors=True)
+    except Exception:
+        pass
+    return {"ok": True, "tenant_id": target_id, "tenant_slug": slug}
+
+
+def update_tenant(
+    actor: Dict[str, Any],
+    tenant_id: int,
+    name: Optional[str] = None,
+    active: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Atualiza dados administrativos do cliente SaaS."""
+    if not bool(actor.get("is_platform_admin")):
+        raise ValueError("somente admin da plataforma pode editar clientes")
+    target_id = int(tenant_id or 0)
+    if target_id <= 0:
+        raise ValueError("cliente invalido")
+
+    new_name = str(name or "").strip() if name is not None else None
+    if name is not None and not new_name:
+        raise ValueError("nome do cliente obrigatorio")
+    if active is False and target_id in (int(actor.get("tenant_id") or 0), int(actor.get("effective_tenant_id") or 0)):
+        raise ValueError("nao e possivel pausar o cliente em uso na sua sessao")
+
+    _ensure_schema()
+    with _conn() as c:
+        tenant = _fetchone(c, "SELECT id, slug, name, active FROM tenants WHERE id=?", (target_id,))
+        if not tenant:
+            raise ValueError("cliente nao encontrado")
+
+        fields: List[str] = []
+        params: List[Any] = []
+        if new_name is not None and new_name != str(tenant.get("name") or ""):
+            fields.append("name=?")
+            params.append(new_name)
+        if active is not None and bool(active) != bool(tenant.get("active")):
+            fields.append("active=?")
+            params.append(1 if active else 0)
+
+        if fields:
+            params.append(target_id)
+            _execute(c, f"UPDATE tenants SET {', '.join(fields)} WHERE id=?", tuple(params))
+            _audit(
+                c,
+                action="tenant.update",
+                tenant_id=target_id,
+                user_id=int(actor["id"]),
+                resource_type="tenant",
+                resource_id=str(tenant.get("slug") or target_id),
+                detail_json=json.dumps({"name": new_name, "active": active}, ensure_ascii=False),
+            )
+        updated = _fetchone(
+            c,
+            """
+            SELECT t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules,
+                   COUNT(u.id) AS users
+            FROM tenants t
+            LEFT JOIN users u ON u.tenant_id = t.id
+            WHERE t.id=?
+            GROUP BY t.id, t.slug, t.name, t.active, t.created_at, t.enabled_modules
+            """,
+            (target_id,),
+        )
+    return {"tenant": updated or {}}
 
 
 # Catalogo de modulos (telas) que dao pra ligar/desligar por cliente. A chave

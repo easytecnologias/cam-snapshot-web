@@ -42,6 +42,25 @@ def _norm_ip(v: Any) -> str:
     return (v or "").strip()
 
 
+def _brand_from_model_hint(model: Any, current: Any = "") -> str:
+    model_txt = str(model or "").strip()
+    current_txt = str(current or "").strip()
+    if not model_txt:
+        return current_txt
+    normalized = re.sub(r"[^A-Z0-9]+", "-", model_txt.upper()).strip("-")
+    compact = re.sub(r"[^A-Z0-9]+", "", model_txt.upper())
+
+    if "HILOOK" in normalized or "HI-LOOK" in normalized:
+        return "HiLook"
+    if normalized.startswith(("DS-", "HWI", "HWP", "HK")) or "HIKVISION" in normalized:
+        return "Hikvision"
+    if compact.startswith(("VIP", "MIB", "VHD", "MHD")):
+        return "Intelbras"
+    if normalized.startswith(("DHI-", "DH-", "HFW", "HDP")):
+        return "Dahua"
+    return current_txt
+
+
 def inventory_row_key(row: dict[str, Any], fallback: str = "") -> str:
     """Chave logica do inventario.
 
@@ -82,10 +101,11 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
         r["ip"] = ip
     if mac:
         r["mac"] = mac
-    if fabricante:
-        r["fabricante"] = fabricante
     if modelo:
         r["modelo"] = modelo
+    fabricante = _brand_from_model_hint(modelo, fabricante)
+    if fabricante:
+        r["fabricante"] = fabricante
     if titulo:
         r["titulo"] = titulo
 
@@ -297,11 +317,12 @@ def load_inventory_json(site: str = "", mode: str = "olt") -> list[dict[str, Any
             logger.error(f"[inventory] erro ao ler JSON: {e}")
 
     if norm_mode != "olt":
-        # Sem edicao propria salva neste modo (switch/basico): usa o
-        # inventario mestre (modo "olt", ligado ao DB) como base, em vez de
-        # ficar vazio para sempre — mesma logica de recuperacao que o modo
-        # "olt" ja tem contra o DB.
-        return load_inventory_json(site=site, mode="olt")
+        # Sem edicao propria salva neste modo (switch/basico): fica vazio de
+        # proposito, sem cair pro inventario mestre (modo "olt"). Um "apagar
+        # tudo" intencional nesse modo nao pode "ressuscitar" sozinho no
+        # proximo load so porque o modo "olt" ainda tem dado (ver commit
+        # 7a18f67).
+        return []
 
     return []
 

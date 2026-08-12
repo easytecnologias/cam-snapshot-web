@@ -1,0 +1,23 @@
+# Normaliza fim de linha pra LF no repo (histórico e diffs ficando ruidosos
+# com CRLF/LF misturado entre sessões Windows/Linux -- ver auditoria).
+# So passa a valer em arquivos tocados dali pra frente; nao re-normaliza
+# nada sozinho (evita mexer no que o Codex tem em andamento agora).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tgz binary
+*.gz binary
+*.db binary
+*.sqlite binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
+*.bat text eol=crlf
+*.ps1 text eol=crlf

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +12,7 @@ import shutil
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.paths import DATA_DIR, OUTPUT_DIR, SAIDA_DIR
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
 
 
 A4_W = 2480
@@ -20,6 +21,17 @@ MARGIN_X = 120
 MARGIN_Y = 90
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
+
+
+def _reports_dir() -> Path:
+    """Diretorio de saida dos PDFs -- tenant-scoped quando ha tenant ativo,
+    igual ao resto do sistema (tenant_scoped_path). Antes era sempre
+    OUTPUT_DIR/reports, global pra todo cliente; hoje nenhum endpoint lista
+    esse diretorio, mas manter fora do padrao vira risco assim que algum dia
+    alguem expuser listagem dele."""
+    if get_current_tenant_slug():
+        return tenant_scoped_path("reports")
+    return OUTPUT_DIR / "reports"
 
 # Teto de seguranca (nao um limite pratico): cada pagina e desenhada e
 # gravada em disco como JPEG temporario assim que fica pronta (ver
@@ -323,6 +335,12 @@ def _new_page() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
     return page, draw
 
 
+def _new_page_landscape() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
+    page = Image.new("RGB", (A4_H, A4_W), PAGE_BG)
+    draw = ImageDraw.Draw(page)
+    return page, draw
+
+
 class _PageSink:
     """Recebe paginas prontas e grava cada uma em disco na hora, descartando
     o bitmap da memoria em seguida. E o que permite montar um relatorio com
@@ -356,10 +374,11 @@ def _draw_header(
     f_company = _load_font(24, bold=True)
     color = _report_color(report_color)
     color_dark = _shade(color, -0.28)
+    page_w = int(page.size[0])
 
     y = MARGIN_Y
     band_h = 172
-    band_w = A4_W - (2 * MARGIN_X)
+    band_w = page_w - (2 * MARGIN_X)
     band_radius = 26
 
     # Gradiente vertical desenhado numa imagem a parte (simulado em fatias),
@@ -384,7 +403,7 @@ def _draw_header(
     draw = ImageDraw.Draw(page)
 
     # Contorno fino, efeito "capa"
-    draw.rounded_rectangle((MARGIN_X, y, A4_W - MARGIN_X, y + band_h), radius=band_radius, outline=_shade(color, -0.4), width=2)
+    draw.rounded_rectangle((MARGIN_X, y, page_w - MARGIN_X, y + band_h), radius=band_radius, outline=_shade(color, -0.4), width=2)
 
     pad = 40
     draw.text((MARGIN_X + pad, y + 34), title, font=f_title, fill="#ffffff")
@@ -395,7 +414,7 @@ def _draw_header(
         label = company.upper()
         draw.text(
             (MARGIN_X + pad, y + band_h - 44),
-            _fit_text(draw, label, f_company, A4_W - (2 * MARGIN_X) - 260),
+            _fit_text(draw, label, f_company, page_w - (2 * MARGIN_X) - 260),
             font=f_company,
             fill="#c9d8f5",
         )
@@ -406,7 +425,7 @@ def _draw_header(
             box_w, box_h = 190, 110
             logo.thumbnail((box_w, box_h))
             plate_w, plate_h = logo.width + 32, logo.height + 24
-            ox = A4_W - MARGIN_X - pad - plate_w
+            ox = page_w - MARGIN_X - pad - plate_w
             oy = y + (band_h - plate_h) // 2
             draw.rounded_rectangle((ox, oy, ox + plate_w, oy + plate_h), radius=16, fill="#ffffff")
             page.paste(logo, (ox + 16, oy + 12), logo)
@@ -419,27 +438,29 @@ def _draw_header(
 def _draw_footer(draw: ImageDraw.ImageDraw, page_num: int, total_pages: int, note: str = "") -> None:
     f_note = _load_font(19, bold=False)
     f_page = _load_font(19, bold=True)
-    fy = A4_H - MARGIN_Y + 8
-    draw.line((MARGIN_X, fy - 18, A4_W - MARGIN_X, fy - 18), fill=BORDER, width=2)
+    page_w, page_h = getattr(draw, "_image").size
+    fy = page_h - MARGIN_Y + 8
+    draw.line((MARGIN_X, fy - 18, page_w - MARGIN_X, fy - 18), fill=BORDER, width=2)
     if note:
         draw.text((MARGIN_X, fy), note, font=f_note, fill=INK_MUTED)
     page_label = f"Pagina {page_num} de {total_pages}"
     tw = draw.textlength(page_label, font=f_page)
-    draw.text((A4_W - MARGIN_X - tw, fy), page_label, font=f_page, fill=INK_MUTED)
+    draw.text((page_w - MARGIN_X - tw, fy), page_label, font=f_page, fill=INK_MUTED)
 
 
 def _column_set(include_switch: bool, include_olt: bool) -> List[Tuple[str, int]]:
     if include_switch:
         return [
-            ("IP", 215),
-            ("Titulo", 400),
-            ("Status", 150),
-            ("Local", 170),
-            ("Modelo", 180),
-            ("MAC", 240),
-            ("Switch IP", 180),
-            ("Switch Porta", 120),
-            ("Switch VLAN", 120),
+            ("IP", 220),
+            ("Titulo", 410),
+            ("Status", 145),
+            ("Local", 210),
+            ("Modelo", 230),
+            ("MAC", 310),
+            ("Switch", 290),
+            ("Switch IP", 190),
+            ("Porta", 110),
+            ("VLAN", 105),
         ]
     if include_olt:
         return [
@@ -494,7 +515,7 @@ def _draw_table_pages(
             page,
             draw,
             f"Relatorio de inventario | {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} camera{'s' if total != 1 else ''}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {total} camera{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
@@ -508,7 +529,7 @@ def _draw_table_pages(
         draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
         x = x0 + 20
         for name, cw in cols:
-            draw.text((x, y + 17), name.upper(), font=f_h, fill="#ffffff")
+            draw.text((x, y + 17), _fit_text(draw, name.upper(), f_h, cw - 18), font=f_h, fill="#ffffff")
             x += cw
         y += header_h + 6
 
@@ -540,9 +561,10 @@ def _draw_table_pages(
                         "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
                         "Local": _to_text(r.get("local") or r.get("LOCAL")),
                         "Modelo": _to_text(r.get("modelo")),
+                        "Switch": _to_text(r.get("switch_name") or r.get("switch") or r.get("switch_label")),
                         "Switch IP": _to_text(r.get("switch_ip")),
-                        "Switch Porta": _to_text(r.get("switch_port")),
-                        "Switch VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
+                        "Porta": _to_text(r.get("switch_port")),
+                        "VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
                         "PON": _to_text(r.get("pon") or r.get("PON")),
                         "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
                         "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
@@ -572,6 +594,7 @@ def _draw_photo_pages(
     include_switch: bool = False,
     module_label: str = "Cameras IP",
     report_color: str = "",
+    landscape: bool = False,
     progress_cb: ProgressCb = None,
 ) -> None:
     f_txt = _load_font(19, bold=False)
@@ -584,11 +607,13 @@ def _draw_photo_pages(
     color = _report_color(report_color)
     # Grade 3x5 (15 fotos/pagina): card dimensionado pro conteudo real (foto
     # + 2 linhas de info), sem sobra vazia embaixo como na versao 2x3 antiga.
-    cols_n, rows_n = 3, 5
+    cols_n, rows_n = (4, 3) if landscape else (3, 5)
     gap_x, gap_y = 56, 40
-    page_w = A4_W - (2 * MARGIN_X)
+    page_width = A4_H if landscape else A4_W
+    page_height = A4_W if landscape else A4_H
+    page_w = page_width - (2 * MARGIN_X)
     card_w = (page_w - gap_x * (cols_n - 1)) // cols_n
-    card_h = 460
+    card_h = 500 if landscape else 460
     x_start = MARGIN_X
     y_start_base = MARGIN_Y + 250
     per_page = cols_n * rows_n
@@ -600,12 +625,12 @@ def _draw_photo_pages(
     total = len(photo_rows)
 
     while idx < total or (total == 0 and idx == 0):
-        page, draw = _new_page()
+        page, draw = _new_page_landscape() if landscape else _new_page()
         y0 = _draw_header(
             page,
             draw,
             f"Galeria de snapshots | {module_label}",
-            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}  ·  {total} foto{'s' if total != 1 else ''}",
+            f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {total} foto{'s' if total != 1 else ''}",
             company_name=company_name,
             logo_path=logo_path,
             report_color=report_color,
@@ -653,7 +678,7 @@ def _draw_photo_pages(
             draw.text((x + pad_x + pill_w + 14, sub_y + 3), id_text, font=f_ip, fill=INK_MUTED)
 
             img_top = y + 66
-            img_h = 300
+            img_h = 330 if landscape else 300
             img_box = (x + pad_x, img_top, x + card_w - pad_x, img_top + img_h)
             draw.rounded_rectangle(img_box, radius=12, outline=BORDER, width=2, fill="#eef2f8")
             inner_pad = 8
@@ -688,14 +713,14 @@ def _draw_photo_pages(
             if modelo:
                 info_bits.append(modelo)
             if info_bits:
-                draw.text((x + pad_x, info_y), _fit_text(draw, "  ·  ".join(info_bits), f_txt, card_w - (pad_x * 2)), font=f_txt, fill=INK_MUTED)
+                draw.text((x + pad_x, info_y), _fit_text(draw, "  Â·  ".join(info_bits), f_txt, card_w - (pad_x * 2)), font=f_txt, fill=INK_MUTED)
                 info_y += 26
 
             detail = ""
             if include_switch:
-                detail = f"Switch {(_to_text(r.get('switch_name')) or '-')}  ·  Porta {(_to_text(r.get('switch_port')) or '-')}  ·  VLAN {(_to_text(r.get('switch_vlan') or r.get('vlan')) or '-')}"
+                detail = f"Switch {(_to_text(r.get('switch_name')) or '-')}  Â·  Porta {(_to_text(r.get('switch_port')) or '-')}  Â·  VLAN {(_to_text(r.get('switch_vlan') or r.get('vlan')) or '-')}"
             elif include_olt:
-                detail = f"PON {(_to_text(r.get('pon') or r.get('PON')) or '-')}  ·  ONU {(_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-')}  ·  SN {(_to_text(r.get('onu_serial') or r.get('ONU_SERIAL')) or '-')}"
+                detail = f"PON {(_to_text(r.get('pon') or r.get('PON')) or '-')}  Â·  ONU {(_to_text(r.get('onu_id') or r.get('ONU_ID')) or '-')}  Â·  SN {(_to_text(r.get('onu_serial') or r.get('ONU_SERIAL')) or '-')}"
             if detail:
                 draw.text((x + pad_x, info_y), _fit_text(draw, detail, f_txt_b, card_w - (pad_x * 2)), font=f_txt_b, fill=INK)
 
@@ -705,7 +730,7 @@ def _draw_photo_pages(
 
         note = f"Galeria limitada as primeiras {MAX_PHOTOS} fotos do recorte atual." if truncated else ""
         if note:
-            draw.text((MARGIN_X, A4_H - MARGIN_Y - 14), note, font=_load_font(19, False), fill=INK_MUTED)
+            draw.text((MARGIN_X, page_height - MARGIN_Y - 14), note, font=_load_font(19, False), fill=INK_MUTED)
         sink.add(page)
 
 
@@ -725,7 +750,7 @@ def build_inventory_pdf_report(
     rows_list = _sort_inventory_rows(rows_list)
     site_label = _to_text(site) or "Todos os sites"
 
-    reports_dir = OUTPUT_DIR / "reports"
+    reports_dir = _reports_dir()
     reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     fname_site = site_label.replace(" ", "_").replace("/", "_")
@@ -797,6 +822,481 @@ def build_inventory_pdf_report(
     return out
 
 
+def _recorder_host_text(row: Dict[str, Any]) -> str:
+    host = _to_text(row.get("host") or row.get("recorder_host") or row.get("ip"))
+    if ":" in host:
+        host = host.split(":", 1)[0].strip()
+    return host
+
+
+def _recorder_host_sort_key(row: Dict[str, Any]) -> Tuple[int, int]:
+    host = _recorder_host_text(row)
+    if not host:
+        return (1, 2**32 - 1)
+    try:
+        return (0, int(ipaddress.ip_address(host)))
+    except Exception:
+        return (1, 2**32 - 1)
+
+
+def _sort_recorder_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda r: (
+            _recorder_host_sort_key(r),
+            int(r.get("channel") or 0),
+            _to_text(r.get("title") or r.get("titulo")).lower(),
+        ),
+    )
+
+
+def _first_text(rows: List[Dict[str, Any]], *keys: str) -> str:
+    for row in rows:
+        for key in keys:
+            val = _to_text(row.get(key))
+            if val:
+                return val
+    return ""
+
+
+def _yes_no(value: Any) -> str:
+    if isinstance(value, bool):
+        return "sim" if value else "nao"
+    txt = _to_text(value)
+    if not txt:
+        return "nao informado"
+    return txt
+
+
+def _recorder_groups(rows: List[Dict[str, Any]]) -> List[Tuple[str, List[Dict[str, Any]]]]:
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        host = _recorder_host_text(row) or "Sem host"
+        groups.setdefault(host, []).append(row)
+    ordered = []
+    for host, items in groups.items():
+        ordered.append((host, _sort_recorder_rows(items)))
+    ordered.sort(key=lambda item: _recorder_host_sort_key({"host": item[0]}))
+    return ordered
+
+
+def _recorder_channel_status(row: Dict[str, Any]) -> str:
+    status = _to_text(row.get("status")).lower()
+    if row.get("video_loss"):
+        return "video loss"
+    if status in ("online", "ok"):
+        return "online"
+    if status in ("sem_camera", "no_camera"):
+        return "sem camera"
+    if status in ("camera_offline", "offline", "auth_failed"):
+        return "offline"
+    return status or "nao informado"
+
+
+def _recorder_channel_empty(row: Dict[str, Any]) -> bool:
+    status = _recorder_channel_status(row)
+    if status in ("sem camera", "no_camera"):
+        return True
+    if status in ("online", "offline", "video loss"):
+        return False
+    title = _to_text(row.get("title") or row.get("titulo")).strip().lower()
+    default_title = bool(re.fullmatch(r"(?:ch\s*)?\d*\s*-?\s*canal\s*\d*", title) or re.fullmatch(r"canal\s*\d*", title))
+    if _to_text(row.get("camera_ip")) or _to_text(row.get("camera_model") or row.get("modelo")) or _to_text(row.get("camera_mac") or row.get("mac")):
+        return False
+    if title and not default_title:
+        return False
+    return not _recorder_photo_available(row)
+
+
+def _recorder_channel_in_use(row: Dict[str, Any]) -> bool:
+    return _recorder_channel_status(row) == "online"
+
+
+def _recorder_channel_offline(row: Dict[str, Any]) -> bool:
+    return (not _recorder_channel_empty(row)) and _recorder_channel_status(row) in ("offline", "video loss")
+
+
+def _recorder_recording_text(row: Dict[str, Any]) -> str:
+    for key in ("recording", "is_recording", "gravando"):
+        if key in row:
+            val = row.get(key)
+            if isinstance(val, bool):
+                return "sim" if val else "nao"
+            parsed = str(val or "").strip().lower()
+            if parsed in ("true", "1", "yes", "sim", "ok", "gravando", "recording", "active"):
+                return "sim"
+            if parsed in ("false", "0", "no", "nao", "parado", "stopped", "idle", "sem gravacao recente"):
+                return "nao"
+    status = _to_text(row.get("recording_status")).lower()
+    if status:
+        if any(token in status for token in ("recording", "gravando", "active", "normal", "configurado")):
+            return "sim"
+        if any(token in status for token in ("stopped", "parado", "idle", "sem gravacao", "disabled", "disable")):
+            return "nao"
+    return "sim" if _recorder_channel_status(row) == "online" else "nao"
+
+
+def _recorder_recording_known(row: Dict[str, Any]) -> bool:
+    return _recorder_recording_text(row).lower() in ("sim", "nao")
+
+
+def _recorder_photo_available(row: Dict[str, Any]) -> bool:
+    if _pick_image_path(row) is not None:
+        return True
+    r = dict(row)
+    host = _recorder_host_text(r)
+    r["ip"] = _to_text(r.get("camera_ip")) or host
+    r["modelo"] = _to_text(r.get("camera_model") or r.get("modelo"))
+    r["mac"] = _to_text(r.get("camera_mac") or r.get("mac"))
+    return _pick_image_path(r) is not None
+
+
+def _draw_kpi_card(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    label: str,
+    value: str,
+    color: str,
+) -> None:
+    f_label = _load_font(18, bold=True)
+    f_val = _load_font(34, bold=True)
+    draw.rounded_rectangle((x, y, x + w, y + h), radius=18, fill=CARD_BG, outline=BORDER_SOFT, width=2)
+    draw.text((x + 22, y + 18), label.upper(), font=f_label, fill=INK_MUTED)
+    draw.text((x + 22, y + 52), _fit_text(draw, value, f_val, w - 44), font=f_val, fill=color)
+
+
+def _draw_recorder_overview_pages(
+    rows: List[Dict[str, Any]],
+    sink: "_PageSink",
+    site_label: str,
+    company_name: str = "",
+    logo_path: Optional[Path] = None,
+    recorder_type: str = "nvr",
+    report_color: str = "",
+    progress_cb: ProgressCb = None,
+) -> None:
+    groups = _recorder_groups(rows)
+    label = "NVR" if recorder_type == "nvr" else "DVR"
+    total = len(rows)
+    online = sum(1 for r in rows if _recorder_channel_status(r) == "online")
+    offline = sum(1 for r in rows if _recorder_channel_offline(r))
+    vloss = sum(1 for r in rows if bool(r.get("video_loss")) or _recorder_channel_status(r) == "video loss")
+    photos = sum(1 for r in rows if _recorder_photo_available(r))
+    in_use = sum(1 for r in rows if _recorder_channel_in_use(r))
+    no_camera = sum(1 for r in rows if _recorder_channel_empty(r))
+    recording_total = sum(1 for r in rows if _recorder_recording_text(r) == "sim")
+    recording_known = sum(1 for r in rows if _recorder_recording_known(r))
+
+    page, draw = _new_page_landscape()
+    page_w, page_h = page.size
+    y = _draw_header(
+        page,
+        draw,
+        f"Relatorio tecnico | Gravadores {label}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}  Â·  {len(groups)} gravador{'es' if len(groups) != 1 else ''}",
+        company_name=company_name,
+        logo_path=logo_path,
+        report_color=report_color,
+    )
+    draw = ImageDraw.Draw(page)
+    color = _report_color(report_color)
+    card_gap = 26
+    card_w = (page_w - 2 * MARGIN_X - 3 * card_gap) // 4
+    card_h = 118
+    _draw_kpi_card(draw, MARGIN_X, y, card_w, card_h, "Canais", str(total), color)
+    _draw_kpi_card(draw, MARGIN_X + (card_w + card_gap), y, card_w, card_h, "Em uso", str(in_use), STATUS_OK_FG)
+    _draw_kpi_card(draw, MARGIN_X + 2 * (card_w + card_gap), y, card_w, card_h, "Offline", str(offline), STATUS_BAD_FG)
+    _draw_kpi_card(draw, MARGIN_X + 3 * (card_w + card_gap), y, card_w, card_h, "Vazios", str(no_camera), color)
+    y += card_h + 42
+
+    draw.text((MARGIN_X, y), "Resumo dos gravadores", font=_load_font(30, bold=True), fill=INK)
+    y += 48
+
+    f_title = _load_font(25, bold=True)
+    f = _load_font(21, bold=False)
+    f_b = _load_font(21, bold=True)
+    f_mono = _load_mono_font(20, bold=False)
+    card_h2 = 220
+    for idx, (host, items) in enumerate(groups):
+        if y + card_h2 > page_h - MARGIN_Y - 80:
+            sink.add(page)
+            page, draw = _new_page_landscape()
+            page_w, page_h = page.size
+            y = _draw_header(
+                page,
+                draw,
+                f"Resumo tecnico | Gravadores {label}",
+                f"Site: {site_label}  Â·  continuacao",
+                company_name=company_name,
+                logo_path=logo_path,
+                report_color=report_color,
+            )
+            draw = ImageDraw.Draw(page)
+            draw.text((MARGIN_X, y), "Resumo dos gravadores", font=_load_font(30, bold=True), fill=INK)
+            y += 48
+
+        x = MARGIN_X
+        w = page_w - 2 * MARGIN_X
+        draw.rounded_rectangle((x, y, x + w, y + card_h2), radius=18, fill=CARD_BG, outline=BORDER, width=2)
+        draw.text((x + 24, y + 20), f"{label} {host}", font=f_title, fill=INK)
+        model = _first_text(items, "nvr_model", "recorder_model", "modelo", "model")
+        serial = _first_text(items, "equip_serial", "serial", "serial_number")
+        local = _first_text(items, "local", "site", "site_name")
+        mac = _first_text(items, "nvr_mac", "mac")
+        status_ok = sum(1 for r in items if _recorder_channel_status(r) == "online")
+        status_bad = sum(1 for r in items if _recorder_channel_offline(r))
+        rec_ok = sum(1 for r in items if _recorder_recording_text(r) in ("sim", "ok", "gravando", "recording"))
+        rec_known = sum(1 for r in items if _recorder_recording_known(r))
+        rec_unknown = len(items) - rec_known
+        used_count = sum(1 for r in items if _recorder_channel_in_use(r))
+        no_camera_count = sum(1 for r in items if _recorder_channel_empty(r))
+
+        col1 = x + 24
+        col2 = x + 1130
+        col3 = x + 2230
+        row_y = y + 68
+        hdd = _first_text(items, "hdd_status", "disk_status", "storage_status", "hdd_total", "disk_total", "storage_total")
+        retention = _first_text(items, "recording_days", "retention_days", "retention")
+        platform = _first_text(items, "platform_status", "cloud_status", "hik_connect_status", "p2p_status")
+        network = _first_text(items, "network_status", "nvr_ip", "gateway", "nvr_gateway")
+        pending = []
+        if not hdd:
+            pending.append("HD")
+        if not retention:
+            pending.append("retencao")
+        if rec_unknown:
+            pending.append("gravacao")
+        if not platform:
+            pending.append("plataforma")
+        if not network:
+            pending.append("rede")
+        pairs = [
+            (col1, row_y, "Modelo", model or "-", f),
+            (col1, row_y + 34, "Serial", serial or "-", f_mono),
+            (col1, row_y + 68, "Local", local or "-", f),
+            (col1, row_y + 102, "MAC NVR", mac or "-", f_mono),
+            (col2, row_y, "Canais", f"{len(items)} total - {used_count} em uso - {status_bad} offline - {no_camera_count} vazios", f),
+            (col2, row_y + 34, "Video loss", str(sum(1 for r in items if bool(r.get('video_loss')))), f),
+            (col2, row_y + 68, "Fotos", f"{sum(1 for r in items if _recorder_photo_available(r))} com imagem", f),
+            (col2, row_y + 102, "Gravacao", f"{rec_ok} sim - {len(items) - rec_ok} nao", f),
+            (col3, row_y, "HD", hdd or "pendente de coleta", f),
+            (col3, row_y + 34, "Retencao", retention or "pendente de coleta", f),
+            (col3, row_y + 68, "Plataforma", platform or "pendente de coleta", f),
+            (col3, row_y + 102, "Rede", network or "pendente de coleta", f),
+        ]
+        for px, py, k, v, font_value in pairs:
+            draw.text((px, py), f"{k}: ", font=f_b, fill=INK)
+            kw = int(draw.textlength(f"{k}: ", font=f_b))
+            draw.text((px + kw, py), _fit_text(draw, v, font_value, 930 - kw), font=font_value, fill=INK_MUTED)
+        y += card_h2 + 22
+        if progress_cb:
+            progress_cb(idx + 1, max(1, len(groups)), "resumo")
+
+    if not groups:
+        draw.text((MARGIN_X, y), "Nenhum gravador encontrado para o filtro atual.", font=f, fill=INK_MUTED)
+    sink.add(page)
+
+
+def _draw_recorder_channel_table_pages(
+    rows: List[Dict[str, Any]],
+    sink: "_PageSink",
+    site_label: str,
+    company_name: str = "",
+    logo_path: Optional[Path] = None,
+    recorder_type: str = "nvr",
+    report_color: str = "",
+    progress_cb: ProgressCb = None,
+) -> None:
+    label = "NVR" if recorder_type == "nvr" else "DVR"
+    cols = [
+        ("HOST", 245),
+        ("CH", 70),
+        ("TITULO", 690),
+        ("STATUS", 150),
+        ("REC", 90),
+        ("LOCAL", 260),
+        ("IP CAM", 245),
+        ("MODELO", 350),
+        ("MAC CAM", 340),
+        ("FOTO", 95),
+        ("ALERTAS", 733),
+    ]
+    f_h = _load_font(24, bold=True)
+    f = _load_font(25, bold=False)
+    f_b = _load_font(25, bold=True)
+    f_mono = _load_mono_font(24, bold=False)
+    f_status = _load_font(21, bold=True)
+    line_h = 88
+    header_h = 64
+    idx = 0
+    total = len(rows)
+    color = _report_color(report_color)
+    while idx < total or (total == 0 and idx == 0):
+        page, draw = _new_page_landscape()
+        page_w, page_h = page.size
+        y = _draw_header(
+            page,
+            draw,
+            f"Canais e cameras | Gravadores {label}",
+            f"Site: {site_label}  Â·  {total} canal{'is' if total != 1 else ''}",
+            company_name=company_name,
+            logo_path=logo_path,
+            report_color=report_color,
+        )
+        draw = ImageDraw.Draw(page)
+        x0 = MARGIN_X
+        w = page_w - 2 * MARGIN_X
+        draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
+        x = x0
+        for name, cw in cols:
+            draw.text((x + 10, y + 18), _fit_text(draw, name, f_h, cw - 20), font=f_h, fill="#ffffff")
+            x += cw
+        y += header_h + 6
+        row_top = y
+        if total == 0:
+            draw.rounded_rectangle((x0, y, x0 + w, y + 90), radius=12, fill=CARD_BG, outline=BORDER_SOFT, width=2)
+            draw.text((x0 + 24, y + 32), "Nenhum canal encontrado para o filtro atual.", font=f, fill=INK_MUTED)
+            sink.add(page)
+            break
+        while idx < total and y + line_h < page_h - MARGIN_Y - 30:
+            r = rows[idx]
+            draw.rectangle((x0, y, x0 + w, y + line_h), fill=CARD_BG if idx % 2 == 0 else ROW_STRIPE)
+            alerts: List[str] = []
+            st = _recorder_channel_status(r)
+            photo_ok = _recorder_photo_available(r)
+            if st != "online":
+                alerts.append(st)
+            if not photo_ok:
+                alerts.append("sem foto")
+            rec_display = _recorder_recording_text(r)
+            rec_key = rec_display.lower()
+            if rec_key == "nao":
+                alerts.append("sem gravacao")
+            if recorder_type == "nvr" and not _to_text(r.get("camera_ip")):
+                alerts.append("sem IP cam")
+            values = [
+                (_recorder_host_text(r), f_mono, INK),
+                (_to_text(r.get("channel")), f_mono, INK),
+                (_to_text(r.get("title") or r.get("titulo")), f_b, INK),
+                (st.upper(), f_status, STATUS_OK_FG if st == "online" else STATUS_BAD_FG),
+                (rec_display, f_status, STATUS_OK_FG if rec_key == "sim" else (STATUS_BAD_FG if rec_key == "nao" else INK_MUTED)),
+                (_to_text(r.get("local")), f, INK_MUTED),
+                (_to_text(r.get("camera_ip")) if recorder_type == "nvr" else "analogico", f_mono, INK_MUTED),
+                (_to_text(r.get("camera_model") or r.get("modelo")), f, INK_MUTED),
+                (_to_text(r.get("camera_mac") or r.get("mac")), f_mono, INK_MUTED),
+                ("sim" if photo_ok else "nao", f, INK_MUTED),
+                ("; ".join(alerts) if alerts else "ok", f, INK_MUTED),
+            ]
+            x = x0
+            for (text, font, fill), (_, cw) in zip(values, cols):
+                draw.text((x + 10, y + 30), _fit_text(draw, text, font, cw - 20), font=font, fill=fill)
+                x += cw
+            y += line_h
+            idx += 1
+        draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
+        sink.add(page)
+        if progress_cb:
+            progress_cb(idx, total, "tabela")
+
+
+def build_recorder_pdf_report(
+    rows: Iterable[Dict[str, Any]],
+    site: str = "",
+    company_name: str = "",
+    logo_path: Optional[Path] = None,
+    recorder_type: str = "nvr",
+    module_label: str = "",
+    report_color: str = "",
+    include_photos: bool = True,
+    progress_cb: ProgressCb = None,
+) -> Path:
+    rows_list = _sort_recorder_rows([dict(r) for r in rows if isinstance(r, dict)])
+    site_label = _to_text(site) or "Todos os sites"
+    rec_label = (module_label or ("Gravadores NVR" if recorder_type == "nvr" else "Gravadores DVR")).strip()
+
+    reports_dir = _reports_dir()
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    fname_site = site_label.replace(" ", "_").replace("/", "_")
+    out = reports_dir / f"recorder-report-{recorder_type}-{fname_site}-{ts}.pdf"
+    tmp_dir = reports_dir / f".tmp-rec-{ts}-{os.getpid()}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        sink = _PageSink(tmp_dir)
+        if progress_cb:
+            progress_cb(0, len(rows_list), "resumo")
+        _draw_recorder_overview_pages(
+            rows_list,
+            sink,
+            site_label,
+            company_name=company_name,
+            logo_path=logo_path,
+            recorder_type=recorder_type,
+            report_color=report_color,
+            progress_cb=progress_cb,
+        )
+        _draw_recorder_channel_table_pages(
+            rows_list,
+            sink,
+            site_label,
+            company_name=company_name,
+            logo_path=logo_path,
+            recorder_type=recorder_type,
+            report_color=report_color,
+            progress_cb=progress_cb,
+        )
+        if include_photos:
+            photo_rows = []
+            for row in rows_list:
+                r = dict(row)
+                host = _recorder_host_text(r)
+                ch = int(r.get("channel") or 0)
+                r["titulo"] = f"{host} CH{ch:02d} - {_to_text(r.get('title') or r.get('titulo'))}"
+                r["ip"] = _to_text(r.get("camera_ip")) or host
+                r["modelo"] = _to_text(r.get("camera_model") or r.get("modelo"))
+                r["mac"] = _to_text(r.get("camera_mac") or r.get("mac"))
+                photo_rows.append(r)
+            _draw_photo_pages(
+                photo_rows,
+                sink,
+                site_label,
+                company_name=company_name,
+                logo_path=logo_path,
+                include_olt=False,
+                include_switch=False,
+                module_label=rec_label,
+                report_color=report_color,
+                landscape=True,
+                progress_cb=progress_cb,
+            )
+
+        total_pages = len(sink)
+        note = f"{len(_recorder_groups(rows_list))} gravador(es) Â· {len(rows_list)} canal(is)"
+        if progress_cb:
+            progress_cb(0, total_pages, "finalizando")
+        for i, p in enumerate(sink.paths, start=1):
+            img = Image.open(p)
+            img.load()
+            draw = ImageDraw.Draw(img)
+            _draw_footer(draw, i, total_pages, note=note)
+            img.save(p, "JPEG", quality=88)
+            img.close()
+            if progress_cb:
+                progress_cb(i, total_pages, "finalizando")
+        imgs = [Image.open(p) for p in sink.paths]
+        first, rest = imgs[0], imgs[1:]
+        first.save(out, "PDF", save_all=True, append_images=rest, resolution=200.0)
+        for im in imgs:
+            im.close()
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return out
+
+
 def build_inventory_preview_image(
     rows: Iterable[Dict[str, Any]],
     site: str = "",
@@ -817,7 +1317,7 @@ def build_inventory_preview_image(
         page,
         draw,
         f"Preview do relatorio | {module_label}",
-        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  ·  Site: {site_label}",
+        f"Gerado em {datetime.now().strftime('%d/%m/%Y as %H:%M')}  Â·  Site: {site_label}",
         company_name=company_name,
         logo_path=logo_path,
         report_color=report_color,
@@ -839,7 +1339,7 @@ def build_inventory_preview_image(
     draw.rounded_rectangle((x0, y, x0 + w, y + header_h), radius=12, fill=color)
     x = x0 + 20
     for name, cw in cols:
-        draw.text((x, y + 17), name.upper(), font=f_h, fill="#ffffff")
+        draw.text((x, y + 17), _fit_text(draw, name.upper(), f_h, cw - 18), font=f_h, fill="#ffffff")
         x += cw
     y += header_h + 6
 
@@ -870,9 +1370,10 @@ def build_inventory_preview_image(
                         "Titulo": _to_text(r.get("titulo") or r.get("title") or r.get("nome")),
                         "Local": _to_text(r.get("local") or r.get("LOCAL")),
                         "Modelo": _to_text(r.get("modelo")),
+                        "Switch": _to_text(r.get("switch_name") or r.get("switch") or r.get("switch_label")),
                         "Switch IP": _to_text(r.get("switch_ip")),
-                        "Switch Porta": _to_text(r.get("switch_port")),
-                        "Switch VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
+                        "Porta": _to_text(r.get("switch_port")),
+                        "VLAN": _to_text(r.get("switch_vlan") or r.get("vlan")),
                         "PON": _to_text(r.get("pon") or r.get("PON")),
                         "ONU ID": _to_text(r.get("onu_id") or r.get("ONU_ID") or r.get("onuid")),
                         "ONU Name": _to_text(r.get("onu_name") or r.get("ONU_NAME")),
@@ -886,11 +1387,11 @@ def build_inventory_preview_image(
             y += line_h
         draw.rectangle((x0, row_top, x0 + w, y), outline=BORDER_SOFT, width=2)
 
-    _draw_footer(draw, 1, 1, note=f"Preview rapido · {len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
+    _draw_footer(draw, 1, 1, note=f"Preview rapido Â· {len(rows_list)} camera{'s' if len(rows_list) != 1 else ''} no total")
 
     # Reduz resolucao para carregar rapido no browser
     preview = page.resize((1240, 1754))
-    reports_dir = OUTPUT_DIR / "reports"
+    reports_dir = _reports_dir()
     reports_dir.mkdir(parents=True, exist_ok=True)
     out = reports_dir / "inventory-report-preview.jpg"
     preview.save(out, "JPEG", quality=78, optimize=True)

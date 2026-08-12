@@ -17,6 +17,7 @@ from app.services.auth_store import (
     create_access_token,
     create_tenant,
     create_user,
+    delete_tenant,
     delete_user,
     get_user_by_token,
     init_auth_db,
@@ -28,11 +29,13 @@ from app.services.auth_store import (
     recent_audit_events,
     revoke_token,
     set_tenant_modules,
+    update_tenant,
     update_user_profile,
     update_user_password,
     update_user_status,
     user_requires_initial_setup,
 )
+from app.services.zabbix_access_service import provision_zabbix_tenant_access
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 _LOGIN_FAILS: dict[str, list[float]] = {}
@@ -74,6 +77,11 @@ class TenantCreateRequest(BaseModel):
     owner_email: str = ""
 
 
+class TenantUpdateRequest(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+
+
 class UserActiveRequest(BaseModel):
     active: bool
 
@@ -101,6 +109,11 @@ class ActAsRequest(BaseModel):
 class TenantModulesRequest(BaseModel):
     modules: list[str] = []
     unrestricted: bool = False
+
+
+class TenantZabbixAccessRequest(BaseModel):
+    username: str
+    password: str = ""
 
 
 def _cookie_secure(request: Request) -> bool:
@@ -345,6 +358,31 @@ def api_auth_set_tenant_modules(
     return {"ok": True, **result}
 
 
+@router.post("/tenants/{tenant_id}/zabbix-access")
+def api_auth_provision_tenant_zabbix_access(
+    tenant_id: int,
+    req: TenantZabbixAccessRequest,
+    user: Dict[str, Any] = Depends(current_user),
+) -> Dict[str, Any]:
+    if not bool(user.get("is_platform_admin")):
+        raise HTTPException(status_code=403, detail="somente admin da plataforma pode provisionar Zabbix")
+    tenant = next((row for row in list_tenants(user) if int(row.get("id") or 0) == int(tenant_id)), None)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="cliente nao encontrado")
+    try:
+        result = provision_zabbix_tenant_access(
+            tenant_slug=str(tenant.get("slug") or ""),
+            tenant_name=str(tenant.get("name") or ""),
+            username=req.username,
+            password=req.password,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"falha ao provisionar Zabbix: {e}")
+    return {"ok": True, **result}
+
+
 @router.get("/users")
 def api_auth_users(user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
     return {"ok": True, "users": list_users(user)}
@@ -370,6 +408,29 @@ def api_auth_create_tenant(req: TenantCreateRequest, user: Dict[str, Any] = Depe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, **created}
+
+
+@router.patch("/tenants/{tenant_id}")
+def api_auth_update_tenant(
+    tenant_id: int, req: TenantUpdateRequest, user: Dict[str, Any] = Depends(current_user)
+) -> Dict[str, Any]:
+    if not bool(user.get("is_platform_admin")):
+        raise HTTPException(status_code=403, detail="somente admin da plataforma pode editar clientes")
+    try:
+        updated = update_tenant(user, tenant_id, name=req.name, active=req.active)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **updated}
+
+
+@router.delete("/tenants/{tenant_id}")
+def api_auth_delete_tenant(tenant_id: int, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
+    if not bool(user.get("is_platform_admin")):
+        raise HTTPException(status_code=403, detail="somente admin da plataforma pode excluir clientes")
+    try:
+        return delete_tenant(user, tenant_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/users")
