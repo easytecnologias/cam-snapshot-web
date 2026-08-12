@@ -22,6 +22,7 @@ from sightops_wireguard_sync import (
     canon_cidr,
     compute_target_state,
     find_exact_conflicts,
+    plan_conflict_cleanup,
     parse_wg_dump,
     plan_updates,
     render_conf_with_updated_peer,
@@ -170,16 +171,34 @@ def main() -> None:
     )
     check("192.168.20.0/24" not in perucaba_plan["missing"], "a rede em conflito nao deveria entrar no plano da PERUCABA")
 
-    # peer que nunca instalou a VPN: nao existe no dump -> nada e planejado
+    # peer recem-criado: ainda nao existe no dump, mas ja deve ser criado pelo
+    # sincronizador para o cliente conseguir fechar o primeiro handshake.
     sem_vpn = {"nunca-instalou-pubkey": {"name": "SEM VPN", "allowed": {"10.9.9.0/24"}}}
     plano_sem_vpn = plan_updates(sem_vpn, dump, {})
     check(plano_sem_vpn["nunca-instalou-pubkey"]["peer_exists"] is False, "peer inexistente no wg deveria ser marcado peer_exists=False")
-    check(plano_sem_vpn["nunca-instalou-pubkey"]["missing"] == set(), "peer inexistente nao deveria gerar plano de aplicacao")
+    check(plano_sem_vpn["nunca-instalou-pubkey"]["missing"] == {"10.9.9.0/24"}, "peer inexistente deveria gerar plano de criacao")
 
     # rede em conflito exato nunca aparece como 'missing' pra nenhum dos dois lados
     plano_conflito = plan_updates(fake_conflict, {"a": set(), "b": set()}, conf2)
     check(plano_conflito["a"]["missing"] == set(), "CIDR em conflito nao deveria ser aplicado no conector A")
     check(plano_conflito["b"]["missing"] == set(), "CIDR em conflito nao deveria ser aplicado no conector B")
+
+    cleanup = plan_conflict_cleanup(
+        target,
+        {
+            PERUCABA_PUBKEY: {"10.250.0.2/32", "192.168.20.0/24"},
+            SIERRA_PUBKEY: {"10.250.0.3/32", "192.168.20.0/24", "10.200.0.0/23"},
+        },
+        conflitos,
+    )
+    check(
+        cleanup[PERUCABA_PUBKEY]["remove"] == {"192.168.20.0/24"},
+        f"PERUCABA deveria remover LAN conflitante ja aplicada: {cleanup}",
+    )
+    check(
+        cleanup[SIERRA_PUBKEY]["full_set"] == {"10.250.0.3/32", "10.200.0.0/23"},
+        f"SIERRA deveria manter so rotas nao conflitantes e /32 do tunel: {cleanup}",
+    )
 
     # --- render_conf_with_updated_peer ---
     novo_conf = render_conf_with_updated_peer(CONF_REAL, SIERRA_PUBKEY, sierra_plan["full_set"])
@@ -193,9 +212,11 @@ def main() -> None:
     novo_conf_2 = render_conf_with_updated_peer(novo_conf, SIERRA_PUBKEY, sierra_plan["full_set"])
     check(novo_conf_2 == novo_conf, "rodar de novo com o mesmo alvo nao deveria alterar o arquivo (idempotente)")
 
-    # chave que nao existe no arquivo: devolve o texto original, sem inventar bloco
-    sem_mudanca = render_conf_with_updated_peer(CONF_REAL, "chave-que-nao-existe", {"1.2.3.0/24"})
-    check(sem_mudanca == CONF_REAL, "chave inexistente no arquivo nao deveria alterar nada")
+    # chave que nao existe no arquivo: cria um bloco novo, porque o fluxo
+    # padrao agora e "criou conector, baixou script, servidor cria peer".
+    novo_peer = render_conf_with_updated_peer(CONF_REAL, "chave-que-nao-existe", {"10.250.0.9/32", "172.16.48.0/23"})
+    check("PublicKey = chave-que-nao-existe" in novo_peer, "peer novo deveria ser persistido no wg-sightops.conf")
+    check("AllowedIPs = 10.250.0.9/32, 172.16.48.0/23" in novo_peer, "peer novo deveria trazer allowed-ips ordenados")
 
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
