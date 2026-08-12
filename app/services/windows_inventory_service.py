@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
 import base64
 import secrets
@@ -45,6 +46,11 @@ def get_windows_agent_token(tenant_slug: str = "") -> str:
     return token
 
 
+def _legacy_windows_agent_token_enabled() -> bool:
+    raw = str(os.getenv("WINDOWS_AGENT_LEGACY_TOKEN_ENABLED", "1")).strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def validate_windows_agent_token(token: str) -> str:
     """Retorna o tenant_slug dono do token, ou "" se invalido/nao encontrado.
 
@@ -53,7 +59,10 @@ def validate_windows_agent_token(token: str) -> str:
     pastas de tenant conhecidas em busca de quem é dono do token recebido.
     Mantem tambem o token legado global (de antes deste isolamento) mapeado
     pro tenant "default", para nao quebrar um agente ja instalado em campo
-    antes desta correcao.
+    antes desta correcao -- controlavel por
+    WINDOWS_AGENT_LEGACY_TOKEN_ENABLED (default "1"/ligado, pra nao quebrar
+    agente ja instalado sem aviso; desligue depois de migrar todos os
+    agentes de campo pro token por tenant).
     """
     tok = _text(token)
     if not tok:
@@ -70,6 +79,8 @@ def validate_windows_agent_token(token: str) -> str:
                 continue
             if expected and secrets.compare_digest(tok, expected):
                 return tenant_dir.name
+    if not _legacy_windows_agent_token_enabled():
+        return ""
     try:
         legacy = WINDOWS_AGENT_TOKEN_PATH.read_text(encoding="utf-8").strip()
     except Exception:

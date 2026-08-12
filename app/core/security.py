@@ -55,6 +55,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("PUT",), "/api/auth/tenants/", "admin"),
             (("POST",), "/api/auth/act-as", "admin"),
             (("POST",), "/api/system/product", "admin"),
+            (("POST",), "/api/system/bootstrap", "admin"),
+            (("POST",), "/api/network/tools/run", "operator"),
             (("POST",), "/api/db/init", "admin"),
             (("POST",), "/api/db/migrate", "admin"),
             (("POST",), "/api/db/storage/migrate", "admin"),

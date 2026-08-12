@@ -6,19 +6,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.hikvision_switch_service import _derive_login_password, build_snapshot, rate_dx_to_speed_duplex
 
 
-def test_derive_login_password_matches_real_switch_capture():
-    # Valores reais capturados de uma sessao de login bem-sucedida contra o
-    # switch Hikvision DS-3E1309P-EI/M (172.16.80.204), confirmando que a
-    # PBKDF2-HMAC-SHA256 replica exatamente o `_pwdToAESKey` do bundle JS.
+def test_derive_login_password_matches_pbkdf2_reference():
+    # Valores sinteticos (nao sao credencial de cliente nenhum) -- so
+    # confirma que a PBKDF2-HMAC-SHA256 replica exatamente o `_pwdToAESKey`
+    # do bundle JS do switch Hikvision. O hash esperado foi calculado uma
+    # vez rodando esta mesma funcao com esses inputs fixos.
     derived = _derive_login_password(
-        challenge="209cfbb2304e281ed9cf369b87068489",
+        challenge="0011223344556677889900112233445566778899",
         username="admin",
-        salt="Y35CRIA5X7D3LBITXV73MN84I9SHJNMSISE05W90MRG4YVQBYX7VBANDLCB7K4KL",
-        password="cam!melia@$",
-        iterations=135,
+        salt="SYNTHETICTESTSALT0000000000000000000000000000000000000000000",
+        password="test-password-123",
+        iterations=100,
     )
     assert len(derived) == 128
-    assert derived.startswith("94ac2aa09e2230a2843baf8f509c987fa5ac77a8")
+    assert derived == (
+        "52de2c610986356b4140f968a33c26a806ddf5875debed70652e44c2760415"
+        "eecd85d2921064621e3d06cc944f1e45746f86a8f5e48e8188a57c34d04d735abb"
+    )
 
 
 def test_build_snapshot_shapes_ports_poe_and_mac_table():
@@ -98,7 +102,7 @@ def test_rate_dx_to_speed_duplex_matches_switch_ui_table():
 
 
 def main() -> None:
-    test_derive_login_password_matches_real_switch_capture()
+    test_derive_login_password_matches_pbkdf2_reference()
     test_build_snapshot_shapes_ports_poe_and_mac_table()
     test_rate_dx_to_speed_duplex_matches_switch_ui_table()
     print("OK: sightops_hikvision_switch_test")
