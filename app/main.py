@@ -133,8 +133,14 @@ def _zabbix_status_interval_s() -> int:
     return max(30, min(value, 3600))
 
 
-def _zabbix_status_tenant_slug() -> str:
-    return os.getenv("SIGHTOPS_ZABBIX_STATUS_TENANT", "default").strip().lower()
+def _zabbix_status_tenant_slugs() -> list[str]:
+    configured = os.getenv("SIGHTOPS_ZABBIX_STATUS_TENANT", "").strip().lower()
+    if configured:
+        return [configured]
+    try:
+        return list_monitoring_tenants()
+    except Exception:
+        return ["default"]
 
 
 def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
@@ -147,28 +153,32 @@ def _run_zabbix_status_sync_for_mode(mode: str, tenant_slug: str) -> dict:
 
 async def _zabbix_status_sync_loop() -> None:
     interval = _zabbix_status_interval_s()
-    tenant_slug = _zabbix_status_tenant_slug()
     await asyncio.sleep(10)
     while True:
         try:
             totals: list[str] = []
-            last: dict[str, object] = {"ok": True, "interval_s": interval, "tenant": tenant_slug, "modes": {}}
-            for mode in ("basic", "olt", "switch"):
-                result = await asyncio.to_thread(
-                    _run_zabbix_status_sync_for_mode,
-                    mode,
-                    tenant_slug,
-                )
-                last["modes"][mode] = result
-                if result.get("ok"):
-                    totals.append(
-                        f"{mode}: {result.get('online', 0)}/{result.get('total', 0)} online, "
-                        f"{result.get('offline', 0)} offline"
+            last: dict[str, object] = {"ok": True, "interval_s": interval, "tenants": {}}
+            for tenant_slug in await asyncio.to_thread(_zabbix_status_tenant_slugs):
+                tenant_last: dict[str, object] = {"ok": True, "modes": {}}
+                for mode in ("basic", "olt", "switch"):
+                    result = await asyncio.to_thread(
+                        _run_zabbix_status_sync_for_mode,
+                        mode,
+                        tenant_slug,
                     )
-                elif result.get("error"):
+                    tenant_last["modes"][mode] = result
+                    if result.get("ok"):
+                        totals.append(
+                            f"{tenant_slug}/{mode}: {result.get('online', 0)}/{result.get('total', 0)} online, "
+                            f"{result.get('offline', 0)} offline"
+                        )
+                    elif result.get("error"):
+                        tenant_last["ok"] = False
+                        logger.debug("zabbix status sync skipped for %s: %s", tenant_slug, result.get("error"))
+                        break
+                last["tenants"][tenant_slug] = tenant_last
+                if not tenant_last.get("ok"):
                     last["ok"] = False
-                    logger.debug("zabbix status sync skipped: %s", result.get("error"))
-                    break
             app.state.zabbix_status_last = last
             if totals:
                 logger.info("zabbix status sync updated: %s", "; ".join(totals))
@@ -316,11 +326,12 @@ def _request_token(request: Request) -> str:
 
 
 def _media_context(request: Request) -> tuple[bool, str]:
-    """(autorizado, tenant_slug) do dono da sessao.
+    """(autorizado, tenant_slug) do tenant efetivo da sessao.
 
     Rotas de midia ficam fora de /api/, entao o ApiAuthMiddleware nao roda e o
     contextvar de tenant nao esta populado -- o slug tem que sair do proprio
-    usuario, nunca de env global.
+    usuario, nunca de env global. Admin de plataforma em act-as deve ver a
+    midia do cliente em que esta atuando, nao do tenant real dele.
     """
     if not settings.auth_enabled:
         return True, ""
@@ -330,7 +341,11 @@ def _media_context(request: Request) -> tuple[bool, str]:
     user = get_user_by_token(token)
     if not user:
         return False, ""
-    return True, str(user.get("tenant_slug") or "").strip().lower()
+    return True, str(user.get("effective_tenant_slug") or user.get("tenant_slug") or "").strip().lower()
+
+
+def _allow_legacy_media_fallback(tenant_slug: str) -> bool:
+    return (not settings.auth_enabled) or str(tenant_slug or "").strip().lower() in {"", "default"}
 
 
 # /saida e /data/nvr_ai NAO sao servidos por HTTP de proposito.
@@ -361,10 +376,13 @@ def data_snapshot_file(filename: str, request: Request) -> Response:
     name = Path(filename).name
     candidates = [
         tenant_snapshot_dir("ip", tenant_slug) / name,
-        DATA_DIR / "snapshot" / name,
-        SAIDA_DIR / "snapshot" / name,
-        SAIDA_DIR / "snapshot_manual" / name,
     ]
+    if _allow_legacy_media_fallback(tenant_slug):
+        candidates.extend([
+            DATA_DIR / "snapshot" / name,
+            SAIDA_DIR / "snapshot" / name,
+            SAIDA_DIR / "snapshot_manual" / name,
+        ])
     for p in candidates:
         try:
             if p.exists() and p.is_file():
@@ -384,8 +402,9 @@ def data_dvr_snapshot_file(filename: str, request: Request) -> Response:
     name = Path(filename).name
     candidates = [
         tenant_snapshot_dir("dvr", tenant_slug) / name,
-        DATA_DIR / "dvr_snapshot" / name,
     ]
+    if _allow_legacy_media_fallback(tenant_slug):
+        candidates.append(DATA_DIR / "dvr_snapshot" / name)
     for p in candidates:
         try:
             if p.exists() and p.is_file():
@@ -405,8 +424,9 @@ def data_nvr_snapshot_file(filename: str, request: Request) -> Response:
     name = Path(filename).name
     candidates = [
         tenant_snapshot_dir("nvr", tenant_slug) / name,
-        DATA_DIR / "nvr_snapshot" / name,
     ]
+    if _allow_legacy_media_fallback(tenant_slug):
+        candidates.append(DATA_DIR / "nvr_snapshot" / name)
     for p in candidates:
         try:
             if p.exists() and p.is_file():

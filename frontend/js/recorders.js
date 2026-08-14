@@ -59,9 +59,10 @@ function _nvrSessionSave(mode, rows) { _recSessionSave('nvr', mode, rows); }
 function _nvrSessionLoad() { _recSessionLoad(); }
 
 async function _loadRecBasico() {
+  const cacheBust = Date.now();
   const [nvrData, dvrData] = await Promise.all([
-    apiJson('/api/nvr/inventory'),
-    apiJson('/api/dvr/inventory'),
+    apiJson(`/api/nvr/inventory?_=${cacheBust}`, { forceRefresh: true }),
+    apiJson(`/api/dvr/inventory?_=${cacheBust}`, { forceRefresh: true }),
   ]);
   _invNvr.basico = (nvrData?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
   _invDvr.basico = (dvrData?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
@@ -71,7 +72,7 @@ async function _loadRecBasico() {
 
 async function _loadRecBasicoForType(type) {
   const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
-  const data = await apiJson(endpoint);
+  const data = await apiJson(`${endpoint}?_=${Date.now()}`, { forceRefresh: true });
   const rows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === 'basico');
   const store = type === 'dvr' ? _invDvr : _invNvr;
   store.basico = rows;
@@ -85,7 +86,7 @@ async function _loadRecForMode(type, mode) {
     return _loadRecBasicoForType(type);
   }
   const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
-  const data = await apiJson(endpoint);
+  const data = await apiJson(`${endpoint}?_=${Date.now()}`, { forceRefresh: true });
   const sourceRows = (data?.inventory || []).filter(row => recRowInventoryMode(row) === mode);
   const rows = await enrichRecRowsForMode(sourceRows, mode);
   // O modo gravado no canal e a fonte de verdade. Dados complementares de
@@ -103,7 +104,7 @@ async function _loadRecForMode(type, mode) {
 
 async function _loadRecAllModesForType(type) {
   const endpoint = type === 'dvr' ? '/api/dvr/inventory' : '/api/nvr/inventory';
-  const data = await apiJson(endpoint);
+  const data = await apiJson(`${endpoint}?_=${Date.now()}`, { forceRefresh: true });
   const allRows = data?.inventory || [];
   const store = type === 'dvr' ? _invDvr : _invNvr;
   for (const mode of ['basico', 'olt', 'switch']) {
@@ -127,6 +128,18 @@ function _nvrSessionClear() {
   });
 }
 
+function compareIpv4(a, b) {
+  const ap = String(a || '').split('.').map(n => Number(n));
+  const bp = String(b || '').split('.').map(n => Number(n));
+  if (ap.length === 4 && bp.length === 4 && ap.every(Number.isFinite) && bp.every(Number.isFinite)) {
+    for (let i = 0; i < 4; i += 1) {
+      if (ap[i] !== bp[i]) return ap[i] - bp[i];
+    }
+    return 0;
+  }
+  return String(a || '').localeCompare(String(b || ''), undefined, { numeric: true });
+}
+
 function recModeHasRealData(rows, mode) {
   if (!Array.isArray(rows) || !rows.length) return false;
   if (mode === 'olt') return rows.some(r => ![r.pon, r.onu_id, r.onu_name, r.onu_serial].every(_isBlankValue));
@@ -144,10 +157,11 @@ function pruneSyntheticRecModes(type) {
   });
 }
 
-function removeRecItemsLocally(type, items) {
+function removeRecItemsLocally(type, items, onlyMode = '') {
   const store = type === 'dvr' ? _invDvr : _invNvr;
   const keys = new Set(items.map(x => `${x.host}|${Number(x.channel || 0)}`));
   ['basico', 'olt', 'switch'].forEach(mode => {
+    if (onlyMode && mode !== onlyMode) return;
     if (!store[mode]?.length) return;
     store[mode] = store[mode].filter(r => !keys.has(`${r.host}|${Number(r.channel || 0)}`));
     _recSessionSave(type, mode, store[mode]);
@@ -342,9 +356,10 @@ const DVR_COLS = {
 async function enrichRecRowsForMode(rows, mode) {
   if (!['olt', 'switch'].includes(mode) || !rows.length) return rows;
   const camMode = mode === 'switch' ? 'switch' : 'olt';
+  const cacheBust = Date.now();
   const [camData, oltData] = await Promise.all([
-    apiJson(`/api/cameras?mode=${encodeURIComponent(camMode)}`),
-    mode === 'olt' ? apiJson('/api/olt/rows?compact=true') : Promise.resolve(null),
+    apiJson(`/api/cameras?mode=${encodeURIComponent(camMode)}&_=${cacheBust}`, { forceRefresh: true }),
+    mode === 'olt' ? apiJson(`/api/olt/rows?compact=true&_=${cacheBust}`, { forceRefresh: true }) : Promise.resolve(null),
   ]);
   const camByIp = {};
   (camData?.cameras || []).forEach(c => { if (c.ip) camByIp[c.ip] = c; });
@@ -373,12 +388,9 @@ function setNvrView(view) {
 function updateNvrTabs() {
   const store = _currentRecStore();
   document.querySelectorAll('[data-nvr-view]').forEach(t => {
-    t.style.display = store[t.dataset.nvrView]?.length > 0 ? '' : 'none';
+    t.style.display = ['basico', 'olt', 'switch'].includes(t.dataset.nvrView) || store[t.dataset.nvrView]?.length > 0 ? '' : 'none';
   });
-  if (!store[_invNvrView]?.length) {
-    const first = ['olt','switch','basico'].find(m => store[m]?.length > 0);
-    if (first) setNvrView(first);
-  }
+  if (!['basico', 'olt', 'switch'].includes(_invNvrView)) setNvrView('basico');
 }
 
 function setRecType(type) {
@@ -426,7 +438,7 @@ function _currentColDef()  { return (_recType === 'dvr' ? DVR_COLS : NVR_COLS)[_
 function populateNvrFilters() {
   const all    = Object.values(_currentRecStore()).flat();
   const locais = [...new Set(all.map(r => r.local).filter(Boolean))].sort();
-  const hosts  = [...new Set(all.map(r => r.host).filter(Boolean))].sort();
+  const hosts  = [...new Set(all.map(r => r.host).filter(Boolean))].sort(compareIpv4);
 
   const selLocal = document.getElementById('filterNvrLocal');
   const selHost  = document.getElementById('filterNvrHost');
@@ -473,11 +485,13 @@ function applyNvrFilters() {
   });
 
   filtered.sort((a, b) => {
+    const hostCmp = compareIpv4(a.host, b.host);
+    if (hostCmp) return hostCmp;
+    const channelCmp = Number(a.channel || 0) - Number(b.channel || 0);
+    if (channelCmp) return channelCmp;
     const aFree = recHasNoCamera(a) ? 1 : 0;
     const bFree = recHasNoCamera(b) ? 1 : 0;
-    if (aFree !== bFree) return aFree - bFree;
-    const hostCmp = String(a.host || '').localeCompare(String(b.host || ''), undefined, { numeric: true });
-    return hostCmp || Number(a.channel || 0) - Number(b.channel || 0);
+    return aFree - bFree;
   });
   renderNvrTable(filtered);
 }
@@ -747,12 +761,65 @@ function selectedRecItems() {
   return [...document.querySelectorAll('.chk-nvr:checked')].map(c => ({
     host: c.dataset.host || '',
     channel: Number(c.dataset.channel || 0),
+    mode: _invNvrView || 'basico',
   })).filter(x => x.host && x.channel > 0);
 }
 
 function selectedRecRows() {
   const keys = new Set(selectedRecItems().map(x => `${x.host}|${x.channel}`));
   return _currentNvrRows().filter(r => keys.has(`${r.host}|${Number(r.channel || 0)}`));
+}
+
+async function runNvrReport(button) {
+  if (!button || button.disabled) return;
+  const visibleItems = [...document.querySelectorAll('#invNvrTable .inv-nvr-row')].map(tr => {
+    const [host, channel] = String(tr.dataset.key || '|').split('_');
+    return { host, channel: Number(channel || 0) };
+  }).filter(x => x.host && x.channel > 0);
+  const selected = selectedRecItems();
+  const items = selected.length ? selected : visibleItems;
+  if (!items.length) {
+    showToast('Nenhum canal para gerar relatorio.', true);
+    return;
+  }
+
+  const oldHtml = button.innerHTML;
+  const oldTip = button.dataset.tip;
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.innerHTML = '<i data-lucide="loader-2" class="spin"></i>';
+  lucide.createIcons();
+  try {
+    const params = new URLSearchParams({ mode: _invNvrView || 'basico' });
+    const site = document.getElementById('filterNvrLocal')?.value || '';
+    if (site) params.set('site', site);
+    params.set('items', items.map(x => `${x.host}|${x.channel}`).join(','));
+    const endpoint = _recType === 'dvr' ? '/api/dvr/report.pdf' : '/api/nvr/report.pdf';
+    showToast('Gerando relatorio de gravadores...');
+    const res = await api(`${endpoint}?${params.toString()}`);
+    if (!res || !res.ok) {
+      const txt = await res?.text().catch(() => '');
+      throw new Error(txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) || 'Nao foi possivel gerar o relatorio.');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-gravadores-${_recType}-${_invNvrView || 'basico'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Relatorio gerado. O download foi iniciado.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel gerar o relatorio.', true);
+  } finally {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.dataset.tip = oldTip || 'Relatorio PDF';
+    button.innerHTML = oldHtml;
+    lucide.createIcons();
+  }
 }
 
 function applyRecPayloadsLocally(payloads, type = _recType) {

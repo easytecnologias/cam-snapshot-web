@@ -234,6 +234,34 @@ def _tenant_scoped_keys_satisfied(c: Any, backend: str) -> bool:
         return False
 
 
+def _json_state_tenant_scope_satisfied(c: Any, backend: str) -> bool:
+    try:
+        if str(backend).strip().lower() == "postgres":
+            row = c.execute(
+                """
+                SELECT
+                    (SELECT COUNT(1) FROM information_schema.columns
+                      WHERE table_name = 'json_state'
+                        AND column_name = 'tenant_slug') AS cols,
+                    (SELECT COUNT(1)
+                       FROM pg_indexes
+                      WHERE tablename = 'json_state'
+                        AND indexdef ILIKE '%tenant_slug%'
+                        AND indexdef ILIKE '%k%') AS idx
+                """
+            ).fetchone()
+            item = dict(row or {})
+            return int(item.get("cols") or 0) >= 1 and int(item.get("idx") or 0) >= 1
+
+        if "tenant_slug" not in _sqlite_columns(c, "json_state"):
+            return False
+        rows = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='json_state'").fetchall()
+        ddl = " ".join(str(dict(row).get("sql") or "") for row in rows or [])
+        return "tenant_slug" in ddl.lower() and "unique" in ddl.lower()
+    except Exception:
+        return False
+
+
 def init_db() -> Dict[str, Any]:
     backend = _db_backend()
     with _conn() as c:
@@ -242,7 +270,7 @@ def init_db() -> Dict[str, Any]:
             backend=backend,
             component="main",
             adopt_probe_tables=("sites", "ip_cameras", "recorders"),
-            postconditions={2: _tenant_scoped_keys_satisfied},
+            postconditions={2: _tenant_scoped_keys_satisfied, 9: _json_state_tenant_scope_satisfied},
         )
         tenant = _current_tenant_slug()
         total = int(c.execute("SELECT COUNT(1) AS n FROM sites WHERE tenant_slug=?", (tenant,)).fetchone()["n"])
@@ -600,7 +628,7 @@ def db_status() -> Dict[str, Any]:
             "ip_cameras": int(c.execute("SELECT COUNT(1) AS n FROM ip_cameras WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
             "recorders": int(c.execute("SELECT COUNT(1) AS n FROM recorders WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
             "recorder_channels": int(c.execute("SELECT COUNT(1) AS n FROM recorder_channels WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
-            "json_state": int(c.execute("SELECT COUNT(1) AS n FROM json_state").fetchone()["n"]),
+            "json_state": int(c.execute("SELECT COUNT(1) AS n FROM json_state WHERE tenant_slug=?", (tenant,)).fetchone()["n"]),
         }
         totals = {
             "sites": int(c.execute("SELECT COUNT(1) AS n FROM sites").fetchone()["n"]),
@@ -642,7 +670,7 @@ def migrate_db_storage(source_backend: str = "sqlite", target_backend: str = "po
             backend=dst_backend,
             component="main",
             adopt_probe_tables=("sites", "ip_cameras", "recorders"),
-            postconditions={2: _tenant_scoped_keys_satisfied},
+            postconditions={2: _tenant_scoped_keys_satisfied, 9: _json_state_tenant_scope_satisfied},
         )
 
         src_counts = {
@@ -665,7 +693,7 @@ def migrate_db_storage(source_backend: str = "sqlite", target_backend: str = "po
 
         sites = _fetchall_on(src, src_backend, "SELECT id, name, description, active, created_at FROM sites ORDER BY id")
         settings_kv = _fetchall_on(src, src_backend, "SELECT k, v, updated_at FROM settings_kv ORDER BY k")
-        json_state = _fetchall_on(src, src_backend, "SELECT k, v, updated_at FROM json_state ORDER BY k")
+        json_state = _fetchall_on(src, src_backend, "SELECT tenant_slug, k, v, updated_at FROM json_state ORDER BY tenant_slug, k")
         ip_cameras = _fetchall_on(
             src,
             src_backend,
@@ -714,8 +742,8 @@ def migrate_db_storage(source_backend: str = "sqlite", target_backend: str = "po
             _execute_on(
                 dst,
                 dst_backend,
-                "INSERT INTO json_state(k, v, updated_at) VALUES(?, ?, ?)",
-                (row["k"], row["v"], row["updated_at"]),
+                "INSERT INTO json_state(tenant_slug, k, v, updated_at) VALUES(?, ?, ?, ?)",
+                (row.get("tenant_slug") or "default", row["k"], row["v"], row["updated_at"]),
             )
         for row in ip_cameras:
             _execute_on(
@@ -804,8 +832,18 @@ def migrate_db_storage(source_backend: str = "sqlite", target_backend: str = "po
             pass
 
 
+def _json_state_key_parts(key: str) -> tuple[str, str]:
+    raw = str(key or "").strip()
+    marker = "__tenant__"
+    if marker in raw:
+        base, tenant = raw.rsplit(marker, 1)
+        tenant_slug = str(tenant or "").strip().lower() or _current_tenant_slug()
+        return tenant_slug, str(base or "").strip()
+    return _current_tenant_slug(), raw
+
+
 def set_json_state(key: str, obj: Any) -> Dict[str, Any]:
-    k = str(key or "").strip()
+    tenant, k = _json_state_key_parts(key)
     if not k:
         raise ValueError("key obrigatoria")
     payload = json.dumps(obj if obj is not None else {}, ensure_ascii=False)
@@ -814,28 +852,29 @@ def set_json_state(key: str, obj: Any) -> Dict[str, Any]:
         with _conn() as c:
             c.execute(
                 """
-                INSERT INTO json_state(k, v, updated_at)
-                VALUES(?, ?, datetime('now'))
-                ON CONFLICT(k) DO UPDATE SET
+                INSERT INTO json_state(tenant_slug, k, v, updated_at)
+                VALUES(?, ?, ?, datetime('now'))
+                ON CONFLICT(tenant_slug, k) DO UPDATE SET
                   v=excluded.v,
                   updated_at=datetime('now')
                 """,
-                (k, payload),
+                (tenant, k, payload),
             )
     except Exception:
-        return {"ok": False, "key": k}
-    return {"ok": True, "key": k}
+        return {"ok": False, "tenant": tenant, "key": k}
+    return {"ok": True, "tenant": tenant, "key": k}
 
 
 def get_json_state(key: str, default: Any = None) -> Any:
-    k = str(key or "").strip()
+    tenant, k = _json_state_key_parts(key)
     if not k:
         return default
     if _db_backend() == "sqlite" and not SIGHTOPS_DB_PATH.exists():
         return default
     try:
+        init_db()
         with _conn() as c:
-            r = c.execute("SELECT v FROM json_state WHERE k=?", (k,)).fetchone()
+            r = c.execute("SELECT v FROM json_state WHERE tenant_slug=? AND k=?", (tenant, k)).fetchone()
     except Exception:
         return default
     if not r:

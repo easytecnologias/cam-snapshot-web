@@ -12,7 +12,21 @@ import shutil
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.paths import DATA_DIR, OUTPUT_DIR, SAIDA_DIR
-from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path
+from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path, tenant_snapshot_dir
+
+
+def _snapshot_dirs(source: str) -> List[Path]:
+    """Diretorios candidatos pra achar snapshot de um source ('ip'/'dvr'/'nvr'),
+    tenant-scoped primeiro (onde photo_store.py grava de fato hoje), com
+    fallback pro caminho global antigo (pre-isolamento por tenant / tenant
+    vazio)."""
+    legacy_name = {"dvr": "dvr_snapshot", "nvr": "nvr_snapshot"}.get(source, "snapshot")
+    dirs = []
+    if get_current_tenant_slug():
+        dirs.append(tenant_snapshot_dir(source))
+    dirs.append(DATA_DIR / legacy_name)
+    dirs.append(SAIDA_DIR / legacy_name)
+    return dirs
 
 
 A4_W = 2480
@@ -216,24 +230,17 @@ def _path_from_snapshot_url(url: str) -> Optional[Path]:
         path = parsed.path or raw
     except Exception:
         path = raw
-    if "/data/snapshot/" in path:
-        name = path.rsplit("/", 1)[-1]
-        p = DATA_DIR / "snapshot" / name
-        if p.exists():
-            return p
-    if "/data/dvr_snapshot/" in path:
-        name = path.rsplit("/", 1)[-1]
-        p = DATA_DIR / "dvr_snapshot" / name
-        if p.exists():
-            return p
-    if "/data/nvr_snapshot/" in path:
-        name = path.rsplit("/", 1)[-1]
-        p = DATA_DIR / "nvr_snapshot" / name
-        if p.exists():
-            return p
-    if "/saida/snapshot/" in path:
-        name = path.rsplit("/", 1)[-1]
-        p = SAIDA_DIR / "snapshot" / name
+    name = path.rsplit("/", 1)[-1]
+    if not name:
+        return None
+    if "dvr_snapshot" in path:
+        source = "dvr"
+    elif "nvr_snapshot" in path:
+        source = "nvr"
+    else:
+        source = "ip"
+    for d in _snapshot_dirs(source):
+        p = d / name
         if p.exists():
             return p
     return None
@@ -248,29 +255,28 @@ def _pick_image_path(row: Dict[str, Any]) -> Optional[Path]:
     if snap_file.startswith("saida/"):
         snap_file = snap_file[6:]
     if snap_file:
-        # Caminho relativo direto
-        for base in (DATA_DIR, SAIDA_DIR):
+        # Caminho relativo direto -- tenant-scoped primeiro, senao cai pro
+        # global antigo (mesma ordem de _snapshot_dirs).
+        bases = ([tenant_scoped_path("")] if get_current_tenant_slug() else []) + [DATA_DIR, SAIDA_DIR]
+        for base in bases:
             p0 = base / snap_file
             if p0.exists():
                 return p0
         # Apenas nome do arquivo (fallback)
         fname_only = Path(snap_file).name
-        for d in ("snapshot", "dvr_snapshot", "nvr_snapshot"):
-            p1 = DATA_DIR / d / fname_only
-            if p1.exists():
-                return p1
-            p1b = SAIDA_DIR / d / fname_only
-            if p1b.exists():
-                return p1b
+        for source in ("ip", "dvr", "nvr"):
+            for d in _snapshot_dirs(source):
+                p1 = d / fname_only
+                if p1.exists():
+                    return p1
 
     ip = _to_text(row.get("ip") or row.get("IP"))
     if ip:
-        p = DATA_DIR / "snapshot" / _ip_snapshot_name(ip)
-        if p.exists():
-            return p
-        p2 = SAIDA_DIR / "snapshot" / _ip_snapshot_name(ip)
-        if p2.exists():
-            return p2
+        fname = _ip_snapshot_name(ip)
+        for d in _snapshot_dirs("ip"):
+            p = d / fname
+            if p.exists():
+                return p
     for key in ("snapshot_url", "imgbb_url"):
         p3 = _path_from_snapshot_url(_to_text(row.get(key)))
         if p3 and p3.exists():
@@ -284,12 +290,11 @@ def _pick_image_path(row: Dict[str, Any]) -> Optional[Path]:
     http_port = int(row.get("http_port") or 80)
     if host and channel > 0:
         fname = f"{host.replace('.', '_')}_{http_port}_ch{channel:02d}.jpg"
-        p4 = DATA_DIR / "dvr_snapshot" / fname
-        if p4.exists():
-            return p4
-        p5 = DATA_DIR / "nvr_snapshot" / fname
-        if p5.exists():
-            return p5
+        for source in ("dvr", "nvr"):
+            for d in _snapshot_dirs(source):
+                p = d / fname
+                if p.exists():
+                    return p
     return None
 
 

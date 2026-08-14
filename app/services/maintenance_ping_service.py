@@ -4,12 +4,12 @@ import asyncio
 import json
 import os
 import time
-from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from fastapi import WebSocket
 
 from app.core.paths import DATA_DIR
+from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.services.inventory_json import load_inventory_json
 from app.services.ping_service import ping as ping_with_cache
 
@@ -21,14 +21,14 @@ class MaintenancePingHub:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
-        self._subs: set[WebSocket] = set()
+        self._subs: dict[WebSocket, str] = {}
         self._lock = asyncio.Lock()
         self._status_by_ip: dict[str, dict[str, Any]] = {}
         self._port_hint_by_ip: dict[str, list[int]] = {}
         self._priority_until: dict[str, float] = {}
-        self._cursor = 0
-        self._last_inventory: list[dict[str, Any]] = []
-        self._last_inventory_reload = 0.0
+        self._cursor_by_tenant: dict[str, int] = {}
+        self._last_inventory_by_tenant: dict[str, list[dict[str, Any]]] = {}
+        self._last_inventory_reload_by_tenant: dict[str, float] = {}
         self._dirty_cache = False
         self._last_cache_save = 0.0
 
@@ -60,47 +60,60 @@ class MaintenancePingHub:
                 pass
         self._save_cache(force=True)
 
-    async def subscribe(self, ws: WebSocket) -> None:
+    def _tenant(self, tenant_slug: str = "") -> str:
+        return str(tenant_slug or "").strip().lower()
+
+    def _key(self, tenant_slug: str, ip: str) -> str:
+        return f"{self._tenant(tenant_slug)}|{str(ip or '').strip()}"
+
+    def _row_ip(self, row: dict[str, Any]) -> str:
+        return str(row.get("ip") or "").strip()
+
+    async def subscribe(self, ws: WebSocket, tenant_slug: str = "") -> None:
         async with self._lock:
-            self._subs.add(ws)
+            self._subs[ws] = self._tenant(tenant_slug)
 
     async def unsubscribe(self, ws: WebSocket) -> None:
         async with self._lock:
-            self._subs.discard(ws)
+            self._subs.pop(ws, None)
 
-    def prioritize(self, ips: Iterable[str], ttl_s: int | None = None) -> None:
+    def prioritize(self, ips: Iterable[str], ttl_s: int | None = None, tenant_slug: str = "") -> None:
         ttl = float(ttl_s or self.priority_ttl_s)
         until = time.time() + ttl
+        tenant = self._tenant(tenant_slug)
         for ip in ips:
             ip_s = str(ip or "").strip()
             if ip_s:
-                self._priority_until[ip_s] = until
+                self._priority_until[self._key(tenant, ip_s)] = until
 
-    def snapshot(self, limit: int = 0) -> dict[str, Any]:
-        rows = list(self._status_by_ip.values())
+    def snapshot(self, limit: int = 0, tenant_slug: str = "") -> dict[str, Any]:
+        tenant = self._tenant(tenant_slug)
+        prefix = f"{tenant}|"
+        rows = [dict(v) for k, v in self._status_by_ip.items() if k.startswith(prefix)]
         if limit and limit > 0:
             rows = rows[:limit]
         return {
             "type": "snapshot",
             "rows": rows,
-            "summary": self.summary(),
+            "summary": self.summary(tenant),
         }
 
-    def summary(self) -> dict[str, Any]:
-        inv = self._last_inventory or []
+    def summary(self, tenant_slug: str = "") -> dict[str, Any]:
+        tenant = self._tenant(tenant_slug)
+        inv = self._last_inventory_by_tenant.get(tenant) or []
         total = len(inv)
         online = 0
         for row in inv:
-            ip = str(row.get("ip") or "").strip()
-            st = self._status_by_ip.get(ip)
+            ip = self._row_ip(row)
+            st = self._status_by_ip.get(self._key(tenant, ip))
             if st and st.get("online") is True:
                 online += 1
         return {
             "total": total,
             "online": online,
             "offline": max(0, total - online),
-            "tracked": len(self._status_by_ip),
-            "subscribers": len(self._subs),
+            "tracked": len([k for k in self._status_by_ip if k.startswith(f"{tenant}|")]),
+            "subscribers": len([t for t in self._subs.values() if t == tenant]),
         }
 
     def _load_cache(self) -> None:
@@ -116,12 +129,18 @@ class MaintenancePingHub:
             for ip, items in ports.items():
                 norm = self._norm_ports(items)
                 if norm:
-                    self._port_hint_by_ip[str(ip).strip()] = norm
+                    key = str(ip).strip()
+                    if "|" not in key:
+                        key = self._key("", key)
+                    self._port_hint_by_ip[key] = norm
         status = data.get("status_by_ip")
         if isinstance(status, dict):
             for ip, row in status.items():
                 if isinstance(row, dict):
-                    self._status_by_ip[str(ip).strip()] = dict(row)
+                    key = str(ip).strip()
+                    if "|" not in key:
+                        key = self._key("", key)
+                    self._status_by_ip[key] = dict(row)
 
     def _save_cache(self, force: bool = False) -> None:
         now = time.time()
@@ -151,9 +170,9 @@ class MaintenancePingHub:
                 out.append(port)
         return out
 
-    def _preferred_ports(self, row: dict[str, Any]) -> list[int]:
-        ip = str(row.get("ip") or "").strip()
-        ports = self._norm_ports(self._port_hint_by_ip.get(ip, []))
+    def _preferred_ports(self, row: dict[str, Any], tenant_slug: str = "") -> list[int]:
+        ip = self._row_ip(row)
+        ports = self._norm_ports(self._port_hint_by_ip.get(self._key(tenant_slug, ip), []))
         for key in ("http_port", "https_port", "rtsp_port", "server_port"):
             try:
                 ports = self._merge_ports(ports, [int(row.get(key) or 0)])
@@ -171,52 +190,60 @@ class MaintenancePingHub:
                 out.append(port)
         return out
 
-    async def _reload_inventory_if_needed(self) -> None:
+    async def _reload_inventory_if_needed(self, tenant_slug: str = "") -> None:
+        tenant = self._tenant(tenant_slug)
         now = time.time()
-        if self._last_inventory and (now - self._last_inventory_reload) < self.inventory_reload_s:
+        last_reload = self._last_inventory_reload_by_tenant.get(tenant, 0.0)
+        if self._last_inventory_by_tenant.get(tenant) and (now - last_reload) < self.inventory_reload_s:
             return
-        rows = load_inventory_json() or []
+        ctx_token = set_current_tenant_slug(tenant)
+        try:
+            rows = load_inventory_json() or []
+        finally:
+            reset_current_tenant_slug(ctx_token)
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
         for row in rows:
-            ip = str(row.get("ip") or "").strip()
+            ip = self._row_ip(row)
             if not ip or ip in seen:
                 continue
             seen.add(ip)
             out.append(row)
-        self._last_inventory = out
-        self._last_inventory_reload = now
+        self._last_inventory_by_tenant[tenant] = out
+        self._last_inventory_reload_by_tenant[tenant] = now
 
-    def _select_batch(self) -> list[dict[str, Any]]:
-        rows = self._last_inventory or []
+    def _select_batch(self, tenant_slug: str = "") -> list[dict[str, Any]]:
+        tenant = self._tenant(tenant_slug)
+        rows = self._last_inventory_by_tenant.get(tenant) or []
         if not rows:
             return []
         now = time.time()
         active_priority: list[dict[str, Any]] = []
         normal: list[dict[str, Any]] = []
         for row in rows:
-            ip = str(row.get("ip") or "").strip()
+            ip = self._row_ip(row)
             if not ip:
                 continue
-            until = float(self._priority_until.get(ip) or 0)
+            until = float(self._priority_until.get(self._key(tenant, ip)) or 0)
             if until > now:
                 active_priority.append(row)
             else:
                 normal.append(row)
 
-        active_priority.sort(key=lambda r: -float(self._priority_until.get(str(r.get("ip") or "").strip(), 0)))
+        active_priority.sort(key=lambda r: -float(self._priority_until.get(self._key(tenant, self._row_ip(r)), 0)))
         if normal:
-            start = self._cursor % len(normal)
+            start = self._cursor_by_tenant.get(tenant, 0) % len(normal)
             rotated = normal[start:] + normal[:start]
-            self._cursor = (start + min(self.batch_size, len(rotated))) % len(normal)
+            self._cursor_by_tenant[tenant] = (start + min(self.batch_size, len(rotated))) % len(normal)
         else:
             rotated = []
-            self._cursor = 0
+            self._cursor_by_tenant[tenant] = 0
 
         return (active_priority + rotated)[: self.batch_size]
 
-    async def _run_one(self, row: dict[str, Any], semaphore: asyncio.Semaphore) -> None:
-        ip = str(row.get("ip") or "").strip()
+    async def _run_one(self, row: dict[str, Any], semaphore: asyncio.Semaphore, tenant_slug: str = "") -> None:
+        tenant = self._tenant(tenant_slug)
+        ip = self._row_ip(row)
         if not ip:
             return
         async with semaphore:
@@ -226,7 +253,7 @@ class MaintenancePingHub:
                     timeout=self.timeout_s,
                     method="auto",
                     force=1,
-                    preferred_ports=self._preferred_ports(row),
+                    preferred_ports=self._preferred_ports(row, tenant),
                 )
             except Exception as exc:
                 result = {
@@ -241,26 +268,28 @@ class MaintenancePingHub:
 
         result["ip"] = ip
         result["ts"] = int(time.time() * 1000)
-        prev = self._status_by_ip.get(ip)
-        self._status_by_ip[ip] = result
+        key = self._key(tenant, ip)
+        prev = self._status_by_ip.get(key)
+        self._status_by_ip[key] = result
         if result.get("online") and isinstance(result.get("method"), str) and result["method"].startswith("tcp:"):
             try:
                 port = int(str(result["method"]).split(":", 1)[1])
-                self._port_hint_by_ip[ip] = self._merge_ports([port], self._port_hint_by_ip.get(ip, []))
+                self._port_hint_by_ip[key] = self._merge_ports([port], self._port_hint_by_ip.get(key, []))
                 self._dirty_cache = True
             except Exception:
                 pass
         if prev != result:
             self._dirty_cache = True
-            await self._broadcast({
+            await self._broadcast(tenant, {
                 "type": "ping_update",
                 "row": result,
-                "summary": self.summary(),
+                "summary": self.summary(tenant),
             })
 
-    async def _broadcast(self, payload: dict[str, Any]) -> None:
+    async def _broadcast(self, tenant_slug: str, payload: dict[str, Any]) -> None:
+        tenant = self._tenant(tenant_slug)
         async with self._lock:
-            subs = list(self._subs)
+            subs = [ws for ws, sub_tenant in self._subs.items() if sub_tenant == tenant]
         if not subs:
             return
         text = json.dumps(payload, ensure_ascii=False)
@@ -272,16 +301,22 @@ class MaintenancePingHub:
         if dead:
             async with self._lock:
                 for ws in dead:
-                    self._subs.discard(ws)
+                    self._subs.pop(ws, None)
+
+    async def _active_tenants(self) -> list[str]:
+        async with self._lock:
+            tenants = sorted({self._tenant(t) for t in self._subs.values()})
+        return tenants or [""]
 
     async def _run_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                await self._reload_inventory_if_needed()
-                batch = self._select_batch()
-                if batch:
-                    semaphore = asyncio.Semaphore(self.concurrency)
-                    await asyncio.gather(*[self._run_one(row, semaphore) for row in batch])
+                for tenant in await self._active_tenants():
+                    await self._reload_inventory_if_needed(tenant)
+                    batch = self._select_batch(tenant)
+                    if batch:
+                        semaphore = asyncio.Semaphore(self.concurrency)
+                        await asyncio.gather(*[self._run_one(row, semaphore, tenant) for row in batch])
                     self._save_cache()
                 await asyncio.sleep(self.tick_delay_s)
             except asyncio.CancelledError:

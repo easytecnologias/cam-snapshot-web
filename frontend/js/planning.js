@@ -42,7 +42,16 @@ const PLANNING_TYPES = {
   camera: 'Camera', onu: 'ONU', ont: 'ONT', olt: 'OLT', switch: 'Switch',
   injector: 'Injetor PoE', cto: 'CTO', recorder: 'Gravador', box: 'Caixa de CFTV', pole: 'Poste',
   rack: 'Rack', dio: 'DIO', other: 'Outro',
+  // "emenda" nao e um device_type de verdade (o backend so conhece "cto") --
+  // e uma opcao de Tipo so pra escolha inicial mais clara. Vira 'cto' com
+  // metadata.papel='splitter_primario' assim que o formulario e lido (ver
+  // planningEffectiveType/planningTypeOptionValue).
+  emenda: 'Caixa de Emenda',
 };
+// Ordem ABNT do cabo optico -- usada tanto na entrada quanto nas saidas do
+// splitter (Caixa de Emenda/CTO), limitada ao total de FO do cabo escolhido.
+const PLANNING_FIBER_COLORS = ['Verde', 'Amarelo', 'Branco', 'Azul', 'Vermelho', 'Lilas', 'Marrom', 'Rosa', 'Preto', 'Cinza', 'Laranja', 'Agua'];
+
 function planningPoeCapacity(metadata) {
   const poe = Number(metadata?.poe_port_capacity);
   return poe > 0 ? poe : Number(metadata?.port_capacity || 0);
@@ -355,7 +364,7 @@ function renderPlanningDevices() {
 }
 
 function planningDeviceIcon(type) {
-  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole', rack: 'server-cog', dio: 'layout-grid' })[type] || 'box';
+  return ({ camera: 'camera', onu: 'wifi', ont: 'wifi', olt: 'radio-tower', switch: 'server', injector: 'plug-zap', cto: 'git-branch', recorder: 'hard-drive', box: 'package', pole: 'utility-pole', rack: 'server-cog', dio: 'layout-grid', emenda: 'git-merge' })[type] || 'box';
 }
 
 function planningDescendants(parentId) {
@@ -665,7 +674,7 @@ function planningField(label, id, value = '', extra = '', wrapAttrs = '') {
 // Switch segue o mesmo principio: Normal (sem gerenciamento, bridge, sem IP)
 // vs Smart (gerenciavel, com IP) -- so que aqui o device_type salvo continua
 // sempre "switch", o Modo so mexe no IP e fica guardado em metadata.
-const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector', 'rack', 'dio'];
+const PLANNING_TYPES_WITHOUT_IP = ['box', 'pole', 'cto', 'onu', 'injector', 'rack', 'dio', 'emenda'];
 
 // Switch normal (sem gerenciamento) tambem nao tem IP -- mas isso vem do
 // metadata.switch_mode salvo no item, nao do device_type (que e sempre
@@ -681,7 +690,19 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceOnuPortsField: { showOnlyFor: ['onu'] },
   planDeviceSwitchModeField: { showOnlyFor: ['switch'] },
   planDeviceSwitchPortsField: { showOnlyFor: ['switch'] },
-  planDeviceCtoPortsField: { showOnlyFor: ['cto', 'dio'] },
+  planDeviceCtoPortsField: { showOnlyFor: ['cto', 'dio', 'emenda'] },
+  // Caixa de emenda/CTO/DIO sao pontos de cabo optico -- "Site/local" da
+  // lugar pro cabo que chega ali (total de FO), que e mais relevante pra
+  // eles do que um site generico.
+  planDeviceSiteField: { hideFor: ['cto', 'dio', 'emenda'] },
+  planDeviceCaboOpticoField: { showOnlyFor: ['cto', 'dio', 'emenda'] },
+  // DIO nao divide sinal (patch panel, 1 entrada = 1 saida por porta) --
+  // "entrada/saida do splitter" so faz sentido em CTO/Caixa de Emenda.
+  planDeviceSplitterFibersField: { showOnlyFor: ['cto', 'emenda'] },
+  // So CTO (splitter terminal) tem porta de cliente/caixa CFTV pendurada --
+  // a Caixa de Emenda/CDO intermediario so passa fibra adiante, nao atende
+  // cliente direto.
+  planDeviceCtoOcupacaoField: { showOnlyFor: ['cto'] },
   planDeviceOltPortsField: { showOnlyFor: ['olt'] },
   // planDeviceParentPortField NAO entra aqui -- a visibilidade dele depende
   // de quem esta selecionado em "Ligado a" ter portas (CTO, ONU/ONT,
@@ -691,7 +712,7 @@ const PLANNING_DEVICE_FIELD_RULES = {
   planDeviceSerialField: { showOnlyFor: ['onu', 'ont'] },
   planDeviceMacField: { showOnlyFor: ['onu', 'ont', 'camera'] },
   planDeviceVlanField: { showOnlyFor: ['onu'] },
-  planDeviceRouteField: { showOnlyFor: ['camera'] },
+  planDeviceRouteField: { showOnlyFor: ['camera', 'cto', 'dio', 'emenda'] },
 };
 
 // Tipo=onu agrupa ONU (bridge) e ONT (roteado); o tipo "de verdade" pra
@@ -700,7 +721,9 @@ const PLANNING_DEVICE_FIELD_RULES = {
 // planningShouldHideIp pra saber onde o Modo dele entra.
 function planningEffectiveType(modal) {
   const type = modal.querySelector('#planDeviceType')?.value || '';
-  return type === 'onu' ? (modal.querySelector('#planDeviceOnuMode')?.value || 'onu') : type;
+  if (type === 'onu') return modal.querySelector('#planDeviceOnuMode')?.value || 'onu';
+  if (type === 'emenda') return 'cto';
+  return type;
 }
 
 function planningShouldHideIp(modal) {
@@ -720,6 +743,19 @@ function refreshPlanningDeviceFields(modal) {
   }
   const ipField = modal.querySelector('#planDeviceIpField');
   if (ipField) ipField.classList.toggle('hidden', planningShouldHideIp(modal));
+  // CTO/Caixa de Emenda sao splitter optico -- a "quantidade de portas" e a
+  // razao de divisao (1x2, 1x4, 1x8...), nao portas soltas como no DIO
+  // (patch panel, so organiza fibra sem dividir sinal).
+  const portsSelect = modal.querySelector('#planDeviceCtoPorts');
+  if (portsSelect) {
+    const current = portsSelect.value;
+    const isSplitter = type === 'cto' || type === 'emenda';
+    const options = isSplitter
+      ? [1, 2, 4, 8, 16, 32, 64].map(n => `<option value="${n}">${n === 1 ? '1 (sem divisao)' : `Splitter 1x${n}`}</option>`)
+      : [1, 2, 4, 8, 12, 16, 24, 32].map(n => `<option value="${n}">${n} porta${n === 1 ? '' : 's'}</option>`);
+    portsSelect.innerHTML = options.join('');
+    if ([...portsSelect.options].some(o => o.value === current)) portsSelect.value = current;
+  }
   // Switch so ganha campo de MAC/VLAN quando e Smart (gerenciavel) -- normal
   // (bridge) nao tem como consultar/gerenciar por MAC nem segmentar VLAN.
   const smartSwitch = type === 'switch' && (modal.querySelector('#planDeviceSwitchMode')?.value || 'normal') === 'smart';
@@ -842,7 +878,11 @@ const PLANNING_PARENT_TYPES = {
   // segue pro splitter primario (tipo CTO, fica dentro da caixa de emenda).
   // O splitter tambem pode ligar direto na OLT quando nao ha DIO no meio.
   dio: ['olt'],
-  cto: ['olt', 'dio'],
+  // CTO entra na lista dos proprios pais possiveis: Caixa de Emenda
+  // (splitter primario) e CTO (splitter secundario/terminal) sao o mesmo
+  // device_type='cto' por baixo, entao um CTO/Caixa de Emenda pode alimentar
+  // outro CTO em cascata (ver metadata.papel pra distinguir o papel de cada um).
+  cto: ['olt', 'dio', 'cto'],
   // ONU/ONT nasce numa caixa de CFTV (poste/rua) ou num rack (predio/CTO
   // do cliente) -- os dois sao so lugares fisicos diferentes pra pendurar
   // a mesma ONU.
@@ -889,7 +929,7 @@ function refreshPlanningCatalogLists(root) {
 // conforme cada etapa for liberada -- nao adicione tipo aqui sem pedir.
 // "onu" representa o cartao unico ONU/ONT; o campo Modo dentro do cartao
 // decide qual das duas funcoes se aplica (nao sao duas opcoes de Tipo).
-const PLANNING_ADDABLE_TYPES = ['box', 'rack', 'dio', 'onu', 'switch', 'injector', 'camera', 'cto', 'recorder'];
+const PLANNING_ADDABLE_TYPES = ['box', 'rack', 'dio', 'onu', 'switch', 'injector', 'camera', 'emenda', 'cto', 'recorder'];
 
 // Lista as portas PoE do switch/injetor escolhido em "Ligado a" -- cada
 // camera ocupa uma porta so dela, entao portas com outra camera aparecem
@@ -937,9 +977,13 @@ function planningTypeOptionLabel(key) {
 }
 
 // ONT e so um "modo" do cartao ONU/ONT -- normaliza pra 'onu' na hora de
-// escolher qual opcao do <select> Tipo fica marcada.
-function planningTypeOptionValue(deviceType) {
-  return deviceType === 'ont' ? 'onu' : deviceType;
+// escolher qual opcao do <select> Tipo fica marcada. CTO com
+// papel=splitter_primario normaliza pra 'emenda' pelo mesmo motivo (opcao
+// de Tipo separada pra "Caixa de Emenda", ver PLANNING_TYPES).
+function planningTypeOptionValue(deviceType, metadata = {}) {
+  if (deviceType === 'ont') return 'onu';
+  if (deviceType === 'cto' && metadata?.papel === 'splitter_primario') return 'emenda';
+  return deviceType;
 }
 
 async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
@@ -949,7 +993,7 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
   const item = isNew
     ? { device_type: 'box', parent_id: null, metadata: {}, ...defaults }
     : ((_planningCurrent.devices || []).find(row => Number(row.id) === Number(deviceId)) || { device_type: 'box' });
-  const groupType = planningTypeOptionValue(item.device_type);
+  const groupType = planningTypeOptionValue(item.device_type, item.metadata);
   const typeOptions = isNew
     ? PLANNING_ADDABLE_TYPES.map(key => `<option value="${key}" ${groupType === key ? 'selected' : ''}>${planningEscape(planningTypeOptionLabel(key))}</option>`).join('')
     : Object.keys(PLANNING_TYPES).filter(key => key !== 'ont').map(key => `<option value="${key}" ${groupType === key ? 'selected' : ''}>${planningEscape(planningTypeOptionLabel(key))}</option>`).join('');
@@ -959,6 +1003,8 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
     body: `<div class="planning-form-grid">
       <label class="planning-field"><span>Tipo</span><select id="planDeviceType">${typeOptions}</select></label>
       ${planningField('Nome/titulo', 'planDeviceName', item.name, 'placeholder="01 - ENTRADA"')}
+      <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.device_type, item.parent_id, item.id)}</select></label>
+      <label class="planning-field" id="planDeviceParentPortField"><span>Porta no equipamento pai</span><select id="planDeviceParentPort">${planningPortOptions(item.parent_id, metadata.port_number, item.id)}</select></label>
       <label class="planning-field" id="planDeviceOnuModeField"><span>Modo</span><select id="planDeviceOnuMode">
         <option value="onu" ${item.device_type !== 'ont' ? 'selected' : ''}>ONU - bridge transparente (sem IP)</option>
         <option value="ont" ${item.device_type === 'ont' ? 'selected' : ''}>ONT - roteador/VEIP (com IP, gerenciavel)</option>
@@ -974,16 +1020,30 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
       ${planningField('IP planejado', 'planDeviceIp', item.ip, 'placeholder="10.10.20.1"', 'id="planDeviceIpField"')}
       ${planningField('MAC', 'planDeviceMac', metadata.mac || '', 'placeholder="AA:BB:CC:DD:EE:FF"', 'id="planDeviceMacField"')}
       ${planningField('VLAN', 'planDeviceVlan', metadata.vlan || '', 'placeholder="Default ou numero (ex: 10)"', 'id="planDeviceVlanField"')}
-      <label class="planning-field"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
+      <label class="planning-field" id="planDeviceSiteField"><span>Site/local</span><select id="planDeviceSite">${planningSiteOptions(item.site_id)}</select></label>
+      <label class="planning-field" id="planDeviceCaboOpticoField"><span>Cabo optico</span><select id="planDeviceCaboOptico">
+        <option value="">Selecione o cabo</option>
+        ${[2, 4, 6, 8, 12, 24, 36, 48, 72, 96, 144].map(n => `<option value="${n}" ${Number(metadata.total_fo) === n ? 'selected' : ''}>${n} FO</option>`).join('')}
+      </select></label>
+      <div class="planning-field full" id="planDeviceSplitterFibersField">
+        <span>Fibras do cabo neste trecho</span>
+        <div class="planning-splitter-fibers">
+          <div class="planning-fiber-row"><span class="planning-fiber-row-label" id="planDeviceFibrasChegamLabel">Chegam aqui</span><div id="planDeviceFibrasChegam" class="planning-fiber-chips"></div></div>
+          <div class="planning-fiber-row"><span class="planning-fiber-row-label">Fundidas aqui (marque as usadas nesta caixa)</span><div id="planDeviceFibrasFundidas" class="planning-fiber-checks"></div></div>
+          <div class="planning-fiber-row"><span class="planning-fiber-row-label">Continuam daqui pra frente (livres pro proximo ponto)</span><div id="planDeviceFibrasContinuam" class="planning-fiber-chips"></div></div>
+        </div>
+      </div>
+      <div class="planning-field full" id="planDeviceCtoOcupacaoField">
+        <span>Ocupacao das portas (clientes/caixas CFTV)</span>
+        <div id="planDeviceFibrasSaidaGrid" class="planning-splitter-output-grid"></div>
+      </div>
       ${planningField('Fabricante', 'planDeviceManufacturer', item.manufacturer, 'list="planningManufacturerOptions" placeholder="Escolha ou digite um novo"')}
       ${planningField('Modelo', 'planDeviceModel', item.model, 'list="planningModelOptions" placeholder="Escolha ou digite um novo"')}
-      <label class="planning-field"><span>Ligado a</span><select id="planDeviceParent">${planningParentOptions(item.device_type, item.parent_id, item.id)}</select></label>
-      <label class="planning-field" id="planDeviceParentPortField"><span>Porta no equipamento pai</span><select id="planDeviceParentPort">${planningPortOptions(item.parent_id, metadata.port_number, item.id)}</select></label>
       ${planningField('PON', 'planDevicePon', item.pon, 'placeholder="1"', 'id="planDevicePonField"')}
       ${planningField('Posicao ONU', 'planDeviceOnu', item.onu_position, 'placeholder="4"', 'id="planDeviceOnuField"')}
       ${planningField('Serial', 'planDeviceSerial', metadata.serial || '', 'placeholder="Serial da ONU/ONT"', 'id="planDeviceSerialField"')}
       ${planningField('Patrimonio', 'planDevicePatrimonio', metadata.patrimonio || '', 'placeholder="Numero do patrimonio"')}
-      ${planningField('Percurso viario ate a caixa (m)', 'planDeviceRoute', metadata.route_distance_m ?? '', 'type="number" min="0" step="1" placeholder="Ex: 45"', 'id="planDeviceRouteField"')}
+      ${planningField('Percurso viario ate o equipamento pai (m)', 'planDeviceRoute', metadata.route_distance_m ?? '', 'type="number" min="0" step="1" placeholder="Ex: 45"', 'id="planDeviceRouteField"')}
       ${planningField('Coordenadas', 'planDeviceCoords', (item.latitude != null && item.longitude != null) ? `${item.latitude}, ${item.longitude}` : '', 'placeholder="-9.750000, -36.660000"')}
       ${planningField('Imagem de referencia', 'planDeviceImage', item.reference_image_url, 'placeholder="https://..."')}
       <label class="planning-field full"><span>Observacoes</span><textarea id="planDeviceNotes" rows="3">${planningEscape(item.notes || '')}</textarea></label>
@@ -1010,16 +1070,98 @@ async function openPlanningDeviceModal(deviceId = 0, defaults = {}) {
     if (!portSelect || !portField) return;
     const parentId = modal.querySelector('#planDeviceParent')?.value || '';
     const parent = (_planningCurrent?.devices || []).find(d => Number(d.id) === Number(parentId));
-    portField.classList.toggle('hidden', planningParentPortCapacity(parent) <= 0);
+    // CTO/Caixa de Emenda nao usam mais porta pra saber qual fibra chega --
+    // isso agora e resolvido pelo modelo de fundida/continua (ver
+    // refreshSplitterFibers), entao o campo de porta do pai some pra esses
+    // dois tipos, mesmo que o pai tenha portas.
+    const type = modal.querySelector('#planDeviceType')?.value || '';
+    const hide = ['cto', 'emenda'].includes(type) || planningParentPortCapacity(parent) <= 0;
+    portField.classList.toggle('hidden', hide);
     const current = portSelect.value;
     portSelect.innerHTML = planningPortOptions(parentId, current, item.id);
   };
-  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); refreshParentPort(); };
+  // Modelo de cabo passando por pontos de emenda: cada CDO/CTO herda as
+  // fibras que "chegam" do equipamento pai (ou do cabo optico inteiro, se
+  // for a raiz sem pai), marca quais foram fundidas (usadas) aqui, e o
+  // resto "continua" automaticamente pro proximo ponto -- sem porta fixa,
+  // pois um mesmo trecho pode alimentar varias CDOs/CTOs em sequencia.
+  let firstSplitterBuild = true;
+  const refreshSplitterFibers = () => {
+    const type = modal.querySelector('#planDeviceType')?.value || '';
+    if (['cto', 'emenda'].includes(type)) {
+      const totalFo = Number(modal.querySelector('#planDeviceCaboOptico')?.value) || 12;
+      const parentId = modal.querySelector('#planDeviceParent')?.value || '';
+      const parentDevice = (_planningCurrent?.devices || []).find(d => Number(d.id) === Number(parentId));
+      // Caixa de Emenda/CDO da sequencia ao cabo -- herda o que "continua"
+      // no pai. CTO e terminal -- ela "entra na rua", entao herda o que foi
+      // FUNDIDO no pai (a fibra especifica puxada pra area local dela), nao
+      // o que segue adiante pro proximo ponto da cascata.
+      const parentField = type === 'cto' ? 'cor_fibra' : 'fibras_mencionadas';
+      const parentSource = Array.isArray(parentDevice?.metadata?.[parentField]) ? parentDevice.metadata[parentField] : null;
+      // Sem pai (ou pai fora da cascata de fibra): chegam aqui todas as
+      // cores do cabo escolhido -- e a raiz que recebe o tronco inteiro.
+      const fibrasChegam = parentSource || PLANNING_FIBER_COLORS.slice(0, totalFo).map(c => c.toLowerCase());
+
+      const chegamEl = modal.querySelector('#planDeviceFibrasChegam');
+      const chegamLabelEl = modal.querySelector('#planDeviceFibrasChegamLabel');
+      const fundidasEl = modal.querySelector('#planDeviceFibrasFundidas');
+      const continuamEl = modal.querySelector('#planDeviceFibrasContinuam');
+      const chip = (c, extraClass = '') => `<span class="planning-fiber-chip ${extraClass}">${c.charAt(0).toUpperCase() + c.slice(1)}</span>`;
+
+      if (chegamLabelEl) {
+        chegamLabelEl.textContent = !parentDevice
+          ? 'Chegam aqui (cabo optico inteiro, sem equipamento pai)'
+          : type === 'cto'
+            ? `Chegam aqui (fundidas na ${parentDevice.name})`
+            : `Chegam aqui (continuam da ${parentDevice.name})`;
+      }
+      if (chegamEl) chegamEl.innerHTML = fibrasChegam.length ? fibrasChegam.map(c => chip(c)).join('') : '<span class="planning-fiber-empty">Nenhuma (defina o equipamento pai ou o cabo optico)</span>';
+
+      const prevFundidas = firstSplitterBuild
+        ? (Array.isArray(metadata.cor_fibra) ? metadata.cor_fibra : [])
+        : [...(fundidasEl?.querySelectorAll('input[type=checkbox]:checked') || [])].map(el => el.value);
+      if (fundidasEl) {
+        fundidasEl.innerHTML = fibrasChegam.map(c => `<label class="planning-fiber-check"><input type="checkbox" value="${c}" ${prevFundidas.includes(c) ? 'checked' : ''}> ${c.charAt(0).toUpperCase() + c.slice(1)}</label>`).join('')
+          || '<span class="planning-fiber-empty">Nada disponivel pra fundir aqui</span>';
+        fundidasEl.querySelectorAll('input[type=checkbox]').forEach(el => el.addEventListener('change', refreshSplitterFibers));
+      }
+
+      const fundidasAgora = fundidasEl ? [...fundidasEl.querySelectorAll('input[type=checkbox]:checked')].map(el => el.value) : prevFundidas;
+      const fibrasContinuam = fibrasChegam.filter(c => !fundidasAgora.includes(c));
+      if (continuamEl) continuamEl.innerHTML = fibrasContinuam.length ? fibrasContinuam.map(c => chip(c, 'is-free')).join('') : '<span class="planning-fiber-empty">Nenhuma -- tudo foi fundido aqui</span>';
+    }
+
+    // CTO terminal: cada porta do splitter local vai pra um cliente/Caixa
+    // de CFTV, nao pra outra cor de fibra -- isso ja e modelado pela
+    // propria caixa (device "box") escolhendo esta CTO em "Ligado a" + a
+    // porta, aqui so mostra (leitura) quais portas ja tem caixa ligada.
+    const grid = modal.querySelector('#planDeviceFibrasSaidaGrid');
+    if (grid && type === 'cto') {
+      const portCapacity = Number(modal.querySelector('#planDeviceCtoPorts')?.value) || 8;
+      const boxesByPort = new Map();
+      (_planningCurrent?.devices || []).forEach(d => {
+        if (d.device_type === 'box' && Number(d.parent_id) === Number(item.id) && d.metadata?.port_number) {
+          boxesByPort.set(Number(d.metadata.port_number), d.name);
+        }
+      });
+      let html = '';
+      for (let port = 1; port <= portCapacity; port++) {
+        const boxName = boxesByPort.get(port);
+        html += `<div class="planning-field"><span>Saida ${port}</span><div class="planning-splitter-readonly ${boxName ? 'is-used' : ''}">${boxName ? planningEscape(boxName) : 'Livre'}</div></div>`;
+      }
+      grid.innerHTML = html;
+    }
+    firstSplitterBuild = false;
+  };
+  const refreshAll = () => { refreshPlanningCatalogLists(modal); refreshPlanningDeviceFields(modal); refreshParent(); refreshParentPort(); refreshSplitterFibers(); };
   refreshAll();
   modal.querySelector('#planDeviceType')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceOnuMode')?.addEventListener('change', refreshAll);
   modal.querySelector('#planDeviceSwitchMode')?.addEventListener('change', refreshAll);
-  modal.querySelector('#planDeviceParent')?.addEventListener('change', refreshParentPort);
+  modal.querySelector('#planDeviceParent')?.addEventListener('change', () => { refreshParentPort(); refreshSplitterFibers(); });
+  modal.querySelector('#planDeviceParentPort')?.addEventListener('change', refreshSplitterFibers);
+  modal.querySelector('#planDeviceCtoPorts')?.addEventListener('change', refreshSplitterFibers);
+  modal.querySelector('#planDeviceCaboOptico')?.addEventListener('change', refreshSplitterFibers);
   modal.querySelector('#planDeviceManufacturer')?.addEventListener('input', () => refreshPlanningCatalogLists(modal));
 }
 
@@ -1037,11 +1179,42 @@ function planningDevicePayload(root, metadata = {}) {
   if (patrimonio) nextMetadata.patrimonio = patrimonio; else delete nextMetadata.patrimonio;
   const routeDistance = value('planDeviceRoute');
   if (routeDistance) nextMetadata.route_distance_m = Number(routeDistance); else delete nextMetadata.route_distance_m;
-  const deviceType = value('planDeviceType');
+  // "emenda" (Caixa de Emenda) e so uma opcao de Tipo -- normaliza pra 'cto'
+  // aqui igual planningEffectiveType ja faz, mas guarda o rawType original
+  // pra decidir o papel (splitter primario vs secundario/terminal).
+  const rawType = value('planDeviceType');
+  const deviceType = rawType === 'emenda' ? 'cto' : rawType;
   if (deviceType === 'onu') {
     nextMetadata.eth_port_capacity = Math.max(1, Number(value('planDeviceOnuPorts')) || 1);
   } else {
     delete nextMetadata.eth_port_capacity;
+  }
+  if (['cto', 'dio'].includes(deviceType)) {
+    const caboOptico = value('planDeviceCaboOptico');
+    if (caboOptico) nextMetadata.total_fo = Number(caboOptico); else delete nextMetadata.total_fo;
+  } else {
+    delete nextMetadata.total_fo;
+  }
+  if (deviceType === 'cto') {
+    // Fundidas aqui (checkboxes marcados) + o que continua livre pro proximo
+    // ponto da cascata (chegam menos fundidas). Mesmos nomes de campo que o
+    // balao do KMZ ja usa: cor_fibra = fundida aqui, fibras_mencionadas =
+    // continua livre a partir daqui.
+    const fundidas = [...root.querySelectorAll('#planDeviceFibrasFundidas input[type=checkbox]:checked')].map(el => el.value);
+    if (fundidas.length) nextMetadata.cor_fibra = fundidas; else delete nextMetadata.cor_fibra;
+    const parentId = value('planDeviceParent');
+    const parentDevice = (_planningCurrent?.devices || []).find(d => Number(d.id) === Number(parentId));
+    // CTO terminal herda o que foi FUNDIDO no pai (entra na rua); Caixa de
+    // Emenda/CDO herda o que CONTINUA no pai (segue a cascata do cabo).
+    const parentField = rawType === 'cto' ? 'cor_fibra' : 'fibras_mencionadas';
+    const parentSource = Array.isArray(parentDevice?.metadata?.[parentField]) ? parentDevice.metadata[parentField] : null;
+    const totalFo = Number(value('planDeviceCaboOptico')) || 0;
+    const fibrasChegam = parentSource || (totalFo ? PLANNING_FIBER_COLORS.slice(0, totalFo).map(c => c.toLowerCase()) : []);
+    const fibrasContinuam = fibrasChegam.filter(c => !fundidas.includes(c));
+    if (fibrasContinuam.length) nextMetadata.fibras_mencionadas = fibrasContinuam; else delete nextMetadata.fibras_mencionadas;
+  } else {
+    delete nextMetadata.cor_fibra;
+    delete nextMetadata.fibras_mencionadas;
   }
   if (deviceType === 'switch') {
     nextMetadata.switch_mode = value('planDeviceSwitchMode') || 'normal';
@@ -1063,6 +1236,10 @@ function planningDevicePayload(root, metadata = {}) {
     delete nextMetadata.switch_mode; delete nextMetadata.poe_port_capacity; delete nextMetadata.uplink_ports;
     nextMetadata.port_capacity = Math.max(1, Number(value('planDeviceCtoPorts')) || (deviceType === 'dio' ? 12 : 8));
     delete nextMetadata.pon_port_capacity;
+    // Papel so existe pra CTO: distingue splitter primario (Caixa de Emenda,
+    // escolhida direto no Tipo) do splitter secundario/terminal (CTO comum).
+    if (deviceType === 'cto') nextMetadata.papel = rawType === 'emenda' ? 'splitter_primario' : 'splitter_terminal';
+    else delete nextMetadata.papel;
   } else if (deviceType === 'olt') {
     // OLT: portas PON, cada uma atende um CDO/CTO/caixa ligado direto nela.
     delete nextMetadata.switch_mode; delete nextMetadata.port_capacity;
@@ -1682,10 +1859,242 @@ function openPlanningCableModal() {
   lucide.createIcons();
 }
 
+function planningParentDevice(item, byId) {
+  const parentId = Number(item?.parent_id);
+  return Number.isFinite(parentId) && parentId ? byId.get(parentId) : null;
+}
+
+// Calcula, automaticamente, o trecho de fibra de cada DIO/CTO ate o
+// equipamento pai (OLT, DIO ou outro CTO acima na arvore). Nao precisa
+// escolher "a caixa de emenda principal" na mao -- percorrendo parent_id de
+// cada no ja sai desenhando a rota inteira da arvore de splitters, do jeito
+// que o projeto de origem (aereo/estimado, com percurso manual pra refinar)
+// ja funciona pra camera->caixa.
+function planningFiberCalculation(config) {
+  const devices = _planningCurrent?.devices || [];
+  const byId = new Map(devices.map(item => [Number(item.id), item]));
+  const rows = devices.filter(item => ['cto', 'dio'].includes(item.device_type)).map(node => {
+    const parent = planningParentDevice(node, byId);
+    const coordinates = [node.latitude, node.longitude, parent?.latitude, parent?.longitude].map(Number);
+    if (!parent || coordinates.some(value => !Number.isFinite(value))) {
+      return { node, parent, error: !parent ? 'Sem equipamento pai (topo da arvore)' : 'Coordenadas incompletas' };
+    }
+    const straight = planningDistanceMeters(...coordinates);
+    const manualRoute = Number(node.metadata?.route_distance_m);
+    const route = Number.isFinite(manualRoute) ? manualRoute : straight;
+    const estimated = !Number.isFinite(manualRoute);
+    const installed = (route * (1 + config.routePercent / 100)) + (estimated ? config.slackMeters : 0);
+    const purchase = installed * (1 + config.reservePercent / 100);
+    return { node, parent, straight, route, installed, purchase, estimated, overLimit: installed > config.maxMeters };
+  });
+  return rows.sort((a, b) => planningNaturalCompare(a.parent?.name, b.parent?.name) || planningNaturalCompare(a.node?.name, b.node?.name));
+}
+
+function planningFiberConfig(root) {
+  const number = (id, fallback) => {
+    const value = Number(root.querySelector(`#${id}`)?.value);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+  };
+  return {
+    routePercent: number('planFiberRoute', 10), slackMeters: number('planFiberSlack', 10),
+    reservePercent: number('planFiberReserve', 10), maxMeters: number('planFiberMax', 2000), spoolMeters: 1000,
+  };
+}
+
+function renderPlanningFiberResults(root) {
+  const target = root.querySelector('#planningFiberResults');
+  if (!target) return [];
+  const config = planningFiberConfig(root);
+  const rows = planningFiberCalculation(config);
+  const valid = rows.filter(row => !row.error);
+  const missing = rows.filter(row => row.error);
+  const overLimit = valid.filter(row => row.overLimit);
+  const totalInstalled = valid.reduce((sum, row) => sum + row.installed, 0);
+  const totalPurchase = valid.reduce((sum, row) => sum + row.purchase, 0);
+  const parents = [...new Map(valid.map(row => [Number(row.parent.id), row.parent])).values()].sort((a, b) => planningNaturalCompare(a.name, b.name));
+  const parentSections = parents.map(parent => {
+    const items = valid.filter(row => Number(row.parent.id) === Number(parent.id)).sort((a, b) => planningNaturalCompare(a.node.name, b.node.name));
+    const subtotal = items.reduce((sum, row) => sum + row.purchase, 0);
+    return `<details class="planning-cable-box" open><summary><span><strong>${planningEscape(parent.name)}</strong><small>${items.length} trecho(s) &middot; ${planningEscape(parent.site_name || 'Sem site')}</small></span><strong>${subtotal.toFixed(1)} m</strong></summary>
+      <div class="planning-cable-table-head"><span>Destino</span><span>Aerea</span><span>Via ruas</span><span>Instalado</span><span>Para compra</span><span>Situacao</span></div>
+      ${items.map(row => `<div class="planning-cable-row"><strong title="${planningEscape(row.node.name)}">${planningEscape(row.node.name)}</strong><span>${row.straight.toFixed(1)} m</span><span>${row.route.toFixed(1)} m${row.estimated ? ' (estimado)' : ''}</span><span>${row.installed.toFixed(1)} m</span><span>${row.purchase.toFixed(1)} m</span><span class="planning-cable-status ${row.overLimit ? 'danger' : ''}">${row.overLimit ? 'Revisar rota' : 'Dentro do limite'}</span></div>`).join('')}</details>`;
+  }).join('');
+  const warnings = [];
+  if (overLimit.length) warnings.push(`${overLimit.length} trecho(s) ultrapassam ${config.maxMeters} m instalados. Considere um ponto de emenda intermediario.`);
+  if (missing.length) {
+    const byReason = new Map();
+    missing.forEach(row => byReason.set(row.error, (byReason.get(row.error) || 0) + 1));
+    byReason.forEach((count, reason) => warnings.push(`${count} equipamento(s): ${reason}.`));
+  }
+  const emptyMessage = rows.length
+    ? 'Nenhum trecho pronto pra calcular ainda -- veja os avisos acima.'
+    : 'Nenhum DIO/CTO cadastrado neste projeto.';
+  target.innerHTML = `<div class="planning-cable-summary"><div><span>Trechos calculados</span><strong>${valid.length}</strong></div><div><span>Fibra instalada</span><strong>${totalInstalled.toFixed(0)} m</strong></div><div><span>Fibra para compra</span><strong>${totalPurchase.toFixed(0)} m</strong></div><div><span>Bobinas de ${config.spoolMeters} m</span><strong>${Math.ceil(totalPurchase / config.spoolMeters)}</strong></div></div>${warnings.length ? `<div class="planning-cable-warning">${warnings.map(planningEscape).join('<br>')}</div>` : ''}${parentSections || `<div class="planning-cable-empty">${planningEscape(emptyMessage)}</div>`}`;
+  lucide.createIcons();
+  root._planningFiberRows = rows;
+  return rows;
+}
+
+function downloadPlanningFiberCsv(root) {
+  const config = planningFiberConfig(root);
+  const rows = renderPlanningFiberResults(root);
+  const lines = [['equipamento_pai', 'destino', 'site', 'distancia_aerea_m', 'percurso_viario_m', 'percurso_estimado', 'fibra_instalada_m', 'fibra_compra_m', 'limite_m', 'situacao']];
+  rows.forEach(row => lines.push([row.parent?.name || '', row.node.name || '', row.node.site_name || '', row.straight?.toFixed(1) || '', row.route?.toFixed(1) || '', row.estimated ? 'sim' : 'nao', row.installed?.toFixed(1) || '', row.purchase?.toFixed(1) || '', config.maxMeters, row.error || (row.overLimit ? 'revisar rota' : 'dentro do limite')]));
+  const content = '﻿' + lines.map(line => line.map(planningCsvValue).join(';')).join('\r\n');
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const link = document.createElement('a');
+  link.href = url; link.download = `${String(_planningCurrent.name || 'projeto-cftv').replace(/[^a-z0-9_-]+/gi, '-')}-fibra.csv`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('Calculo de fibra exportado.');
+}
+
+function openPlanningFiberModal() {
+  if (!_planningCurrent) return;
+  const modal = planningModal({
+    eyebrow: 'Dimensionamento', title: 'Calcular fibra (backbone)', wide: true, primary: 'Fechar',
+    body: `<div class="planning-cable-tool">
+      <div class="planning-cable-settings">
+        ${planningField('Margem sobre a rota (%)', 'planFiberRoute', '10', 'type="number" min="0" step="1"')}
+        ${planningField('Folga tecnica por trecho (m)', 'planFiberSlack', '10', 'type="number" min="0" step="1"')}
+        ${planningField('Reserva para compra (%)', 'planFiberReserve', '10', 'type="number" min="0" step="1"')}
+        ${planningField('Limite do trecho instalado (m)', 'planFiberMax', '2000', 'type="number" min="1" step="1"')}
+      </div>
+      <div class="planning-csv-note"><i data-lucide="route"></i><span><strong>Automatico:</strong> a partir de cada DIO/CTO do projeto, calcula o trecho ate o equipamento pai (OLT, DIO ou CTO acima na arvore) -- percorrendo a hierarquia inteira, da caixa de emenda principal ate cada CTO, sem precisar escolher nada na mao. <strong>Instalado</strong> = percurso pelas ruas + margem de passagem + folga. Sem percurso viario medido, usa a distancia aerea como estimativa -- preencha "Percurso viario ate o equipamento pai" no proprio DIO/CTO pra refinar.</span></div>
+      <div class="planning-cable-results" id="planningFiberResults"></div>
+    </div>`,
+    onSave: async () => closePlanningModal(),
+  });
+  const footer = modal.querySelector('.planning-modal-footer');
+  const saveButton = footer?.querySelector('[data-save]');
+  if (footer && saveButton) {
+    const download = document.createElement('button');
+    download.type = 'button'; download.className = 'secondary-action';
+    download.innerHTML = '<i data-lucide="download"></i> Baixar CSV';
+    download.onclick = () => downloadPlanningFiberCsv(modal);
+    footer.insertBefore(download, saveButton);
+  }
+  ['planFiberRoute', 'planFiberSlack', 'planFiberReserve', 'planFiberMax'].forEach(id => modal.querySelector(`#${id}`)?.addEventListener('input', () => renderPlanningFiberResults(modal)));
+  renderPlanningFiberResults(modal);
+  lucide.createIcons();
+}
+
+// Diagrama de rede: desenha a hierarquia real do backbone (OLT -> DIO ->
+// CDO/CTO em cascata -> CTOs terminais -> caixas) como uma arvore visual,
+// igual a foto do KMZ que o usuario mostrou -- tronco horizontal com os
+// pontos de emenda em sequencia e as CTOs ramificando, cada caixa exibindo
+// a cor fundida/livre.
+const PLANNING_NET_COL_W = 250;
+const PLANNING_NET_ROW_H = 96;
+
+function planningNetworkLayout() {
+  const devices = _planningCurrent?.devices || [];
+  const byId = new Map(devices.map(d => [Number(d.id), d]));
+  const byParent = new Map();
+  devices.forEach(d => {
+    const pid = d.parent_id ? Number(d.parent_id) : null;
+    if (!byParent.has(pid)) byParent.set(pid, []);
+    byParent.get(pid).push(d);
+  });
+  const backbone = new Set(['olt', 'dio', 'cto']);
+  const roots = devices.filter(d => backbone.has(d.device_type) && (!d.parent_id || !byId.has(Number(d.parent_id))));
+
+  let rowCounter = 0;
+  const visit = (node, depth) => {
+    node._depth = depth;
+    node._boxCount = (byParent.get(Number(node.id)) || []).filter(c => c.device_type === 'box').length;
+    const children = (byParent.get(Number(node.id)) || []).filter(c => backbone.has(c.device_type)).sort((a, b) => planningNaturalCompare(a.name, b.name));
+    node._children = children;
+    if (!children.length) {
+      node._row = rowCounter;
+      rowCounter += 1;
+    } else {
+      children.forEach(c => visit(c, depth + 1));
+      node._row = (children[0]._row + children[children.length - 1]._row) / 2;
+    }
+  };
+  roots.sort((a, b) => planningNaturalCompare(a.name, b.name)).forEach(root => visit(root, 0));
+  return { roots, byParent };
+}
+
+function planningNetworkCardHtml(node) {
+  const meta = node.metadata || {};
+  const isRoot = !node.parent_id;
+  const isTerminal = node.device_type === 'cto' && meta.papel !== 'splitter_primario';
+  const icon = node.device_type === 'olt' ? '🗄️' : node.device_type === 'dio' ? '🔗' : isTerminal ? '🧰' : '📦';
+  const roleLabel = node.device_type === 'olt' ? 'OLT' : node.device_type === 'dio' ? 'DIO' : isTerminal ? 'CTO terminal' : 'Caixa de emenda/CDO';
+  const chips = (arr, cls) => (arr || []).slice(0, 6).map(c => `<span class="planning-net-chip ${cls}">${planningEscape(c)}</span>`).join('') + ((arr || []).length > 6 ? `<span class="planning-net-chip">+${arr.length - 6}</span>` : '');
+  let rows = '';
+  if (meta.cor_fibra?.length) rows += `<div class="planning-net-row"><span>Fundida</span><div class="planning-net-chips">${chips(meta.cor_fibra, 'is-used')}</div></div>`;
+  if (meta.fibras_mencionadas?.length) rows += `<div class="planning-net-row"><span>Livre</span><div class="planning-net-chips">${chips(meta.fibras_mencionadas, 'is-free')}</div></div>`;
+  if (isTerminal) rows += `<div class="planning-net-row"><span>Clientes</span><span class="planning-net-count">${node._boxCount || 0} caixa(s)</span></div>`;
+  return `<div class="planning-net-card ${isTerminal ? 'is-terminal' : ''} ${isRoot ? 'is-root' : ''}" data-device-id="${node.id}" title="Editar ${planningEscape(node.name)}">
+    <div class="planning-net-card-head"><span>${icon}</span><strong>${planningEscape(node.name)}</strong></div>
+    <div class="planning-net-role">${roleLabel}</div>
+    ${rows}
+  </div>`;
+}
+
+function renderPlanningNetworkDiagram(root) {
+  const target = root.querySelector('#planningNetworkCanvas');
+  if (!target) return;
+  const { roots } = planningNetworkLayout();
+  if (!roots.length) {
+    target.innerHTML = '<div class="planning-cable-empty">Nenhum OLT/DIO/CTO cadastrado neste projeto ainda.</div>';
+    return;
+  }
+  const nodes = [];
+  const edges = [];
+  const collect = node => {
+    nodes.push(node);
+    (node._children || []).forEach(child => { edges.push([node, child]); collect(child); });
+  };
+  roots.forEach(collect);
+
+  const maxDepth = Math.max(...nodes.map(n => n._depth));
+  const maxRow = Math.max(...nodes.map(n => n._row));
+  const width = (maxDepth + 1) * PLANNING_NET_COL_W + 40;
+  const height = (maxRow + 1) * PLANNING_NET_ROW_H + 40;
+  const posX = n => n._depth * PLANNING_NET_COL_W + 20;
+  const posY = n => n._row * PLANNING_NET_ROW_H + 20 + PLANNING_NET_ROW_H / 2 - 34;
+  const centerY = n => n._row * PLANNING_NET_ROW_H + 20 + PLANNING_NET_ROW_H / 2;
+
+  const svgLines = edges.map(([parent, child]) => {
+    const x1 = posX(parent) + 210, y1 = centerY(parent);
+    const x2 = posX(child), y2 = centerY(child);
+    const midX = (x1 + x2) / 2;
+    return `<path class="planning-net-line" d="M${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}"/>`;
+  }).join('');
+
+  const cardsHtml = nodes.map(n => `<div class="planning-net-card-slot" style="left:${posX(n)}px; top:${posY(n)}px;">${planningNetworkCardHtml(n)}</div>`).join('');
+
+  target.innerHTML = `<div class="planning-net-canvas-inner" style="width:${width}px; height:${height}px;">
+    <svg class="planning-net-svg" width="${width}" height="${height}">${svgLines}</svg>
+    ${cardsHtml}
+  </div>`;
+  target.querySelectorAll('.planning-net-card').forEach(card => {
+    card.addEventListener('click', () => { closePlanningModal(); openPlanningDeviceModal(Number(card.dataset.deviceId)); });
+  });
+}
+
+function openPlanningNetworkDiagram() {
+  if (!_planningCurrent) return;
+  const modal = planningModal({
+    eyebrow: 'Visualizacao', title: 'Diagrama de rede (hierarquia da fibra)', wide: true, primary: 'Fechar',
+    body: `<div class="planning-net-tool">
+      <div class="planning-info"><i data-lucide="git-branch"></i><span>Tronco (OLT/DIO/Caixa de Emenda) seguindo em sequencia, com as CTOs terminais ramificando. Clique numa caixa pra editar. Cores mostram o que foi fundido/continua em cada ponto.</span></div>
+      <div class="planning-net-canvas" id="planningNetworkCanvas"></div>
+    </div>`,
+    onSave: async () => closePlanningModal(),
+  });
+  renderPlanningNetworkDiagram(modal);
+  lucide.createIcons();
+}
+
 function bindPlanningUi() {
   const on = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
   on('btnPlanningNew', 'click', () => openPlanningProjectModal(true));
   on('btnPlanningRefresh', 'click', () => loadPlanning(true));
+  on('btnPlanningFiber', 'click', openPlanningFiberModal);
+  on('btnPlanningNetworkDiagram', 'click', openPlanningNetworkDiagram);
   on('btnPlanningEdit', 'click', () => openPlanningProjectModal(false));
   on('btnPlanningSite', 'click', openPlanningSiteModal);
   on('btnPlanningKmz', 'click', openPlanningKmzModal);

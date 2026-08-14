@@ -137,6 +137,8 @@ def _apply_recorder_fallback(cam: dict[str, Any], rec: dict[str, Any]) -> dict[s
 
 class CameraUpdate(BaseModel):
     ip: str
+    inventory_key: str | None = None
+    key: str | None = None
     remote_connector_id: str | None = None
     connector_id: str | None = None
     remote: bool | None = None
@@ -333,7 +335,10 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
     updates: dict[str, CameraUpdate] = {}
     for cam in req.cameras:
         ip = (cam.ip or "").strip()
-        if ip:
+        explicit_key = str(cam.inventory_key or cam.key or "").strip()
+        if explicit_key:
+            updates[explicit_key] = cam
+        elif ip:
             updates[inventory_row_key({
                 "ip": ip,
                 "remote_connector_id": cam.remote_connector_id or cam.connector_id or "",
@@ -1205,4 +1210,3 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
                 continue
 
     return {"ok": False, "error": last_err or "Falha ao renomear", "inventory_updated": False}
-

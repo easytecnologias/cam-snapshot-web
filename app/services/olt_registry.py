@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.crypto import decrypt, encrypt
 from app.services.db_store import _conn, _current_tenant_slug, upsert_site
+from app.services.olt_capabilities import olt_capabilities
 
 logger = logging.getLogger("app.olt_registry")
 
@@ -50,6 +51,11 @@ def _public(row: Any) -> Dict[str, Any]:
     item["has_password"] = bool(_text(enc))
     item["active"] = bool(item.get("active", 1))
     item["site"] = _site_name(item.get("site_id"))
+    capability_info = olt_capabilities(item.get("vendor"), item.get("model"))
+    item["driver"] = capability_info["driver"]
+    item["capabilities"] = capability_info["capabilities"]
+    item["capability_label"] = capability_info["label"]
+    item["capability_notes"] = capability_info["notes"]
     return item
 
 

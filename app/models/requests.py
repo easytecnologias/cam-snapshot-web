@@ -48,6 +48,10 @@ class InventoryDeleteRequest(BaseModel):
     keys: List[str] = []
     connector_id: str | None = None
     site: str | None = None
+    # Quando true, alem de apagar agora, guarda o(s) IP(s) numa lista de
+    # ignorados -- sem isso, um IP que a OLT continua vendo (NVR, ONU sem
+    # camera etc.) volta sozinho na proxima sincronizacao de telemetria.
+    permanent: bool = False
 
 
 class RescanSingleIPRequest(BaseModel):

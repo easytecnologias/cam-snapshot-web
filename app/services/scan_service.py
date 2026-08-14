@@ -17,6 +17,7 @@ from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.olt_ignore_list import remove_ignored_rows
 from app.services.photo_store import (
     attach_snapshot_fields,
     resolve_snapshot_file,
@@ -633,6 +634,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     inv_cmd: list[str] | None = None
     current_scan_ips: set[str] | None = None
     discovered_count = 0
+    restored_ignored_count = 0
     if mode == "scan":
         old_rows_for_merge: list[dict[str, Any]] = []
         tmp_out: Path | None = None
@@ -695,6 +697,8 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
 
             if should_merge:
                 new_rows = _merge_inventory_rows(old_rows_for_merge, new_rows)
+
+            restored_ignored_count = remove_ignored_rows(new_rows)
 
             # Sempre passa pelo serviço de inventário para manter JSON e json_state
             # sincronizados, inclusive depois de "Apagar inventário".
@@ -809,6 +813,7 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
         "auth_failed_count": auth_failed_count,
         "auth_warning": auth_warning,
         "dvr_snapshots_moved": dvr_snapshots_moved,
+        "restored_ignored_count": restored_ignored_count,
         "inventory": inventory_rows,
     }
 

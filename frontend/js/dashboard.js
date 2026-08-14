@@ -84,7 +84,7 @@ async function refreshDashboardLiveCameraStatus() {
   showToast('Sincronizando status real pelo Zabbix...');
   const res = await api('/api/scripts/zabbix/status-sync', {
     method: 'POST',
-    body: JSON.stringify({ source: 'ip', mode: 'olt', site: '' }),
+    body: JSON.stringify({ source: 'ip', mode: 'all', site: '' }),
   });
   const body = await res?.json().catch(() => ({}));
   if (!res?.ok || body?.ok === false) {
@@ -92,7 +92,9 @@ async function refreshDashboardLiveCameraStatus() {
     return;
   }
   _dashDrawerData = null;
-  showToast(`Zabbix atualizado: ${body.online || 0}/${body.total || 0} online, ${body.offline || 0} offline.`);
+  const unknown = Number(body.unknown || 0);
+  const extra = unknown ? `, ${unknown} sem dado Zabbix` : '';
+  showToast(`Zabbix atualizado: ${body.online || 0}/${body.total || 0} online, ${body.offline || 0} offline${extra}.`);
   await loadDashboard();
 }
 

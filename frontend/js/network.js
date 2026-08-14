@@ -22,12 +22,39 @@ function updateOltOriginUi() {
   if (context.connector?.site && siteEl && !siteEl.value.trim()) siteEl.value = context.connector.site;
 }
 
+// 4840E e EPON com 4 portas PON fisicas; os demais modelos suportados (8820i,
+// 8840E) sao GPON de 8 portas. Sem isso o select fica preso no default de 8
+// mesmo pra OLT que so tem 4.
+function _oltPonCountForModel(model) {
+  const m = String(model || '').trim().toLowerCase();
+  if (m === '4840e' || m === '4840' || m.includes('4840e')) return 4;
+  return 8;
+}
+
+function updateOltPonOptions() {
+  const modelEl = document.getElementById('oltModel');
+  const ponEl = document.getElementById('oltPon');
+  if (!ponEl) return;
+  const total = _oltPonCountForModel(modelEl?.value);
+  const previous = ponEl.value;
+  const options = ['<option value="all">TODAS</option>'];
+  for (let p = 1; p <= total; p += 1) options.push(`<option value="${p}">PON ${p}</option>`);
+  ponEl.innerHTML = options.join('');
+  ponEl.value = [...ponEl.options].some(opt => opt.value === previous) ? previous : 'all';
+}
+
 function openOltCollectModal() {
   document.getElementById('modalOltCollect')?.classList.remove('hidden');
   const siteEl = document.getElementById('oltSite');
   const currentSite = document.getElementById('oltFilterSite')?.value || '';
   if (siteEl && currentSite && !siteEl.value.trim()) siteEl.value = currentSite;
   refreshOltConnectors().finally(updateOltOriginUi);
+  const modelEl = document.getElementById('oltModel');
+  if (modelEl && !modelEl.dataset.oltPonBound) {
+    modelEl.dataset.oltPonBound = '1';
+    modelEl.addEventListener('change', updateOltPonOptions);
+  }
+  updateOltPonOptions();
   lucide.createIcons();
 }
 
@@ -92,7 +119,8 @@ async function oltCollect() {
       : `[INFO] PON ${pon} encontrada (Configured ONUs).`],
   ];
   if (pon === 'all') {
-    for (let p = 2; p <= 8; p++) {
+    const ponTotal = _oltPonCountForModel(model);
+    for (let p = 2; p <= ponTotal; p++) {
       steps.push([2500 + p * 200, 'info', `[INFO] PON ${p} encontrada (Configured ONUs).`]);
     }
   }

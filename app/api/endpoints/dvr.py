@@ -19,13 +19,19 @@ from requests.auth import HTTPDigestAuth
 
 from app.core.paths import BASE_DIR, DVR_INVENTORY_JSON_PATH, DVR_SNAPSHOT_DIR, SAIDA_DIR
 from app.core.paths import DATA_DIR
-from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_report_logo_path, tenant_snapshot_dir
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_report_logo_path, tenant_scoped_path, tenant_snapshot_dir
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
 from app.services.db_store import decorate_legacy_rows
 from app.services.db_store import replace_recorder_inventory_rows
 from app.services.db_store import legacy_rows_from_db
 from app.services.db_store import load_app_settings, save_app_settings
-from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
+from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image, build_recorder_pdf_report
+from app.services.ws_scan_service import (
+    _connector_from_payload,
+    _connector_has_tunnel,
+    _decide_remote_only,
+    _pick_probe_targets,
+)
 
 router = APIRouter(tags=["dvr"], prefix="/api/dvr")
 _imgbb_progress_lock = threading.Lock()
@@ -90,6 +96,11 @@ class DVRScanRequest(BaseModel):
     imgbb: bool = False
     set_local: bool = False
     local: str = ""
+    inventory_mode: str = "basico"
+    scan_origin: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    remote_only: bool = False
 
 
 class DVRSnapshotUpdateRequest(BaseModel):
@@ -131,6 +142,11 @@ class RecorderSaveRequest(BaseModel):
 
 class RecorderDeleteRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(default_factory=list)
+    mode: str = ""
+    site: str = ""
+    host: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
 
 
 class DVRChangeIpRequest(BaseModel):
@@ -169,6 +185,115 @@ class DVRRebootRequest(BaseModel):
 
 def _base(ip: str, port: int) -> str:
     return f"http://{ip}:{int(port)}" if int(port) != 80 else f"http://{ip}"
+
+
+def _normalize_rec_inventory_mode(value: str = "") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"olt", "via_olt", "via-olt"}:
+        return "olt"
+    if raw in {"switch", "sw", "via_switch", "via-switch"}:
+        return "switch"
+    return "basico"
+
+
+def _recorder_scan_connector(req: DVRScanRequest) -> Dict[str, Any] | None:
+    scan_origin = str(req.scan_origin or "").strip().lower()
+    connector_id = str(req.connector_id or req.remote_connector_id or "").strip()
+    if scan_origin == "connector" and not connector_id:
+        raise HTTPException(status_code=400, detail="Selecione um conector para varrer este gravador.")
+    if not connector_id and scan_origin != "connector":
+        return None
+
+    payload = {
+        "connector_id": connector_id,
+        "remote_connector_id": connector_id,
+        "local": req.local,
+        "scan_origin": scan_origin or "connector",
+    }
+    connector = _connector_from_payload(payload)
+    has_tunnel = _connector_has_tunnel(connector)
+    remote_only = _decide_remote_only(
+        scan_origin="connector",
+        connector_id=connector_id,
+        connector_has_tunnel=has_tunnel,
+        remote_only_requested=bool(req.remote_only),
+        probe_targets=_pick_probe_targets(req.ip),
+    )
+    if remote_only:
+        raise HTTPException(
+            status_code=424,
+            detail="O conector existe, mas o servidor ainda nao alcanca este gravador pela VPN. Verifique o WireGuard/rotas do cliente e tente novamente.",
+        )
+    return connector or {"id": connector_id}
+
+
+def _tag_recorder_rows(rows: List[Dict[str, Any]], req: DVRScanRequest, connector: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+    mode = _normalize_rec_inventory_mode(req.inventory_mode)
+    site = str(req.local or "").strip()
+    connector_id = str(req.connector_id or req.remote_connector_id or (connector or {}).get("id") or "").strip()
+    connector_name = str((connector or {}).get("name") or (connector or {}).get("site") or site or "").strip()
+    for row in rows:
+        row["inventory_mode"] = mode
+        if site:
+            row["local"] = row.get("local") or site
+            row["site"] = row.get("site") or site
+            row["site_name"] = row.get("site_name") or site
+        if connector_id:
+            row["remote"] = True
+            row["connector_id"] = connector_id
+            row["remote_connector_id"] = connector_id
+            row["remote_connector_name"] = connector_name
+    return rows
+
+
+def _same_recorder_scope(row: Dict[str, Any], req: DVRScanRequest) -> bool:
+    if str(row.get("host") or "") != str(req.ip or ""):
+        return False
+    if int(row.get("http_port") or 80) != int(req.http_port):
+        return False
+    if _normalize_rec_inventory_mode(str(row.get("inventory_mode") or "")) != _normalize_rec_inventory_mode(req.inventory_mode):
+        return False
+    wanted_connector = str(req.connector_id or req.remote_connector_id or "").strip()
+    row_connector = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+    if wanted_connector or row_connector:
+        return row_connector == wanted_connector
+    return True
+
+
+def _rec_row_mode(row: Dict[str, Any]) -> str:
+    return _normalize_rec_inventory_mode(str(row.get("inventory_mode") or "basico"))
+
+
+def _rec_row_site(row: Dict[str, Any]) -> str:
+    return str(row.get("site") or row.get("site_name") or row.get("local") or "").strip()
+
+
+def _rec_row_connector(row: Dict[str, Any]) -> str:
+    return str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+
+
+def _rec_matches_delete_scope(
+    row: Dict[str, Any],
+    *,
+    mode: str = "",
+    site: str = "",
+    host: str = "",
+    connector_id: str = "",
+) -> bool:
+    wanted_mode = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
+    if wanted_mode and _rec_row_mode(row) != wanted_mode:
+        return False
+    wanted_site = str(site or "").strip().lower()
+    if wanted_site and _rec_row_site(row).lower() != wanted_site:
+        return False
+    wanted_host = str(host or "").strip()
+    row_host = str(row.get("host") or row.get("ip") or "").strip()
+    if wanted_host and row_host != wanted_host:
+        return False
+    wanted_connector = str(connector_id or "").strip()
+    if wanted_connector and _rec_row_connector(row) != wanted_connector:
+        return False
+    return True
 
 
 def _read_rows() -> List[Dict[str, Any]]:
@@ -291,6 +416,24 @@ def _build_zabbix_rows_for_dvr(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
     return out
 
 
+def _zabbix_tenant_slug() -> str:
+    return str(get_current_tenant_slug() or "default").strip().lower() or "default"
+
+
+def _zabbix_host_safe(value: Any) -> str:
+    safe = str(value or "").strip().upper()
+    safe = re.sub(r"[^A-Z0-9_.-]+", "-", safe)
+    safe = re.sub(r"-+", "-", safe).strip("-")
+    return safe or "DEFAULT"
+
+
+def _zabbix_tenant_group(group: str, tenant: str = "") -> str:
+    base = str(group or "").strip() or "Cameras"
+    slug = _zabbix_host_safe(tenant or _zabbix_tenant_slug())
+    marker = f" - {slug}"
+    return base if base.upper().endswith(marker.upper()) else f"{base}{marker}"
+
+
 def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, str]:
     cfg = _load_zabbix_dvr_sync_settings()
     if not bool(cfg.get("enabled", True)):
@@ -299,7 +442,8 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
     url = str(cfg.get("url") or "").strip()
     user = str(cfg.get("user") or "").strip()
     password = str(cfg.get("pass") or "").strip()
-    group = str(cfg.get("group") or "Cameras").strip() or "Cameras"
+    tenant_slug = _zabbix_tenant_slug()
+    group = _zabbix_tenant_group(str(cfg.get("group") or "Cameras").strip() or "Cameras", tenant_slug)
     template = str(cfg.get("template") or "Template Module ICMP Ping").strip() or "Template Module ICMP Ping"
     template_dvr = str(cfg.get("template_dvr") or "Template Cam-Snapshot DVR Channel").strip() or "Template Cam-Snapshot DVR Channel"
     dvr_user = str(cfg.get("dvr_user") or "admin").strip() or "admin"
@@ -311,8 +455,9 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
     if not z_rows:
         return False, "sem linhas DVR para sincronizar"
 
-    tmp_inv = SAIDA_DIR / "zabbix-source-inventory.auto-dvr.json"
+    tmp_inv = tenant_scoped_path("tmp/zabbix-source-inventory.auto-dvr.json", tenant_slug)
     try:
+        tmp_inv.parent.mkdir(parents=True, exist_ok=True)
         tmp_inv.write_text(json.dumps(z_rows, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return False, f"falha ao preparar inventário temporário: {e}"
@@ -328,7 +473,7 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
             "ZBX_GROUP": group,
             # Isola por tenant o nome do host no Zabbix -- ver build_host_name
             # em tools/mk_zabbix_from_inventory.py.
-            "ZBX_TENANT": get_current_tenant_slug() or "default",
+            "ZBX_TENANT": tenant_slug,
             "ZBX_TEMPLATE": template,
             "ZBX_TEMPLATE_DVR": template_dvr,
             "ZBX_DVR_USER": dvr_user,
@@ -673,6 +818,10 @@ def api_dvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Nenhum canal informado para apagar.")
 
     rows = _read_rows()
+    mode = str(req.mode or "").strip()
+    site = str(req.site or "").strip()
+    host_filter = str(req.host or "").strip()
+    connector_id = str(req.connector_id or req.remote_connector_id or "").strip()
     kept = []
     removed = 0
     for row in rows:
@@ -681,7 +830,13 @@ def api_dvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
             channel = int(row.get("channel") or 0)
         except Exception:
             channel = 0
-        if (host, channel) in keys:
+        if (host, channel) in keys and _rec_matches_delete_scope(
+            row,
+            mode=mode,
+            site=site,
+            host=host_filter,
+            connector_id=connector_id,
+        ):
             removed += 1
             continue
         kept.append(row)
@@ -690,21 +845,38 @@ def api_dvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
 
 
 @router.post("/clear")
-def api_dvr_clear(site: str = "") -> Dict[str, Any]:
+def api_dvr_clear(site: str = "", host: str = "", mode: str = "", connector_id: str = "") -> Dict[str, Any]:
     site_norm = str(site or "").strip().lower()
-    if site_norm:
+    host_norm = str(host or "").strip()
+    mode_norm = str(mode or "").strip()
+    connector_norm = str(connector_id or "").strip()
+    if site_norm or host_norm or mode_norm or connector_norm:
         rows = _read_rows()
-        def _matches(row: Dict[str, Any]) -> bool:
-            vals = [
-                str(row.get("site") or "").strip(),
-                str(row.get("site_name") or "").strip(),
-                str(row.get("local") or "").strip(),
-            ]
-            return any(v.lower() == site_norm for v in vals if v)
-        kept = [r for r in rows if not (isinstance(r, dict) and _matches(r))]
+        kept = [
+            r for r in rows
+            if not (
+                isinstance(r, dict)
+                and _rec_matches_delete_scope(
+                    r,
+                    mode=mode_norm,
+                    site=site_norm,
+                    host=host_norm,
+                    connector_id=connector_norm,
+                )
+            )
+        ]
         removed_rows = max(0, len(rows) - len(kept))
         _write_rows(kept)
-        return {"ok": True, "cleared": True, "scope": "site", "site": site.strip(), "removed_rows": removed_rows, "remaining": len(kept)}
+        return {
+            "ok": True,
+            "cleared": True,
+            "scope": "filtered",
+            "site": site.strip(),
+            "host": host_norm,
+            "mode": _normalize_rec_inventory_mode(mode_norm) if mode_norm else "",
+            "removed_rows": removed_rows,
+            "remaining": len(kept),
+        }
 
     _write_rows([])
     try:
@@ -788,6 +960,35 @@ def _rows_for_pdf(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _load_rows_for_report(site: str = "", mode: str = "", items: str = "") -> List[Dict[str, Any]]:
+    rows = legacy_rows_from_db("dvr", site=site)
+    if not rows:
+        rows = _read_rows()
+        rows = decorate_legacy_rows("dvr", rows, site=site)
+    mode_norm = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
+    if mode_norm:
+        rows = [r for r in rows if isinstance(r, dict) and _rec_row_mode(r) == mode_norm]
+    wanted: set[tuple[str, int]] = set()
+    for raw in str(items or "").split(","):
+        part = raw.strip()
+        if not part or "|" not in part:
+            continue
+        host, channel_txt = part.rsplit("|", 1)
+        try:
+            ch = int(channel_txt)
+        except Exception:
+            ch = 0
+        host = host.strip()
+        if host and ch > 0:
+            wanted.add((host, ch))
+    if wanted:
+        rows = [
+            r for r in rows
+            if (str(r.get("host") or r.get("ip") or "").strip(), int(r.get("channel") or 0)) in wanted
+        ]
+    return rows
+
+
 @router.get("/report/settings")
 def api_dvr_report_settings() -> Dict[str, Any]:
     obj = load_app_settings()
@@ -850,11 +1051,8 @@ def api_dvr_report_preview_jpg(site: str = "", company_name: str = "") -> FileRe
 
 
 @router.get("/report.pdf")
-def api_dvr_report_pdf(site: str = "", company_name: str = "") -> FileResponse:
-    rows = legacy_rows_from_db("dvr", site=site)
-    if not rows:
-        rows = _read_rows()
-        rows = decorate_legacy_rows("dvr", rows, site=site)
+def api_dvr_report_pdf(site: str = "", company_name: str = "", mode: str = "", items: str = "") -> FileResponse:
+    rows = _load_rows_for_report(site=site, mode=mode, items=items)
     obj = load_app_settings()
     if not isinstance(obj, dict):
         obj = {}
@@ -863,13 +1061,13 @@ def api_dvr_report_pdf(site: str = "", company_name: str = "") -> FileResponse:
     company = str(company_name or rep.get("company_name") or "").strip()
     logo_path = tenant_report_logo_path("dvr") if get_current_tenant_slug() else (DATA_DIR / "input" / "dvr-report-logo.png")
     logo = logo_path if logo_path.exists() else None
-    pdf_path = build_inventory_pdf_report(
-        _rows_for_pdf(rows),
+    pdf_path = build_recorder_pdf_report(
+        rows,
         site=site,
         company_name=company,
         logo_path=logo,
-        include_olt=False,
-        module_label="DVR",
+        recorder_type="dvr",
+        module_label="Gravadores DVR",
     )
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
@@ -1082,6 +1280,7 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
     if req.end_channel < req.start_channel:
         raise HTTPException(status_code=400, detail="end_channel deve ser >= start_channel")
     local_default = str(req.local or "").strip()
+    connector = _recorder_scan_connector(req)
 
     auth = HTTPDigestAuth(req.user, req.password)
     base = _base(ip, req.http_port)
@@ -1158,7 +1357,8 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
             }
         )
 
-    keep = [r for r in old if not (str(r.get("host") or "") == ip and int(r.get("http_port") or 80) == int(req.http_port))]
+    rows_new = _tag_recorder_rows(rows_new, req, connector)
+    keep = [r for r in old if not _same_recorder_scope(r, req)]
     merged = keep + rows_new
     imgbb_uploaded = 0
     imgbb_error = ""

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+docker exec sightops-prod-nginx sh -lc "grep -n 'cameras.js?v=167' /usr/share/nginx/html/v2/index.html"
+docker exec sightops-prod-nginx sh -lc "grep -n 'mapLayerOverlapsImported' /usr/share/nginx/html/v2/js/cameras.js"
+docker exec sightops-prod-api python /app/scripts/sightops_map_visible_layers_probe.py easy-tecnologias

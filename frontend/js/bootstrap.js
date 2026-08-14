@@ -55,6 +55,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnStopActingAs')?.addEventListener('click', () => actAsTenant(''));
   document.getElementById('tenantModulesUnrestricted')?.addEventListener('change', _tenantModulesToggleUnrestricted);
   document.getElementById('btnSaveTenantModules')?.addEventListener('click', saveTenantModules);
+  document.getElementById('btnSaveTenantEdit')?.addEventListener('click', saveTenantEdit);
+  document.getElementById('btnCancelTenantEdit')?.addEventListener('click', closeTenantEditModal);
+  document.getElementById('btnCloseTenantEdit')?.addEventListener('click', closeTenantEditModal);
+  document.getElementById('btnSaveTenantZabbix')?.addEventListener('click', saveTenantZabbixAccess);
+  document.getElementById('btnCancelTenantZabbix')?.addEventListener('click', closeTenantZabbixModal);
+  document.getElementById('btnCloseTenantZabbix')?.addEventListener('click', closeTenantZabbixModal);
+  document.getElementById('settingsTenantsBody')?.addEventListener('click', handleTenantActionClick);
   document.getElementById('btnSaveEditUser')?.addEventListener('click', saveEditUser);
 
   // Painel do Dono <-> Painel operacional (so admin de plataforma ve esses botoes)
@@ -119,7 +126,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Conectores SaaS
-  document.getElementById('btnConnectorRefresh')?.addEventListener('click', loadConnectors);
+  document.getElementById('btnConnectorRefresh')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnConnectorRefresh');
+    const oldHtml = btn?.innerHTML;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
+      lucide.createIcons();
+    }
+    try {
+      clearApiJsonCache('/api/connectors');
+      await loadConnectors(true);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml || '<i data-lucide="refresh-cw"></i> Atualizar';
+        lucide.createIcons();
+      }
+    }
+  });
   document.getElementById('btnConnectorNew')?.addEventListener('click', openConnectorCreateModal);
   document.getElementById('btnConnectorModalClose')?.addEventListener('click', closeConnectorCreateModal);
   document.getElementById('btnConnectorModalCancel')?.addEventListener('click', closeConnectorCreateModal);
@@ -611,11 +636,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const checked = [...document.querySelectorAll('.chk-olt:checked')];
     const ips = checked.map(c => c.value);
     const keys = checked.map(c => c.dataset.key || `IP:${c.value}`);
+    const site = document.getElementById('filterSiteOlt')?.value || '';
     if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
-    if (!await showConfirm({ title: 'Remover cameras', msg: `Remover ${ips.length} camera(s) do inventario?`, label: 'Remover' })) return;
+    if (!await showConfirm({ title: 'Remover cameras', msg: `Remover ${ips.length} camera(s) do inventario? Nao volta sozinho mesmo se a OLT continuar vendo o mesmo IP na rede.`, label: 'Remover' })) return;
     const res = await api('/api/inventory/delete', {
       method: 'POST',
-      body: JSON.stringify({ ips, keys, mode: _invOltView || 'olt' }),
+      body: JSON.stringify({ ips, keys, mode: _invOltView || 'olt', site, permanent: true }),
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
@@ -631,13 +657,34 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('btnOltClear')?.addEventListener('click', async () => {
-    if (!await showConfirm({ title: 'Apagar inventario', msg: 'Apagar todas as cameras IP do inventario? Esta acao nao pode ser desfeita.', label: 'Apagar tudo' })) return;
-    await api('/api/inventory/clear', { method: 'POST', body: '{}' });
+    const site = document.getElementById('filterSiteOlt')?.value || '';
+    const mode = _invOltView || 'olt';
+    const viewName = { basic: 'Basico', basico: 'Basico', olt: 'Via OLT', switch: 'Via Switch' }[mode] || mode;
+    const msg = site
+      ? `Apagar cameras IP do site "${site}" em ${viewName}? Esta acao nao pode ser desfeita.`
+      : `Apagar todas as cameras IP em ${viewName}? Esta acao nao pode ser desfeita.`;
+    if (!await showConfirm({ title: 'Apagar inventario', msg, label: 'Apagar' })) return;
+    const res = await api('/api/inventory/clear', {
+      method: 'POST',
+      body: JSON.stringify({ mode, site, permanent: mode === 'olt' }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      showToast(data?.detail || data?.error || 'Nao foi possivel apagar o inventario.', true);
+      return;
+    }
     _imgbbClear();
-    _camSessionClear();
+    if (site) {
+      _invCam[mode] = (_invCam[mode] || []).filter(r => ![r.local, r.site, r.site_name].some(v => String(v || '') === site));
+      _camSessionSave(mode, _invCam[mode]);
+    } else {
+      _invCam[mode] = [];
+      try { sessionStorage.removeItem(`so_cam_${mode}`); } catch {}
+    }
     updateCamTabs();
-    renderInvOlt([]);
-    showToast('Inventario apagado.');
+    populateCamSiteFilter();
+    applyInvOltFilters();
+    showToast(site ? `Site "${site}" apagado.` : 'Inventario apagado.');
   });
 
   // Modal editar camera
@@ -878,9 +925,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setRecType('dvr');
     const scanType = document.getElementById('nvrScanType');
     if (scanType) scanType.value = 'dvr';
+    const scanMode = document.getElementById('nvrScanMode');
+    if (scanMode) scanMode.value = _invNvrView || 'basico';
     updateNvrScanTypeLabels();
     document.getElementById('nvrScanErro').hidden = true;
     document.getElementById('modalNvrScan').classList.remove('hidden');
+    refreshNvrScanConnectors().finally(updateNvrScanOriginUi);
     lucide.createIcons();
   });
 
@@ -918,9 +968,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnScanNvr')?.addEventListener('click', () => {
     const scanType = document.getElementById('nvrScanType');
     if (scanType) scanType.value = _recType || 'nvr';
+    const scanMode = document.getElementById('nvrScanMode');
+    if (scanMode) scanMode.value = _invNvrView || 'basico';
     updateNvrScanTypeLabels();
     document.getElementById('nvrScanErro').hidden = true;
     document.getElementById('modalNvrScan').classList.remove('hidden');
+    refreshNvrScanConnectors().finally(updateNvrScanOriginUi);
     lucide.createIcons();
   });
   function updateNvrScanTypeLabels() {
@@ -956,6 +1009,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function _nvrPayload(extra = {}) {
+    const site = (document.getElementById('nvrScanLocal')?.value || document.getElementById('filterNvrLocal')?.value || '').trim();
+    const originEl = document.getElementById('nvrScanOrigin');
+    const selectedConnector = document.getElementById('nvrScanConnector')?.value || '';
+    const context = originEl?.value === 'connector'
+      ? _networkContextForSite(site, selectedConnector)
+      : { connectorId: '', hasTunnel: false };
     return {
       ip:            document.getElementById('nvrScanIp').value.trim(),
       user:          document.getElementById('nvrScanUser').value.trim() || 'admin',
@@ -964,8 +1023,52 @@ document.addEventListener('DOMContentLoaded', () => {
       start_channel: parseInt(document.getElementById('nvrScanStart').value) || 1,
       end_channel:   parseInt(document.getElementById('nvrScanEnd').value) || 32,
       timeout_sec:   4,
+      inventory_mode: _nvrScanMode(),
+      scan_origin: context.connectorId ? 'connector' : 'local',
+      connector_id: context.connectorId || '',
+      remote_connector_id: context.connectorId || '',
+      remote_only: !!(context.connectorId && !context.hasTunnel),
       ...extra,
     };
+  }
+
+  async function refreshNvrScanConnectors() {
+    const sel = document.getElementById('nvrScanConnector');
+    if (!sel) return;
+    try {
+      const data = await apiJson('/api/connectors', { forceRefresh: true });
+      _connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+    } catch {
+      _connectors = _connectors || [];
+    }
+    const rows = _routerConnectors();
+    sel.innerHTML = '<option value="">Opcional: usar servidor local/VPN</option>' + rows.map(c => {
+      const online = _connectorIsOnline(c);
+      const tunnel = _connectorHasTunnel(c) ? ' + VPN' : '';
+      return `<option value="${esc(c.id || '')}" ${online ? '' : 'disabled'}>${esc(_connectorLabel(c))}${tunnel}${online ? '' : ' (offline)'}</option>`;
+    }).join('');
+    const site = (document.getElementById('nvrScanLocal')?.value || document.getElementById('filterNvrLocal')?.value || '').trim();
+    const match = _findConnectorForSite(site);
+    if (match?.id) {
+      sel.value = match.id;
+      const origin = document.getElementById('nvrScanOrigin');
+      if (origin) origin.value = 'connector';
+    }
+  }
+
+  function updateNvrScanOriginUi() {
+    const site = (document.getElementById('nvrScanLocal')?.value || document.getElementById('filterNvrLocal')?.value || '').trim();
+    const origin = document.getElementById('nvrScanOrigin');
+    const connectorSel = document.getElementById('nvrScanConnector');
+    const wantsConnector = origin?.value === 'connector';
+    const context = wantsConnector ? _networkContextForSite(site, connectorSel?.value || '') : { connectorId: '', connector: null, online: false, hasTunnel: false };
+    if (connectorSel) connectorSel.disabled = !wantsConnector;
+    const status = document.getElementById('nvrScanConnectorStatus');
+    if (status) {
+      status.innerHTML = context.connectorId
+        ? `${context.online ? '<b style="color:var(--primary)">Conector online</b>' : '<b style="color:var(--danger)">Conector offline</b>'} -- ${esc(_connectorLabel(context.connector))}${context.hasTunnel ? ' -- VPN ativa: varredura completa do gravador.' : ' -- sem VPN/rota: gravador exige acesso HTTP direto.'}`
+        : 'Sem conector selecionado: usando servidor local/VPN.';
+    }
   }
 
   function _nvrUiScanning(on) {
@@ -992,6 +1095,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const local = document.getElementById('nvrScanLocal').value.trim();
     if (local) { payload.set_local = true; payload.local = local; }
+    else if (payload.scan_origin === 'connector') {
+      const filteredLocal = document.getElementById('filterNvrLocal')?.value || '';
+      if (filteredLocal) { payload.set_local = true; payload.local = filteredLocal; }
+    }
 
     log.innerHTML = '';
     const start = payload.start_channel || 1;
@@ -1056,6 +1163,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const stype = _nvrScanType();
       let rows = data?.inventory || [];
       appendLog(log, `[OK] Scan concluido  ${rows.length} canais encontrados.`, 'ok');
+      clearApiJsonCache('/api/nvr/inventory');
+      clearApiJsonCache('/api/dvr/inventory');
+      try {
+        await _loadRecAllModesForType(stype);
+      } catch {}
 
       // Enriquece se necessario
       if ((mode === 'olt' || mode === 'switch') && rows.length) {
@@ -1066,7 +1178,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Salva no store correto (NVR ou DVR) e sincroniza o tipo na UI
       const store = stype === 'dvr' ? _invDvr : _invNvr;
-      store[mode] = [...store[mode].filter(r => r.host !== payload.ip), ...rows];
+      const payloadConnector = String(payload.remote_connector_id || payload.connector_id || '');
+      store[mode] = [...store[mode].filter(r => {
+        const sameHost = String(r.host || '') === String(payload.ip || '');
+        const rowConnector = String(r.remote_connector_id || r.connector_id || '');
+        if (!sameHost) return true;
+        if (payloadConnector || rowConnector) return rowConnector !== payloadConnector;
+        return false;
+      }), ...rows];
       _recSessionSave(stype, mode, store[mode]);
       pruneSyntheticRecModes(stype);
       setRecType(stype);
@@ -1083,6 +1202,9 @@ document.addEventListener('DOMContentLoaded', () => {
   function _nvrScanMode() { return document.getElementById('nvrScanMode')?.value || 'basico'; }
   function _nvrScanType() { return document.getElementById('nvrScanType')?.value || 'nvr'; }
   document.getElementById('nvrScanType')?.addEventListener('change', updateNvrScanTypeLabels);
+  document.getElementById('nvrScanOrigin')?.addEventListener('change', updateNvrScanOriginUi);
+  document.getElementById('nvrScanConnector')?.addEventListener('change', updateNvrScanOriginUi);
+  document.getElementById('nvrScanLocal')?.addEventListener('input', () => refreshNvrScanConnectors().finally(updateNvrScanOriginUi));
 
   async function _runNvrScan(extra = {}) {
     document.getElementById('nvrScanLog').innerHTML = '';
@@ -1126,19 +1248,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!await showConfirm({ title: 'Apagar dados', msg: scopeMsg, label: 'Apagar' })) return;
 
-    if (hasFilter) {
-      store[_invNvrView] = store[_invNvrView].filter(r => {
-        if (siteFilter && r.local === siteFilter) return false;
-        if (hostFilter && r.host === hostFilter)  return false;
-        return true;
-      });
-      _recSessionSave(_recType, _invNvrView, store[_invNvrView]);
-    } else {
-      const endpoint = _recType === 'dvr' ? '/api/dvr/clear' : '/api/nvr/clear';
-      await api(endpoint, { method: 'POST', body: '{}' });
-      store[_invNvrView] = [];
-      _recSessionSave(_recType, _invNvrView, []);
+    const endpoint = _recType === 'dvr' ? '/api/dvr/clear' : '/api/nvr/clear';
+    const params = new URLSearchParams();
+    params.set('mode', _invNvrView || 'basico');
+    if (siteFilter) params.set('site', siteFilter);
+    if (hostFilter) params.set('host', hostFilter);
+    const res = await api(`${endpoint}?${params.toString()}`, { method: 'POST', body: '{}' });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      showToast(data?.detail || data?.error || 'Nao foi possivel apagar os dados.', true);
+      return;
     }
+    store[_invNvrView] = (store[_invNvrView] || []).filter(r => {
+      if (siteFilter && ![r.local, r.site, r.site_name].some(v => String(v || '') === siteFilter)) return true;
+      if (hostFilter && String(r.host || '') !== hostFilter) return true;
+      if (!siteFilter && !hostFilter) return false;
+      return false;
+    });
+    _recSessionSave(_recType, _invNvrView, store[_invNvrView]);
 
     updateNvrTabs();
     populateNvrFilters();
@@ -1156,6 +1283,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterNvrHost').value   = '';
     applyNvrFilters();
   });
+  document.getElementById('btnNvrPdf')?.addEventListener('click', (event) => runNvrReport(event.currentTarget));
   document.getElementById('btnNvrImgbb')?.addEventListener('click', async () => {
     const selected = selectedRecItems();
     if (!selected.length) { showToast('Selecione ao menos um canal', true); return; }
@@ -1186,14 +1314,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!items.length) { showToast('Selecione ao menos um canal', true); return; }
     if (!await showConfirm({ title: 'Apagar canais', msg: `Remover ${items.length} canal(is) do inventario?`, label: 'Remover' })) return;
     const endpoint = _recType === 'dvr' ? '/api/dvr/delete' : '/api/nvr/delete';
-    const res = await api(endpoint, { method: 'POST', body: JSON.stringify({ items }) });
+    const res = await api(endpoint, { method: 'POST', body: JSON.stringify({ items, mode: _invNvrView || 'basico' }) });
     const d = await res?.json().catch(() => ({}));
     if (!res?.ok || d?.ok === false) {
       showToast(d?.detail || d?.error || 'Erro ao remover canais.', true);
       return;
     }
     showToast(`${d?.removed ?? items.length} canal(is) removido(s).`);
-    removeRecItemsLocally(_recType, items);
+    removeRecItemsLocally(_recType, items, _invNvrView || 'basico');
     closeRecPanel();
     updateNvrTabs();
     populateNvrFilters();
@@ -1218,6 +1346,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Botao Ferramentas KMZ
   document.getElementById('btnMapTools')?.addEventListener('click', () => {
+    const modeSel = document.getElementById('mapInventoryMode');
+    if (modeSel && !modeSel.value) modeSel.value = _invOltView || 'olt';
     document.getElementById('modalMapTools').classList.remove('hidden');
     lucide.createIcons();
   });
@@ -1227,10 +1357,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Etapa 2  Previa e Aplicar coordenadas
   document.getElementById('btnMapApplyPreview')?.addEventListener('click', async () => {
     const source   = document.getElementById('mapApplySource')?.value || 'ip';
+    const mode     = typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt';
     const overwrite = document.getElementById('mapApplyOverwrite')?.checked || false;
     const status   = document.getElementById('mapApplyStatus');
     status.textContent = 'Calculando previa';
-    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, overwrite, dry_run: true }) });
+    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, overwrite, dry_run: true }) });
     const data = await res?.json().catch(() => ({}));
     if (data?.error) { status.textContent = ' ' + data.error; status.style.color = 'var(--danger)'; return; }
     const src = document.getElementById('mapApplySource')?.options[document.getElementById('mapApplySource')?.selectedIndex]?.text || source;
@@ -1240,10 +1371,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btnMapApply')?.addEventListener('click', async () => {
     const source    = document.getElementById('mapApplySource')?.value || 'ip';
+    const mode      = typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt';
     const overwrite = document.getElementById('mapApplyOverwrite')?.checked || false;
     const status    = document.getElementById('mapApplyStatus');
     status.textContent = 'Aplicando'; status.style.color = 'var(--muted)';
-    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, overwrite }) });
+    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, overwrite }) });
     const data = await res?.json().catch(() => ({}));
     if (data?.error) { status.textContent = ' ' + data.error; status.style.color = 'var(--danger)'; return; }
     status.style.color = 'var(--primary)';
@@ -1272,7 +1404,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Mapa
+  const mapModeSel = document.getElementById('mapInventoryMode');
+  if (mapModeSel) {
+    const savedMapMode = sessionStorage.getItem('so_kmz_inventory_mode') || _invOltView || 'olt';
+    if (['basico', 'olt', 'switch'].includes(savedMapMode)) mapModeSel.value = savedMapMode;
+    mapModeSel.addEventListener('change', () => {
+      sessionStorage.setItem('so_kmz_inventory_mode', mapModeSel.value || 'olt');
+      loadMapLayers();
+    });
+  }
   document.getElementById('mapFilterStatus')?.addEventListener('change', loadMapLayers);
+  document.getElementById('mapFilterType')?.addEventListener('change', loadMapLayers);
   document.getElementById('mapFilterSite')?.addEventListener('change', loadMapLayers);
   document.getElementById('btnMapReload')?.addEventListener('click', async () => {
     await refreshMapLiveStatus();
@@ -1334,7 +1476,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (apply) {
       const applyRes = await api('/api/kmz/import/locations/apply', {
         method: 'POST',
-        body: JSON.stringify({ source: 'ip', overwrite: true }),
+        body: JSON.stringify({ source: 'ip', mode: typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt', overwrite: true }),
       });
       if (applyRes?.ok) {
         const d = await applyRes.json().catch(() => ({}));
@@ -1353,12 +1495,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnMapGenerate')?.addEventListener('click', async () => {
     const genStatus = document.getElementById('mapGenerateStatus');
     const genName = document.getElementById('mapGenerateName')?.value.trim() || 'Cameras do Inventario';
+    const mode = typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt';
     const sourceLayerId = sessionStorage.getItem('so_kmz_current_import_layer') || '';
     if (genStatus) { genStatus.textContent = 'Gerando'; genStatus.style.color = 'var(--muted)'; }
     sessionStorage.setItem('so_kmz_generated_name', genName);
     const res = await api('/api/kmz/generate', {
       method: 'POST',
-      body: JSON.stringify({ label: genName, layer_id: sourceLayerId }),
+      body: JSON.stringify({ source: 'ip', mode, label: genName, layer_id: sourceLayerId }),
     });
     if (res?.ok) {
       const data = await res.json().catch(() => ({}));

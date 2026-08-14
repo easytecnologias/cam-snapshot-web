@@ -20,6 +20,15 @@ function splitCidrValues(value) {
   return value.split(/[\s,;|]+/).map(item => item.trim()).filter(Boolean);
 }
 
+function looksLikeWanInterface(value) {
+  const name = String(value || '').trim().toLowerCase();
+  return name === 'ether1'
+    || name.includes('wan')
+    || name.includes('internet')
+    || name.includes('pppoe')
+    || name.startsWith('lte');
+}
+
 function cidrSortValue(cidr) {
   const [ip, prefix = '0'] = String(cidr || '').split('/');
   const parts = ip.split('.').map(part => Number(part) || 0);
@@ -37,15 +46,22 @@ function connectorDetectedLans(row) {
       if (cidr) trusted.push(cidr);
     });
   };
-  ['lan_networks', 'networks', 'routes'].forEach(key => addValue(inv[key]));
   addValue(host.lan_networks);
   addValue(tunnel.client_lans);
   const addressSample = String(inv.address_sample || inv.ip_address_sample || '');
+  let trustedFromAddressSample = false;
   addressSample.split(/[;\n\r]+/).forEach(item => {
-    const first = String(item || '').split('|')[0]?.trim();
+    const parts = String(item || '').split('|');
+    const first = parts[0]?.trim();
+    const iface = parts[1]?.trim();
+    if (looksLikeWanInterface(iface)) return;
     const cidr = normalizePrivateCidr(first);
-    if (cidr) trusted.push(cidr);
+    if (cidr) {
+      trusted.push(cidr);
+      trustedFromAddressSample = true;
+    }
   });
+  if (!trustedFromAddressSample) ['lan_networks', 'networks', 'routes'].forEach(key => addValue(inv[key]));
 
   const trustedClean = uniqueCoveredCidrs(trusted);
   if (trustedClean.length) return trustedClean;
@@ -67,9 +83,9 @@ function connectorDetectedLans(row) {
   }).sort((a, b) => cidrSortValue(a) - cidrSortValue(b));
 }
 
-async function loadConnectors() {
+async function loadConnectors(forceRefresh = false) {
   closeConnectorActionMenu();
-  const data = await apiJson('/api/connectors');
+  const data = await apiJson('/api/connectors', { forceRefresh });
   const rows = data?.connectors || [];
   _connectors = rows;
   const tbody = document.getElementById('connectorsTable');
@@ -112,7 +128,7 @@ function downloadConnectorAgent(connectorId) {
   const row = connectorById(connectorId);
   const fallbackType = String(connectorId) === String(_lastCreatedConnectorId) ? _lastCreatedConnectorType : '';
   const isRouter = String(row?.type || fallbackType).toLowerCase() === 'routeros';
-  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
+  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.84:18080';
   const params = new URLSearchParams();
   if (_token) params.set('auth_token', _token);
   if (publicUrl) params.set('base_url', publicUrl.replace(/\/+$/, ''));
@@ -123,9 +139,7 @@ function downloadConnectorAgent(connectorId) {
 
 async function downloadConnectorVpn(connectorId) {
   if (!connectorId) return;
-  const publicUrl = document.getElementById('connPublicUrl')?.value.trim() || 'http://201.182.184.80:18080';
-  const endpointDefault = `${publicUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '').replace(/\/.*$/, '')}:51820`;
-  openConnectorVpnModal(connectorId, endpointDefault || '201.182.184.80:51820');
+  openConnectorVpnModal(connectorId, '201.182.184.84:51820');
 }
 
 function looksLikeValidOvpnConfig(text) {
@@ -247,7 +261,7 @@ function openConnectorActionMenu(event, connectorId, trigger) {
   lucide.createIcons();
 }
 
-function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.80:51820') {
+function openConnectorVpnModal(connectorId, endpointDefault = '201.182.184.84:51820') {
   const modal = document.getElementById('modalConnectorVpn');
   if (!modal) {
     prepareConnectorVpn(connectorId, endpointDefault, '__auto__', 'auto');
@@ -653,6 +667,46 @@ function applyCamStatusesLocally(statusByIp) {
   });
 }
 
+async function refreshCamSnapshotsAfterRename(payloads, user, pass, mode) {
+  const patches = [];
+  const failed = [];
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  await wait(1200);
+  for (const cam of payloads || []) {
+    const ip = String(cam?.ip || '').trim();
+    if (!ip) continue;
+    try {
+      const res = await api('/api/cameras/snapshot/capture', {
+        method: 'POST',
+        body: JSON.stringify({ ip, user, password: pass, mode }),
+      });
+      const data = await res?.json().catch(() => ({}));
+      if (!res?.ok || data?.ok === false || !data?.url) {
+        failed.push({ ip, error: data?.detail || data?.error || 'falha ao capturar snapshot' });
+        continue;
+      }
+      patches.push({ ip, snapshot_url: data.url, snapshot_path: data.filename || '' });
+      if (_invOltActive && String(_invOltActive.ip || '') === ip) {
+        _invOltActive.snapshot_url = data.url;
+        const title = String(cam.titulo || cam.title || _invOltActive.titulo || ip);
+        _invOltActive.titulo = title;
+        const img = document.getElementById('cpSnapshot');
+        const empty = document.getElementById('cpSnapshotEmpty');
+        if (img) {
+          img.src = `${API_BASE}${data.url}?t=${Date.now()}`;
+          img.style.display = 'block';
+        }
+        if (empty) empty.style.display = 'none';
+        setText('cpSnapshotTitle', title);
+        setText('cpSnapshotTime', '');
+      }
+    } catch (e) {
+      failed.push({ ip, error: e?.message || 'falha ao capturar snapshot' });
+    }
+  }
+  return { patches, failed };
+}
+
 async function saveEditCam() {
   const rows = document.querySelectorAll('#editCamTableBody tr');
   const payloads = [];
@@ -663,6 +717,8 @@ async function saveEditCam() {
     const ip = inputs[0].dataset.ip;
     const payload = {
       ip,
+      inventory_key: tr.dataset.key || '',
+      key: tr.dataset.key || '',
       remote_connector_id: tr.dataset.connectorId || '',
       connector_id: tr.dataset.connectorId || '',
       site: tr.dataset.site || '',
@@ -698,6 +754,7 @@ async function saveEditCam() {
   }
 
   const shouldRenameDevice = !!document.getElementById('editCamApplyDevice')?.checked;
+  let snapshotPatches = [];
   if (shouldRenameDevice) {
     const user = document.getElementById('editCamDeviceUser')?.value.trim() || 'admin';
     const pass = document.getElementById('editCamDevicePass')?.value || '';
@@ -723,15 +780,35 @@ async function saveEditCam() {
       el.hidden = false;
       return;
     }
-    showToast(`${payloads.length} camera(s) salva(s) e renomeada(s) no equipamento!`);
+    btn.disabled = true;
+    btn.textContent = 'Atualizando snapshot';
+    const snap = await refreshCamSnapshotsAfterRename(payloads, user, pass, mode);
+    snapshotPatches = snap.patches || [];
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="check"></i> Salvar tudo';
+    lucide.createIcons();
+    if (snap.failed?.length) {
+      const first = snap.failed[0] || {};
+      showToast(`${payloads.length} camera(s) renomeada(s), mas ${snap.failed.length} snapshot(s) falharam. ${first.ip || ''} ${first.error || ''}`.trim(), true);
+    } else {
+      showToast(`${payloads.length} camera(s) salva(s), renomeada(s) e com snapshot atualizado!`);
+    }
   } else {
     showToast(`${payloads.length} camera(s) salva(s)!`);
   }
   closeEditCamModal();
-  applyCamPayloadsLocally(payloads);
-  updateCamTabs();
-  populateCamSiteFilter();
-  applyInvOltFilters();
+  applyCamPayloadsLocally([...payloads, ...snapshotPatches]);
+  clearApiJsonCache('/api/cameras');
+  clearApiJsonCache('/api/dashboard');
+
+  const statusFilter = document.getElementById('filterStatusOlt');
+  const hidingFilters = new Set(['missing_data', 'default_title', 'no_olt', 'imgbb_down']);
+  if (payloads.length > 1 && statusFilter && hidingFilters.has(statusFilter.value)) {
+    statusFilter.value = '';
+    showToast(`${payloads.length} camera(s) salva(s). Filtro alterado para Todas para mostrar o resultado.`);
+  }
+
+  await loadInvOlt();
 }
 
 //  Varredura WebSocket 
@@ -852,16 +929,20 @@ function updateScanOriginUi() {
 }
 
 function _scanModeForCurrentTab() {
-  // #scanMode usa "basic" (en) enquanto a aba de Cameras IP usa "basico" (pt) --
-  // sem esse mapa, a varredura sempre voltava pro modo "OLT" default e salvava
-  // os dispositivos encontrados num inventario diferente do que a aba ativa
-  // mostra, fazendo parecer que a varredura "nao achou nada".
-  const map = { basico: 'basic', olt: 'olt', switch: 'switch' };
-  return map[_invOltView] || 'olt';
+  const mode = String(_invOltView || '').trim().toLowerCase();
+  return ['basico', 'olt', 'switch'].includes(mode) ? mode : 'olt';
+}
+
+function _normalizeScanMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'basic' || mode === 'base' || mode === 'básico') return 'basico';
+  if (mode === 'switch' || mode === 'sw') return 'switch';
+  if (mode === 'olt') return 'olt';
+  return _scanModeForCurrentTab();
 }
 
 function updateScanEnrichDefaults() {
-  const mode = document.getElementById('scanMode')?.value || 'olt';
+  const mode = _normalizeScanMode(document.getElementById('scanMode')?.value || 'olt');
   const oltChk = document.getElementById('scanOltEnrich');
   const switchChk = document.getElementById('scanSwitchEnrich');
   if (oltChk) oltChk.checked = mode === 'olt';
@@ -929,7 +1010,7 @@ function _scanPayloadBase() {
     alvo, usuario, senha,
     append_inventory: document.getElementById('scanAppend').checked,
     nat_mode:         document.getElementById('scanNat').checked,
-    inventory_mode:   document.getElementById('scanMode').value,
+    inventory_mode:   _normalizeScanMode(document.getElementById('scanMode')?.value),
     scan_origin:      origin,
     connector_id:     origin === 'connector' ? connectorId : '',
     remote_connector_id: origin === 'connector' ? connectorId : '',
@@ -946,7 +1027,7 @@ function _runWsScan(payload) {
   log.innerHTML = '';
   appendLog(log, ` ${payload.alvo}`, 'info');
   let completed = false;
-  const requestedMode = payload.inventory_mode || document.getElementById('scanMode')?.value || 'basico';
+  const requestedMode = _normalizeScanMode(payload.inventory_mode || document.getElementById('scanMode')?.value || 'basico');
 
   const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
   if (_scanWs) _scanWs.close();
@@ -958,6 +1039,9 @@ function _runWsScan(payload) {
       const msg = JSON.parse(e.data);
       if (msg.type === 'done' || msg.type === 'inventory_updated') {
         completed = true;
+        clearApiJsonCache('/api/cameras');
+        clearApiJsonCache('/api/dashboard');
+        _camSessionClear();
         appendLog(log, ' ' + (msg.message || 'Concluido'), 'ok');
         appendLog(log, ' Varredura concluida. Campos limpos.', 'ok');
         resetScanForm();
@@ -976,8 +1060,11 @@ function _runWsScan(payload) {
                 _loadCamForMode('switch'),
               ]);
             }
+            if (['basico', 'olt', 'switch'].includes(scanMode)) {
+              _invOltView = scanMode;
+              try { sessionStorage.setItem('so_cam_view', scanMode); } catch {}
+            }
             updateCamTabs();
-            if (!(_invCam[_invOltView] || []).length) setInvOltView(scanMode);
             populateCamSiteFilter();
             applyInvOltFilters();
           })();
@@ -994,4 +1081,3 @@ function _runWsScan(payload) {
     appendLog(log, completed ? ' Concluido ' : ' Encerrado ', completed ? 'ok' : 'info');
   };
 }
-

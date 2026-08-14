@@ -731,7 +731,7 @@ async function _oltRegAwaitSync(oltId, initial) {
     if (state?.status === 'done') return state;
     if (state?.status === 'error') throw new Error(state?.error || 'A coleta da OLT falhou.');
     const elapsed = Number(state?.elapsed_s || Math.floor((Date.now() - started) / 1000));
-    _oltRegSetStatus(`Sincronizando a FiberHome em segundo plano... ${elapsed}s. Pode manter esta tela aberta.`);
+    _oltRegSetStatus(`Sincronizando a OLT em segundo plano... ${elapsed}s. Pode manter esta tela aberta.`);
   }
   throw new Error('A sincronizacao continua em segundo plano, mas excedeu o tempo de acompanhamento da tela.');
 }

@@ -70,8 +70,9 @@ def _brand_from_model(model: str | None) -> str | None:
     # Intelbras: linhas VIP/MIB/VHD/MHD
     if m.startswith(("VIP", "MIB", "VHD", "MHD")):
         return "Intelbras"
-    # Dahua e OEMs
-    if m.startswith(("IPC", "DHI", "DH-", "HFW", "HDP")):
+    # Dahua e OEMs. Nao usar "IPC" generico: modelos como IPC-B121H-C sao
+    # comuns em Intelbras/UNV OEM e nao devem virar Dahua por chute.
+    if m.startswith(("DHI", "DH-", "HFW", "HDP", "IPC-H", "IPC-D")):
         return "Dahua"
     # Hikvision
     if m.startswith(("DS-", "HWI", "HWP", "HK")) or "HIKVISION" in m:
@@ -129,13 +130,20 @@ def _brand_from_model(model: str | None) -> str | None:
     m = model.upper()
     if m.startswith(("VIP", "MIB", "VHD", "MHD")):
         return "Intelbras"
-    if m.startswith(("IPC", "DHI", "DH-", "HFW", "HDP")):
+    if m.startswith(("DHI", "DH-", "HFW", "HDP", "IPC-H", "IPC-D")):
         return "Dahua"
     if m.startswith(("DS-", "HWI", "HWP", "HK")):
         return "Hikvision"
     if "HILOOK" in m:
         return "HiLook"
     return None
+
+def _canonicalize_brand_from_model(info: dict | None) -> dict:
+    out = info if isinstance(info, dict) else {}
+    model_brand = _brand_from_model(out.get("modelo") or out.get("model"))
+    if model_brand:
+        out["fabricante"] = model_brand
+    return out
 
 def _extract_brand_from_text(txt: str) -> str | None:
     if not txt:
@@ -748,7 +756,7 @@ def probe_device(ip, user, password, timeout=(1.2, 2.5), retries=1):
         if m:
             info["mac"] = m
 
-    return info
+    return _canonicalize_brand_from_model(info)
 
 def get_mac_http(ip, user, password, timeout=(1.2, 2.5), retries=1):
     urls = [
@@ -946,4 +954,3 @@ def get_snapshot(ip, user, password, output_dir="output/snapshot", timeout=(1.2,
         # apenas retorna None e deixa o chamador seguir para o prÃ³ximo IP.
         pass
     return None
-

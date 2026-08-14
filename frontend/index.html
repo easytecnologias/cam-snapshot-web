@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=135">
+  <link rel="stylesheet" href="styles.css?v=141">
 </head>
 <body>
 
@@ -328,8 +328,8 @@
         <div>
           <!-- Tabela -->
           <div class="panel" style="margin-bottom:0">
-            <div class="table-wrap" style="max-height:calc(100vh - 300px);overflow-y:auto;overflow-x:hidden">
-              <table class="data-table" id="invOltTableEl" style="table-layout:fixed;width:100%">
+            <div class="table-wrap" style="max-height:calc(100vh - 300px);overflow-y:auto;overflow-x:auto">
+              <table class="data-table camera-inventory-table" id="invOltTableEl" style="table-layout:fixed;width:100%">
                 <colgroup>
                   <col style="width:3%">
                   <col style="width:11%">
@@ -411,7 +411,7 @@
               </div>
             </div>
             <div class="cam-snapshot-wrap" id="cpSnapshotWrap" title="Clique para ver a câmera ao vivo">
-              <img id="cpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none'">
+              <img id="cpSnapshot" src="" alt="Snapshot" onerror="this.style.display='none';document.getElementById('cpSnapshotEmpty').style.display='flex'">
               <div id="cpSnapshotEmpty" class="cam-snap-empty"><i data-lucide="image-off"></i><span>Sem snapshot</span></div>
               <div id="cpInlineLive" class="cam-inline-live hidden" onclick="event.stopPropagation()">
                 <video id="cpLiveVideo" class="hidden" autoplay muted playsinline></video>
@@ -621,6 +621,7 @@
           <div class="table-footer">
             <span id="invNvrFooter">0 canais</span>
             <div style="display:flex;gap:6px">
+              <button class="icon-action" id="btnNvrPdf" data-tip="Relatorio PDF"><i data-lucide="file-text"></i></button>
               <button class="icon-action" id="btnNvrImgbb" data-tip="Atualizar ImgBB selecionados"><i data-lucide="image-up"></i></button>
               <button class="icon-action primary" id="btnNvrEditar" data-tip="Editar selecionados"><i data-lucide="pencil"></i></button>
               <button class="icon-action danger" id="btnNvrDeleteSelected" data-tip="Apagar selecionados"><i data-lucide="trash-2"></i></button>
@@ -1541,6 +1542,9 @@
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#dc2626;border:1px solid white"></span>Camera offline</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:11px;border-radius:2px;background:#1971c2;border:1px solid white"></span>CTO</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:16px;height:9px;border-radius:5px;background:#7950f2;border:1px solid white"></span>Emenda/CDO</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:18px;height:4px;border-radius:4px;background:#0ea5e9"></span>Fibra</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:12px;border-radius:3px;background:#f59e0b;border:1px solid white"></span>Caixa CFTV</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#64748b;border:1px solid white"></span>Poste</span>
             <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:12px;border-radius:50% 50% 50% 0;background:#d97706;border:1px solid white;transform:rotate(-45deg)"></span>Outros</span>
           </div>
           <!-- Filtros -->
@@ -1548,6 +1552,21 @@
             <option value="">Todos</option>
             <option value="online">Online</option>
             <option value="offline">Offline</option>
+          </select>
+          <select class="filter-select" id="mapFilterType" style="font-size:12px;padding:5px 8px">
+            <option value="">Todos os tipos</option>
+            <option value="camera">Cameras</option>
+            <option value="fiber">Fibra</option>
+            <option value="box">Caixas CFTV</option>
+            <option value="pole">Postes</option>
+            <option value="cto">CTO</option>
+            <option value="cdo">Emenda/CDO</option>
+            <option value="other">Outros</option>
+          </select>
+          <select class="filter-select" id="mapInventoryMode" style="font-size:12px;padding:5px 8px">
+            <option value="basico">Basico</option>
+            <option value="olt">OLT</option>
+            <option value="switch">Switch</option>
           </select>
           <select class="filter-select" id="mapFilterSite" style="font-size:12px;padding:5px 8px">
             <option value="">Todos os sites</option>
@@ -1648,7 +1667,7 @@
             <h1>Zabbix</h1>
             <p>Sincroniza o invent-rio de cameras como hosts no Zabbix.</p>
           </div>
-          <a href="http://10.10.12.7:8081" target="_blank" class="secondary-action" style="text-decoration:none">
+          <a href="http://10.10.12.7:8089" target="_blank" class="secondary-action" style="text-decoration:none">
             <i data-lucide="external-link"></i> Abrir Zabbix
           </a>
         </div>
@@ -1800,7 +1819,7 @@
                 <input id="connSite" placeholder="Reserva">
               </label>
               <label id="connFieldsRouteros">URL pública do SightOps
-                <input id="connPublicUrl" placeholder="http://201.182.184.80:18080" value="http://201.182.184.80:18080">
+                <input id="connPublicUrl" placeholder="http://201.182.184.84:18080" value="http://201.182.184.84:18080">
               </label>
               <label id="connFieldsRuijieHost" class="hidden">IP/host do gateway
                 <input id="connGatewayHost" placeholder="177.131.224.11">
@@ -2018,7 +2037,7 @@
           <button class="secondary-action" id="btnOwnerClientsRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
         </div>
         <div class="settings-saas-grid">
-          <div class="panel settings-area settings-admin-form-panel">
+          <div class="panel settings-admin-form-panel">
             <div class="panel-header">
               <div><h2>Novo cliente</h2><p>Crie um tenant independente para operacao SaaS.</p></div>
             </div>
@@ -2053,7 +2072,7 @@
             </div>
             <div class="table-wrap settings-table-wrap">
               <table class="data-table settings-table settings-tenants-table">
-                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"><col style="width:220px"></colgroup>
+                <colgroup><col class="settings-col-primary"><col class="settings-col-slug"><col class="settings-col-status"><col class="settings-col-count"><col class="settings-col-date"><col class="settings-col-actions"></colgroup>
                 <thead><tr><th>Cliente</th><th>Slug</th><th>Status</th><th>Usuarios</th><th>Criado em</th><th>Ações</th></tr></thead>
                 <tbody id="settingsTenantsBody"></tbody>
               </table>
@@ -2385,6 +2404,9 @@
                 </div>
                 <div id="onuConnectorStatus" class="deploy-result-box error" style="padding:10px 12px;margin:0 0 12px;font-size:13px">
                   Escolha Local/VPN do servidor ou um conector online com VPN. Os dados da OLT ficam bloqueados ate definir a origem.
+                </div>
+                <div id="onuCapabilityStatus" class="deploy-result-box" style="padding:10px 12px;margin:0 0 12px;font-size:13px">
+                  Escolha uma OLT cadastrada para ver quais acoes esse modelo suporta.
                 </div>
                 <div class="form-row" style="grid-template-columns:1fr">
                   <div class="form-group">
@@ -3108,6 +3130,30 @@
     </div>
   </div>
 
+  <!-- --- MODAL: RENOMEAR CAMADA DO MAPA --- -->
+  <div id="modalMapLayerRename" class="modal-backdrop hidden" onclick="if(event.target===this)closeMapLayerRename()">
+    <div class="modal map-layer-rename-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Mapa</p>
+          <h2>Editar nome da camada</h2>
+          <p class="map-layer-rename-subtitle">Esse nome aparece na lista de camadas e no arquivo KMZ baixado.</p>
+        </div>
+        <button class="icon-button" type="button" onclick="closeMapLayerRename()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="map-layer-rename-field">Nome da camada
+          <input id="mapLayerRenameInput" type="text" autocomplete="off" onkeydown="handleMapLayerRenameKey(event)">
+        </label>
+        <p id="mapLayerRenameHint" class="map-layer-rename-hint"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" onclick="closeMapLayerRename()">Cancelar</button>
+        <button class="primary-action" id="confirmMapLayerRename" type="button" onclick="saveMapLayerRename()"><i data-lucide="check"></i> Salvar nome</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- MODAL: EDITAR C-MERAS --- -->
   <div id="modalWinScan" class="modal-backdrop hidden" onclick="if(event.target===this)closeWinScanModal()">
     <div class="modal" style="max-width:560px">
@@ -3490,6 +3536,63 @@
     </div>
   </div>
 
+  <div id="modalTenantEdit" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Configuracoes · Clientes</p>
+          <h2>Editar cliente</h2>
+          <p style="margin:2px 0 0;font-size:12px;color:var(--muted)">Nome e situacao operacional do tenant.</p>
+        </div>
+        <button class="icon-button" id="btnCloseTenantEdit" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="tenantEditName">Cliente</label>
+          <input id="tenantEditName" placeholder="Nome do cliente">
+        </div>
+        <label class="tenant-edit-active">
+          <input type="checkbox" id="tenantEditActive">
+          <span>Cliente ativo</span>
+        </label>
+        <p id="tenantEditErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelTenantEdit" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveTenantEdit" type="button"><i data-lucide="check"></i> Salvar cliente</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalTenantZabbix" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Clientes · Zabbix</p>
+          <h2>Acesso do cliente</h2>
+          <p id="tenantZabbixSubtitle" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p>
+        </div>
+        <button class="icon-button" id="btnCloseTenantZabbix" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="tenantZabbixUser">Usuario Zabbix</label>
+          <input id="tenantZabbixUser" placeholder="cliente.viewer" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="tenantZabbixPass">Senha Zabbix</label>
+          <input id="tenantZabbixPass" type="password" placeholder="minimo 8 caracteres" autocomplete="new-password">
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin:0">O usuario sera vinculado somente ao grupo de hosts deste cliente.</p>
+        <p id="tenantZabbixErro" class="login-error" hidden></p>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnCancelTenantZabbix" type="button">Cancelar</button>
+        <button class="primary-action" id="btnSaveTenantZabbix" type="button"><i data-lucide="eye"></i> Provisionar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalEditUser" class="modal-backdrop hidden">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
@@ -3655,7 +3758,7 @@
           <select id="scanMode" style="padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
             <option value="olt">OLT</option>
             <option value="switch">Switch</option>
-            <option value="basic">Basico</option>
+            <option value="basico">Basico</option>
           </select>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanAppend" style="accent-color:var(--primary);width:15px;height:15px"> Acumular</label>
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)"><input type="checkbox" id="scanNat" style="accent-color:var(--primary);width:15px;height:15px"> NAT</label>
@@ -3732,6 +3835,24 @@
       <div class="modal-body">
         <!-- Configuracao -->
         <div class="scan-section-label">Configuracao</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0;margin-bottom:10px">
+          <div class="form-group" style="margin:0;min-width:0">
+            <label>Origem</label>
+            <select id="nvrScanOrigin" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
+              <option value="local">Servidor local / VPN</option>
+              <option value="connector">Conector MikroTik</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;min-width:0">
+            <label>Conector</label>
+            <select id="nvrScanConnector" disabled style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)">
+              <option value="">Opcional: usar servidor local/VPN</option>
+            </select>
+          </div>
+        </div>
+        <div id="nvrScanConnectorStatus" class="deploy-result-box" style="padding:10px 12px;margin:0 0 16px;font-size:13px">
+          Sem conector selecionado: usando servidor local/VPN.
+        </div>
         <div style="display:grid;grid-template-columns:1fr auto;gap:10px;min-width:0;margin-bottom:10px">
           <div class="form-group" style="margin:0;min-width:0">
             <label id="nvrScanIpLabel">IP do NVR</label>
@@ -3932,6 +4053,7 @@
             <select id="oltModel" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:14px;outline:none">
               <option value="8820i">8820i (GPON)</option>
               <option value="8840e">8840E (GPON)</option>
+              <option value="4840e">4840E (EPON, Intelbras)</option>
               <option value="auto">Auto</option>
             </select>
           </div>
@@ -4148,7 +4270,7 @@
         <input type="hidden" id="connectorVpnId">
         <div class="form-group">
           <label for="connectorVpnEndpoint">Endpoint WireGuard publico</label>
-          <input id="connectorVpnEndpoint" placeholder="Ex: 201.182.184.80:51820">
+          <input id="connectorVpnEndpoint" placeholder="Ex: 201.182.184.84:51820">
           <small style="color:var(--muted)">Use IP publico ou dominio do servidor + porta WireGuard.</small>
         </div>
         <div class="form-group">
@@ -4624,21 +4746,21 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=152"></script>
-  <script src="js/dashboard.js?v=150"></script>
-  <script src="js/cameras.js?v=156"></script>
-  <script src="js/recorders.js?v=143"></script>
+  <script src="js/core.js?v=158"></script>
+  <script src="js/dashboard.js?v=152"></script>
+  <script src="js/cameras.js?v=171"></script>
+  <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=142"></script>
   <script src="js/maintenance.js?v=141"></script>
   <script src="js/analysis.js?v=143"></script>
-  <script src="js/network.js?v=156"></script>
-  <script src="js/deploy.js?v=152"></script>
+  <script src="js/network.js?v=157"></script>
+  <script src="js/deploy.js?v=157"></script>
   <script src="js/deployOlt.js?v=158"></script>
-  <script src="js/connectors.js?v=155"></script>
+  <script src="js/connectors.js?v=161"></script>
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/bootstrap.js?v=165"></script>
+  <script src="js/bootstrap.js?v=177"></script>
 </body>
 </html>

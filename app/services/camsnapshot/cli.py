@@ -44,7 +44,7 @@ def _brand_from_model_cli(model):
     m = str(model).upper()
     if m.startswith(("VIP","MIB","VHD","MHD")):
         return "Intelbras"
-    if m.startswith(("IPC","DHI","DH-","HFW","HDP")):
+    if m.startswith(("DHI","DH-","HFW","HDP","IPC-H","IPC-D")):
         return "Dahua"
     if m.startswith(("DS-","HWI","HWP","HK")) or "HIKVISION" in m:
         return "Hikvision"

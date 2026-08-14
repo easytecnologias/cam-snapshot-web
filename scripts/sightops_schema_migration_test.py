@@ -159,13 +159,13 @@ def _run(tmp: Path) -> None:
         os.environ["DATABASE_BACKEND"] = "sqlite"
         os.environ["DATA_DIR"] = str(tmp)
         from app.core.migrations import apply_migrations, load_migrations
-        from app.services.db_store import _tenant_scoped_keys_satisfied
+        from app.services.db_store import _json_state_tenant_scope_satisfied, _tenant_scoped_keys_satisfied
 
         kwargs = dict(
             backend="sqlite",
             component="main",
             adopt_probe_tables=("sites", "ip_cameras", "recorders"),
-            postconditions={2: _tenant_scoped_keys_satisfied},
+            postconditions={2: _tenant_scoped_keys_satisfied, 9: _json_state_tenant_scope_satisfied},
         )
 
         # --- caminho A: banco novo, do zero ---
@@ -224,9 +224,17 @@ def _run(tmp: Path) -> None:
         legacy.execute(
             "INSERT INTO ip_cameras(tenant_slug, ip, title) VALUES('cliente-b', '10.10.8.1', 'CAM do outro cliente')"
         )
+        legacy.execute(
+            "INSERT INTO json_state(tenant_slug, k, v) VALUES('cliente-a', 'app_settings', '{\"ok\":\"a\"}')"
+        )
+        legacy.execute(
+            "INSERT INTO json_state(tenant_slug, k, v) VALUES('cliente-b', 'app_settings', '{\"ok\":\"b\"}')"
+        )
         legacy.commit()
         n = legacy.execute("SELECT COUNT(1) AS n FROM ip_cameras WHERE ip='10.10.8.1'").fetchone()["n"]
         check(n == 2, f"mesmo IP em dois tenants deveria coexistir, veio {n} linha(s)")
+        js = legacy.execute("SELECT COUNT(1) AS n FROM json_state WHERE k='app_settings'").fetchone()["n"]
+        check(js == 2, f"mesma chave json_state em dois tenants deveria coexistir, veio {js} linha(s)")
 
         # --- rodar de novo nao faz nada (idempotencia) ---
         again = apply_migrations(legacy, **kwargs)

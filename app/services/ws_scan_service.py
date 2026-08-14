@@ -12,6 +12,7 @@ from app.core.tenant_context import reset_current_tenant_slug, set_current_tenan
 from app.models.requests import ScanRequest
 from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.olt_ignore_list import remove_ignored_rows
 from app.services.scan_service import run_http_scan
 
 
@@ -107,13 +108,32 @@ def _connector_has_tunnel(connector: dict[str, Any] | None) -> bool:
     return isinstance(wireguard, dict) and bool(wireguard.get("enabled"))
 
 
-def _pick_probe_targets(alvo: str, sample: int = 3) -> list[str]:
-    """Ate `sample` IPs do inicio da faixa, pra testar a rede sem expandir a
-    faixa inteira (pode ter ate 1024 alvos)."""
-    return _expand_remote_targets(alvo, limit=sample)
+def _pick_probe_targets(alvo: str, sample: int = 24) -> list[str]:
+    """Amostra pequena, mas nao so os primeiros IPs da faixa.
+
+    Em ranges reais de CFTV, os primeiros enderecos costumam ser gateway,
+    NVR ou buracos. Se a sondagem olhar so .1/.2/.3, uma rede acessivel pode
+    parecer indisponivel e o scan cai para o modo limitado via MikroTik.
+    """
+    targets = _expand_remote_targets(alvo, limit=1024)
+    if len(targets) <= sample:
+        return targets
+
+    head_count = min(12, sample)
+    picked = targets[:head_count]
+    remaining = sample - len(picked)
+    if remaining <= 0:
+        return list(dict.fromkeys(picked))
+
+    span = len(targets) - head_count
+    for i in range(1, remaining + 1):
+        idx = head_count + round((span - 1) * i / remaining)
+        if 0 <= idx < len(targets):
+            picked.append(targets[idx])
+    return list(dict.fromkeys(picked))[:sample]
 
 
-def _lan_reachable(targets: list[str], port: int = 80, timeout: float = 1.5) -> bool:
+def _lan_reachable(targets: list[str], port: int | list[int] | tuple[int, ...] = 80, timeout: float = 1.2) -> bool:
     """Tenta uma conexao TCP rapida num punhado de alvos da rede do cliente.
 
     Existe porque "conector com VPN" nao significa "servidor consegue falar
@@ -133,15 +153,34 @@ def _lan_reachable(targets: list[str], port: int = 80, timeout: float = 1.5) -> 
     quebrar o scan.
     """
     import socket
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for ip in targets:
+    ports = list(port) if isinstance(port, (list, tuple)) else [int(port)]
+    extra_ports = [443, 554, 8080, 8000, 8081]
+    for p in extra_ports:
+        if p not in ports:
+            ports.append(p)
+
+    def can_connect(ip: str, tcp_port: int) -> bool:
         try:
-            with socket.create_connection((ip, port), timeout=timeout):
+            with socket.create_connection((ip, tcp_port), timeout=timeout):
                 return True
         except ConnectionRefusedError:
             return True
         except OSError:
-            continue
+            return False
+
+    jobs = [(ip, tcp_port) for ip in targets for tcp_port in ports]
+    if not jobs:
+        return False
+    workers = min(48, len(jobs))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(can_connect, ip, tcp_port) for ip, tcp_port in jobs]
+        for future in as_completed(futures):
+            if future.result():
+                for pending in futures:
+                    pending.cancel()
+                return True
     return False
 
 
@@ -171,10 +210,10 @@ def _decide_remote_only(
     """
     if scan_origin == "connector" and not connector_has_tunnel:
         return True
-    if connector_id and remote_only_requested:
-        return True
     if connector_id and connector_has_tunnel and probe_targets:
         return not bool(probe_fn(probe_targets))
+    if connector_id and remote_only_requested:
+        return True
     return False
 
 
@@ -356,6 +395,7 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
         return result
 
     mode = str(payload.get("inventory_mode") or "olt").strip().lower() or "olt"
+    restored_ignored_count = 0
     ctx = set_current_tenant_slug(str(tenant_slug or "").strip().lower())
     try:
         existing = load_inventory_json(mode=mode) or []
@@ -376,6 +416,7 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
             for ip in online_targets
         ]
         merged = _merge_remote_rows(existing, rows)
+        restored_ignored_count = remove_ignored_rows(rows)
         save_inventory_json(merged, mode=mode)
     finally:
         reset_current_tenant_slug(ctx)
@@ -384,6 +425,7 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
     result["inventory_count"] = len(merged)
     result["discovered_count"] = len(online_targets)
     result["remote_discovered"] = len(online_targets)
+    result["restored_ignored_count"] = restored_ignored_count
     await _ws_send(ws, {"type": "status", "message": f"Conector {connector.get('name') or site}: {len(online_targets)} IP(s) ativo(s) gravado(s) no inventario."})
     return result
 
@@ -408,6 +450,7 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     imgbb = bool(payload.get("imgbb", payload.get("upload_imgbb", False)))
     excel = bool(payload.get("excel", payload.get("generate_spreadsheet", False)))
     olt_enrich = bool(payload.get("olt_enrich", payload.get("enrich_with_olt", False)))
+    switch_enrich = bool(payload.get("switch_enrich", payload.get("enrich_with_switch", False)))
     ia = bool(payload.get("ia", payload.get("run_image_health_ai", False)))
 
     req = ScanRequest(
@@ -419,6 +462,7 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
         imgbb=imgbb,
         excel=excel,
         olt_enrich=olt_enrich,
+        switch_enrich=switch_enrich,
         ia=ia,
         append_inventory=bool(payload.get("append_inventory", False)),
         reuse_inventory=bool(payload.get("reuse_inventory", False)),

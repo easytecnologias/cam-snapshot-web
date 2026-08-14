@@ -24,6 +24,7 @@ from app.models.requests import (
 )
 from app.services import olt_registry
 from app.services.connector_service import get_connector
+from app.services.olt_capabilities import olt_capabilities, require_olt_capability
 from app.services.olt_service import (
     add_onu,
     collect_macs,
@@ -36,6 +37,7 @@ from app.services.olt_service import (
     onu_signal,
 )
 from app.cli.tools.olt_fiberhome import audit_offline_fiberhome
+from app.services.zabbix_monitoring_service import ensure_olt_icmp_host
 
 router = APIRouter(prefix="/api", tags=["olt"])
 _olt_sync_jobs: dict[str, dict[str, Any]] = {}
@@ -131,6 +133,15 @@ async def _run_olt_purge(
 async def _run_olt_registry_sync(job_key: str, job_id: str, olt_id: int, req: OltCollectMacsRequest) -> None:
     try:
         result = await asyncio.to_thread(collect_macs, req)
+        zabbix_icmp = None
+        try:
+            olt = olt_registry.get_olt(olt_id)
+            if olt:
+                zabbix_icmp = await asyncio.to_thread(ensure_olt_icmp_host, olt)
+        except Exception as exc:
+            # Nao deixa uma falha no Zabbix derrubar a sincronizacao da OLT em
+            # si -- e um efeito colateral, nao o objetivo principal do sync.
+            zabbix_icmp = {"ok": False, "error": str(exc)}
         _olt_sync_jobs[job_key] = {
             "ok": True,
             "job_id": job_id,
@@ -138,6 +149,7 @@ async def _run_olt_registry_sync(job_key: str, job_id: str, olt_id: int, req: Ol
             "status": "done",
             "count": int(result.get("count") or 0),
             "count_all": int(result.get("count_all") or 0),
+            "zabbix_icmp": zabbix_icmp,
             "finished_at": time.time(),
         }
     except Exception as exc:
@@ -216,22 +228,7 @@ async def _run_olt_offline_audit(
         }
 def _ensure_supported_registry_driver(olt_id: int) -> None:
     olt = olt_registry.get_olt(olt_id) or {}
-    vendor = str(olt.get("vendor") or "").strip()
-    model = str(olt.get("model") or "").strip()
-    model_key = model.lower()
-    supported = (
-        (vendor.lower() == "intelbras" and model_key in {"8820i", "4840e"})
-        or (vendor.lower() == "fiberhome" and model_key in {"an5516-04", "an5516-06", "an6000-15", "an6000-17"})
-    )
-    if not supported:
-        label = " / ".join(value for value in (vendor, model) if value) or "nao informado"
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"A OLT {label} pode ser cadastrada, mas a sincronizacao ainda nao possui driver. "
-                "Modelos suportados: Intelbras 8820i/4840E e FiberHome AN5516/AN6000."
-            ),
-        )
+    require_olt_capability(olt, "collect_macs", "sincronizar inventario")
 
 
 def _registered_request(req: Any) -> Any:
@@ -247,8 +244,19 @@ def _registered_request(req: Any) -> Any:
         raise HTTPException(status_code=409, detail="OLT cadastrada esta inativa")
     if not olt.get("password"):
         raise HTTPException(status_code=409, detail="OLT cadastrada nao possui senha")
-    connector_id = str(olt.get("connector_id") or "").strip()
-    connector = get_connector(connector_id, include_token=False, enforce_tenant=True) if connector_id else None
+    registered_connector_id = str(olt.get("connector_id") or "").strip()
+    requested_connector_id = str(
+        getattr(req, "remote_connector_id", None)
+        or getattr(req, "connector_id", None)
+        or ""
+    ).strip()
+    connector = get_connector(registered_connector_id, include_token=False, enforce_tenant=True) if registered_connector_id else None
+    connector_id = registered_connector_id
+    if requested_connector_id and not connector:
+        requested_connector = get_connector(requested_connector_id, include_token=False, enforce_tenant=True)
+        if requested_connector:
+            connector_id = requested_connector_id
+            connector = requested_connector
     updates = {
         "olt_ip": olt.get("host") or "",
         "user": olt.get("username") or "",
@@ -261,6 +269,8 @@ def _registered_request(req: Any) -> Any:
         "remote_connector_id": connector_id,
         "connector_name": (connector or {}).get("name") or (connector or {}).get("client") or "",
     }
+    if connector_id:
+        updates["scan_origin"] = "connector"
     allowed = set(req.model_fields) if hasattr(req, "model_fields") else set(req.__fields__)
     updates = {key: value for key, value in updates.items() if key in allowed}
     return req.model_copy(update=updates) if hasattr(req, "model_copy") else req.copy(update=updates)
@@ -279,12 +289,25 @@ def api_olt_registry_list() -> Dict[str, Any]:
     return {"ok": True, "items": itens, "total": len(itens)}
 
 
+@router.get("/olt/capabilities")
+def api_olt_capabilities(vendor: str = "", model: str = "") -> Dict[str, Any]:
+    return {"ok": True, **olt_capabilities(vendor, model)}
+
+
 @router.get("/olt/registry/{olt_id}")
 def api_olt_registry_get(olt_id: int) -> Dict[str, Any]:
     item = olt_registry.get_olt(olt_id)
     if not item:
         raise HTTPException(status_code=404, detail="OLT nao encontrada")
     return {"ok": True, "item": item}
+
+
+@router.get("/olt/registry/{olt_id}/capabilities")
+def api_olt_registry_capabilities(olt_id: int) -> Dict[str, Any]:
+    item = olt_registry.get_olt(olt_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="OLT nao encontrada")
+    return {"ok": True, "olt_id": olt_id, **olt_capabilities(item.get("vendor"), item.get("model"))}
 
 
 @router.post("/olt/registry")
@@ -309,6 +332,16 @@ def api_olt_registry_delete(olt_id: int) -> Dict[str, Any]:
 def api_olt_registry_test(olt_id: int) -> Dict[str, Any]:
     try:
         _ensure_supported_registry_driver(olt_id)
+        olt = olt_registry.get_olt(olt_id) or {}
+        vendor = str(olt.get("vendor") or "").strip().lower()
+        model = str(olt.get("model") or "").strip().lower()
+        if vendor == "intelbras" and model in {"4840e", "4840"}:
+            req = _registered_request(OltCollectMacsRequest(olt_id=olt_id, pon="all", reuse_json=False))
+            result = collect_macs(req)
+            rows = result.get("rows") if isinstance(result, dict) else []
+            count = len(rows or [])
+            test = olt_registry.mark_test_result(olt_id, True, f"{count} MAC(s) coletado(s)")
+            return {"ok": True, "connected": True, "macs": count, "test": test}
         req = _registered_request(OltDiscoverOnusRequest(olt_id=olt_id, pon="all"))
         result = discover_onus(req)
         pons = result.get("pons") if isinstance(result, dict) else {}
@@ -328,35 +361,26 @@ async def api_olt_registry_sync(olt_id: int) -> Dict[str, Any]:
     _ensure_supported_registry_driver(olt_id)
     req = _registered_request(OltCollectMacsRequest(olt_id=olt_id, pon="all", reuse_json=False))
     req = req.model_copy(update={"scan_origin": "connector" if req.connector_id else "local"})
-    olt = olt_registry.get_olt(olt_id) or {}
-    if str(olt.get("vendor") or "").strip().lower() == "fiberhome":
-        job_key = _olt_sync_key(olt_id)
-        current = _olt_sync_jobs.get(job_key) or {}
-        if current.get("status") == "running":
-            return {**current, "accepted": True}
-        job_id = uuid.uuid4().hex
-        _olt_sync_jobs[job_key] = {
-            "ok": True,
-            "accepted": True,
-            "job_id": job_id,
-            "olt_id": olt_id,
-            "status": "running",
-            "started_at": time.time(),
-        }
-        task = asyncio.create_task(
-            _run_olt_registry_sync(job_key, job_id, olt_id, req),
-            name=f"olt-sync-{olt_id}-{job_id[:8]}",
-        )
-        _olt_sync_tasks.add(task)
-        task.add_done_callback(_olt_sync_tasks.discard)
-        return dict(_olt_sync_jobs[job_key])
-    result = await asyncio.to_thread(collect_macs, req)
-    return {
+    job_key = _olt_sync_key(olt_id)
+    current = _olt_sync_jobs.get(job_key) or {}
+    if current.get("status") == "running":
+        return {**current, "accepted": True}
+    job_id = uuid.uuid4().hex
+    _olt_sync_jobs[job_key] = {
         "ok": True,
+        "accepted": True,
+        "job_id": job_id,
         "olt_id": olt_id,
-        "count": int(result.get("count") or 0),
-        "count_all": int(result.get("count_all") or 0),
+        "status": "running",
+        "started_at": time.time(),
     }
+    task = asyncio.create_task(
+        _run_olt_registry_sync(job_key, job_id, olt_id, req),
+        name=f"olt-sync-{olt_id}-{job_id[:8]}",
+    )
+    _olt_sync_tasks.add(task)
+    task.add_done_callback(_olt_sync_tasks.discard)
+    return dict(_olt_sync_jobs[job_key])
 
 
 @router.get("/olt/registry/{olt_id}/sync-status")

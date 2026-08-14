@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from app.core.paths import ensure_dirs
 from app.models.requests import InventoryDeleteRequest
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.olt_ignore_list import add_ignored_rows
 
 
 def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
@@ -25,6 +26,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
 
     removed_ips: set[str] = set()
     removed_keys: set[str] = set()
+    removed_rows: List[Dict[str, Any]] = []
     inventories: Dict[str, List[Dict[str, Any]]] = {}
     raw_mode = str(getattr(req, "mode", "olt") or "olt").strip().lower()
     if raw_mode in {"all", "todos", "camera", "cameras"}:
@@ -49,14 +51,21 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
                 scoped_match = row_connector == connector_id
             elif site:
                 scoped_match = row_site.lower() == site.lower()
-            should_remove = bool(row_key in keys_set or (rip and rip in ips_set and scoped_match))
+            key_match = row_key in keys_set and scoped_match
+            ip_match = bool(rip and rip in ips_set and scoped_match)
+            should_remove = bool(key_match or ip_match)
             if should_remove:
                 removed_ips.add(rip)
                 removed_keys.add(row_key)
+                removed_rows.append(row)
             else:
                 rows_kept.append(row)
         save_inventory_json(rows_kept, mode=current_mode)
         inventories[current_mode] = rows_kept
+
+    ignored_added = 0
+    if getattr(req, "permanent", False) and removed_rows:
+        ignored_added = add_ignored_rows(removed_rows, reason="apagado manualmente no inventario")
 
     inventory = inventories.get("olt") or inventories.get(modes[0], [])
     return {
@@ -64,6 +73,7 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         "removed": len(removed_ips),
         "ips_removed": sorted(list(removed_ips)),
         "keys_removed": sorted(list(removed_keys)),
+        "ignored_added": ignored_added,
         "inventory": inventory,
         "inventories": inventories,
     }

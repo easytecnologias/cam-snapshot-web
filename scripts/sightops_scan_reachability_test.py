@@ -67,10 +67,13 @@ def main() -> None:
     ok = _decide_remote_only(**sem_tunel)
     check(ok is True, "sem tunel deveria forcar MikroTik sem chamar o probe")
 
-    # --- remote_only pedido explicitamente: MikroTik sempre, mesmo que a rede responda ---
+    # --- remote_only antigo/stale nao pode vencer rota direta funcionando.
+    # Em SaaS o cliente cria o conector e roda o script: se a rota WireGuard ja
+    # responde, o scan precisa ser direto para coletar modelo/snapshot/live, em
+    # vez de cair no ping_many pobre que so popula a tabela.
     explicito = {**base, "remote_only_requested": True, "probe_fn": lambda targets: True}
     ok = _decide_remote_only(**explicito)
-    check(ok is True, "remote_only explicito deveria ser respeitado mesmo com rede alcancavel")
+    check(ok is False, "remote_only stale nao deveria vencer rede alcancavel")
 
     # `_decide_remote_only` nao recebe mais inventory_mode -- os dois casos
     # acima (rede alcancavel/inalcancavel) ja cobrem basico/switch/olt igual,
@@ -86,10 +89,14 @@ def main() -> None:
     ok = _decide_remote_only(**sem_alvos)
     check(ok is False, "sem alvos pra sondar nao deveria chamar o probe nem forcar remote_only")
 
-    # --- _pick_probe_targets: pega uma amostra pequena, nao a faixa inteira ---
+    # --- _pick_probe_targets: pega uma amostra pequena, nao a faixa inteira,
+    # mas tambem nao olha so os primeiros IPs (.1/.2/.3). No SAN MARINE,
+    # 172.16.49.6 respondia, mas a sondagem curta caia no caminho MikroTik.
     amostra = _pick_probe_targets("10.200.0.1-10.200.1.254")  # faixa de 510 IPs
-    check(len(amostra) <= 3, f"amostra deveria ser pequena (ate 3), veio {len(amostra)}")
+    check(len(amostra) <= 24, f"amostra deveria ser pequena (ate 24), veio {len(amostra)}")
     check(amostra[0] == "10.200.0.1", f"deveria comecar pelo primeiro IP da faixa: {amostra}")
+    amostra_san_marine = _pick_probe_targets("172.16.49.1-172.16.49.60")
+    check("172.16.49.6" in amostra_san_marine, f"amostra deveria incluir cameras no inicio util da faixa: {amostra_san_marine}")
 
     # --- _connector_has_tunnel: Ruijie nao tem agente reportando
     # tunnel/vpn/wireguard.enabled -- o sinal e ter vpn_config salvo. Bug

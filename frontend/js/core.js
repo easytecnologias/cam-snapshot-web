@@ -14,6 +14,25 @@ let _currentUser = null; // ultimo /api/auth/me: role, is_platform_admin, acting
 let _moduleCatalogCache = null; // /api/auth/modules/catalog, buscado uma vez por sessao
 let _shellMode = 'client'; // 'owner' (painel do dono) ou 'client' (painel operacional) -- so admin de plataforma pode estar em 'owner'
 
+const SIGHTOPS_CLIENT_BUILD = 'production-zabbix-access-20260811a';
+
+function resetStaleClientState() {
+  const key = 'sightops.client.build';
+  let current = '';
+  try { current = localStorage.getItem(key) || ''; } catch {}
+  if (current === SIGHTOPS_CLIENT_BUILD) return;
+
+  try {
+    Object.keys(sessionStorage || {}).forEach(k => {
+      if (k.startsWith('so_') || k.startsWith('sightops.')) sessionStorage.removeItem(k);
+    });
+  } catch {}
+  try { localStorage.removeItem('so_token'); } catch {}
+  try { localStorage.setItem(key, SIGHTOPS_CLIENT_BUILD); } catch {}
+}
+
+resetStaleClientState();
+
 // Cache curto, somente em memoria e por sessao autenticada. Evita repetir
 // respostas grandes ao alternar entre telas sem guardar dados entre usuarios.
 const _apiJsonCache = new Map();
@@ -590,33 +609,117 @@ async function loadOwnerClients() {
   setText('settingsTenantsSummary', `${tenantRows.length} cliente${tenantRows.length === 1 ? '' : 's'} cadastrado${tenantRows.length === 1 ? '' : 's'}.`);
   const tenantsBody = document.getElementById('settingsTenantsBody');
   if (tenantsBody) {
+    if (!tenantsBody.dataset.tenantActionsBound) {
+      tenantsBody.addEventListener('click', handleTenantActionClick);
+      tenantsBody.dataset.tenantActionsBound = '1';
+    }
     tenantsBody.innerHTML = tenantRows.length ? tenantRows.map(t => {
       const modulesLabel = Array.isArray(t.enabled_modules) ? `${t.enabled_modules.length} módulo(s)` : 'Sem restrição';
       const isEffectiveCurrent = (currentUser.effective_tenant_slug || currentUser.tenant_slug) === t.slug;
       const isHomeTenant = currentUser.tenant_slug === t.slug;
-      // O botao "Operar como" fica disponivel pra TODAS as linhas, inclusive
-      // a sua propria -- clicar nele na sua propria linha so limpa o act-as
-      // (volta pra casa), em vez de marcar "operando como" a propria conta.
-      const actAsCall = isHomeTenant ? `actAsTenant('')` : `actAsTenant('${esc(t.slug || '')}')`;
+      const canSuspendOrDelete = !isEffectiveCurrent && !isHomeTenant;
+      const statusHtml = `
+        <span class="tenant-status-stack">
+          ${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Pausado</span>'}
+          ${isEffectiveCurrent ? '<span class="badge badge-gray tenant-here-badge">Voce esta aqui</span>' : ''}
+        </span>`;
       const actions = `
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <button class="ghost-action" style="padding:4px 8px;font-size:11px" title="${esc(modulesLabel)}" onclick="openTenantModulesModal(${Number(t.id)}, '${esc(t.name || t.slug || '')}')"><i data-lucide="sliders-horizontal"></i> Módulos</button>
-          <button class="ghost-action" style="padding:4px 8px;font-size:11px" onclick="${actAsCall}"><i data-lucide="log-in"></i> Operar como</button>
-          ${isEffectiveCurrent ? `<span class="badge badge-gray" style="font-size:11px">Você está aqui</span>` : ''}
+        <div class="tenant-actions">
+          <button class="tenant-action-btn" type="button" data-tenant-action="edit" data-tenant-id="${Number(t.id)}" data-tenant-name="${esc(t.name || t.slug || '')}" data-tenant-active="${Number(t.active) ? '1' : '0'}" title="Editar cliente"><i data-lucide="pencil"></i><span>Editar</span></button>
+          <button class="tenant-action-btn" type="button" data-tenant-action="modules" data-tenant-id="${Number(t.id)}" data-tenant-name="${esc(t.name || t.slug || '')}" title="${esc(modulesLabel)}"><i data-lucide="sliders-horizontal"></i><span>Módulos</span></button>
+          <button class="tenant-action-btn" type="button" data-tenant-action="zabbix" data-tenant-id="${Number(t.id)}" data-tenant-name="${esc(t.name || t.slug || '')}" data-tenant-slug="${esc(t.slug || '')}" title="Acesso Zabbix"><i data-lucide="eye"></i><span>Zabbix</span></button>
+          ${canSuspendOrDelete ? `<button class="tenant-action-btn" type="button" data-tenant-action="toggle" data-tenant-id="${Number(t.id)}" data-tenant-name="${esc(t.name || t.slug || '')}" data-tenant-next-active="${Number(t.active) ? '0' : '1'}" title="${Number(t.active) ? 'Pausar cliente' : 'Ativar cliente'}"><i data-lucide="${Number(t.active) ? 'pause-circle' : 'play-circle'}"></i><span>${Number(t.active) ? 'Pausar' : 'Ativar'}</span></button>` : ''}
+          ${canSuspendOrDelete ? `<button class="tenant-action-btn danger" type="button" data-tenant-action="delete" data-tenant-id="${Number(t.id)}" data-tenant-name="${esc(t.name || t.slug || '')}" title="Excluir cliente"><i data-lucide="trash-2"></i><span>Excluir</span></button>` : ''}
         </div>`;
       return `
       <tr>
         <td class="settings-cell-truncate" title="${esc(t.name || '')}"><strong>${esc(t.name || '')}</strong></td>
         <td class="settings-cell-truncate" title="${esc(t.slug || '')}"><span class="monospace">${esc(t.slug || '')}</span></td>
-        <td class="settings-cell-center">${Number(t.active) ? '<span class="badge badge-green">Ativo</span>' : '<span class="badge badge-red">Inativo</span>'}</td>
+        <td class="settings-cell-center">${statusHtml}</td>
         <td class="settings-cell-center">${esc(t.users ?? 0)}</td>
         <td class="settings-cell-date"><span class="text-muted">${esc(formatDateTimeShort(t.created_at || ''))}</span></td>
-        <td>${actions}</td>
+        <td class="settings-cell-actions">${actions}</td>
       </tr>`;
     }).join('') : '<tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado.</td></tr>';
   }
   scheduleResponsiveHydration(document.getElementById('viewOwnerClients'));
   lucide.createIcons();
+}
+
+function handleTenantActionClick(event) {
+  const btn = event.target.closest?.('[data-tenant-action]');
+  if (!btn) return;
+  const action = btn.dataset.tenantAction || '';
+  const tenantId = Number(btn.dataset.tenantId || 0);
+  const tenantName = btn.dataset.tenantName || '';
+  if (!tenantId) return;
+  if (action === 'edit') {
+    openTenantEditModal(tenantId, tenantName, btn.dataset.tenantActive === '1');
+  } else if (action === 'modules') {
+    openTenantModulesModal(tenantId, tenantName);
+  } else if (action === 'zabbix') {
+    openTenantZabbixModal(tenantId, tenantName, btn.dataset.tenantSlug || '');
+  } else if (action === 'toggle') {
+    toggleTenantActive(tenantId, btn.dataset.tenantNextActive === '1', tenantName);
+  } else if (action === 'delete') {
+    deleteTenantRow(tenantId, tenantName);
+  }
+}
+
+let _tenantZabbixTarget = null; // { id, name, slug }
+
+function closeTenantZabbixModal() {
+  _tenantZabbixTarget = null;
+  document.getElementById('modalTenantZabbix')?.classList.add('hidden');
+}
+
+function openTenantZabbixModal(tenantId, tenantName, tenantSlug) {
+  _tenantZabbixTarget = { id: Number(tenantId), name: tenantName || '', slug: tenantSlug || '' };
+  const slug = String(tenantSlug || tenantName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cliente';
+  const usernameInput = document.getElementById('tenantZabbixUser');
+  const passwordInput = document.getElementById('tenantZabbixPass');
+  const subtitle = document.getElementById('tenantZabbixSubtitle');
+  const err = document.getElementById('tenantZabbixErro');
+  if (usernameInput) usernameInput.value = `${slug}.viewer`;
+  if (passwordInput) passwordInput.value = '';
+  if (subtitle) subtitle.textContent = tenantName || tenantSlug || '';
+  if (err) {
+    err.hidden = true;
+    err.textContent = '';
+  }
+  document.getElementById('modalTenantZabbix')?.classList.remove('hidden');
+  usernameInput?.focus();
+  lucide.createIcons();
+}
+
+async function saveTenantZabbixAccess() {
+  if (!_tenantZabbixTarget) return;
+  const username = document.getElementById('tenantZabbixUser')?.value.trim() || '';
+  const password = document.getElementById('tenantZabbixPass')?.value || '';
+  const err = document.getElementById('tenantZabbixErro');
+  if (!username || password.length < 8) {
+    if (err) {
+      err.textContent = 'Informe usuario e senha com pelo menos 8 caracteres.';
+      err.hidden = false;
+    }
+    return;
+  }
+  try {
+    const res = await api(`/api/auth/tenants/${Number(_tenantZabbixTarget.id)}/zabbix-access`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel provisionar acesso Zabbix.');
+    closeTenantZabbixModal();
+    showToast(`Zabbix liberado: ${data.zabbix_user} -> ${data.zabbix_hostgroup}.`);
+  } catch (e) {
+    if (err) {
+      err.textContent = e?.message || 'Nao foi possivel provisionar acesso Zabbix.';
+      err.hidden = false;
+    } else {
+      showToast(e?.message || 'Nao foi possivel provisionar acesso Zabbix.', true);
+    }
+  }
 }
 
 async function loadOwnerAudit() {
@@ -686,6 +789,111 @@ async function createTenantFromSettings() {
   });
   showToast('Cliente criado.');
   loadOwnerClients();
+}
+
+let _tenantEditTarget = null; // { id, active }
+
+function closeTenantEditModal() {
+  document.getElementById('modalTenantEdit')?.classList.add('hidden');
+  _tenantEditTarget = null;
+}
+
+function openTenantEditModal(tenantId, tenantName, active) {
+  _tenantEditTarget = { id: Number(tenantId), active: !!active };
+  const nameInput = document.getElementById('tenantEditName');
+  const activeInput = document.getElementById('tenantEditActive');
+  const errorEl = document.getElementById('tenantEditErro');
+  if (nameInput) nameInput.value = tenantName || '';
+  if (activeInput) activeInput.checked = !!active;
+  if (errorEl) {
+    errorEl.textContent = '';
+    errorEl.hidden = true;
+  }
+  document.getElementById('modalTenantEdit')?.classList.remove('hidden');
+  setTimeout(() => nameInput?.focus(), 0);
+  lucide.createIcons();
+}
+
+async function saveTenantEdit() {
+  if (!_tenantEditTarget) return;
+  const name = document.getElementById('tenantEditName')?.value.trim() || '';
+  const active = !!document.getElementById('tenantEditActive')?.checked;
+  const errEl = document.getElementById('tenantEditErro');
+  if (!name) {
+    if (errEl) {
+      errEl.textContent = 'Informe o nome do cliente.';
+      errEl.hidden = false;
+    }
+    return;
+  }
+  const btn = document.getElementById('btnSaveTenantEdit');
+  if (btn) btn.disabled = true;
+  const res = await api(`/api/auth/tenants/${Number(_tenantEditTarget.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name, active }),
+  });
+  if (btn) btn.disabled = false;
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    if (errEl) {
+      errEl.textContent = data?.detail || 'Nao foi possivel salvar o cliente.';
+      errEl.hidden = false;
+    }
+    return;
+  }
+  closeTenantEditModal();
+  clearApiJsonCache('/api/auth/tenants');
+  showToast('Cliente atualizado.');
+  await loadOwnerClients();
+  if (_currentView === 'owner-overview') await loadOwnerOverview();
+}
+
+async function toggleTenantActive(tenantId, active, tenantName) {
+  const action = active ? 'ativar' : 'pausar';
+  const ok = await showConfirm({
+    eyebrow: 'Cliente SaaS',
+    title: `${active ? 'Ativar' : 'Pausar'} ${tenantName}?`,
+    msg: active
+      ? 'O cliente volta a poder operar normalmente no SightOps.'
+      : 'O cliente fica bloqueado para operacao ate ser ativado novamente.',
+    label: active ? 'Ativar cliente' : 'Pausar cliente',
+    danger: !active,
+  });
+  if (!ok) return;
+  const res = await api(`/api/auth/tenants/${Number(tenantId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ active: !!active }),
+  });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    showToast(data?.detail || `Nao foi possivel ${action} o cliente.`, true);
+    return;
+  }
+  clearApiJsonCache('/api/auth/tenants');
+  showToast(active ? 'Cliente ativado.' : 'Cliente pausado.');
+  await loadOwnerClients();
+  if (_currentView === 'owner-overview') await loadOwnerOverview();
+}
+
+async function deleteTenantRow(tenantId, tenantName) {
+  const ok = await showConfirm({
+    eyebrow: 'Cliente SaaS',
+    title: `Excluir ${tenantName}?`,
+    msg: 'Isso remove o cliente, usuarios dele e inventarios vinculados a esse slug quando estiverem no banco compartilhado.',
+    label: 'Excluir cliente',
+    danger: true,
+  });
+  if (!ok) return;
+  const res = await api(`/api/auth/tenants/${Number(tenantId)}`, { method: 'DELETE' });
+  if (!res?.ok) {
+    const err = await res?.json().catch(() => ({}));
+    showToast(err?.detail || 'Nao foi possivel excluir o cliente.', true);
+    return;
+  }
+  clearApiJsonCache('/api/auth/tenants');
+  showToast('Cliente excluido.');
+  await loadOwnerClients();
+  if (_currentView === 'owner-overview') await loadOwnerOverview();
 }
 
 let _tenantModulesTarget = null; // { id, name }

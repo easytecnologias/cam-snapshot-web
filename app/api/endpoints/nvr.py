@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
 from urllib.parse import quote
 from pathlib import Path
 from typing import Any, Dict, List
@@ -20,13 +21,19 @@ from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.paths import BASE_DIR, NVR_INVENTORY_JSON_PATH, NVR_SNAPSHOT_DIR, SAIDA_DIR
 from app.core.paths import DATA_DIR
-from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_report_logo_path, tenant_snapshot_dir
+from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_report_logo_path, tenant_scoped_path, tenant_snapshot_dir
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
 from app.services.db_store import decorate_legacy_rows
 from app.services.db_store import replace_recorder_inventory_rows
 from app.services.db_store import legacy_rows_from_db
 from app.services.db_store import load_app_settings, save_app_settings
-from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
+from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image, build_recorder_pdf_report
+from app.services.ws_scan_service import (
+    _connector_from_payload,
+    _connector_has_tunnel,
+    _decide_remote_only,
+    _pick_probe_targets,
+)
 
 router = APIRouter(tags=["nvr"], prefix="/api/nvr")
 _imgbb_progress_lock = threading.Lock()
@@ -91,6 +98,11 @@ class DVRScanRequest(BaseModel):
     imgbb: bool = False
     set_local: bool = False
     local: str = ""
+    inventory_mode: str = "basico"
+    scan_origin: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    remote_only: bool = False
 
 
 class DVRSnapshotUpdateRequest(BaseModel):
@@ -132,6 +144,11 @@ class RecorderSaveRequest(BaseModel):
 
 class RecorderDeleteRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(default_factory=list)
+    mode: str = ""
+    site: str = ""
+    host: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
 
 
 class DVRChangeIpRequest(BaseModel):
@@ -181,6 +198,115 @@ def _base(ip: str, port: int) -> str:
     return f"http://{ip}:{int(port)}" if int(port) != 80 else f"http://{ip}"
 
 
+def _normalize_rec_inventory_mode(value: str = "") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"olt", "via_olt", "via-olt"}:
+        return "olt"
+    if raw in {"switch", "sw", "via_switch", "via-switch"}:
+        return "switch"
+    return "basico"
+
+
+def _recorder_scan_connector(req: DVRScanRequest) -> Dict[str, Any] | None:
+    scan_origin = str(req.scan_origin or "").strip().lower()
+    connector_id = str(req.connector_id or req.remote_connector_id or "").strip()
+    if scan_origin == "connector" and not connector_id:
+        raise HTTPException(status_code=400, detail="Selecione um conector para varrer este gravador.")
+    if not connector_id and scan_origin != "connector":
+        return None
+
+    payload = {
+        "connector_id": connector_id,
+        "remote_connector_id": connector_id,
+        "local": req.local,
+        "scan_origin": scan_origin or "connector",
+    }
+    connector = _connector_from_payload(payload)
+    has_tunnel = _connector_has_tunnel(connector)
+    remote_only = _decide_remote_only(
+        scan_origin="connector",
+        connector_id=connector_id,
+        connector_has_tunnel=has_tunnel,
+        remote_only_requested=bool(req.remote_only),
+        probe_targets=_pick_probe_targets(req.ip),
+    )
+    if remote_only:
+        raise HTTPException(
+            status_code=424,
+            detail="O conector existe, mas o servidor ainda nao alcanca este gravador pela VPN. Verifique o WireGuard/rotas do cliente e tente novamente.",
+        )
+    return connector or {"id": connector_id}
+
+
+def _tag_recorder_rows(rows: List[Dict[str, Any]], req: DVRScanRequest, connector: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+    mode = _normalize_rec_inventory_mode(req.inventory_mode)
+    site = str(req.local or "").strip()
+    connector_id = str(req.connector_id or req.remote_connector_id or (connector or {}).get("id") or "").strip()
+    connector_name = str((connector or {}).get("name") or (connector or {}).get("site") or site or "").strip()
+    for row in rows:
+        row["inventory_mode"] = mode
+        if site:
+            row["local"] = row.get("local") or site
+            row["site"] = row.get("site") or site
+            row["site_name"] = row.get("site_name") or site
+        if connector_id:
+            row["remote"] = True
+            row["connector_id"] = connector_id
+            row["remote_connector_id"] = connector_id
+            row["remote_connector_name"] = connector_name
+    return rows
+
+
+def _same_recorder_scope(row: Dict[str, Any], req: DVRScanRequest) -> bool:
+    if str(row.get("host") or "") != str(req.ip or ""):
+        return False
+    if int(row.get("http_port") or 80) != int(req.http_port):
+        return False
+    if _normalize_rec_inventory_mode(str(row.get("inventory_mode") or "")) != _normalize_rec_inventory_mode(req.inventory_mode):
+        return False
+    wanted_connector = str(req.connector_id or req.remote_connector_id or "").strip()
+    row_connector = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+    if wanted_connector or row_connector:
+        return row_connector == wanted_connector
+    return True
+
+
+def _rec_row_mode(row: Dict[str, Any]) -> str:
+    return _normalize_rec_inventory_mode(str(row.get("inventory_mode") or "basico"))
+
+
+def _rec_row_site(row: Dict[str, Any]) -> str:
+    return str(row.get("site") or row.get("site_name") or row.get("local") or "").strip()
+
+
+def _rec_row_connector(row: Dict[str, Any]) -> str:
+    return str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+
+
+def _rec_matches_delete_scope(
+    row: Dict[str, Any],
+    *,
+    mode: str = "",
+    site: str = "",
+    host: str = "",
+    connector_id: str = "",
+) -> bool:
+    wanted_mode = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
+    if wanted_mode and _rec_row_mode(row) != wanted_mode:
+        return False
+    wanted_site = str(site or "").strip().lower()
+    if wanted_site and _rec_row_site(row).lower() != wanted_site:
+        return False
+    wanted_host = str(host or "").strip()
+    row_host = str(row.get("host") or row.get("ip") or "").strip()
+    if wanted_host and row_host != wanted_host:
+        return False
+    wanted_connector = str(connector_id or "").strip()
+    if wanted_connector and _rec_row_connector(row) != wanted_connector:
+        return False
+    return True
+
+
 def _read_rows() -> List[Dict[str, Any]]:
     if get_current_tenant_slug():
         p = tenant_recorder_inventory_path("nvr")
@@ -225,7 +351,10 @@ def _write_rows(rows: List[Dict[str, Any]]) -> None:
 
 
 def _get_text(url: str, auth: HTTPDigestAuth, timeout: float) -> str:
-    r = requests.get(url, auth=auth, timeout=timeout)
+    try:
+        r = requests.get(url, auth=auth, timeout=timeout)
+    except Exception:
+        return ""
     if r.status_code != 200:
         return ""
     return r.text or ""
@@ -548,6 +677,24 @@ def _build_zabbix_rows_for_dvr(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
     return out
 
 
+def _zabbix_tenant_slug() -> str:
+    return str(get_current_tenant_slug() or "default").strip().lower() or "default"
+
+
+def _zabbix_host_safe(value: Any) -> str:
+    safe = str(value or "").strip().upper()
+    safe = re.sub(r"[^A-Z0-9_.-]+", "-", safe)
+    safe = re.sub(r"-+", "-", safe).strip("-")
+    return safe or "DEFAULT"
+
+
+def _zabbix_tenant_group(group: str, tenant: str = "") -> str:
+    base = str(group or "").strip() or "Cameras"
+    slug = _zabbix_host_safe(tenant or _zabbix_tenant_slug())
+    marker = f" - {slug}"
+    return base if base.upper().endswith(marker.upper()) else f"{base}{marker}"
+
+
 def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, str]:
     cfg = _load_zabbix_dvr_sync_settings()
     if not bool(cfg.get("enabled", True)):
@@ -556,7 +703,8 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
     url = str(cfg.get("url") or "").strip()
     user = str(cfg.get("user") or "").strip()
     password = str(cfg.get("pass") or "").strip()
-    group = str(cfg.get("group") or "Cameras").strip() or "Cameras"
+    tenant_slug = _zabbix_tenant_slug()
+    group = _zabbix_tenant_group(str(cfg.get("group") or "Cameras").strip() or "Cameras", tenant_slug)
     template = str(cfg.get("template") or "Template Module ICMP Ping").strip() or "Template Module ICMP Ping"
     template_dvr = str(cfg.get("template_dvr") or "Template Cam-Snapshot DVR Channel").strip() or "Template Cam-Snapshot DVR Channel"
     dvr_user = str(cfg.get("dvr_user") or "admin").strip() or "admin"
@@ -568,8 +716,9 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
     if not z_rows:
         return False, "sem linhas DVR para sincronizar"
 
-    tmp_inv = SAIDA_DIR / "zabbix-source-inventory.auto-dvr.json"
+    tmp_inv = tenant_scoped_path("tmp/zabbix-source-inventory.auto-dvr.json", tenant_slug)
     try:
+        tmp_inv.parent.mkdir(parents=True, exist_ok=True)
         tmp_inv.write_text(json.dumps(z_rows, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return False, f"falha ao preparar inventÃ¡rio temporÃ¡rio: {e}"
@@ -585,7 +734,7 @@ def _auto_sync_dvr_status_to_zabbix(rows: List[Dict[str, Any]]) -> tuple[bool, s
             "ZBX_GROUP": group,
             # Isola por tenant o nome do host no Zabbix -- ver build_host_name
             # em tools/mk_zabbix_from_inventory.py.
-            "ZBX_TENANT": get_current_tenant_slug() or "default",
+            "ZBX_TENANT": tenant_slug,
             "ZBX_TEMPLATE": template,
             "ZBX_TEMPLATE_DVR": template_dvr,
             "ZBX_DVR_USER": dvr_user,
@@ -1188,11 +1337,590 @@ def _parse_bool_text(value: Any) -> bool | None:
     txt = str(value or "").strip().lower()
     if not txt:
         return None
-    if txt in {"true", "1", "yes", "on", "online", "connected", "up", "normal", "ok"}:
+    if txt in {"true", "1", "yes", "on", "online", "connected", "up", "normal", "ok", "enable", "enabled", "active", "recording"}:
         return True
-    if txt in {"false", "0", "no", "off", "offline", "disconnected", "down", "error"}:
+    if txt in {"false", "0", "no", "off", "offline", "disconnected", "down", "error", "disable", "disabled", "inactive", "idle", "stop", "stopped"}:
         return False
     return None
+
+
+def _format_capacity_mb(value: float) -> str:
+    try:
+        mb = float(value or 0)
+    except Exception:
+        mb = 0.0
+    if mb <= 0:
+        return ""
+    if mb >= 1024 * 1024:
+        return f"{mb / 1024 / 1024:.1f} TB"
+    if mb >= 1024:
+        return f"{mb / 1024:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
+def _num_from_text(value: Any) -> float:
+    txt = str(value or "").strip()
+    if not txt:
+        return 0.0
+    txt = txt.replace(",", ".")
+    m = re.search(r"-?\d+(?:\.\d+)?", txt)
+    if not m:
+        return 0.0
+    try:
+        return float(m.group(0))
+    except Exception:
+        return 0.0
+
+
+def _xml_tags_by_local_name(xml_text: str) -> Dict[str, List[str]]:
+    tags: Dict[str, List[str]] = {}
+    if not xml_text:
+        return tags
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return tags
+    for node in root.iter():
+        key = _xml_local(getattr(node, "tag", "")).lower()
+        val = str(getattr(node, "text", "") or "").strip()
+        if key and val:
+            tags.setdefault(key, []).append(val)
+    return tags
+
+
+def _first_tag(tags: Dict[str, List[str]], *keys: str) -> str:
+    for key in keys:
+        vals = tags.get(str(key or "").lower()) or []
+        for val in vals:
+            txt = str(val or "").strip()
+            if txt:
+                return txt
+    return ""
+
+
+def _parse_hik_storage_health(*xml_parts: str) -> Dict[str, Any]:
+    disks: List[Dict[str, Any]] = []
+    for xml_text in xml_parts:
+        if not xml_text:
+            continue
+        try:
+            root = ET.fromstring(xml_text)
+        except Exception:
+            continue
+        for node in root.iter():
+            tag = _xml_local(getattr(node, "tag", "")).lower()
+            if tag not in {"hdd", "harddisk", "storagevolume", "volume"}:
+                continue
+            item: Dict[str, str] = {}
+            for child in node.iter():
+                key = _xml_local(getattr(child, "tag", "")).lower()
+                val = str(getattr(child, "text", "") or "").strip()
+                if key and val:
+                    item[key] = val
+            total = _num_from_text(
+                item.get("capacity")
+                or item.get("hddcapacity")
+                or item.get("totalsize")
+                or item.get("totalspace")
+                or item.get("size")
+            )
+            free = _num_from_text(
+                item.get("freespace")
+                or item.get("free")
+                or item.get("remainspace")
+                or item.get("remaincapacity")
+                or item.get("unusedspace")
+            )
+            status = (
+                item.get("status")
+                or item.get("diskstatus")
+                or item.get("hddstatus")
+                or item.get("healthstatus")
+                or item.get("state")
+                or ""
+            )
+            if total or free or status:
+                disks.append({"total_mb": total, "free_mb": free, "status": status})
+    if not disks:
+        return {}
+    total_mb = sum(float(d.get("total_mb") or 0) for d in disks)
+    free_mb = sum(float(d.get("free_mb") or 0) for d in disks)
+    bad = [
+        str(d.get("status") or "").strip()
+        for d in disks
+        if str(d.get("status") or "").strip().lower() not in {"", "ok", "normal", "rw", "readwrite", "formatting"}
+    ]
+    status_text = "normal" if not bad else "; ".join(bad[:3])
+    total_txt = _format_capacity_mb(total_mb)
+    free_txt = _format_capacity_mb(free_mb)
+    used_pct = ""
+    if total_mb > 0 and free_mb >= 0:
+        used_pct = f"{max(0.0, min(100.0, (1.0 - (free_mb / total_mb)) * 100.0)):.0f}% usado"
+    summary_bits = [status_text]
+    if total_txt:
+        summary_bits.append(total_txt)
+    if free_txt:
+        summary_bits.append(f"{free_txt} livre")
+    if used_pct:
+        summary_bits.append(used_pct)
+    return {
+        "hdd_status": " - ".join(summary_bits),
+        "hdd_total": total_txt,
+        "hdd_free": free_txt,
+        "hdd_used_percent": used_pct,
+        "hdd_count": len(disks),
+    }
+
+
+def _parse_dahua_storage_health(*text_parts: str) -> Dict[str, Any]:
+    text = "\n".join(str(t or "") for t in text_parts if t)
+    if not text.strip():
+        return {}
+    totals = [_num_from_text(v) for v in re.findall(r"(?:TotalBytes|TotalSpace|Total|Capacity|Size)\s*=\s*([^\r\n]+)", text, flags=re.IGNORECASE)]
+    frees = [_num_from_text(v) for v in re.findall(r"(?:FreeBytes|FreeSpace|Remain|RemainSpace|Unused)\s*=\s*([^\r\n]+)", text, flags=re.IGNORECASE)]
+    statuses = [
+        str(v or "").strip()
+        for v in re.findall(r"(?:Status|State|Health)\s*=\s*([^\r\n]+)", text, flags=re.IGNORECASE)
+        if str(v or "").strip()
+    ]
+    # Muitos Dahua/Intelbras retornam bytes. Se o numero for grande demais,
+    # convertemos para MB para usar o mesmo formato do Hikvision.
+    total = sum(t / (1024 * 1024) if t > 10_000_000 else t for t in totals)
+    free = sum(f / (1024 * 1024) if f > 10_000_000 else f for f in frees)
+    if not total and not free and not statuses:
+        return {}
+    bad = [s for s in statuses if s.lower() not in {"ok", "normal", "readwrite", "rw", "ready"}]
+    status_text = "normal" if not bad else "; ".join(bad[:3])
+    total_txt = _format_capacity_mb(total)
+    free_txt = _format_capacity_mb(free)
+    bits = [status_text]
+    if total_txt:
+        bits.append(total_txt)
+    if free_txt:
+        bits.append(f"{free_txt} livre")
+    return {
+        "hdd_status": " - ".join(bits),
+        "hdd_total": total_txt,
+        "hdd_free": free_txt,
+        "hdd_count": max(len(totals), len(statuses), 1),
+    }
+
+
+def _parse_hik_network_health(network_xml: str) -> Dict[str, Any]:
+    tags = _xml_tags_by_local_name(network_xml)
+    ipaddr = _first_tag(tags, "ipaddress", "ipv4address")
+    mask = _first_tag(tags, "subnetmask", "ipv4subnetmask")
+    gateway = _first_tag(tags, "defaultgateway", "gateway", "ipv4defaultgateway")
+    dns = _first_tag(tags, "primarydns", "dnsserver", "primarydnserver")
+    mac = _first_tag(tags, "macaddress", "physicaladdress")
+    try:
+        root = ET.fromstring(network_xml or "")
+        for node in root.iter():
+            tag = _xml_local(getattr(node, "tag", "")).lower()
+            if tag in {"defaultgateway", "gateway", "ipv4defaultgateway"} and not gateway:
+                for child in node.iter():
+                    key = _xml_local(getattr(child, "tag", "")).lower()
+                    val = str(getattr(child, "text", "") or "").strip()
+                    if key in {"ipaddress", "ipv4address"} and val:
+                        gateway = val
+                        break
+            if tag in {"primarydns", "dnsserver", "primarydnserver"} and not dns:
+                val = str(getattr(node, "text", "") or "").strip()
+                if val:
+                    dns = val
+    except Exception:
+        pass
+    bits = []
+    if ipaddr:
+        bits.append(ipaddr)
+    if gateway:
+        bits.append(f"gw {gateway}")
+    if dns:
+        bits.append(f"dns {dns}")
+    out: Dict[str, Any] = {}
+    if bits:
+        out["network_status"] = " - ".join(bits)
+    if ipaddr:
+        out["nvr_ip"] = ipaddr
+    if mask:
+        out["nvr_mask"] = mask
+    if gateway:
+        out["nvr_gateway"] = gateway
+    if dns:
+        out["nvr_dns"] = dns
+    if mac:
+        out["nvr_mac"] = _norm_mac_text(mac)
+    return out
+
+
+def _parse_dahua_network_health(network_txt: str) -> Dict[str, Any]:
+    text = str(network_txt or "")
+    if not text.strip():
+        return {}
+    def pick(*patterns: str) -> str:
+        for pattern in patterns:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            if m:
+                val = str(m.group(1) or "").strip()
+                if val:
+                    return val
+        return ""
+    ipaddr = pick(r"\.IPAddress\s*=\s*([^\r\n]+)", r"\.IP\s*=\s*([^\r\n]+)")
+    mask = pick(r"\.SubnetMask\s*=\s*([^\r\n]+)")
+    gateway = pick(r"\.DefaultGateway\s*=\s*([^\r\n]+)", r"\.Gateway\s*=\s*([^\r\n]+)")
+    dns = pick(r"\.DnsServers?\[0\]\s*=\s*([^\r\n]+)", r"\.PreferredDns\s*=\s*([^\r\n]+)")
+    mac = pick(r"\.PhysicalAddress\s*=\s*([^\r\n]+)", r"\.MACAddress\s*=\s*([^\r\n]+)")
+    bits = []
+    if ipaddr:
+        bits.append(ipaddr)
+    if gateway:
+        bits.append(f"gw {gateway}")
+    if dns:
+        bits.append(f"dns {dns}")
+    out: Dict[str, Any] = {}
+    if bits:
+        out["network_status"] = " - ".join(bits)
+    if ipaddr:
+        out["nvr_ip"] = ipaddr
+    if mask:
+        out["nvr_mask"] = mask
+    if gateway:
+        out["nvr_gateway"] = gateway
+    if dns:
+        out["nvr_dns"] = dns
+    if mac:
+        out["nvr_mac"] = _norm_mac_text(mac)
+    return out
+
+
+def _parse_platform_status(*payloads: str) -> Dict[str, Any]:
+    text = "\n".join(str(p or "") for p in payloads if p)
+    if not text.strip():
+        return {}
+    tags: Dict[str, List[str]] = {}
+    for payload in payloads:
+        part = str(payload or "").strip()
+        if not part.startswith("<"):
+            continue
+        for key, vals in _xml_tags_by_local_name(part).items():
+            tags.setdefault(key, []).extend(vals)
+    enabled = None
+    for key in ("enabled", "enable", "ezvizenable", "hikconnectenable"):
+        enabled = _parse_bool_text(_first_tag(tags, key))
+        if enabled is not None:
+            break
+    status = _first_tag(tags, "registerstatus", "onlinestatus", "status", "connectstatus", "connectionstatus")
+    if not status:
+        m = re.search(r"(?:RegisterStatus|OnlineStatus|Status|ConnectStatus|ConnectionStatus)\s*=\s*([^\r\n<]+)", text, flags=re.IGNORECASE)
+        status = str(m.group(1) or "").strip() if m else ""
+    if enabled is None:
+        m = re.search(r"(?:Enable|Enabled)\s*=\s*([^\r\n<]+)", text, flags=re.IGNORECASE)
+        enabled = _parse_bool_text(m.group(1)) if m else None
+    status_l = status.lower()
+    online = None
+    if any(v in status_l for v in ("online", "connected", "registered", "normal")):
+        online = True
+    elif any(v in status_l for v in ("offline", "disconnected", "unregistered", "error", "failed")):
+        online = False
+    if online is None and enabled is not None:
+        online = bool(enabled)
+    if online is None and not status:
+        return {}
+    label = "online" if online else "offline"
+    if enabled is False:
+        label = "desabilitada"
+    elif status:
+        label = f"{label} ({status})"
+    return {
+        "platform_status": label,
+        "cloud_status": label,
+        "hik_connect_status": label,
+        "p2p_status": label,
+        "platform_online": bool(online),
+    }
+
+
+def _parse_hik_recording_status(xml_text: str, channels: range) -> Dict[int, Dict[str, Any]]:
+    out: Dict[int, Dict[str, Any]] = {}
+    if not xml_text:
+        return out
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        return out
+    for node in root.iter():
+        tag = _xml_local(getattr(node, "tag", "")).lower()
+        if tag not in {"track", "trackstatus", "recordstatus", "recordingstatus", "channelstatus"}:
+            continue
+        data: Dict[str, str] = {}
+        for child in node.iter():
+            key = _xml_local(getattr(child, "tag", "")).lower()
+            val = str(getattr(child, "text", "") or "").strip()
+            if key and val:
+                data[key] = val
+        ch = 0
+        for key in ("channelid", "inputchannelid", "videochannel", "channel"):
+            if data.get(key):
+                ch = int(_num_from_text(data.get(key)))
+                break
+        if ch <= 0:
+            track = data.get("id") or data.get("trackid") or ""
+            num = int(_num_from_text(track))
+            if num >= 100:
+                ch = num // 100
+            elif num > 0:
+                ch = num
+        if ch <= 0:
+            continue
+        status = " ".join(
+            data.get(k, "")
+            for k in ("recording", "record", "recordenable", "enabled", "enable", "status", "state")
+            if data.get(k)
+        ).strip()
+        rec = _parse_bool_text(status)
+        if rec is None and status:
+            status_l = status.lower()
+            rec = any(v in status_l for v in ("record", "enable", "normal", "active"))
+            if any(v in status_l for v in ("stop", "disable", "error", "idle")):
+                rec = False
+        out[ch] = {"recording": rec, "recording_status": status or ("gravando" if rec else "")}
+    if out:
+        return out
+    for ch in channels:
+        text_l = xml_text.lower()
+        if f">{int(ch)}<" in text_l or f">{int(ch)}01<" in text_l:
+            out[int(ch)] = {"recording_status": "configurado"}
+    return out
+
+
+def _parse_dahua_recording_status(text: str) -> Dict[int, Dict[str, Any]]:
+    out: Dict[int, Dict[str, Any]] = {}
+    if not text:
+        return out
+    for match in re.finditer(r"(?:table\.RecordMode|RecordMode|Mode)\[(\d+)\]\s*=\s*([^\r\n]+)", text, flags=re.IGNORECASE):
+        ch = int(match.group(1)) + 1
+        val = str(match.group(2) or "").strip()
+        rec = _parse_bool_text(val)
+        if rec is None:
+            rec = val.lower() not in {"0", "off", "stop", "closed", "none"}
+        out[ch] = {"recording": rec, "recording_status": val}
+    for match in re.finditer(r"(?:channels|channel)\[(\d+)\]\s*=\s*([^\r\n]+)", text, flags=re.IGNORECASE):
+        ch = int(match.group(1)) + 1
+        val = str(match.group(2) or "").strip()
+        rec = _parse_bool_text(val)
+        if rec is not None:
+            out[ch] = {"recording": rec, "recording_status": val}
+    return out
+
+
+def _hik_track_id(channel: int) -> int:
+    return int(channel) * 100 + 1
+
+
+def _hik_recording_search_xml(channel: int, start: datetime, end: datetime, max_results: int = 1) -> str:
+    search_id = f"sightops-{int(time.time() * 1000)}-{int(channel)}"
+    start_txt = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_txt = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription>
+  <searchID>{search_id}</searchID>
+  <trackList>
+    <trackID>{_hik_track_id(channel)}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{start_txt}</startTime>
+      <endTime>{end_txt}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>{int(max_results)}</maxResults>
+  <searchResultPosition>0</searchResultPosition>
+  <metadataList>
+    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
+  </metadataList>
+</CMSearchDescription>"""
+
+
+def _hik_search_has_recording(base: str, auth: Any, timeout: float, channel: int, start: datetime, end: datetime) -> bool | None:
+    body = _hik_recording_search_xml(channel, start, end, max_results=1)
+    try:
+        r = requests.post(
+            f"{base}/ISAPI/ContentMgmt/search",
+            auth=auth,
+            data=body.encode("utf-8"),
+            headers={"Content-Type": "application/xml"},
+            timeout=(2.0, float(timeout)),
+        )
+    except Exception:
+        return None
+    if int(r.status_code) not in {200, 201}:
+        return None
+    txt = str(r.text or "")
+    m = re.search(r"<(?:numOfMatches|totalMatches|responseStatusStrg)>([^<]+)</", txt, flags=re.IGNORECASE)
+    if m:
+        val = str(m.group(1) or "").strip()
+        if val.lower() in {"ok", "success"}:
+            return "searchmatchitem" in txt.lower() or "<trackid>" in txt.lower()
+        try:
+            return int(float(val)) > 0
+        except Exception:
+            pass
+    low = txt.lower()
+    if "searchmatchitem" in low or "<trackid>" in low or "<playbackuri>" in low:
+        return True
+    if "nomatch" in low or "no match" in low:
+        return False
+    return None
+
+
+def _hik_collect_recording_search_health(
+    base: str,
+    auth: Any,
+    timeout: float,
+    channels: range,
+    status_by_channel: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    now = datetime.utcnow()
+    probe_channels = [int(ch) for ch in channels][:64]
+    # Confirma gravacao por evidência de playback. A janela de 24h cobre
+    # canais em gravacao continua e canais por movimento sem depender de
+    # flag ambigua de "canal online".
+    for ch in probe_channels:
+        has_recent = _hik_search_has_recording(
+            base,
+            auth,
+            timeout,
+            ch,
+            now - timedelta(hours=24),
+            now,
+        )
+        if has_recent is None:
+            continue
+        status_by_channel[ch] = {
+            "recording": bool(has_recent),
+            "recording_status": "playback encontrado 24h" if has_recent else "sem playback 24h",
+        }
+
+    sample_channel = 0
+    for ch in probe_channels:
+        if status_by_channel.get(ch, {}).get("recording") is True:
+            sample_channel = ch
+            break
+    if not sample_channel and probe_channels:
+        sample_channel = probe_channels[0]
+    if not sample_channel:
+        return out
+
+    retention_days = 0
+    for days in (1, 3, 7, 15, 30, 60, 90):
+        target = now - timedelta(days=days)
+        has_old = _hik_search_has_recording(
+            base,
+            auth,
+            timeout,
+            sample_channel,
+            target,
+            target + timedelta(hours=6),
+        )
+        if has_old is True:
+            retention_days = days
+        elif has_old is False and retention_days:
+            break
+    if retention_days:
+        out["recording_days"] = str(retention_days)
+        out["retention_days"] = str(retention_days)
+        out["retention"] = f"{retention_days} dias ou mais"
+    return out
+
+
+def _collect_nvr_health(
+    base: str,
+    auth: Any,
+    mode: str,
+    timeout: float,
+    channels: range,
+    network_payload: str = "",
+) -> Dict[str, Any]:
+    health: Dict[str, Any] = {"recorder_health_collected": False, "recording_by_channel": {}}
+    def safe_get(path: str) -> str:
+        try:
+            return _get_text(f"{base}{path}", auth, timeout)
+        except Exception:
+            return ""
+
+    if mode == "hik":
+        storage_xml = _hik_get_text(f"{base}/ISAPI/ContentMgmt/Storage/hdd", auth, timeout)
+        if not storage_xml:
+            storage_xml = _hik_get_text(f"{base}/ISAPI/ContentMgmt/storage", auth, timeout)
+        health.update(_parse_hik_storage_health(storage_xml))
+        network = _parse_hik_network_health(network_payload)
+        health.update({k: v for k, v in network.items() if v})
+        platform_payloads = []
+        for path in (
+            "/ISAPI/System/Network/EZVIZ",
+            "/ISAPI/System/Network/HikConnect",
+            "/ISAPI/System/Network/PlatformAccess",
+            "/ISAPI/System/Network/PPPoE/1",
+        ):
+            txt = _hik_get_text(f"{base}{path}", auth, timeout)
+            if txt:
+                platform_payloads.append(txt)
+        health.update(_parse_platform_status(*platform_payloads))
+        rec_payloads = []
+        for path in (
+            "/ISAPI/ContentMgmt/record/tracks",
+            "/ISAPI/ContentMgmt/record/status",
+            "/ISAPI/ContentMgmt/record/tracks/status",
+        ):
+            txt = _hik_get_text(f"{base}{path}", auth, timeout)
+            if txt:
+                rec_payloads.append(txt)
+        rec_by_ch: Dict[int, Dict[str, Any]] = {}
+        for payload in rec_payloads:
+            rec_by_ch.update(_parse_hik_recording_status(payload, channels))
+        health.update(_hik_collect_recording_search_health(base, auth, timeout, channels, rec_by_ch))
+        health["recording_by_channel"] = rec_by_ch
+    else:
+        storage_parts = []
+        for path in (
+            "/cgi-bin/storage.cgi?action=getDeviceAllInfo",
+            "/cgi-bin/storage.cgi?action=getDiskInfo",
+            "/cgi-bin/storage.cgi?action=getAllDiskInfo",
+            "/cgi-bin/configManager.cgi?action=getConfig&name=Storage",
+        ):
+            txt = safe_get(path)
+            if txt:
+                storage_parts.append(txt)
+        health.update(_parse_dahua_storage_health(*storage_parts))
+        health.update({k: v for k, v in _parse_dahua_network_health(network_payload).items() if v})
+        platform_parts = []
+        for path in (
+            "/cgi-bin/configManager.cgi?action=getConfig&name=VSP_PaaS",
+            "/cgi-bin/configManager.cgi?action=getConfig&name=T2UServer",
+            "/cgi-bin/configManager.cgi?action=getConfig&name=P2P",
+        ):
+            txt = safe_get(path)
+            if txt:
+                platform_parts.append(txt)
+        health.update(_parse_platform_status(*platform_parts))
+        rec_parts = []
+        for path in (
+            "/cgi-bin/configManager.cgi?action=getConfig&name=RecordMode",
+            "/cgi-bin/recordManager.cgi?action=getStatus",
+        ):
+            txt = safe_get(path)
+            if txt:
+                rec_parts.append(txt)
+        rec_by_ch: Dict[int, Dict[str, Any]] = {}
+        for payload in rec_parts:
+            rec_by_ch.update(_parse_dahua_recording_status(payload))
+        health["recording_by_channel"] = rec_by_ch
+    health["recorder_health_collected"] = any(
+        health.get(k)
+        for k in ("hdd_status", "network_status", "platform_status", "recording_by_channel")
+    )
+    return health
 
 
 def _parse_hik_channel_runtime_status(xml_text: str, fallback_channel: int = 0) -> Dict[str, Any]:
@@ -1519,6 +2247,11 @@ def api_nvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         "onu_serial", "switch_ip", "switch_port", "switch_vlan", "video_loss",
         "snapshot_url", "imgbb_url", "imgbb_thumb_url", "site", "remote",
         "remote_connector_id", "recorder_user", "http_port", "name", "recorder_name", "inventory_mode",
+        "hdd_status", "hdd_total", "hdd_free", "hdd_used_percent", "hdd_count",
+        "network_status", "nvr_ip", "nvr_mask", "nvr_gateway", "nvr_dns",
+        "platform_status", "cloud_status", "hik_connect_status", "p2p_status", "platform_online",
+        "recording", "is_recording", "recording_status", "recording_days", "retention_days", "retention",
+        "recorder_health_collected",
     }
     updated = 0
     found: set[tuple[str, str, int]] = set()
@@ -1574,6 +2307,10 @@ def api_nvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Nenhum canal informado para apagar.")
 
     rows = _read_rows()
+    mode = str(req.mode or "").strip()
+    site = str(req.site or "").strip()
+    host_filter = str(req.host or "").strip()
+    connector_id = str(req.connector_id or req.remote_connector_id or "").strip()
     kept = []
     removed = 0
     for row in rows:
@@ -1582,7 +2319,13 @@ def api_nvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
             channel = int(row.get("channel") or 0)
         except Exception:
             channel = 0
-        if (host, channel) in keys:
+        if (host, channel) in keys and _rec_matches_delete_scope(
+            row,
+            mode=mode,
+            site=site,
+            host=host_filter,
+            connector_id=connector_id,
+        ):
             removed += 1
             continue
         kept.append(row)
@@ -1591,21 +2334,38 @@ def api_nvr_delete(req: RecorderDeleteRequest) -> Dict[str, Any]:
 
 
 @router.post("/clear")
-def api_dvr_clear(site: str = "") -> Dict[str, Any]:
+def api_dvr_clear(site: str = "", host: str = "", mode: str = "", connector_id: str = "") -> Dict[str, Any]:
     site_norm = str(site or "").strip().lower()
-    if site_norm:
+    host_norm = str(host or "").strip()
+    mode_norm = str(mode or "").strip()
+    connector_norm = str(connector_id or "").strip()
+    if site_norm or host_norm or mode_norm or connector_norm:
         rows = _read_rows()
-        def _matches(row: Dict[str, Any]) -> bool:
-            vals = [
-                str(row.get("site") or "").strip(),
-                str(row.get("site_name") or "").strip(),
-                str(row.get("local") or "").strip(),
-            ]
-            return any(v.lower() == site_norm for v in vals if v)
-        kept = [r for r in rows if not (isinstance(r, dict) and _matches(r))]
+        kept = [
+            r for r in rows
+            if not (
+                isinstance(r, dict)
+                and _rec_matches_delete_scope(
+                    r,
+                    mode=mode_norm,
+                    site=site_norm,
+                    host=host_norm,
+                    connector_id=connector_norm,
+                )
+            )
+        ]
         removed_rows = max(0, len(rows) - len(kept))
         _write_rows(kept)
-        return {"ok": True, "cleared": True, "scope": "site", "site": site.strip(), "removed_rows": removed_rows, "remaining": len(kept)}
+        return {
+            "ok": True,
+            "cleared": True,
+            "scope": "filtered",
+            "site": site.strip(),
+            "host": host_norm,
+            "mode": _normalize_rec_inventory_mode(mode_norm) if mode_norm else "",
+            "removed_rows": removed_rows,
+            "remaining": len(kept),
+        }
 
     _write_rows([])
     try:
@@ -1689,6 +2449,35 @@ def _rows_for_pdf(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _load_rows_for_report(site: str = "", mode: str = "", items: str = "") -> List[Dict[str, Any]]:
+    rows = legacy_rows_from_db("nvr", site=site)
+    if not rows:
+        rows = _read_rows()
+        rows = decorate_legacy_rows("nvr", rows, site=site)
+    mode_norm = _normalize_rec_inventory_mode(mode) if str(mode or "").strip() else ""
+    if mode_norm:
+        rows = [r for r in rows if isinstance(r, dict) and _rec_row_mode(r) == mode_norm]
+    wanted: set[tuple[str, int]] = set()
+    for raw in str(items or "").split(","):
+        part = raw.strip()
+        if not part or "|" not in part:
+            continue
+        host, channel_txt = part.rsplit("|", 1)
+        try:
+            ch = int(channel_txt)
+        except Exception:
+            ch = 0
+        host = host.strip()
+        if host and ch > 0:
+            wanted.add((host, ch))
+    if wanted:
+        rows = [
+            r for r in rows
+            if (str(r.get("host") or r.get("ip") or "").strip(), int(r.get("channel") or 0)) in wanted
+        ]
+    return rows
+
+
 @router.get("/report/settings")
 def api_nvr_report_settings() -> Dict[str, Any]:
     obj = load_app_settings()
@@ -1751,11 +2540,8 @@ def api_nvr_report_preview_jpg(site: str = "", company_name: str = "") -> FileRe
 
 
 @router.get("/report.pdf")
-def api_nvr_report_pdf(site: str = "", company_name: str = "") -> FileResponse:
-    rows = legacy_rows_from_db("nvr", site=site)
-    if not rows:
-        rows = _read_rows()
-        rows = decorate_legacy_rows("nvr", rows, site=site)
+def api_nvr_report_pdf(site: str = "", company_name: str = "", mode: str = "", items: str = "") -> FileResponse:
+    rows = _load_rows_for_report(site=site, mode=mode, items=items)
     obj = load_app_settings()
     if not isinstance(obj, dict):
         obj = {}
@@ -1764,13 +2550,13 @@ def api_nvr_report_pdf(site: str = "", company_name: str = "") -> FileResponse:
     company = str(company_name or rep.get("company_name") or "").strip()
     logo_path = tenant_report_logo_path("nvr") if get_current_tenant_slug() else (DATA_DIR / "input" / "nvr-report-logo.png")
     logo = logo_path if logo_path.exists() else None
-    pdf_path = build_inventory_pdf_report(
-        _rows_for_pdf(rows),
+    pdf_path = build_recorder_pdf_report(
+        rows,
         site=site,
         company_name=company,
         logo_path=logo,
-        include_olt=False,
-        module_label="NVR",
+        recorder_type="nvr",
+        module_label="Gravadores NVR",
     )
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
@@ -2095,6 +2881,7 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
     if req.end_channel < req.start_channel:
         raise HTTPException(status_code=400, detail="end_channel deve ser >= start_channel")
     local_default = str(req.local or "").strip()
+    connector = _recorder_scan_connector(req)
 
     base = _base(ip, req.http_port)
     probe = _probe_nvr_stack(base, req.user, req.password, req.timeout_sec)
@@ -2139,15 +2926,25 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
         if mac_cache[ipn]:
             ch_macs[ch] = mac_cache[ipn]
 
-    if titles:
-        max_ch = max(titles.keys())
-    else:
-        max_ch = req.end_channel
     start = max(1, int(req.start_channel))
-    end = min(int(req.end_channel), int(max_ch))
+    end = max(start, int(req.end_channel))
     hik_runtime: Dict[int, Dict[str, Any]] = {}
     if mode == "hik":
         hik_runtime = _hik_collect_channel_runtime_statuses(base, auth, req.timeout_sec, range(start, end + 1))
+    recorder_health = _collect_nvr_health(
+        base,
+        auth,
+        mode,
+        req.timeout_sec,
+        range(start, end + 1),
+        network_payload=str(probe.get("network_xml") or probe.get("network_txt") or ""),
+    )
+    recording_by_channel: Dict[int, Dict[str, Any]] = recorder_health.get("recording_by_channel") or {}
+    recorder_common_health = {
+        k: v
+        for k, v in recorder_health.items()
+        if k != "recording_by_channel" and v not in ("", None, [], {})
+    }
     ip_inventory_online = _load_online_ip_inventory_map()
 
     old = _read_rows()
@@ -2169,6 +2966,7 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
         runtime_online = hik_runtime.get(ch, {}).get("online")
         camera_ip_norm = _norm_ip_text(ch_ips.get(ch) or "")
         ip_inventory_online_hit = bool(camera_ip_norm and ip_inventory_online.get(camera_ip_norm))
+        has_camera_identity = bool(camera_ip_norm or ch_macs.get(ch) or ch_models.get(ch))
 
         if runtime_online is True:
             status = "online"
@@ -2178,13 +2976,15 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
             status = "online"
         elif ch in video_loss or snap_dark:
             status = "sem_camera" if is_default_title else "camera_offline"
+        elif not has_camera_identity and is_default_title:
+            status = "sem_camera"
         else:
             status = "offline"
         if status == "online":
             online += 1
         row_local = local_default if bool(req.set_local) else old_local_map.get(ch, "")
-        rows_new.append(
-            {
+        recording_info = recording_by_channel.get(ch) or {}
+        row = {
                 "source": "nvr",
                 "host": ip,
                 "http_port": int(req.http_port),
@@ -2208,7 +3008,16 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
                 "snapshot_file": (f"nvr_snapshot/{Path(snap_url).name}" if snap_url else ""),
                 "camera_ip": str(ch_ips.get(ch) or "").strip(),
             }
-        )
+        row.update(recorder_common_health)
+        if recording_info:
+            row["recording"] = recording_info.get("recording")
+            row["is_recording"] = recording_info.get("recording")
+            row["recording_status"] = str(recording_info.get("recording_status") or "").strip()
+        else:
+            row["recording"] = False if status != "online" else None
+            row["is_recording"] = False if status != "online" else None
+            row["recording_status"] = "sem camera ou offline" if status != "online" else "nao confirmado pelo playback"
+        rows_new.append(row)
 
     # Nunca substitui o inventario atual por vazio em um update/scan com falha parcial.
     if not rows_new:
@@ -2217,7 +3026,8 @@ def api_dvr_scan(req: DVRScanRequest) -> Dict[str, Any]:
             detail="leitura do NVR nao retornou canais; inventario atual preservado",
         )
 
-    keep = [r for r in old if not (str(r.get("host") or "") == ip and int(r.get("http_port") or 80) == int(req.http_port))]
+    rows_new = _tag_recorder_rows(rows_new, req, connector)
+    keep = [r for r in old if not _same_recorder_scope(r, req)]
     merged = keep + rows_new
     imgbb_uploaded = 0
     imgbb_error = ""

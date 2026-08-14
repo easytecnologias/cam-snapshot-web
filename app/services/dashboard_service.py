@@ -25,6 +25,7 @@ from app.core.tenant_context import (
 )
 from app.services.db_store import legacy_rows_from_db
 from app.services.inventory_json import inventory_row_key, load_inventory_json
+from app.services.photo_store import resolve_snapshot_file
 from app.services.windows_inventory_service import load_windows_inventory
 
 
@@ -46,9 +47,25 @@ def _is_offline(row: Dict[str, Any]) -> bool:
     return status in ("offline", "down", "inativo", "inactive", "auth_failed", "timeout", "erro", "error")
 
 
-def _has_snapshot(row: Dict[str, Any]) -> bool:
-    for key in ("snapshot_url", "snapshot_path", "thumb_url", "imgbb_url"):
+def _has_snapshot(row: Dict[str, Any], *, resolve_local: bool = False) -> bool:
+    for key in (
+        "snapshot_url",
+        "snapshot_path",
+        "snapshot_file",
+        "thumb_url",
+        "thumbnail_url",
+        "imgbb_url",
+        "imgbb_thumb_url",
+        "display_url",
+    ):
         if _text(row.get(key)):
+            return True
+    if resolve_local:
+        snap_file = resolve_snapshot_file(
+            path_hint=_text(row.get("snapshot_path") or row.get("snapshot_file")),
+            ip=_text(row.get("ip") or row.get("host") or row.get("camera_ip") or row.get("ip_camera")),
+        )
+        if snap_file is not None:
             return True
     return False
 
@@ -102,12 +119,12 @@ def _status_counts(rows: Iterable[Dict[str, Any]]) -> Dict[str, int]:
     return {"total": total, "online": online, "offline": offline, "unknown": unknown}
 
 
-def _missing_counts(rows: Iterable[Dict[str, Any]]) -> Dict[str, int]:
+def _missing_counts(rows: Iterable[Dict[str, Any]], *, resolve_local_snapshots: bool = False) -> Dict[str, int]:
     missing_snapshot = missing_local = missing_model = 0
     for row in rows or []:
         if not isinstance(row, dict):
             continue
-        if not _has_snapshot(row):
+        if not _has_snapshot(row, resolve_local=resolve_local_snapshots):
             missing_snapshot += 1
         if not _has_local(row):
             missing_local += 1
@@ -180,7 +197,7 @@ def _sites(rows: Iterable[Dict[str, Any]]) -> List[str]:
     return sorted(names, key=str.casefold)
 
 
-def _site_summary(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _site_summary(rows: Iterable[Dict[str, Any]], *, resolve_local_snapshots: bool = False) -> List[Dict[str, Any]]:
     by_site: Dict[str, Dict[str, int]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -199,7 +216,7 @@ def _site_summary(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             item["offline"] += 1
         else:
             item["unknown"] += 1
-        if not _has_snapshot(row):
+        if not _has_snapshot(row, resolve_local=resolve_local_snapshots):
             item["missing_snapshot"] += 1
         if not _has_local(row):
             item["missing_local"] += 1
@@ -293,7 +310,7 @@ def build_dashboard_summary() -> Dict[str, Any]:
     nvr_status = _status_counts(nvr_rows)
     windows_status = _status_counts(windows_rows)
 
-    ip_gaps = _missing_counts(ip_rows)
+    ip_gaps = _missing_counts(ip_rows, resolve_local_snapshots=True)
     recorder_gaps = _missing_counts(list(dvr_rows) + list(nvr_rows))
 
     alerts = []
@@ -372,7 +389,7 @@ def build_dashboard_summary() -> Dict[str, Any]:
             "snapshots": _snapshot_file_count("ip") + _snapshot_file_count("dvr") + _snapshot_file_count("nvr"),
         },
         "sites": site_names[:20],
-        "site_summary": _site_summary(ip_rows),
+        "site_summary": _site_summary(ip_rows, resolve_local_snapshots=True),
         "alerts": alerts,
         "recent_activity": _recent_activity(),
         "monitoring": monitoring,

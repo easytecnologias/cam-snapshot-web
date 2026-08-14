@@ -9,6 +9,7 @@ INV_PATH = os.getenv("INV_PATH", "data/cam-inventory.json")
 # sincronismo sobrescrevia titulo/local/foto do outro cliente silenciosamente.
 # Bancos ja sao isolados por tenant; o Zabbix precisa da mesma garantia.
 ZBX_TENANT = os.getenv("ZBX_TENANT", "default").strip().lower() or "default"
+ZBX_LEGACY_DEFAULT_HOSTNAMES = os.getenv("ZBX_LEGACY_DEFAULT_HOSTNAMES", "0").strip() == "1"
 ZBX_URL  = os.getenv("ZBX_URL","").strip()
 ZBX_USER = os.getenv("ZBX_USER","").strip()
 ZBX_PASS = os.getenv("ZBX_PASS","").strip()
@@ -70,6 +71,18 @@ def build_host_name(tenant: str, row: Dict[str, Any]) -> str:
     host_key = str(row.get("host_key") or "").strip()
     source = str(row.get("source") or "").strip().lower()
     channel = str(row.get("channel") or "").strip()
+    if tenant_prefix == "DEFAULT" and ZBX_LEGACY_DEFAULT_HOSTNAMES:
+        if host_key:
+            return _host_safe(host_key)
+        if source == "dvr" and channel:
+            return f"DVR-{ip}-CH{channel}"
+        if source == "windows":
+            hostname = str(
+                row.get("hostname") or row.get("host")
+                or row.get("titulo") or row.get("title") or row.get("nome") or ip
+            ).strip()
+            return f"WIN-{_host_safe(hostname)}"
+        return f"CAM-{ip}"
     if host_key:
         return f"{tenant_prefix}-{_host_safe(host_key)}"
     if source == "dvr" and channel:
@@ -81,6 +94,24 @@ def build_host_name(tenant: str, row: Dict[str, Any]) -> str:
         ).strip()
         return f"{tenant_prefix}-WIN-{_host_safe(hostname)}"
     return f"{tenant_prefix}-CAM-{ip}"
+
+
+def build_visible_name(tenant: str, row: Dict[str, Any], title: str) -> str:
+    """Nome exibido no Zabbix tambem precisa ser unico em SaaS.
+
+    O `host` tecnico ja e tenant-aware, mas o Zabbix tambem exige `name`
+    unico. Muitos clientes usam os mesmos titulos genericos ("IP CAMERA",
+    o proprio IP, "Camera 01"), entao o nome visivel inclui tenant e IP/canal.
+    """
+    tenant_prefix = _host_safe(tenant or "default")
+    ip = str(row.get("ip") or "").strip()
+    source = str(row.get("source") or "").strip().lower()
+    channel = str(row.get("channel") or "").strip()
+    base = str(title or ip or row.get("host_key") or "Camera").strip()
+    suffix = f"CH{channel} {ip}" if source == "dvr" and channel else ip
+    if tenant_prefix == "DEFAULT" and ZBX_LEGACY_DEFAULT_HOSTNAMES:
+        return f"{base} ({suffix})" if suffix and suffix not in base else base
+    return f"[{tenant_prefix}] {base} ({suffix})" if suffix and suffix not in base else f"[{tenant_prefix}] {base}"
 
 
 GROUP_SLUG = _slug_name(ZBX_GROUP)
@@ -747,6 +778,7 @@ def main():
             )
 
     n=0
+    site_group_ids: Dict[str, str] = {}
     for c in rows:
         ip=(c.get("ip") or "").strip()
         if not ip: 
@@ -790,6 +822,12 @@ def main():
             ch_num = "1"
 
         host_groups = [groupid]
+        if local:
+            # Subgrupo por site (sintaxe "/" do proprio Zabbix -- vira arvore
+            # na UI). Mantem o grupo geral tambem, so organiza visualmente.
+            if local not in site_group_ids:
+                site_group_ids[local] = ensure_hostgroup(auth, f"{ZBX_GROUP}/{local}")
+            host_groups.append(site_group_ids[local])
         macros = {
             "{$CAM_IP}": ip,
             "{$CAM_TITLE}": title,
@@ -821,9 +859,10 @@ def main():
         }
         if source == "windows":
             macros["{$SERVICE.NAME.NOT_MATCHES}"] = WINDOWS_SERVICE_NAME_NOT_MATCHES
-        st, hostid = host_upsert(auth, host, title, ip, host_groups, templateids, macros)
+        visible_name = build_visible_name(ZBX_TENANT, c, title)
+        st, hostid = host_upsert(auth, host, visible_name, ip, host_groups, templateids, macros)
         n+=1
-        print(f"{st}: {host} ({title})")
+        print(f"{st}: {host} ({visible_name})")
     print(f"OK: {n} hosts processados")
 
 if __name__=="__main__":

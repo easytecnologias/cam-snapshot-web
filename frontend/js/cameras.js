@@ -29,10 +29,11 @@ function _camRemoveIpsLocally(ips) {
 }
 
 function updateCamTabs() {
+  const fixedViews = new Set(['basico', 'olt', 'switch']);
   document.querySelectorAll('.inv-view-tab[data-view]').forEach(t => {
     const view = t.dataset.view;
     const hasData = _invCam[view]?.length > 0;
-    t.style.display = (view === 'basico' || view === 'olt' || hasData) ? '' : 'none';
+    t.style.display = (fixedViews.has(view) || hasData) ? '' : 'none';
   });
   if (!['basico', 'olt', 'switch'].includes(_invOltView)) {
     _invOltView = 'basico';
@@ -100,13 +101,15 @@ function _camCell(c) {
 const INV_COLS = {
   // Basico: IP, MAC, Fabricante, Modelo, Titulo, Status, ImgBB, Local
   basico: {
-    cols:  ['4%','13%','15%','10%','12%','18%','9%','7%','12%'],
+    minWidth: '980px',
+    cols:  ['3%','11%','13%','9%','14%','22%','7%','6%','15%'],
     heads: ['',    'IP', 'MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local]; },
   },
   // OLT: base enxuta + dados OLT
   olt: {
-    cols:  ['3%','11%','12%','7%','8%','15%','7%','5%','7%','4%','5%','8%','8%'],
+    minWidth: '1180px',
+    cols:  ['3%','10%','12%','8%','12%','18%','6%','5%','8%','5%','6%','7%','8%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','PON','ONU ID','ONU Name','ONU Serial'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.pon, v.onu_id, v.onu_name, v.onu_ser]; },
   },
@@ -119,7 +122,8 @@ const INV_COLS = {
     //   Fabricante "Intelbras/Hikvision" | Modelo ate ~16 chars | Titulo ate ~28 chars (bold)
     //   Status "auth_failed" (bold) | ImgBB "up/down" (bold) | Local ate ~14 chars
     //   Switch (nome) ate ~18 chars | Porta "Eth10/Ge10" mono | VLAN "default"
-    cols:  ['3%','10%','11%','8%','9%','18%','6%','5%','10%','11%','4%','5%'],
+    minWidth: '1080px',
+    cols:  ['3%','10%','12%','8%','13%','13%','6%','5%','8%','12%','5%','5%'],
     heads: ['',    'IP','MAC','Fabricante','Modelo','Titulo','Status','ImgBB','Local','Switch','Porta','VLAN'],
     row: c => { const v = _camCell(c); return [v.chk, v.ip, v.mac, v.fab, v.modelo, v.titulo, v.status, v.imgbb, v.local, v.sw_combo, v.sw_port, v.sw_vlan]; },
   },
@@ -197,7 +201,11 @@ function mapFindCamera(feature, index = _mapCameraIndex) {
 function mapFeatureType(feature, cam) {
   const name = mapFeatureName(feature);
   const desc = String(feature?.properties?.description || '');
-  if (cam || !feature?._source || feature?._source === 'generated') return 'camera';
+  const geomType = String(feature?.geometry?.type || '').toLowerCase();
+  if (/^fibra\b|\bfibra\b|fiber|cabo optico|cabo óptico/i.test(name) || geomType === 'linestring') return 'fiber';
+  if (/^pt[-\s]?\d+\b|\bposte\b|\bpostes\b|\bpole\b/i.test(name)) return 'pole';
+  if (/caixa\s*herm[eé]tica|caixa\s*cftv|hermetica|hermética/i.test(name)) return 'box';
+  if (cam || (!feature?._source && geomType === 'point') || feature?._source === 'generated') return 'camera';
   if (/\bcto\b|^cto/i.test(name)) return 'cto';
   if (/\bcdo\b|^cdo|emenda|splice/i.test(name)) return 'cdo';
   if (/cam|camera|vip-|vipc|vip\s|\bcam\s/i.test(name)) return 'camera';
@@ -215,11 +223,31 @@ function mapFeatureStatus(feature, cam) {
   return 'outros';
 }
 
+function mapTypeLabel(type) {
+  return ({
+    camera: 'Camera',
+    fiber: 'Fibra',
+    pole: 'Poste',
+    box: 'Caixa CFTV',
+    cto: 'CTO',
+    cdo: 'Emenda/CDO',
+    other: 'Outros',
+  })[type] || 'Outros';
+}
+
 function mapFeatureKey(feature, cam = null) {
   const ip = cam?.ip || mapExtractIp(feature?.properties?.description) || mapExtractIp(mapFeatureName(feature));
   const name = mapFeatureName(feature);
   const coords = feature?.geometry?.coordinates || [];
-  return [ip || name, coords[1], coords[0]].map(v => String(v ?? '').trim()).join('|');
+  const first = Array.isArray(coords?.[0]) ? coords[0] : coords;
+  return [ip || name, first?.[1], first?.[0]].map(v => String(v ?? '').trim()).join('|');
+}
+
+function mapInventoryMode() {
+  const selected = String(document.getElementById('mapInventoryMode')?.value || '').trim().toLowerCase();
+  if (['basico', 'olt', 'switch'].includes(selected)) return selected;
+  const current = String(_invOltView || '').trim().toLowerCase();
+  return ['basico', 'olt', 'switch'].includes(current) ? current : 'olt';
 }
 
 function mapLayerStats(features, index = _mapCameraIndex) {
@@ -233,16 +261,29 @@ function mapLayerStats(features, index = _mapCameraIndex) {
       if (status === 'online') acc.online += 1;
       else if (status === 'offline') acc.offline += 1;
       else acc.outros += 1;
+    } else if (type === 'fiber') {
+      acc.fiber += 1;
+    } else if (type === 'pole') {
+      acc.poles += 1;
+    } else if (type === 'box') {
+      acc.boxes += 1;
+    } else if (type === 'cto') {
+      acc.cto += 1;
+    } else if (type === 'cdo') {
+      acc.cdo += 1;
     } else {
       acc.outros += 1;
     }
     return acc;
-  }, { total: 0, cameras: 0, online: 0, offline: 0, outros: 0 });
+  }, { total: 0, cameras: 0, online: 0, offline: 0, outros: 0, fiber: 0, poles: 0, boxes: 0, cto: 0, cdo: 0 });
 }
 
 function mapLayerColor(features, fallback = '#d97706') {
   const stats = mapLayerStats(features, _mapCameraIndex);
   if (stats.cameras > 0) return '#16a34a';
+  if (stats.fiber > 0) return '#0ea5e9';
+  if (stats.boxes > 0) return '#f59e0b';
+  if (stats.poles > 0) return '#64748b';
   const names = (features || []).map(f => mapFeatureName(f)).join(' ');
   if (/\bcto\b|^cto/i.test(names)) return '#1971c2';
   if (/\bcdo\b|^cdo|emenda|splice/i.test(names)) return '#7950f2';
@@ -264,8 +305,36 @@ function mapLayerSignature(features) {
     .join('||');
 }
 
+function mapLayerPointKeys(features, options = {}) {
+  const includeName = options.includeName !== false;
+  return new Set((features || [])
+    .filter(f => f?.geometry?.type === 'Point')
+    .map(f => {
+      const coords = f.geometry?.coordinates || [];
+      const name = mapFeatureName(f).toLowerCase();
+      const lat = Number(coords[1] || 0).toFixed(6);
+      const lng = Number(coords[0] || 0).toFixed(6);
+      return includeName ? `${name}|${lat}|${lng}` : `${lat}|${lng}`;
+    })
+    .filter(Boolean));
+}
+
+function mapLayerOverlapsImported(layer, importedPointSets) {
+  const keys = mapLayerPointKeys(layer.features, { includeName: false });
+  if (!keys.size) return false;
+  for (const importedKeys of importedPointSets) {
+    if (!importedKeys?.size) continue;
+    let common = 0;
+    keys.forEach(key => { if (importedKeys.has(key)) common += 1; });
+    const overlap = common / Math.min(keys.size, importedKeys.size);
+    if (overlap >= 0.8) return true;
+  }
+  return false;
+}
+
 async function mapLoadCameraIndex() {
-  const camData = await apiJson(`/api/cameras?mode=olt&_=${Date.now()}`);
+  const mode = mapInventoryMode();
+  const camData = await apiJson(`/api/cameras?mode=${encodeURIComponent(mode)}&_=${Date.now()}`);
   const cams = camData?.cameras || [];
   const byName = {};
   const byIp = {};
@@ -282,7 +351,7 @@ async function refreshMapLiveStatus() {
     showToast('Sincronizando status real das cameras...');
     const res = await api('/api/scripts/zabbix/status-sync', {
       method: 'POST',
-      body: JSON.stringify({ source: 'ip', mode: 'olt', site: '', validate_offline: true }),
+      body: JSON.stringify({ source: 'ip', mode: mapInventoryMode(), site: '', validate_offline: true }),
     });
     const body = await res?.json().catch(() => ({}));
     if (!res?.ok || body?.ok === false) {
@@ -331,6 +400,77 @@ async function loadKmz() {
   setTimeout(() => _map.invalidateSize(), 200);
 }
 
+function mapLayerDownloadUrl(def) {
+  const raw = String(def?.downloadUrl || '');
+  if (!raw) return '';
+  if (def?.source !== 'imported' || !raw.includes('/download-enriched')) return raw;
+  const sep = raw.includes('?') ? '&' : '?';
+  return `${raw}${sep}source=ip&mode=${encodeURIComponent(mapInventoryMode())}`;
+}
+
+let _mapLayerRenameTarget = null;
+
+function openMapLayerRename(def) {
+  if (!def?.updateUrl) return;
+  _mapLayerRenameTarget = def;
+  const modal = document.getElementById('modalMapLayerRename');
+  const input = document.getElementById('mapLayerRenameInput');
+  const hint = document.getElementById('mapLayerRenameHint');
+  if (!modal || !input) return;
+  input.value = String(def.label || '').trim();
+  if (hint) hint.textContent = `${def.count || 0} ponto(s) nesta camada`;
+  modal.classList.remove('hidden');
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 30);
+  lucide.createIcons();
+}
+
+function closeMapLayerRename() {
+  document.getElementById('modalMapLayerRename')?.classList.add('hidden');
+  _mapLayerRenameTarget = null;
+}
+
+function handleMapLayerRenameKey(event) {
+  if (event.key === 'Escape') {
+    closeMapLayerRename();
+    return;
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveMapLayerRename();
+  }
+}
+
+async function saveMapLayerRename() {
+  const def = _mapLayerRenameTarget;
+  const updateUrl = String(def?.updateUrl || '');
+  if (!def || !updateUrl) return;
+  const input = document.getElementById('mapLayerRenameInput');
+  const label = String(input?.value || '').trim();
+  if (!label) {
+    showToast('Informe o nome da camada.', true);
+    input?.focus();
+    return;
+  }
+  const btn = document.getElementById('confirmMapLayerRename');
+  if (btn) btn.disabled = true;
+  const res = await api(updateUrl, {
+    method: 'PATCH',
+    body: JSON.stringify({ label }),
+  });
+  const body = await res?.json().catch(() => ({}));
+  if (btn) btn.disabled = false;
+  if (!res?.ok || body?.ok === false) {
+    showToast(body?.detail || body?.error || 'Nao foi possivel renomear a camada.', true);
+    return;
+  }
+  closeMapLayerRename();
+  showToast('Nome da camada atualizado.');
+  await loadMapLayers();
+}
+
 async function loadMapLayers() {
   const listEl = document.getElementById('mapLayersList');
   if (!listEl) return;
@@ -340,23 +480,7 @@ async function loadMapLayers() {
   const camIndex = await mapLoadCameraIndex();
   const previousActive = new Set(Object.entries(_mapLayerGroups || {}).filter(([, s]) => s?.active).map(([id]) => id));
 
-  const generatedData = await apiJson('/api/kmz/generated/layers').catch(() => ({ layers: [] }));
-  const generatedLayers = (generatedData?.layers || []).map((layer, idx) => ({
-    id: `generated:${layer.id}`,
-    layerId: layer.id,
-    label: layer.label || layer.original_name || `Mapa gerado ${idx + 1}`,
-    color: '#16a34a',
-    source: 'generated',
-    sourceLayerId: layer.source_layer_id || '',
-    features: (layer.features || []).map(f => ({ ...f, _source: 'generated', _layerId: layer.id })),
-    count: Number(layer.features_count ?? layer.features?.length ?? 0),
-    downloadUrl: layer.download_url || `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}/download`,
-    deleteUrl: `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}`,
-  }));
-
   const importedData = await apiJson('/api/kmz/import/layers');
-  const generatedSourceLayerIds = new Set(generatedLayers.map(layer => layer.sourceLayerId).filter(Boolean));
-  const generatedSignatures = new Set(generatedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
   const importedLayers = (importedData?.layers || []).map((layer, idx) => ({
     id: `imported:${layer.id}`,
     layerId: layer.id,
@@ -365,13 +489,39 @@ async function loadMapLayers() {
     source: 'imported',
     features: (layer.features || []).map(f => ({ ...f, _source: 'imported', _layerId: layer.id })),
     count: Number(layer.features_count ?? layer.features?.length ?? 0),
-    downloadUrl: layer.download_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}/download`,
+    downloadUrl: layer.download_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}/download-enriched`,
+    rawDownloadUrl: layer.raw_download_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}/download`,
+    updateUrl: layer.update_url || `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
     deleteUrl: `/api/kmz/import/layers/${encodeURIComponent(layer.id)}`,
-  })).filter(layer => !generatedSourceLayerIds.has(layer.layerId) && !generatedSignatures.has(mapLayerSignature(layer.features)));
+  }));
+  const importedSignatures = new Set(importedLayers.map(layer => mapLayerSignature(layer.features)).filter(Boolean));
+  const importedLayerIds = new Set(importedLayers.map(layer => layer.layerId).filter(Boolean));
+  const importedPointSets = importedLayers.map(layer => mapLayerPointKeys(layer.features, { includeName: false })).filter(set => set.size);
+
+  const generatedData = await apiJson('/api/kmz/generated/layers').catch(() => ({ layers: [] }));
+  const generatedLayers = (generatedData?.layers || []).map((layer, idx) => ({
+    id: `generated:${layer.id}`,
+    layerId: layer.id,
+    label: layer.label || layer.original_name || `Mapa gerado ${idx + 1}`,
+    color: '#16a34a',
+    source: 'generated',
+    sourceLayerId: layer.source_layer_id || '',
+    generatedFrom: layer.generated_from || '',
+    features: (layer.features || []).map(f => ({ ...f, _source: 'generated', _layerId: layer.id })),
+    count: Number(layer.features_count ?? layer.features?.length ?? 0),
+    downloadUrl: layer.download_url || `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}/download`,
+    updateUrl: layer.update_url || `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}`,
+    deleteUrl: `/api/kmz/generated/layers/${encodeURIComponent(layer.id)}`,
+  })).filter(layer =>
+    layer.generatedFrom !== 'imported-layer-download'
+    && !importedLayerIds.has(layer.sourceLayerId)
+    && !importedSignatures.has(mapLayerSignature(layer.features))
+    && !mapLayerOverlapsImported(layer, importedPointSets)
+  );
 
   const results = [
-    ...generatedLayers.filter(r => r.count > 0),
     ...importedLayers.filter(r => r.count > 0),
+    ...generatedLayers.filter(r => r.count > 0),
   ];
   _mapFeatures = results.flatMap(layer => (layer.features || []).map(f => ({ ...f, _source: f._source || layer.source, _layerId: layer.layerId || layer.id })));
 
@@ -441,10 +591,18 @@ async function loadMapLayers() {
 
     const statsEl = document.createElement('div');
     statsEl.className = 'map-layer-stats';
+    const infraStats = [
+      stats.fiber ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#0ea5e9"></span><strong>${stats.fiber}</strong> fibra</span>` : '',
+      stats.boxes ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#f59e0b"></span><strong>${stats.boxes}</strong> caixas</span>` : '',
+      stats.poles ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.poles}</strong> postes</span>` : '',
+      stats.cto ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#1971c2"></span><strong>${stats.cto}</strong> CTO</span>` : '',
+      stats.cdo ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#7950f2"></span><strong>${stats.cdo}</strong> CDO</span>` : '',
+    ].filter(Boolean).join('');
     statsEl.innerHTML = `
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#16a34a"></span><strong>${stats.online}</strong> online</span>
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#dc2626"></span><strong>${stats.offline}</strong> offline</span>
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.cameras}</strong> cameras</span>
+      ${infraStats}
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#d97706"></span><strong>${stats.outros}</strong> outros</span>`;
     row.appendChild(statsEl);
 
@@ -457,10 +615,19 @@ async function loadMapLayers() {
     detailBtn.onclick = (e) => { e.stopPropagation(); openMapLayerDetails(def); };
     actions.appendChild(detailBtn);
 
-    const dlUrl = def.downloadUrl || '';
+    if (def.updateUrl) {
+      const editBtn = document.createElement('button');
+      editBtn.title = 'Editar nome da camada';
+      editBtn.className = 'map-layer-action';
+      editBtn.innerHTML = '<i data-lucide="pencil"></i>';
+      editBtn.onclick = (e) => { e.stopPropagation(); openMapLayerRename(def); };
+      actions.appendChild(editBtn);
+    }
+
+    const dlUrl = mapLayerDownloadUrl(def);
     if (dlUrl) {
       const dlBtn = document.createElement('button');
-      dlBtn.title = 'Download KMZ';
+      dlBtn.title = def.source === 'imported' ? 'Baixar KMZ enriquecido' : 'Baixar KMZ';
       dlBtn.className = 'map-layer-action';
       dlBtn.innerHTML = '<i data-lucide="download"></i>';
       dlBtn.onclick = (e) => { e.stopPropagation(); downloadWithAuth(dlUrl, `${def.label || 'mapa'}.kmz`); };
@@ -511,23 +678,44 @@ async function toggleMapLayer(id, def, skipFit = false) {
     const bounds = [];
     let drawnCount = 0;
     state.features.forEach(f => {
-      if (f.geometry?.type !== 'Point') return;
-      const [lng, lat] = f.geometry.coordinates;
-      if (lat == null || lng == null || isNaN(+lat) || isNaN(+lng)) return;
-
-      // Casa com a camera real pra pegar status ao vivo (Zabbix), nao o texto
-      // estatico gravado no KMZ na hora que foi gerado. Faz isso ANTES de decidir
-      // o tipo do ponto: se o nome bate com uma camera real do inventario, e
-      // camera -- nao importa se o ponto veio de layer "gerado" ou importado.
+      const geomType = String(f.geometry?.type || '');
       const name = f.properties?.name || '';
       const cam = mapFindCamera(f, _mapCameraIndex);
+      const pointType = mapFeatureType(f, cam);
       const statusFilter = document.getElementById('mapFilterStatus')?.value || '';
+      const typeFilter = document.getElementById('mapFilterType')?.value || '';
       const siteFilter = document.getElementById('mapFilterSite')?.value || '';
       const featureStatus = mapFeatureStatus(f, cam);
       const featureLocal = mapFeatureLocal(f, cam);
-      if (statusFilter && featureStatus !== statusFilter) return;
+      if (typeFilter && pointType !== typeFilter) return;
+      if (statusFilter && (pointType !== 'camera' || featureStatus !== statusFilter)) return;
       if (siteFilter && featureLocal !== siteFilter) return;
-      const pointType = mapFeatureType(f, cam);
+
+      if (geomType === 'LineString') {
+        const coords = Array.isArray(f.geometry.coordinates) ? f.geometry.coordinates : [];
+        const latlngs = coords
+          .filter(c => Array.isArray(c) && c.length >= 2 && !isNaN(+c[0]) && !isNaN(+c[1]))
+          .map(c => [+c[1], +c[0]]);
+        if (latlngs.length < 2) return;
+        const line = L.polyline(latlngs, {
+          color: pointType === 'fiber' ? '#0ea5e9' : (def?.color || '#d97706'),
+          weight: pointType === 'fiber' ? 5 : 3,
+          opacity: 0.9,
+        });
+        line.bindPopup(`<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:10px;min-width:180px"><strong>${esc(name || 'Linha')}</strong><div style="font-size:12px;color:#64748b;margin-top:6px">${pointType === 'fiber' ? 'Fibra optica' : 'Linha do KMZ'}</div></div>`);
+        const featureKey = mapFeatureKey(f, cam);
+        if (!state.markers) state.markers = {};
+        state.markers[featureKey] = line;
+        state.group.addLayer(line);
+        latlngs.forEach(ll => bounds.push(ll));
+        drawnCount += 1;
+        return;
+      }
+
+      if (geomType !== 'Point') return;
+      const [lng, lat] = f.geometry.coordinates;
+      if (lat == null || lng == null || isNaN(+lat) || isNaN(+lng)) return;
+
       const isOnlinePop = cam?.status
         ? String(cam.status).toLowerCase() === 'online'
         : String(f.properties?.description || '').toUpperCase().includes('ONLINE');
@@ -537,9 +725,12 @@ async function toggleMapLayer(id, def, skipFit = false) {
         camera: { bg: statusColor, label: '' },
         cto:    { bg: '#1971c2', label: 'CTO' },
         cdo:    { bg: '#7950f2', label: 'CDO' },
+        pole:   { bg: '#64748b', label: 'PT' },
+        box:    { bg: '#f59e0b', label: 'CX' },
+        fiber:  { bg: '#0ea5e9', label: 'FO' },
         other:  { bg: def?.color || '#d97706', label: '' },
       };
-      const tc = typeConfig[pointType];
+      const tc = typeConfig[pointType] || typeConfig.other;
       const icon = L.divIcon({
         html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:pointer">${tc.label}</div>`,
         className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
@@ -623,10 +814,13 @@ function openMapLayerDetails(def) {
   const stats = mapLayerStats(def.features, _mapCameraIndex);
   if (title) title.textContent = def.label || 'Detalhes da camada';
   summary.innerHTML = `
-    <button class="map-detail-filter active" data-map-detail-filter="all"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.cameras} cameras</button>
+    <button class="map-detail-filter active" data-map-detail-filter="all"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.total} itens</button>
+    <button class="map-detail-filter" data-map-detail-filter="camera"><span class="map-layer-stat-dot" style="background:#16a34a"></span>${stats.cameras} cameras</button>
     <button class="map-detail-filter" data-map-detail-filter="online"><span class="map-layer-stat-dot" style="background:#16a34a"></span>${stats.online} online</button>
     <button class="map-detail-filter" data-map-detail-filter="offline"><span class="map-layer-stat-dot" style="background:#dc2626"></span>${stats.offline} offline</button>
-    <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#d97706"></span>${stats.outros} outros</span>
+    <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#0ea5e9"></span>${stats.fiber} fibra</span>
+    <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#f59e0b"></span>${stats.boxes} caixas</span>
+    <span class="map-detail-pill"><span class="map-layer-stat-dot" style="background:#64748b"></span>${stats.poles} postes</span>
     <label class="map-detail-search">
       <i data-lucide="search"></i>
       <input id="mapLayerDetailsSearch" type="search" placeholder="Buscar por nome, IP, local ou modelo">
@@ -636,22 +830,24 @@ function openMapLayerDetails(def) {
     .map(f => {
       const cam = mapFindCamera(f, _mapCameraIndex);
       const type = mapFeatureType(f, cam);
-      if (type !== 'camera') return null;
       const status = mapFeatureStatus(f, cam);
-      const name = cam?.titulo || mapFeatureName(f) || cam?.ip || 'Camera';
+      const name = cam?.titulo || mapFeatureName(f) || cam?.ip || mapTypeLabel(type);
       const ip = cam?.ip || mapExtractIp(f?.properties?.description) || '-';
       const local = mapFeatureLocal(f, cam) || '-';
-      const color = status === 'online' ? '#16a34a' : status === 'offline' ? '#dc2626' : '#d97706';
+      const color = type === 'camera'
+        ? (status === 'online' ? '#16a34a' : status === 'offline' ? '#dc2626' : '#d97706')
+        : ({ fiber: '#0ea5e9', pole: '#64748b', box: '#f59e0b', cto: '#1971c2', cdo: '#7950f2' }[type] || '#d97706');
       return {
         status,
+      type,
       color,
       name,
       ip,
       local,
       key: mapFeatureKey(f, cam),
       layerId: def.id,
-      model: cam?.modelo || cam?.model || cam?.fabricante || '',
-      search: [name, ip, local, cam?.modelo, cam?.model, cam?.fabricante, status].filter(Boolean).join(' ').toLowerCase(),
+      model: cam?.modelo || cam?.model || cam?.fabricante || mapTypeLabel(type),
+      search: [name, ip, local, cam?.modelo, cam?.model, cam?.fabricante, status, mapTypeLabel(type), type].filter(Boolean).join(' ').toLowerCase(),
       };
     })
     .filter(Boolean)
@@ -663,20 +859,22 @@ function openMapLayerDetails(def) {
 
   list.innerHTML = rows.length
     ? rows.map(r => `
-      <button class="map-detail-row" data-map-layer-id="${esc(r.layerId)}" data-map-feature-key="${esc(r.key)}" data-map-status="${esc(r.status)}" data-map-search="${esc(r.search)}" title="${esc(`${r.name} | ${r.ip} | ${r.local} | ${r.model}`)}">
+      <button class="map-detail-row" data-map-layer-id="${esc(r.layerId)}" data-map-feature-key="${esc(r.key)}" data-map-status="${esc(r.status)}" data-map-type="${esc(r.type)}" data-map-search="${esc(r.search)}" title="${esc(`${r.name} | ${r.ip} | ${r.local} | ${r.model}`)}">
         <span class="map-layer-stat-dot" style="background:${r.color}"></span>
         <div><strong>${esc(r.name)}</strong><span class="muted">${esc(r.model || r.status)}</span></div>
         <span class="monospace">${esc(r.ip)}</span>
         <span class="muted">${esc(r.local)}</span>
       </button>`).join('')
-    : '<div style="padding:18px;text-align:center;color:var(--muted);font-size:13px">Nenhuma camera encontrada nessa camada.</div>';
+    : '<div style="padding:18px;text-align:center;color:var(--muted);font-size:13px">Nenhum item encontrado nessa camada.</div>';
 
   const applyDetailFilters = () => {
     const activeFilter = summary.querySelector('[data-map-detail-filter].active')?.dataset.mapDetailFilter || 'all';
     const q = (document.getElementById('mapLayerDetailsSearch')?.value || '').trim().toLowerCase();
     let visible = 0;
     list.querySelectorAll('.map-detail-row').forEach(row => {
-      const statusOk = activeFilter === 'all' || row.dataset.mapStatus === activeFilter;
+      const statusOk = activeFilter === 'all'
+        || row.dataset.mapStatus === activeFilter
+        || row.dataset.mapType === activeFilter;
       const searchOk = !q || String(row.dataset.mapSearch || '').includes(q);
       row.hidden = !(statusOk && searchOk);
       if (!row.hidden) visible += 1;
@@ -725,9 +923,17 @@ async function focusMapFeature(layerId, featureKey) {
     return;
   }
   closeMapLayerDetails();
-  const latlng = marker.getLatLng();
-  _map.flyTo(latlng, Math.max(_map.getZoom(), 18), { duration: 0.5 });
-  setTimeout(() => marker.openPopup(), 550);
+  if (typeof marker.getLatLng === 'function') {
+    const latlng = marker.getLatLng();
+    _map.flyTo(latlng, Math.max(_map.getZoom(), 18), { duration: 0.5 });
+    setTimeout(() => marker.openPopup(), 550);
+    return;
+  }
+  if (typeof marker.getBounds === 'function') {
+    const bounds = marker.getBounds();
+    _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+    setTimeout(() => marker.openPopup(), 350);
+  }
 }
 
 async function focusCameraOnMap(cam) {
@@ -903,10 +1109,11 @@ async function loadInvOlt() {
 
 async function _loadCamForMode(mode) {
   const inventoryMode = mode === 'switch' ? 'switch' : mode === 'basico' ? 'basico' : 'olt';
+  const cacheBust = Date.now();
   const [camData, swData, oltData] = await Promise.all([
-    apiJson(`/api/cameras?mode=${encodeURIComponent(inventoryMode)}&_=${Date.now()}`),
-    mode === 'switch' ? apiJson('/api/switch/rows') : Promise.resolve(null),
-    mode === 'olt'    ? apiJson(`/api/olt/rows?compact=true&_=${Date.now()}`) : Promise.resolve(null),
+    apiJson(`/api/cameras?mode=${encodeURIComponent(inventoryMode)}&_=${cacheBust}`, { forceRefresh: true }),
+    mode === 'switch' ? apiJson(`/api/switch/rows?_=${cacheBust}`, { forceRefresh: true }) : Promise.resolve(null),
+    mode === 'olt'    ? apiJson(`/api/olt/rows?compact=true&_=${cacheBust}`, { forceRefresh: true }) : Promise.resolve(null),
   ]);
 
   let cameras = camData?.cameras || (Array.isArray(camData) ? camData : []);
@@ -1053,6 +1260,12 @@ function applyInvOltFilters() {
   const q       = (document.getElementById('searchInvOlt')?.value || '').toLowerCase().trim();
   const status  = document.getElementById('filterStatusOlt')?.value || '';
   const site    = document.getElementById('filterSiteOlt')?.value || '';
+  const normText = value => String(value || '')
+    .toLowerCase()
+    .replace(/[–—-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const qNorm = normText(q);
 
   const filtered = (_invCam[_invOltView] || []).filter(c => {
     if (status === 'missing_data' && !camHasMissingData(c)) return false;
@@ -1065,8 +1278,15 @@ function applyInvOltFilters() {
       // tenta match de IP com range/CIDR/lista
       const ipMatch = matchesIpFilter(c.ip || '', q);
       // ou texto livre em qualquer campo
-      const textMatch = [c.ip, c.mac, c.fabricante, c.modelo, c.model, c.titulo, c.local, c.onu_name, c.onu_serial]
-        .some(f => (f || '').toLowerCase().includes(q));
+      const textMatch = [
+        c.ip, c.mac, c.fabricante, c.modelo, c.model, c.titulo, c.local,
+        c.onu_name, c.onu_serial,
+        c.switch_name, c.switch_ip, c.switch_port, c.switch_vlan,
+        [c.switch_name, c.switch_ip, c.switch_port, c.switch_vlan].filter(Boolean).join(' '),
+      ].some(f => {
+        const raw = String(f || '').toLowerCase();
+        return raw.includes(q) || (qNorm && normText(raw).includes(qNorm));
+      });
       if (!ipMatch && !textMatch) return false;
     }
     return true;
@@ -1087,7 +1307,7 @@ function renderInvOlt(cameras) {
   const table = document.getElementById('invOltTableEl');
   // Colunas em %: a tabela sempre cabe em 100% do container, sem forcar
   // min-width (isso e o que garante zero scroll horizontal).
-  if (table) table.style.minWidth = '';
+  if (table) table.style.minWidth = def.minWidth || '';
 
   // Atualiza colgroup
   const colgroup = table.querySelector('colgroup');
@@ -1183,6 +1403,7 @@ function cameraOnuHealth(cam = {}) {
 function openCamPanel(cam) {
   _invOltActive = cam;
   stopPing();
+  closeCamPanelLive();
 
   // Destaca linha
   document.querySelectorAll('.inv-olt-row').forEach(tr => {
@@ -1197,7 +1418,7 @@ function openCamPanel(cam) {
   setText('camPanelTitulo', cam.titulo || cam.ip);
   setText('cpIp',     cam.ip     || '');
   setText('cpMac',    cam.mac    || '');
-  setText('cpModelo', cam.model  || '');
+  setText('cpModelo', cam.modelo || cam.model || '');
   setText('cpLocal',  cam.local  || '');
 
   const oltFields = document.getElementById('cpOltFields');
@@ -1226,17 +1447,26 @@ function openCamPanel(cam) {
   // Snapshot
   const img = document.getElementById('cpSnapshot');
   const empty = document.getElementById('cpSnapshotEmpty');
+  const showSnapshotEmpty = () => {
+    if (img) {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+    }
+    if (empty) empty.style.display = 'flex';
+    setText('cpSnapshotTitle', cam.titulo || cam.ip || '');
+    setText('cpSnapshotTime', 'Sem snapshot');
+  };
+  if (img) img.onerror = showSnapshotEmpty;
   if (cam.snapshot_url) {
-    img.src = cam.snapshot_url;
+    const snapshotUrl = String(cam.snapshot_url || '');
+    const sep = snapshotUrl.includes('?') ? '&' : '?';
+    img.src = `${snapshotUrl}${sep}t=${Date.now()}`;
     img.style.display = 'block';
     empty.style.display = 'none';
     setText('cpSnapshotTitle', cam.titulo || cam.ip);
     setText('cpSnapshotTime',  '');
   } else {
-    img.style.display = 'none';
-    empty.style.display = 'flex';
-    setText('cpSnapshotTitle', '');
-    setText('cpSnapshotTime', '');
+    showSnapshotEmpty();
   }
 
   document.getElementById('cpPingResult')?.classList.add('hidden');
@@ -1408,8 +1638,11 @@ function cameraStreamHint(ip, fallback = null) {
 }
 
 function isHikvisionStream(hint = {}) {
-  const txt = `${hint.vendor || ''} ${hint.model || ''}`.toLowerCase();
-  return txt.includes('hikvision') || txt.includes('ds-2') || txt.includes('ipc-');
+  const vendor = String(hint.vendor || '').trim().toLowerCase();
+  const model = String(hint.model || '').trim().toLowerCase();
+  const isIntelbras = vendor.includes('intelbras') || vendor.includes('dahua') || /^(vip-|vipc-|vhd-)/.test(model);
+  if (isIntelbras) return false;
+  return vendor.includes('hikvision') || vendor.includes('hilook') || /^(ds-|ds2|ipc-)/.test(model);
 }
 
 function buildCameraRtspUrl(ip, user, pass, subtype = 1, hint = {}) {
@@ -1701,7 +1934,10 @@ async function camAction(action) {
     openCamAuthAction('reboot');
     return;
   }
-  if (action === 'web')   { window.open(`http://${cam.ip}`, '_blank'); return; }
+  if (action === 'web') {
+    window.open(`${API_BASE}/api/maintenance/web/${encodeURIComponent(cam.ip)}/`, '_blank', 'noopener');
+    return;
+  }
 
   if (action === 'renomear') {
     openEditCamModal([cam], { renameDevice: true });
@@ -1746,11 +1982,18 @@ async function camAction(action) {
     return;
   }
   if (action === 'limpar') {
-    if (!await showConfirm({ title: `Remover camera`, msg: `Remover ${cam.ip}  ${cam.titulo || ''} do inventario?`, label: 'Remover' })) return;
+    if (!await showConfirm({ title: `Remover camera`, msg: `Remover ${cam.ip}  ${cam.titulo || ''} do inventario? Nao volta sozinho mesmo se a OLT continuar vendo o mesmo IP na rede.`, label: 'Remover' })) return;
     const key = _camKey(cam);
     const res = await api('/api/inventory/delete', {
       method: 'POST',
-      body: JSON.stringify({ ips: [cam.ip], keys: [key], mode: _invOltView || 'olt' }),
+      body: JSON.stringify({
+        ips: [cam.ip],
+        keys: [key],
+        mode: _invOltView || 'olt',
+        site: cam.local || cam.site || cam.site_name || '',
+        connector_id: cam.remote_connector_id || cam.connector_id || '',
+        permanent: true,
+      }),
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {

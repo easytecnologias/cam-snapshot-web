@@ -12,10 +12,9 @@ from typing import Any, Dict, Iterable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.security import AUTH_COOKIE_NAME
-from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug, tenant_snapshot_dir
 from app.services.ws_scan_service import run_ws_scan
 from app.services.maintenance_ping_service import maintenance_ping_hub
-from app.core.paths import DATA_DIR
 from app.services.auth_store import auth_enabled, get_user_by_token
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.photo_store import ip_to_stem
@@ -156,6 +155,11 @@ def _role_allows(user_role: str, required_role: str) -> bool:
     return have >= need
 
 
+def _effective_tenant_slug(user: Dict[str, Any] | None) -> str:
+    row = user or {}
+    return str(row.get("effective_tenant_slug") or row.get("tenant_slug") or "").strip().lower()
+
+
 async def _accept_ws_session(
     ws: WebSocket,
     *,
@@ -228,7 +232,8 @@ async def ws_scan(ws: WebSocket) -> None:
     ok, current_user, first_payload = await _accept_ws_session(ws, min_role="operator")
     if not ok:
         return
-    ctx_token = set_current_tenant_slug(str((current_user or {}).get("tenant_slug") or "").strip().lower())
+    tenant_slug = _effective_tenant_slug(current_user)
+    ctx_token = set_current_tenant_slug(tenant_slug)
     try:
         if first_payload is not None:
             payload = first_payload
@@ -239,7 +244,7 @@ async def ws_scan(ws: WebSocket) -> None:
             except Exception:
                 await ws.send_text(json.dumps({"type": "error", "message": "Payload invalido (JSON)."}))
                 return
-        await run_ws_scan(ws, payload, tenant_slug=str((current_user or {}).get("tenant_slug") or "").strip().lower())
+        await run_ws_scan(ws, payload, tenant_slug=tenant_slug)
     except WebSocketDisconnect:
         return
     except Exception as e:
@@ -283,9 +288,10 @@ async def ws_snapshot(ws: WebSocket) -> None:
     Recebe JSON: {"ip": "...", "usuario": "...", "senha": "..."}.
     Captura um snapshot e salva em /data/snapshot/<ip>.jpg.
     """
-    ok, _, first_payload = await _accept_ws_session(ws, min_role="operator")
+    ok, current_user, first_payload = await _accept_ws_session(ws, min_role="operator")
     if not ok:
         return
+    ctx_token = set_current_tenant_slug(_effective_tenant_slug(current_user))
     try:
         await ws.send_text(json.dumps({"type": "status", "message": "Snapshot WS conectado."}, ensure_ascii=False))
         while True:
@@ -313,7 +319,7 @@ async def ws_snapshot(ws: WebSocket) -> None:
                 await ws.send_text(json.dumps({"type": "error", "message": "IP nÃ£o informado."}, ensure_ascii=False))
                 continue
 
-            snap_dir = Path(DATA_DIR) / "snapshot"
+            snap_dir = tenant_snapshot_dir("ip")
             # Se existir uma pasta bugada com nome *.jpg, remove (bug legado ao passar path errado)
             try:
                 if snap_dir.exists() and snap_dir.is_file():
@@ -407,6 +413,8 @@ async def ws_snapshot(ws: WebSocket) -> None:
         return
     except Exception:
         return
+    finally:
+        reset_current_tenant_slug(ctx_token)
 
 
 @router.websocket("/ws/portscan")
@@ -414,7 +422,7 @@ async def ws_portscan(ws: WebSocket) -> None:
     ok, current_user, first_payload = await _accept_ws_session(ws, min_role="operator")
     if not ok:
         return
-    ctx_token = set_current_tenant_slug(str((current_user or {}).get("tenant_slug") or "").strip().lower())
+    ctx_token = set_current_tenant_slug(_effective_tenant_slug(current_user))
     cancel_event = asyncio.Event()
 
     async def _send(obj: Dict[str, Any]) -> None:
@@ -575,13 +583,15 @@ async def ws_portscan(ws: WebSocket) -> None:
 
 @router.websocket("/ws/maintenance_ping")
 async def ws_maintenance_ping(ws: WebSocket) -> None:
-    ok, _, first_payload = await _accept_ws_session(ws, min_role="viewer")
+    ok, current_user, first_payload = await _accept_ws_session(ws, min_role="viewer")
     if not ok:
         return
-    await maintenance_ping_hub.subscribe(ws)
+    tenant_slug = _effective_tenant_slug(current_user)
+    ctx_token = set_current_tenant_slug(tenant_slug)
+    await maintenance_ping_hub.subscribe(ws, tenant_slug=tenant_slug)
     try:
         await ws.send_text(json.dumps({"type": "status", "message": "maintenance ping conectado."}, ensure_ascii=False))
-        await ws.send_text(json.dumps(maintenance_ping_hub.snapshot(limit=5000), ensure_ascii=False))
+        await ws.send_text(json.dumps(maintenance_ping_hub.snapshot(limit=5000, tenant_slug=tenant_slug), ensure_ascii=False))
         while True:
             if first_payload is not None:
                 payload = first_payload
@@ -600,14 +610,14 @@ async def ws_maintenance_ping(ws: WebSocket) -> None:
             msg_type = str(payload.get("type") or "").strip().lower()
             if msg_type in ("subscribe", "prioritize", "visible"):
                 visible_ips = payload.get("visible_ips") or payload.get("ips") or []
-                maintenance_ping_hub.prioritize(visible_ips)
+                maintenance_ping_hub.prioritize(visible_ips, tenant_slug=tenant_slug)
                 await ws.send_text(json.dumps({
                     "type": "ack",
                     "prioritized": len([ip for ip in visible_ips if str(ip or "").strip()]),
-                    "summary": maintenance_ping_hub.summary(),
+                    "summary": maintenance_ping_hub.summary(tenant_slug),
                 }, ensure_ascii=False))
             elif msg_type == "snapshot":
-                await ws.send_text(json.dumps(maintenance_ping_hub.snapshot(limit=5000), ensure_ascii=False))
+                await ws.send_text(json.dumps(maintenance_ping_hub.snapshot(limit=5000, tenant_slug=tenant_slug), ensure_ascii=False))
             else:
                 await ws.send_text(json.dumps({"type": "ack"}, ensure_ascii=False))
     except WebSocketDisconnect:
@@ -616,5 +626,6 @@ async def ws_maintenance_ping(ws: WebSocket) -> None:
         return
     finally:
         await maintenance_ping_hub.unsubscribe(ws)
+        reset_current_tenant_slug(ctx_token)
 
 

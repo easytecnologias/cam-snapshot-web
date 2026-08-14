@@ -1146,6 +1146,121 @@ async function refreshOnuConnectors() {
 
 let _onuRegistryRows = [];
 
+const ONU_CAPABILITY_BUTTONS = {
+  discover_onus: ['btnOnuDiscover'],
+  add_onu: ['btnOnuAdd', 'btnOnuAddVlanRow'],
+  onu_signal: ['btnOnuQuery'],
+  delete_onu: ['btnOnuDelete', 'confirmOnuDelete'],
+};
+
+const ONU_CAPABILITY_STEPS = {
+  discover_onus: 'onuStepDiscover',
+  add_onu: 'onuStepAdd',
+  onu_signal: 'onuStepQuery',
+  delete_onu: 'onuStepDelete',
+};
+
+function onuSelectedRegistryRow() {
+  const value = document.getElementById('onuOltRegistry')?.value || '';
+  return _onuRegistryRows.find(item => String(item.id) === String(value)) || null;
+}
+
+function onuCapabilityInfo() {
+  const row = onuSelectedRegistryRow();
+  if (!row) return null;
+  return {
+    row,
+    caps: row.capabilities || {},
+    label: row.capability_label || row.driver || [row.vendor, row.model].filter(Boolean).join(' ') || 'OLT',
+    notes: row.capability_notes || '',
+  };
+}
+
+function onuHasCapability(capability) {
+  const info = onuCapabilityInfo();
+  return !info || !!info.caps[capability];
+}
+
+function onuCapabilityMessage(capability) {
+  const info = onuCapabilityInfo();
+  if (!info) return '';
+  return `${info.label} ainda nao suporta esta acao no SightOps. ${info.notes || ''}`.trim();
+}
+
+function onuPonCountForRow(row) {
+  const model = String(row?.model || row?.olt_model || '').trim().toLowerCase();
+  const driver = String(row?.driver || '').trim().toLowerCase();
+  if (driver === 'intelbras_4840e' || model.includes('4840e') || model === '4840') return 4;
+  return 8;
+}
+
+function onuRenderPonSelectOptions(select, count, includeAll = false) {
+  if (!select) return;
+  const previous = select.value;
+  const total = Number.isInteger(Number(count)) && Number(count) > 0 ? Number(count) : 8;
+  const options = [];
+  if (includeAll) options.push(`<option value="all">Todas (1-${total})</option>`);
+  else options.push('<option value="">Escolha</option>');
+  for (let i = 1; i <= total; i += 1) {
+    options.push(`<option value="${i}">PON ${i}</option>`);
+  }
+  select.innerHTML = options.join('');
+  if ([...select.options].some(opt => opt.value === previous)) select.value = previous;
+  else select.value = includeAll ? 'all' : '';
+}
+
+function onuUpdatePonSelectors() {
+  const row = onuSelectedRegistryRow();
+  const count = onuPonCountForRow(row);
+  onuRenderPonSelectOptions(document.getElementById('onuOltPon'), count, true);
+  onuRenderPonSelectOptions(document.getElementById('onuQueryPon'), count, false);
+  onuRenderPonSelectOptions(document.getElementById('onuDeletePon'), count, false);
+}
+
+function onuUpdateCapabilities() {
+  const status = document.getElementById('onuCapabilityStatus');
+  const info = onuCapabilityInfo();
+  if (status) {
+    if (!info) {
+      status.innerHTML = 'Escolha uma OLT cadastrada para ver quais acoes esse modelo suporta.';
+      status.classList.remove('error');
+    } else {
+      const supported = [
+        info.caps.discover_onus ? 'descobrir' : '',
+        info.caps.add_onu ? 'autorizar' : '',
+        info.caps.onu_signal ? 'consultar sinal/MACs' : '',
+        info.caps.delete_onu ? 'excluir' : '',
+        info.caps.collect_macs ? 'sincronizar inventario' : '',
+      ].filter(Boolean).join(', ') || 'nenhuma acao operacional';
+      const blocked = [
+        !info.caps.discover_onus ? 'descoberta' : '',
+        !info.caps.add_onu ? 'autorizacao' : '',
+        !info.caps.onu_signal ? 'sinal/MACs' : '',
+        !info.caps.delete_onu ? 'exclusao' : '',
+      ].filter(Boolean).join(', ');
+      status.innerHTML = `<b style="color:var(--primary)">${esc(info.label)}</b> -- suporta: ${esc(supported)}.${blocked ? ` Bloqueado: ${esc(blocked)}.` : ''} ${esc(info.notes || '')}`;
+      status.classList.toggle('error', !!blocked && !info.caps.add_onu);
+    }
+  }
+  Object.entries(ONU_CAPABILITY_BUTTONS).forEach(([capability, ids]) => {
+    const allowed = onuHasCapability(capability);
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = !allowed;
+      el.classList.toggle('is-disabled', !allowed);
+      el.title = allowed ? '' : onuCapabilityMessage(capability);
+    });
+  });
+  Object.entries(ONU_CAPABILITY_STEPS).forEach(([capability, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const allowed = onuHasCapability(capability);
+    el.classList.toggle('onu-step-unsupported', !allowed);
+    if (!allowed) el.open = false;
+  });
+}
+
 async function refreshOnuRegistry() {
   const sel = document.getElementById('onuOltRegistry');
   if (!sel) return;
@@ -1175,7 +1290,7 @@ function onuRenderRegistryForOrigin() {
 
 function onuApplyRegisteredOlt() {
   const value = document.getElementById('onuOltRegistry')?.value || '';
-  const row = _onuRegistryRows.find(item => String(item.id) === String(value));
+  const row = onuSelectedRegistryRow();
   const manual = value === '__manual__';
   const setValue = (id, value) => { const el = document.getElementById(id); if (el) el.value = value || ''; };
   if (row) {
@@ -1193,7 +1308,9 @@ function onuApplyRegisteredOlt() {
   });
   const password = document.getElementById('onuOltPassword');
   if (password) password.placeholder = row ? 'Credencial salva no servidor' : 'Senha';
+  onuUpdatePonSelectors();
   updateOnuConnectorStatus();
+  onuUpdateCapabilities();
   onuUpdateStepsLock();
 }
 
@@ -1241,6 +1358,7 @@ function onuUpdateConnectorGate() {
   });
   const registry = document.getElementById('onuOltRegistry');
   if (registry) registry.disabled = !unlocked;
+  onuUpdateCapabilities();
   onuUpdateStepsLock();
 }
 
@@ -1360,6 +1478,10 @@ function bindOnuStepLockGuards() {
       if (details.classList.contains('onu-step-locked')) {
         e.preventDefault();
         showToast(onuConnectorGateOk() ? 'Informe o IP e a senha da OLT primeiro.' : 'Escolha Local/VPN do servidor ou um conector online com VPN primeiro.', true);
+      } else if (details.classList.contains('onu-step-unsupported')) {
+        e.preventDefault();
+        const cap = Object.entries(ONU_CAPABILITY_STEPS).find(([, stepId]) => stepId === id)?.[0] || '';
+        showToast(onuCapabilityMessage(cap) || 'Esta OLT ainda nao suporta essa acao.', true);
       }
     });
   });
@@ -1538,6 +1660,7 @@ function onuClear() {
 }
 
 async function onuDiscover() {
+  if (!onuHasCapability('discover_onus')) { showToast(onuCapabilityMessage('discover_onus'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
   if (!olt.olt_id && !olt.password) { showToast('Informe a senha da OLT.', true); return; }
@@ -1592,6 +1715,7 @@ async function onuDiscover() {
 }
 
 async function onuAdd() {
+  if (!onuHasCapability('add_onu')) { showToast(onuCapabilityMessage('add_onu'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
@@ -1671,6 +1795,7 @@ async function onuAdd() {
 }
 
 async function onuQuery() {
+  if (!onuHasCapability('onu_signal')) { showToast(onuCapabilityMessage('onu_signal'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
@@ -1732,6 +1857,7 @@ function openOnuDeleteModal() { document.getElementById('modalOnuDelete')?.class
 function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.add('hidden'); }
 
 async function onuDelete() {
+  if (!onuHasCapability('delete_onu')) { showToast(onuCapabilityMessage('delete_onu'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
