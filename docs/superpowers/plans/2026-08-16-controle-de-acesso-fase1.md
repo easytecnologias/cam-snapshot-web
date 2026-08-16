@@ -1433,9 +1433,10 @@ from app.services.access_control_store import (
     save_rule,
     set_door_group_members,
     set_group_members,
+    upsert_provision_status,
 )
 from app.services.access_control_device import open_door as device_open_door
-from app.services.access_control_sync import provision_person_everywhere
+from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
 
 router = APIRouter(prefix="/api/access-control", tags=["access-control"])
 
@@ -1515,7 +1516,15 @@ def api_access_control_save_person(req: AccessPersonRequest) -> Dict[str, Any]:
         person = save_person(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    provision_person_everywhere(person)
+    # Nao chama o dispositivo aqui -- so marca "pending" e devolve na hora.
+    # O loop de fundo (Task 7, `retry_pending_provisions`) e quem realmente
+    # fala com a catraca, a cada 60-900s. Chamar o dispositivo de forma
+    # sincrona aqui prenderia a resposta HTTP de salvar pessoa ate o
+    # timeout se a catraca estiver lenta/offline -- proibido pelo Global
+    # Constraint deste plano ("Nenhuma chamada ao dispositivo pode
+    # bloquear a resposta HTTP de salvar uma pessoa/regra").
+    for device in resolve_target_devices_for_person(person["id"]):
+        upsert_provision_status(person["id"], device["id"], "pending")
     return {"ok": True, "person": person}
 
 
@@ -2464,25 +2473,10 @@ git commit -m "feat(access-control): modais completos de grupo/regra + status de
 - Ingestão de eventos de entrada/saída → Tasks 3, 5, 7. ✓
 - Senha de dispositivo cifrada → Task 3 (`encrypt`/`decrypt`, nunca devolvida em `_device_row_dict`). ✓
 - Erro real do dispositivo propagado → Task 4 (`HTTPException` com `resp.text`). ✓
-- Provisionamento não bloqueia salvar pessoa → Task 5/7 (loop de retry separado; a chamada síncrona em `api_access_control_save_person` ainda bloqueia a resposta HTTP no MVP — ver nota abaixo).
+- Provisionamento não bloqueia salvar pessoa → Task 6 (`api_access_control_save_person` só marca `pending`; quem chama o dispositivo de fato é o loop de fundo da Task 7). ✓
 - Fase 2 (calendário/WhatsApp) → explicitamente fora deste plano, conforme spec.
 
-**Nota de ajuste encontrada na auto-revisão:** a spec diz "não bloqueia o salvar" mas `api_access_control_save_person` (Task 6) chama `provision_person_everywhere` de forma síncrona antes de responder — se o dispositivo estiver lento/offline, a request HTTP de salvar pessoa fica presa até o timeout. Isso contradiz o Global Constraint. Corrigido: trocar a chamada em `api_access_control_save_person` (Task 6, Step 3) para rodar em background:
-
-```python
-import asyncio
-...
-@router.post("/people")
-def api_access_control_save_person(req: AccessPersonRequest) -> Dict[str, Any]:
-    try:
-        payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
-        person = save_person(payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    for device in resolve_target_devices_for_person(person["id"]):
-        upsert_provision_status(person["id"], device["id"], "pending")
-    return {"ok": True, "person": person}
-```
+**Ajuste feito nesta auto-revisão (já aplicado no texto da Task 6 acima, não é uma nota separada a aplicar depois):** a primeira versão deste plano tinha `api_access_control_save_person` chamando `provision_person_everywhere` de forma síncrona antes de responder — se o dispositivo estivesse lento/offline, a request HTTP de salvar pessoa ficaria presa até o timeout, contradizendo o Global Constraint. O código do endpoint na Task 6 acima já está corrigido (só marca `pending` via `upsert_provision_status`, sem chamar o dispositivo). `provision_person_everywhere` continua existindo e é usado só pelo endpoint explícito `/people/{id}/sync`, onde o usuário está esperando ativamente uma ação imediata e um timeout curto é aceitável.
 
 (marca como `pending` na hora, sem chamar o dispositivo — o loop de fundo da Task 7, que já roda a cada 60-900s, pega e provisiona de verdade). `provision_person_everywhere` continua existindo e sendo usado só pelo endpoint explícito `/people/{id}/sync` (Task 6), onde o usuário está esperando ativamente uma ação imediata e um timeout curto é aceitável.
 
