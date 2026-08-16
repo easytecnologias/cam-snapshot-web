@@ -760,7 +760,7 @@ def api_dvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         "title", "local", "status", "mac", "modelo", "model", "equip_serial",
         "pon", "onu_id", "onu_name", "onu_serial", "switch_ip", "switch_port",
         "switch_vlan", "video_loss", "snapshot_url", "imgbb_url", "imgbb_thumb_url",
-        "site", "remote", "remote_connector_id", "recorder_user", "http_port", "name", "recorder_name", "inventory_mode",
+        "site", "remote", "remote_connector_id", "recorder_user", "recorder_password", "http_port", "name", "recorder_name", "inventory_mode",
     }
     updated = 0
     found: set[tuple[str, str, int]] = set()

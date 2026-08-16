@@ -101,15 +101,17 @@ async function refreshDashboardLiveCameraStatus() {
 async function openDashDrawerRecorder(source, filterKey, activeSite) {
   filterKey  = filterKey  || 'all';
   activeSite = activeSite || null;
-  const label = source === 'dvr' ? 'DVR' : 'NVR';
-  const view  = source === 'dvr' ? 'inv-dvr' : 'inv-nvr';
+  const sources = source === 'all' ? ['dvr', 'nvr'] : [source === 'dvr' ? 'dvr' : 'nvr'];
+  const label = source === 'all' ? 'DVR/NVR' : (source === 'dvr' ? 'DVR' : 'NVR');
   _openDashDrawer('Gravadores', `Canais ${label}`);
-  if (!_dashDrawerData?.[source]) {
-    const res = await apiJson(`/api/${source}/inventory`);
-    if (!_dashDrawerData) _dashDrawerData = {};
-    _dashDrawerData[source] = res?.inventory || [];
+  if (!_dashDrawerData) _dashDrawerData = {};
+  for (const src of sources) {
+    if (!_dashDrawerData?.[src]) {
+      const res = await apiJson(`/api/${src}/inventory`);
+      _dashDrawerData[src] = (res?.inventory || []).map(row => ({ ...row, _dashRecorderSource: src }));
+    }
   }
-  const rows = _dashDrawerData[source];
+  const rows = sources.flatMap(src => _dashDrawerData[src] || []);
   const isOnline  = r => ['online','ok','up','ativo','active'].includes((r.status||'').toLowerCase());
   const isOffline = r => ['offline','down','inativo','inactive','auth_failed','timeout','erro','error','video_loss'].includes((r.status||'').toLowerCase());
   const rowSite   = r => String(r.local || r.site || r.site_name || '').trim();
@@ -136,10 +138,13 @@ async function openDashDrawerRecorder(source, filterKey, activeSite) {
   });
   _drawerRenderRows(filtered.map(r => {
     const host = esc(r.host||r.ip||'');
+    const src = r._dashRecorderSource || source || 'nvr';
+    const view = src === 'dvr' ? 'inv-dvr' : 'inv-nvr';
+    const typeBadge = source === 'all' ? `<span class="drawer-mini-badge">${src === 'dvr' ? 'DVR' : 'NVR'}</span>` : '';
     return `<div class="drawer-item" style="cursor:pointer" onclick="_drawerGoToInventory('${view}','${host}')" title="Abrir no inventario">
       ${_drawerStatusDot(r.status)}
       <div class="drawer-item-main">
-        <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')}  ${esc(r.title || r.titulo || '')}</div>
+        <div class="drawer-item-title">CH${String(r.channel||0).padStart(2,'0')} ${typeBadge} ${esc(r.title || r.titulo || '')}</div>
         <div class="drawer-item-sub">${esc(r.host||r.ip||'')}  ${esc(rowSite(r))}</div>
       </div>
       ${r.snapshot_url ? `<img src="${esc(r.snapshot_url)}" style="width:52px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0" loading="lazy">` : '<span style="width:52px;flex-shrink:0"></span>'}
@@ -299,7 +304,7 @@ function renderDashboardHealth(data) {
     if (action === 'onus' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('onu', 'all');
     if (action === 'olts' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('olt', 'all');
     if (action === 'connectors' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('connector', 'all');
-    if (action === 'recorders') openDashDrawerRecorder('dvr', 'all');
+    if (action === 'recorders') openDashDrawerRecorder('all', 'all');
     if (action === 'attention' && typeof openMonitoringAttentionDrawer === 'function') openMonitoringAttentionDrawer();
   }));
 }
@@ -490,7 +495,7 @@ async function loadDashboard() {
   const kpiCamerasIp = document.getElementById('kpiCamerasIp');
   if (kpiCamerasIp) kpiCamerasIp.onclick = () => openDashDrawerIp('all');
   const kpiGravadores = document.getElementById('kpiGravadores');
-  if (kpiGravadores) kpiGravadores.onclick = () => openDashDrawerRecorder('dvr', 'all');
+  if (kpiGravadores) kpiGravadores.onclick = () => openDashDrawerRecorder('all', 'all');
   const kpiSites = document.getElementById('kpiSites');
   if (kpiSites) kpiSites.onclick = () => {
     _openDashDrawer('Sites', 'Sites monitorados');

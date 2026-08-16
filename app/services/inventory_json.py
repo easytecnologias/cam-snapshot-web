@@ -72,6 +72,10 @@ def inventory_row_key(row: dict[str, Any], fallback: str = "") -> str:
     mac = _norm_mac(r.get("mac") or r.get("MAC") or r.get("mac_address") or "")
     connector_id = str(r.get("remote_connector_id") or r.get("connector_id") or "").strip()
     site = str(r.get("site") or r.get("site_name") or r.get("local") or "").strip().lower()
+    if connector_id and site and ip:
+        return f"REMOTE:{connector_id}:SITE:{site}:IP:{ip}"
+    if connector_id and site and mac:
+        return f"REMOTE:{connector_id}:SITE:{site}:MAC:{mac}"
     if connector_id and ip:
         return f"REMOTE:{connector_id}:IP:{ip}"
     if connector_id and mac:

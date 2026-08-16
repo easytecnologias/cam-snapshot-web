@@ -11,18 +11,41 @@ if str(ROOT) not in sys.path:
 
 from app.models.requests import OltAddOnuRequest, OltCollectMacsRequest, OltOnuSignalRequest
 from app.cli.tools.olt_4840e_collect_macs import (
+    _command_failed_4840e,
+    _leave_config_mode_4840e,
+    build_delete_onu_4840e_command,
     collect_onu_telemetry_4840e_from_outputs,
     discover_onus_4840e_from_show_pon,
     find_onu_4840e_from_show_pon,
     onu_signal_4840e_from_outputs,
 )
 from app.services.olt_capabilities import normalize_olt_driver, olt_capabilities, require_olt_capability
+from app.services.monitoring_service import _onu_entity_key_variants
 from app.services.olt_service import _same_onu_position, add_onu, onu_signal
 
 
 def check(cond: bool, msg: str, failures: list[str]) -> None:
     if not cond:
         failures.append(msg)
+
+
+class FakeChannel:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.commands: list[str] = []
+        self._pending = ""
+
+    def recv_ready(self) -> bool:
+        return bool(self._pending)
+
+    def recv(self, _size: int) -> bytes:
+        out = self._pending
+        self._pending = ""
+        return out.encode()
+
+    def send(self, payload: str) -> None:
+        self.commands.append(payload.strip())
+        self._pending = self.responses.pop(0) if self.responses else "OLT#"
 
 
 def expect_422(fn, msg: str, failures: list[str]) -> None:
@@ -46,7 +69,7 @@ def main() -> int:
     check(caps_4840["capabilities"]["find_onu"] is True, "4840E deve localizar ONU autorizada", failures)
     check(caps_4840["capabilities"]["onu_signal"] is True, "4840E deve consultar ONU/MACs", failures)
     check(caps_4840["capabilities"]["add_onu"] is False, "4840E nao pode autorizar ainda", failures)
-    check(caps_4840["capabilities"]["delete_onu"] is False, "4840E nao pode excluir ainda", failures)
+    check(caps_4840["capabilities"]["delete_onu"] is True, "4840E deve excluir por whitelist", failures)
 
     caps_8820 = olt_capabilities("Intelbras", "8820i")
     check(caps_8820["capabilities"]["add_onu"] is True, "8820i deve autorizar", failures)
@@ -129,6 +152,39 @@ SWVersion : 1.3-220719
 
     found = find_onu_4840e_from_show_pon(sample_show_pon, "30:e1:f1:73:a7:19")
     check(found and found["pon"] == 1 and found["onu"] == 1, f"find 4840E errado: {found}", failures)
+
+    delete_target = build_delete_onu_4840e_command(sample_show_pon, pon=1, onu=1, serial="30:e1:f1:73:a7:19")
+    check(delete_target["ok"] is True, f"delete 4840E deveria montar comando: {delete_target}", failures)
+    check(delete_target["command"] == "white-list del mac 30:e1:f1:73:a7:19", f"delete 4840E comando errado: {delete_target}", failures)
+
+    delete_wrong_serial = build_delete_onu_4840e_command(sample_show_pon, pon=1, onu=1, serial="80:85:44:5f:32:ca")
+    check(delete_wrong_serial["ok"] is False, f"delete 4840E deveria recusar serial divergente: {delete_wrong_serial}", failures)
+
+    delete_offline = build_delete_onu_4840e_command(
+        "",
+        pon=1,
+        onu=3,
+        serial="80:85:44:5f:32:ca",
+        status_output=sample_status,
+    )
+    check(delete_offline["ok"] is True, f"delete 4840E deve achar ONU offline pelo show onu-status: {delete_offline}", failures)
+    check(delete_offline["command"] == "white-list del mac 80:85:44:5f:32:ca", f"delete offline comando errado: {delete_offline}", failures)
+    check(_command_failed_4840e("Copy complete successfully") is False, "save 4840E com sucesso nao deve falhar", failures)
+    check(_command_failed_4840e("0 error(s), configuration saved") is False, "save 4840E com 0 error nao deve falhar", failures)
+    check(_command_failed_4840e("Invalid input detected") is True, "comando 4840E invalido deve falhar", failures)
+    leave_chan = FakeChannel(["OLT#"])
+    leave_commands = _leave_config_mode_4840e(leave_chan)
+    check(leave_commands == ["end"], f"4840E deve usar end antes de salvar: {leave_commands}", failures)
+    check(leave_chan.commands == ["end"], f"4840E enviou comandos extras ao sair do config: {leave_chan.commands}", failures)
+    monitor_keys = _onu_entity_key_variants({
+        "connector_id": "barra-connector",
+        "olt_ip": "100.65.10.200",
+        "pon": "0/4",
+        "onu_id": "19",
+        "onu_serial": "80:85:44:20:e3:42",
+    })
+    check("onu:barra-connector|100.65.10.200|0/4|19" in monitor_keys, f"monitoramento ONU 0/4/19 sem chave original: {monitor_keys}", failures)
+    check("onu:barra-connector|100.65.10.200|4|19" in monitor_keys, f"monitoramento ONU 0/4/19 sem chave normalizada: {monitor_keys}", failures)
 
     signal = onu_signal_4840e_from_outputs(
         sample_show_pon,

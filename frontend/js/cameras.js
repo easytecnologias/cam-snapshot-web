@@ -6,6 +6,7 @@ function _camKey(camOrIp) {
   const ip = String(cam.ip || cam.IP || '').trim();
   const connector = String(cam.remote_connector_id || cam.connector_id || '').trim();
   const site = String(cam.site || cam.site_name || cam.local || '').trim().toLowerCase();
+  if (connector && site && ip) return `REMOTE:${connector}:SITE:${site}:IP:${ip}`;
   if (connector && ip) return `REMOTE:${connector}:IP:${ip}`;
   if ((cam.remote === true || cam.remote === 'true' || cam.remote === 1) && site && ip) return `REMOTE_SITE:${site}:IP:${ip}`;
   return `IP:${ip}`;

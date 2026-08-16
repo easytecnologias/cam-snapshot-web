@@ -7,6 +7,90 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-14 — Vazamento entre conectores: IP de um site alcançável pelo conector de outro
+
+**Agente:** Claude
+
+**Contexto:** usuário reportou ao vivo — "coloquei IP da Barra de São
+Miguel porém no conector de Telha e ela veio, sendo que não era pra vir".
+Confirmado que o problema é real: qualquer ação que roteia por conector
+(coletar OLT, telemetria, discover/find/delete ONU, sinal, "testar ping"
+de câmera) só validava se o `connector_id` pertence ao tenant de quem
+está logado (`get_connector(..., enforce_tenant=True)`) — nunca validava
+se o IP digitado realmente está dentro da rede daquele conector
+específico. Como vários clientes usam faixa de IP privada/CGNAT parecida
+(ex.: `100.6x.x.x`), bastava a rota de rede existir (ex.: túnel WireGuard
+de um conector alcançando por engano a rede de outro site) pra qualquer
+operador confirmar reachability de um IP que não é do site/cliente que
+ele está operando. O Codex já tinha criado `connector_target_scope()` em
+`app/services/connector_service.py` e ligado em 2 lugares
+(`deployments.py` para gravador, `ws_scan_service.py` para varredura
+manual) — mas o caminho mais usado pra esse tipo de teste (OLT e "testar
+ping" de câmera) ainda não tinha a checagem.
+
+**Arquivos alterados:**
+1. `app/services/connector_service.py` — nova `ensure_connector_targets_allowed(connector_id, targets, label, connector=None)`,
+   função pública compartilhada (antes só existia uma cópia privada dentro
+   de `deployments.py`). Aceita um `connector` já resolvido pelo chamador
+   pra não buscar de novo (e pra continuar funcionando com testes que
+   trocam `get_connector` por um fake dentro do próprio módulo chamador).
+2. `app/services/olt_service.py`:
+   - `_validate_olt_network_context` (usada por `collect_macs` e
+     `collect_onu_telemetry`) agora também chama
+     `ensure_connector_targets_allowed` com `req.olt_ip`.
+   - Nova `_validate_olt_target_connector`, chamada no início de
+     `discover_onus`, `add_onu`, `find_onu`, `delete_onu` e `onu_signal`
+     — essas 5 funções aceitavam `remote_connector_id` no request model
+     mas **não validavam conector nenhum antes** (nem tenant, nem LAN).
+3. `app/api/endpoints/cameras.py` — `api_cameras_ping` (`/api/cameras/ping`)
+   agora chama `ensure_connector_targets_allowed` antes de cair no
+   fallback `ping_via_connector`. Esse endpoint é provavelmente o caminho
+   que o usuário usou pra reproduzir o vazamento (campo de IP + conector,
+   usado o tempo todo em Implantação/Manutenção).
+4. `scripts/sightops_connector_target_scope_enforcement_test.py` (novo)
+   — regressão dedicada: IP de um site via conector de outro é bloqueado
+   (400), mesmo IP via conector certo passa, ação sem `connector_id`
+   (fluxo local) continua sem exigir nada.
+5. `scripts/sightops_recorder_shortcuts_frontend_test.py` — corrigido de
+   passagem: comparava string literal de versão de cache-bust
+   (`js/deploy.js?v=167`) contra o `index.html` real, que já estava em
+   `v=168` — teste quebrava sozinho toda vez que alguém bumpava o `?v=`
+   de novo. Trocado por checagem de padrão (`js/deploy.js?v=<N>`, número
+   qualquer) — isso não é o vazamento em si, achado ao rodar
+   `scripts/check.py` durante a validação deste trabalho.
+
+**Validado:** `python scripts/check.py` local — só os 5 testes do bug
+antigo de `sys.path` (já catalogados na entrada de 12/08) continuam
+falhando; nada novo quebrou. Regressão nova
+(`sightops_connector_target_scope_enforcement_test.py`) passa.
+**Não testado em produção ainda** — mudança só está no working tree
+local, aguardando decisão do usuário sobre deploy.
+
+**Não reverter:** a checagem de escopo de LAN por conector em
+`_validate_olt_network_context`, `_validate_olt_target_connector` e
+`api_cameras_ping` — sem ela, qualquer operador consegue confirmar
+reachability (e depois rodar ação de verdade) de um IP que não é do
+site/cliente que o conector selecionado deveria servir.
+
+**Observação/limite conhecido:** `discover_onus_4840e`, `find_onu_4840e`,
+`delete_onu_4840e` e `onu_signal_4840e` (os drivers em
+`app/cli/tools/olt_4840e_collect_macs.py`) não têm nenhum parâmetro de
+relay — sempre fazem SSH direto a partir do próprio servidor, nunca
+através do agente do conector, mesmo quando `remote_connector_id` vem
+preenchido no request. A validação nova impede que esse `remote_connector_id`
+seja usado com um IP fora de lugar, mas não muda o fato de que essas 4
+ações sempre dependem do servidor ter rota direta até a OLT — isso é uma
+inconsistência de arquitetura à parte (o campo existe no request model
+mas é ignorado no driver), não investigada a fundo aqui.
+
+**Próximo passo:** decidir com o usuário se aplica em produção
+(`sightops-prod-api`) via hotfix, e depois disso, avaliar se vale
+verificar a configuração real do conector "Telha" (por que a VPN dele
+tinha rota até a rede da Barra de São Miguel) — a correção de software
+impede a ação indevida, mas não explica a causa de rede de fundo.
+
+---
+
 ## 2026-08-14 - Ignorados OLT ja recriados nao eram podados
 
 **Agente:** Codex

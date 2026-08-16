@@ -10,7 +10,7 @@ from fastapi import WebSocket
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.models.requests import ScanRequest
-from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs
+from app.services.connector_service import connector_target_scope, create_job, get_connector, list_connectors, list_jobs
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.olt_ignore_list import remove_ignored_rows
 from app.services.scan_service import run_http_scan
@@ -131,6 +131,48 @@ def _pick_probe_targets(alvo: str, sample: int = 24) -> list[str]:
         if 0 <= idx < len(targets):
             picked.append(targets[idx])
     return list(dict.fromkeys(picked))[:sample]
+
+
+async def _scope_payload_targets_for_connector(
+    ws: WebSocket,
+    payload: Dict[str, Any],
+    connector: dict[str, Any] | None,
+    alvo: str,
+) -> tuple[str, Dict[str, Any]] | None:
+    if not connector:
+        return alvo, payload
+    targets = _expand_remote_targets(alvo, limit=1024)
+    if not targets:
+        return alvo, payload
+    scope = connector_target_scope(connector, targets)
+    if not scope.get("enforced"):
+        return alvo, payload
+    blocked = scope.get("blocked") or []
+    allowed = scope.get("allowed") or []
+    if not blocked:
+        return alvo, payload
+
+    connector_name = connector.get("name") or connector.get("site") or connector.get("client") or "conector"
+    allowed_lans = ", ".join(scope.get("trusted_lans") or [])
+    sample = ", ".join(blocked[:8])
+    if not allowed:
+        await _ws_send(ws, {
+            "type": "error",
+            "message": (
+                f"Alvo fora das redes do conector {connector_name}. "
+                f"Redes permitidas: {allowed_lans or 'nenhuma detectada'}. Bloqueado: {sample}."
+            ),
+        })
+        return None
+
+    await _ws_send(ws, {
+        "type": "status",
+        "message": f"{len(blocked)} alvo(s) fora das redes do conector {connector_name} foram ignorados: {sample}.",
+    })
+    scoped_payload = dict(payload)
+    scoped_alvo = ",".join(allowed)
+    scoped_payload["alvo"] = scoped_alvo
+    return scoped_alvo, scoped_payload
 
 
 def _lan_reachable(targets: list[str], port: int | list[int] | tuple[int, ...] = 80, timeout: float = 1.2) -> bool:
@@ -483,6 +525,15 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     if scan_origin == "connector" and not connector_id:
         await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
         return
+
+    scoped = await _scope_payload_targets_for_connector(ws, payload, connector, alvo)
+    if scoped is None:
+        return
+    alvo, payload = scoped
+    try:
+        req.alvo = alvo
+    except Exception:
+        req = req.model_copy(update={"alvo": alvo})
 
     # "Ter VPN" so significa que o servidor alcanca o MikroTik, nao que alcanca
     # a LAN do cliente atras dele -- isso depende de client_lans estar de fato

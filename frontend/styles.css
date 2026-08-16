@@ -398,6 +398,111 @@ a { color: inherit; text-decoration: none; }
   box-shadow: 0 4px 12px rgba(8,127,91,.08);
 }
 .dash-action-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.access-control-kpis {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 16px;
+}
+.access-control-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.access-control-actions .dash-action-btn {
+  min-height: 52px;
+  justify-content: flex-start;
+  padding: 0 16px;
+}
+.access-control-actions .dash-action-btn:disabled {
+  cursor: not-allowed;
+  opacity: .72;
+  background: #fbfcfd;
+  color: var(--text);
+  box-shadow: none;
+}
+.access-control-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 160px auto;
+  gap: 10px;
+  align-items: center;
+  min-width: min(720px, 100%);
+}
+.access-control-toolbar input,
+.access-control-toolbar select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+}
+.access-person-modal {
+  width: min(880px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+.access-person-form {
+  padding: 18px 22px;
+  overflow: auto;
+}
+.access-person-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding-top: 2px;
+  color: var(--text);
+  font-weight: 600;
+}
+.access-person-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.access-person-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.access-person-actions .icon-button {
+  width: 36px;
+  height: 36px;
+}
+.muted-block {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.pill.success {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.pill.neutral {
+  background: #eef2f7;
+  color: var(--muted);
+}
+@media (max-width: 900px) {
+  .access-control-toolbar {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    width: 100%;
+  }
+}
 .dash-insights-grid,
 .dash-main-grid {
   display: grid;
@@ -635,6 +740,7 @@ a { color: inherit; text-decoration: none; }
 .drawer-item:hover { background: var(--hover); }
 .drawer-item-main { flex: 1; min-width: 0; overflow: hidden; }
 .drawer-item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drawer-mini-badge { display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 11px; font-weight: 800; vertical-align: middle; }
 .drawer-item-sub { font-size: 11px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drawer-filter-row { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 6px; scrollbar-width: none; }
 .drawer-filter-row::-webkit-scrollbar { display: none; }
@@ -3458,12 +3564,42 @@ body.cam-live-lock {
   grid-template-columns: minmax(480px, .92fr) minmax(560px, 1.08fr);
   align-items: stretch;
 }
+.recorder-deploy-grid.recorder-console-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+.recorder-deploy-modal {
+  width: min(96vw, 980px);
+  max-width: min(96vw, 980px);
+  padding: 0;
+  overflow: hidden;
+}
+.recorder-deploy-modal .deployment-form-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.recorder-deploy-modal .panel-header {
+  display: none;
+}
+.recorder-deploy-modal-body {
+  padding: 0;
+  max-height: min(72vh, 720px);
+  overflow: hidden;
+}
+.recorder-deploy-modal-actions {
+  border-top: 1px solid var(--border);
+  background: var(--surface-soft);
+}
 .deploy-standalone-recorder-host-row {
   grid-template-columns: minmax(210px, 1fr) minmax(90px, .32fr) minmax(90px, .32fr);
 }
 .deploy-standalone-recorder-login-row {
   grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) 138px;
   align-items: start;
+}
+.deploy-standalone-recorder-login-row.recorder-login-fields-only {
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr);
 }
 .deploy-standalone-recorder-login-row .primary-action {
   width: 100%;
@@ -3685,6 +3821,25 @@ body.cam-live-lock {
 .recorder-discovery-empty span { display: block; }
 .recorder-discovery-empty b { margin-bottom: 4px; font-size: 14px; }
 .recorder-discovery-empty span { color: var(--muted); font-size: 12px; }
+.recorder-discovery-loading {
+  border-color: rgba(8, 136, 93, .26);
+  background: linear-gradient(90deg, rgba(8, 136, 93, .08), var(--surface-soft));
+}
+.recorder-discovery-loading > svg,
+.recorder-discovery-checklist .active svg,
+.recorder-head-status.loading svg,
+.inline-loading svg {
+  animation: spin .9s linear infinite;
+}
+.inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.inline-loading svg {
+  width: 16px;
+  height: 16px;
+}
 .recorder-discovery-identity {
   padding: 0 0 12px;
   border-bottom: 1px solid var(--border);
@@ -3871,6 +4026,10 @@ body.cam-live-lock {
   height: 100%;
   overflow: hidden;
 }
+#viewDeployRecorder .recorder-deploy-modal .deployment-form-panel {
+  height: auto;
+  overflow: visible;
+}
 #viewDeployRecorder .panel-header {
   min-height: 64px;
   padding: 14px 20px;
@@ -3883,6 +4042,11 @@ body.cam-live-lock {
   overflow-y: auto;
   align-content: start;
   box-sizing: border-box;
+}
+#viewDeployRecorder .recorder-deploy-modal .deployment-form {
+  height: auto;
+  max-height: min(72vh, 640px);
+  padding: 16px 20px 18px;
 }
 #viewDeployRecorder .form-row {
   gap: 10px;
@@ -3932,6 +4096,29 @@ body.cam-live-lock {
   min-height: 40px;
   padding: 9px 12px;
   line-height: 1.35;
+}
+.recorder-saved-inline {
+  display: grid;
+  gap: 7px;
+  margin: 2px 0 10px;
+}
+.recorder-saved-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.recorder-saved-inline-head label {
+  margin: 0;
+}
+.recorder-saved-inline-head .icon-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+.recorder-saved-select {
+  height: 40px;
+  font-size: 13px;
 }
 #viewDeployRecorder .recorder-config-shell {
   height: calc(100% - 64px);
@@ -3985,6 +4172,11 @@ body.cam-live-lock {
 }
 .recorder-head-status svg { width: 14px; height: 14px; }
 .recorder-head-status.online {
+  color: var(--primary);
+  border-color: rgba(8, 136, 93, .3);
+  background: var(--primary-soft);
+}
+.recorder-head-status.loading {
   color: var(--primary);
   border-color: rgba(8, 136, 93, .3);
   background: var(--primary-soft);
@@ -4178,7 +4370,6 @@ body.cam-live-lock {
 .recorder-channel-counters .free b { color: #b66a00; }
 .recorder-channel-counters .warning b { color: var(--danger); }
 .recorder-channel-layout { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
-.recorder-channel-layout.has-detail { grid-template-columns: minmax(280px, 1fr) minmax(230px, .75fr); }
 #viewDeployRecorder .recorder-channel-layout .recorder-deploy-channel-grid {
   height: 100%;
   min-height: 0;
@@ -4210,25 +4401,26 @@ body.cam-live-lock {
 .recorder-channel-card-body small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recorder-channel-card-body strong { font-size: 12px; }
 .recorder-channel-card-body small { color: var(--muted); font-size: 10px; }
-.recorder-channel-detail { min-width: 0; padding: 14px; border-left: 1px solid var(--border); overflow-y: auto; background: var(--surface); }
+.recorder-channel-drawer { width: min(460px, 96vw); z-index: 70; }
+.recorder-channel-drawer-backdrop { z-index: 60; }
+.recorder-channel-detail { min-width: 0; height: 100%; padding: 18px 20px; overflow-y: auto; background: var(--surface); }
 .recorder-channel-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .recorder-channel-detail-head span { color: var(--primary); font-size: 10px; font-weight: 700; }
-.recorder-channel-detail-head h4 { margin: 3px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.recorder-channel-detail-head h4 { margin: 3px 0 0; font-size: 18px; overflow-wrap: anywhere; }
 .recorder-channel-detail-head button { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .recorder-channel-detail-head svg { width: 16px; }
-.recorder-channel-preview { height: 150px; margin-bottom: 12px; border-radius: 8px; overflow: hidden; background: #111; }
+.recorder-channel-preview { height: 188px; margin-bottom: 14px; border-radius: 8px; overflow: hidden; background: #111; }
 .recorder-channel-preview img { width: 100%; height: 100%; object-fit: cover; }
 .recorder-channel-preview > div { height: 100%; display: grid; place-items: center; align-content: center; gap: 6px; color: #94a3b8; }
-.recorder-channel-fields { display: grid; grid-template-columns: 1fr; gap: 8px; }
-.recorder-channel-fields > div { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.recorder-channel-fields span { display: block; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
-.recorder-channel-fields b { display: block; margin-top: 3px; font-size: 11px; overflow-wrap: anywhere; }
+.recorder-channel-fields { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.recorder-channel-fields > div { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.recorder-channel-fields span { display: block; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.recorder-channel-fields b { display: block; margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .recorder-channel-detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 14px; }
 .recorder-channel-detail-actions button { width: 100%; min-width: 0; justify-content: center; }
 .recorder-channel-detail-actions .primary-action:last-child { grid-column: 1 / -1; }
+.recorder-channel-detail-actions .danger-action:last-child { grid-column: 1 / -1; }
 @media (max-width: 900px) {
-  .recorder-channel-layout.has-detail { grid-template-columns: 1fr; overflow-y: auto; }
-  .recorder-channel-detail { border-left: 0; border-top: 1px solid var(--border); }
   #viewDeployRecorder .recorder-channel-layout .recorder-deploy-channel-grid { max-height: 420px; }
 }
 @media (max-width: 600px) {

@@ -405,6 +405,8 @@ async function loadDeployNew() {
 let _deployStandaloneRecorderProbe = null;
 let _deployStandaloneRecorderSaved = false;
 let _deployRecorderSelectedChannel = 0;
+let _deployStandaloneRecorderSavedItems = [];
+let _deployStandaloneRecorderModalMode = 'create';
 
 function deployStandaloneRecorderPayload() {
   const channels = Number(document.getElementById('deployStandaloneRecorderChannelTotal')?.value || 32);
@@ -518,14 +520,16 @@ function deployStandaloneRecorderRenderOltsForOrigin() {
     ? '<option value="">Escolha primeiro o conector</option>'
     : '<option value="">Sem OLT vinculada / informar manualmente</option>'
       + rows.map(row => `<option value="${esc(row.id)}">${esc(row.name)} - ${esc(row.site || 'sem site')} - ${esc(row.host)}</option>`).join('');
+  deployStandaloneRecorderRenderSaved();
 }
 
 function deployStandaloneRecorderApplyOlt() {
   const id = document.getElementById('deployStandaloneRecorderOlt')?.value || '';
   const olt = _deployOltRows.find(row => String(row.id) === String(id));
-  if (!olt) return;
   const site = document.getElementById('deployStandaloneRecorderSite');
-  if (site) site.value = olt.site || '';
+  if (site) site.value = olt ? (olt.site || '') : '';
+  deployStandaloneRecorderClearRecorderFields({ keepConnector: true, keepOlt: true, keepSite: true });
+  deployStandaloneRecorderRenderSaved();
   deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
 }
 
@@ -548,18 +552,21 @@ function deployRecorderChannelSnapshotUrl(item) {
 
 function deployRenderRecorderChannelDetail(item = null) {
   const detail = document.getElementById('deployRecorderChannelDetail');
-  const layout = document.getElementById('deployRecorderChannelLayout');
-  if (!detail || !layout) return;
+  const drawer = document.getElementById('deployRecorderChannelDrawer');
+  const backdrop = document.getElementById('deployRecorderChannelDrawerBackdrop');
+  if (!detail || !drawer || !backdrop) return;
   if (!item) {
-    detail.classList.add('hidden');
-    layout.classList.remove('has-detail');
+    drawer.classList.remove('open');
+    drawer.setAttribute('aria-hidden', 'true');
+    backdrop.classList.remove('open');
     detail.innerHTML = '';
     return;
   }
   const snapshot = deployRecorderChannelSnapshotUrl(item);
   const channel = String(item.channel || '').padStart(2, '0');
-  detail.classList.remove('hidden');
-  layout.classList.add('has-detail');
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  backdrop.classList.add('open');
   detail.innerHTML = `
     <div class="recorder-channel-detail-head"><div><span>CANAL ${esc(channel)}</span><h4>${esc(item.title || (item.used ? 'Canal ocupado' : 'Canal livre'))}</h4></div><button type="button" data-recorder-channel-action="close" aria-label="Fechar"><i data-lucide="x"></i></button></div>
     <div class="recorder-channel-preview">${snapshot ? `<img src="${esc(snapshot)}" alt="Snapshot do canal ${esc(channel)}">` : '<div><i data-lucide="image-off"></i><span>Sem snapshot</span></div>'}</div>
@@ -570,7 +577,7 @@ function deployRenderRecorderChannelDetail(item = null) {
       <div><span>MAC</span><b class="monospace">${esc(item.camera_mac || item.mac || '-')}</b></div>
     </div>
     <div class="recorder-channel-detail-actions">
-      ${item.used ? '<button type="button" class="secondary-action" data-recorder-channel-action="refresh"><i data-lucide="refresh-cw"></i> Atualizar</button><button type="button" class="secondary-action" data-recorder-channel-action="web"><i data-lucide="globe"></i> Web</button><button type="button" class="primary-action" data-recorder-channel-action="ping"><i data-lucide="activity"></i> Ping</button>' : '<button type="button" class="primary-action" data-recorder-channel-action="add"><i data-lucide="plus-circle"></i> Adicionar camera</button>'}
+      ${item.used ? '<button type="button" class="secondary-action" data-recorder-channel-action="refresh"><i data-lucide="refresh-cw"></i> Atualizar</button><button type="button" class="secondary-action" data-recorder-channel-action="web"><i data-lucide="globe"></i> Web</button><button type="button" class="primary-action" data-recorder-channel-action="ping"><i data-lucide="activity"></i> Ping</button><button type="button" class="secondary-action danger-action" data-recorder-channel-action="delete"><i data-lucide="trash-2"></i> Excluir canal</button>' : '<button type="button" class="primary-action" data-recorder-channel-action="add"><i data-lucide="plus-circle"></i> Adicionar camera</button>'}
     </div>`;
   lucide.createIcons();
 }
@@ -626,6 +633,73 @@ function deployStandaloneRecorderSetQuickResult(html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+function deployStandaloneRecorderRenderLoginProgress(payload) {
+  const summary = document.getElementById('deployStandaloneRecorderSummary');
+  const headStatus = document.getElementById('deployRecorderDiscoveryStatus');
+  if (headStatus) {
+    headStatus.className = 'recorder-head-status loading';
+    headStatus.innerHTML = '<i data-lucide="loader"></i><span>Conectando</span>';
+  }
+  if (summary) {
+    summary.innerHTML = `
+      <div class="recorder-discovery-empty recorder-discovery-loading">
+        <i data-lucide="loader"></i>
+        <div>
+          <b>Entrando no gravador ${esc(payload.recorder_host)}</b>
+          <span>Validando credenciais, coletando modelo, serial e canais. Isso pode levar alguns segundos pela VPN.</span>
+        </div>
+      </div>
+      <div class="recorder-discovery-checklist">
+        <div class="done"><i data-lucide="check"></i><span><b>1. Conector</b><small>Origem de acesso definida</small></span></div>
+        <div class="done active"><i data-lucide="loader"></i><span><b>2. Login</b><small>Aguardando resposta do gravador</small></span></div>
+        <div><i data-lucide="circle"></i><span><b>3. Canais</b><small>Proxima coleta</small></span></div>
+        <div><i data-lucide="circle"></i><span><b>4. Inventario</b><small>Revisar e salvar</small></span></div>
+      </div>
+    `;
+  }
+  deployStandaloneRecorderSetQuickResult(`Aguardando resposta de ${esc(payload.recorder_host)} antes de liberar as acoes.`);
+  lucide.createIcons();
+}
+
+function deployStandaloneRecorderSetModalMode(mode = 'create') {
+  _deployStandaloneRecorderModalMode = mode === 'entry' ? 'entry' : 'create';
+  const title = document.getElementById('deployStandaloneRecorderModalTitle');
+  const subtitle = document.getElementById('deployStandaloneRecorderModalSubtitle');
+  const action = document.getElementById('btnDeployStandaloneRecorderLoginModal');
+  const isEntry = _deployStandaloneRecorderModalMode === 'entry';
+  if (title) title.textContent = isEntry ? 'Entrar em gravador' : 'Cadastrar gravador';
+  if (subtitle) {
+    subtitle.textContent = isEntry
+      ? 'Escolha um gravador cadastrado por site e use a credencial salva para abrir o console.'
+      : 'Informe site, acesso e quantidade de canais para registrar no inventario.';
+  }
+  if (action) {
+    action.innerHTML = isEntry ? '<i data-lucide="log-in"></i> Entrar' : '<i data-lucide="radar"></i> Validar gravador';
+  }
+  document.querySelectorAll('[data-recorder-modal-mode]').forEach(el => {
+    const modes = String(el.dataset.recorderModalMode || '').split(/\s+/).filter(Boolean);
+    el.classList.toggle('hidden', !modes.includes(_deployStandaloneRecorderModalMode));
+  });
+  lucide.createIcons();
+}
+
+function openDeployStandaloneRecorderModal(mode = 'create') {
+  deployStandaloneRecorderSetModalMode(mode);
+  document.getElementById('modalDeployStandaloneRecorder')?.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+  deployStandaloneRecorderRenderSaved();
+  lucide.createIcons();
+}
+
+function openDeployStandaloneRecorderEntryModal() {
+  openDeployStandaloneRecorderModal('entry');
+}
+
+function closeDeployStandaloneRecorderModal() {
+  document.getElementById('modalDeployStandaloneRecorder')?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
+
 function deployStandaloneRecorderUpdateQuickActions() {
   const enabled = !!_deployStandaloneRecorderProbe;
   [
@@ -661,7 +735,7 @@ function deployStandaloneRecorderRenderProbe(data = null) {
     summary.innerHTML = `
       <div class="recorder-discovery-empty">
         <i data-lucide="${originReady ? 'log-in' : 'plug-zap'}"></i>
-        <div><b>${originReady ? 'Pronto para validar o gravador' : 'Escolha primeiro o conector'}</b><span>${originReady ? 'Informe host e credenciais ao lado e clique em Entrar.' : 'Os dados e as acoes serao liberados quando a origem estiver definida.'}</span></div>
+        <div><b>${originReady ? 'Pronto para validar o gravador' : 'Escolha primeiro o conector'}</b><span>${originReady ? 'Abra Novo gravador, informe host e credenciais e clique em Entrar.' : 'Os dados e as acoes serao liberados quando a origem estiver definida.'}</span></div>
       </div>
       <div class="recorder-discovery-checklist">
         <div class="${originReady ? 'done' : ''}"><i data-lucide="${originReady ? 'check' : 'circle'}"></i><span><b>1. Conector</b><small>${originReady ? 'Origem de acesso definida' : 'Aguardando origem'}</small></span></div>
@@ -741,11 +815,11 @@ async function loadDeployRecorderSites() {
     });
   });
   const recorderResults = await Promise.all([
-    apiJson('/api/nvr/rows').catch(() => null),
-    apiJson('/api/dvr/rows').catch(() => null),
+    apiJson('/api/nvr/inventory?site=').catch(() => null),
+    apiJson('/api/dvr/inventory?site=').catch(() => null),
   ]);
   recorderResults.forEach(data => {
-    const rows = Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.recorders) ? data.recorders : []);
+    const rows = deployStandaloneRecorderInventoryRows(data);
     rows.forEach(row => {
       const site = String(row.site || row.site_name || row.local || '').trim();
       if (site) sites.add(site);
@@ -755,9 +829,257 @@ async function loadDeployRecorderSites() {
   list.innerHTML = _deploySites.map(site => `<option value="${esc(site)}"></option>`).join('');
 }
 
+function deployStandaloneRecorderInventoryRows(data) {
+  if (Array.isArray(data?.inventory)) return data.inventory;
+  if (Array.isArray(data?.rows)) return data.rows;
+  if (Array.isArray(data?.recorders)) return data.recorders;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
+function deployStandaloneRecorderRowHost(row) {
+  return String(row?.host || row?.recorder_host || row?.nvr_host || row?.dvr_host || row?.ip || '').trim();
+}
+
+function deployStandaloneRecorderRowPort(row) {
+  const value = Number(row?.http_port || row?.recorder_http_port || row?.port || 80);
+  return value > 0 ? value : 80;
+}
+
+function deployStandaloneRecorderRowMode(row) {
+  const raw = String(row?.inventory_mode || row?.mode || '').trim().toLowerCase();
+  if (raw === 'basico' || raw === 'basic') return 'basic';
+  if (raw === 'switch') return 'switch';
+  if (raw === 'olt') return 'olt';
+  return 'basic';
+}
+
+function deployStandaloneRecorderModeLabel(mode) {
+  if (mode === 'olt') return 'Via OLT';
+  if (mode === 'switch') return 'Via Switch';
+  return 'Basico';
+}
+
+function deployStandaloneRecorderTypeLabel(type) {
+  return type === 'dvr' ? 'DVR analogico' : 'NVR IP';
+}
+
+function deployStandaloneRecorderSortIp(value) {
+  return String(value || '').split('.').map(part => Number(part) || 0);
+}
+
+function deployStandaloneRecorderCompareIp(a, b) {
+  const pa = deployStandaloneRecorderSortIp(a);
+  const pb = deployStandaloneRecorderSortIp(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff;
+  }
+  return String(a || '').localeCompare(String(b || ''), 'pt-BR', { numeric: true });
+}
+
+function deployStandaloneRecorderGroupRows(rows, type) {
+  const groups = new Map();
+  rows.forEach(row => {
+    if (!row || typeof row !== 'object') return;
+    const host = deployStandaloneRecorderRowHost(row);
+    if (!host) return;
+    const port = deployStandaloneRecorderRowPort(row);
+    const mode = deployStandaloneRecorderRowMode(row);
+    const connectorId = deployRecorderRowConnectorId(row);
+    const site = deployRecorderRowSite(row);
+    const key = [type, mode, connectorId, site.toLowerCase(), host, port].join('|');
+    const item = groups.get(key) || {
+      key,
+      type,
+      mode,
+      connectorId,
+      site,
+      host,
+      port,
+      user: '',
+      password: '',
+      name: '',
+      model: '',
+      serial: '',
+      totalChannels: 0,
+      usedChannels: 0,
+      rows: [],
+    };
+    item.user = item.user || String(row.recorder_user || row.user || 'admin').trim();
+    item.password = item.password || String(row.recorder_password || row.password || '').trim();
+    item.name = item.name || String(row.name || row.recorder_name || row.nvr_name || row.dvr_name || '').trim();
+    item.model = item.model || String(row.nvr_model || row.dvr_model || row.modelo || row.model || '').trim();
+    item.serial = item.serial || String(row.equip_serial || row.serial || row.nvr_serial || row.dvr_serial || '').trim();
+    const channel = Number(row.channel || row.ch || 0);
+    if (channel > item.totalChannels) item.totalChannels = channel;
+    const status = String(row.status || '').trim().toLowerCase();
+    if (status !== 'offline') item.usedChannels += 1;
+    item.rows.push(row);
+    groups.set(key, item);
+  });
+  return [...groups.values()].map(item => ({
+    ...item,
+    user: item.user || 'admin',
+    totalChannels: item.totalChannels || item.rows.length || 32,
+  }));
+}
+
+function deployStandaloneRecorderRenderSaved() {
+  const select = document.getElementById('deployStandaloneRecorderSavedSelect');
+  if (!select) return;
+  const origin = deployStandaloneRecorderConnectorValue();
+  const selectedOltId = document.getElementById('deployStandaloneRecorderOlt')?.value || '';
+  const selectedOlt = _deployOltRows.find(row => String(row.id) === String(selectedOltId));
+  const selectedSite = String(selectedOlt?.site || '').trim();
+  const selectedConnectorId = deployStandaloneRecorderSelectedConnectorId();
+  if (!origin) {
+    select.innerHTML = '<option value="">Escolha primeiro o conector</option>';
+    select.disabled = true;
+    return;
+  }
+  if (!selectedOltId || !selectedSite) {
+    select.innerHTML = '<option value="">Escolha uma OLT cadastrada</option>';
+    select.disabled = true;
+    return;
+  }
+  const items = _deployStandaloneRecorderSavedItems.filter(item => {
+    const sameSite = String(item.site || '').trim().toLowerCase() === selectedSite.toLowerCase();
+    if (!sameSite) return false;
+    if (selectedConnectorId && item.connectorId) return String(item.connectorId) === String(selectedConnectorId);
+    return true;
+  });
+  if (!items.length) {
+    select.innerHTML = `<option value="">Nenhum gravador cadastrado em ${esc(selectedSite)}</option>`;
+    select.disabled = true;
+    return;
+  }
+  const bySite = new Map();
+  items.forEach(item => {
+    const site = item.site || 'Sem site';
+    if (!bySite.has(site)) bySite.set(site, []);
+    bySite.get(site).push(item);
+  });
+  select.disabled = false;
+  select.innerHTML = '<option value="">Escolha um gravador cadastrado</option>' + [...bySite.entries()].map(([site, items]) => `
+    <optgroup label="${esc(site)}">
+      ${items.map(item => {
+        const title = item.name || item.host;
+        const label = [
+          title,
+          item.host,
+          deployStandaloneRecorderTypeLabel(item.type),
+          `${item.usedChannels}/${item.totalChannels} canais`,
+          deployStandaloneRecorderModeLabel(item.mode),
+        ].filter(Boolean).join(' - ');
+        return `<option value="${esc(item.key)}">${esc(label)}</option>`;
+      }).join('')}
+    </optgroup>
+  `).join('');
+}
+
+async function deployStandaloneRecorderLoadSaved() {
+  const select = document.getElementById('deployStandaloneRecorderSavedSelect');
+  if (select) {
+    select.disabled = true;
+    select.innerHTML = '<option value="">Carregando gravadores cadastrados...</option>';
+  }
+  const [nvrData, dvrData] = await Promise.all([
+    apiJson('/api/nvr/inventory?site=').catch(() => null),
+    apiJson('/api/dvr/inventory?site=').catch(() => null),
+  ]);
+  _deployStandaloneRecorderSavedItems = [
+    ...deployStandaloneRecorderGroupRows(deployStandaloneRecorderInventoryRows(nvrData), 'nvr'),
+    ...deployStandaloneRecorderGroupRows(deployStandaloneRecorderInventoryRows(dvrData), 'dvr'),
+  ].sort((a, b) => {
+    const siteDiff = String(a.site || '').localeCompare(String(b.site || ''), 'pt-BR', { numeric: true });
+    if (siteDiff) return siteDiff;
+    const hostDiff = deployStandaloneRecorderCompareIp(a.host, b.host);
+    if (hostDiff) return hostDiff;
+    return a.type.localeCompare(b.type);
+  });
+  deployStandaloneRecorderRenderSaved();
+}
+
+function deployStandaloneRecorderUseSaved(key) {
+  const item = _deployStandaloneRecorderSavedItems.find(row => row.key === key);
+  if (!item) return;
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  };
+  const connector = document.getElementById('deployStandaloneRecorderConnector');
+  if (connector) {
+    const target = item.connectorId || DEPLOY_LOCAL_ORIGIN;
+    connector.value = [...connector.options].some(opt => opt.value === target) ? target : DEPLOY_LOCAL_ORIGIN;
+  }
+  deployStandaloneRecorderRenderOltsForOrigin();
+  deployStandaloneRecorderRenderConnectorStatus();
+  setValue('deployStandaloneRecorderSite', item.site);
+  setValue('deployStandaloneRecorderType', item.type);
+  setValue('deployStandaloneRecorderInventoryMode', item.mode);
+  setValue('deployStandaloneRecorderHost', item.host);
+  setValue('deployStandaloneRecorderPort', item.port);
+  setValue('deployStandaloneRecorderChannelTotal', item.totalChannels || 32);
+  setValue('deployStandaloneRecorderUser', item.user || 'admin');
+  setValue('deployStandaloneRecorderPassword', item.password || '');
+  setValue('deployStandaloneRecorderName', item.name || item.site || '');
+  _deployStandaloneRecorderProbe = null;
+  _deployStandaloneRecorderSaved = false;
+  _deployRecorderSelectedChannel = 0;
+  deployStandaloneRecorderRenderProbe(null);
+  deployStandaloneRecorderSetResult('Gravador carregado do inventario. Informe a senha e clique em Entrar para abrir o console.');
+  deployStandaloneRecorderSetQuickResult('Entre no gravador para liberar as configuracoes rapidas.');
+  const savedSelect = document.getElementById('deployStandaloneRecorderSavedSelect');
+  if (savedSelect) savedSelect.value = '';
+  deployStandaloneRecorderSelectConfigTab('overview');
+  if (item.password) {
+    closeDeployStandaloneRecorderModal();
+    deployStandaloneRecorderSetResult(`Gravador ${esc(item.host)} carregado. Entrando com a credencial salva...`);
+    deployStandaloneRecorderLogin();
+    showToast(`Gravador ${item.host} carregado.`);
+  } else {
+    openDeployStandaloneRecorderModal('entry');
+    const pass = document.getElementById('deployStandaloneRecorderPassword');
+    if (pass) pass.focus();
+    deployStandaloneRecorderSetResult('Senha nao encontrada no cadastro salvo. Informe a senha uma vez e salve o gravador novamente.', true);
+    showToast('Senha nao encontrada no cadastro salvo.', true);
+  }
+  lucide.createIcons();
+}
+
+function deployStandaloneRecorderClearRecorderFields({ keepConnector = false, keepOlt = false, keepSite = false } = {}) {
+  _deployStandaloneRecorderProbe = null;
+  _deployStandaloneRecorderSaved = false;
+  _deployRecorderSelectedChannel = 0;
+  const ids = [
+    'deployStandaloneRecorderHost',
+    'deployStandaloneRecorderPassword',
+    'deployStandaloneRecorderName',
+  ];
+  if (!keepSite) ids.unshift('deployStandaloneRecorderSite');
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const port = document.getElementById('deployStandaloneRecorderPort');
+  const channels = document.getElementById('deployStandaloneRecorderChannelTotal');
+  const user = document.getElementById('deployStandaloneRecorderUser');
+  if (port) port.value = '80';
+  if (channels) channels.value = '32';
+  if (user) user.value = 'admin';
+  const connector = document.getElementById('deployStandaloneRecorderConnector');
+  const olt = document.getElementById('deployStandaloneRecorderOlt');
+  if (!keepConnector && connector) connector.value = '';
+  if (!keepOlt && olt) olt.value = '';
+  deployStandaloneRecorderRenderProbe(null);
+  deployStandaloneRecorderSetResult('Entre no gravador para validar modelo, serial e canais.');
+  deployStandaloneRecorderSetQuickResult('Entre no gravador para liberar as configuracoes rapidas.');
+}
+
 async function loadDeployRecorder() {
   deploymentApplyPreferredInventoryMode();
-  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts()]);
+  await Promise.all([loadDeployRecorderSites(), deployStandaloneRecorderLoadConnectors(), deployStandaloneRecorderLoadOlts(), deployStandaloneRecorderLoadSaved()]);
   deployStandaloneRecorderRenderOltsForOrigin();
   deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
   deployStandaloneRecorderSelectConfigTab(
@@ -779,9 +1101,11 @@ async function deployStandaloneRecorderLogin() {
     showToast('Informe host, usuario e senha do gravador.', true);
     return;
   }
-  const btn = document.getElementById('btnDeployStandaloneRecorderLogin');
+  const btn = document.getElementById('btnDeployStandaloneRecorderLoginModal');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader"></i> Entrando'; lucide.createIcons(); }
-  deployStandaloneRecorderSetResult(`Conectando em ${esc(payload.recorder_host)}...`);
+  deployStandaloneRecorderSetResult(`<span class="inline-loading"><i data-lucide="loader"></i> Conectando em ${esc(payload.recorder_host)}...</span>`);
+  deployStandaloneRecorderRenderLoginProgress(payload);
+  showToast(`Conectando em ${payload.recorder_host}...`);
   try {
     const res = await api('/api/deployments/recorder-login', { method: 'POST', body: JSON.stringify(payload) });
     const data = await res?.json().catch(() => ({}));
@@ -797,6 +1121,7 @@ async function deployStandaloneRecorderLogin() {
     deployStandaloneRecorderRenderProbe(data);
     const label = [data.brand, data.model, data.serial].filter(Boolean).join(' / ');
     deployStandaloneRecorderSetResult(`Login confirmado em ${esc(payload.recorder_host)}${label ? ` - ${esc(label)}` : ''}. Agora pode salvar no inventario.`);
+    closeDeployStandaloneRecorderModal();
     showToast('Login do gravador confirmado.');
   } catch (err) {
     const detail = err?.detail || err?.message || 'Falha ao entrar no gravador.';
@@ -805,7 +1130,13 @@ async function deployStandaloneRecorderLogin() {
     deployStandaloneRecorderSetResult(esc(detail), true);
     showToast(detail, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="log-in"></i> Entrar'; lucide.createIcons(); }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = _deployStandaloneRecorderModalMode === 'entry'
+        ? '<i data-lucide="log-in"></i> Entrar'
+        : '<i data-lucide="radar"></i> Validar gravador';
+      lucide.createIcons();
+    }
   }
 }
 
@@ -827,6 +1158,7 @@ function deployStandaloneRecorderRows(payload, probe) {
       host: payload.recorder_host,
       http_port: payload.recorder_http_port,
       recorder_user: payload.recorder_user,
+      recorder_password: payload.recorder_password,
       name: payload.name,
       channel,
       title,
@@ -887,6 +1219,7 @@ async function deployStandaloneRecorderSave() {
     }
     deployStandaloneRecorderSetResult(`${rows.length} canal(is) salvos no inventario de ${payload.recorder_type.toUpperCase()} para ${esc(payload.site)}.`);
     _deployStandaloneRecorderSaved = true;
+    await deployStandaloneRecorderLoadSaved();
     deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
     showToast('Gravador salvo no inventario.');
   } catch (err) {
@@ -899,28 +1232,10 @@ async function deployStandaloneRecorderSave() {
 }
 
 function deployStandaloneRecorderClear() {
-  _deployStandaloneRecorderProbe = null;
-  _deployStandaloneRecorderSaved = false;
-  ['deployStandaloneRecorderSite', 'deployStandaloneRecorderHost', 'deployStandaloneRecorderPassword', 'deployStandaloneRecorderName'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  const port = document.getElementById('deployStandaloneRecorderPort');
-  const channels = document.getElementById('deployStandaloneRecorderChannelTotal');
-  const user = document.getElementById('deployStandaloneRecorderUser');
-  if (port) port.value = '80';
-  if (channels) channels.value = '32';
-  if (user) user.value = 'admin';
-  const connector = document.getElementById('deployStandaloneRecorderConnector');
-  if (connector) connector.value = '';
-  const olt = document.getElementById('deployStandaloneRecorderOlt');
-  if (olt) olt.value = '';
+  deployStandaloneRecorderClearRecorderFields();
   deployStandaloneRecorderRenderOltsForOrigin();
   deploymentApplyPreferredInventoryMode();
   deployStandaloneRecorderRenderConnectorStatus();
-  deployStandaloneRecorderRenderProbe(null);
-  deployStandaloneRecorderSetResult('Entre no gravador para validar modelo, serial e canais.');
-  deployStandaloneRecorderSetQuickResult('Entre no gravador para liberar as configuracoes rapidas.');
   lucide.createIcons();
 }
 
@@ -954,6 +1269,51 @@ function deployStandaloneRecorderRequireLogin() {
   deployStandaloneRecorderSetQuickResult('Entre no gravador antes de executar esta acao.', true);
   showToast('Entre no gravador antes.', true);
   return false;
+}
+
+async function deployStandaloneRecorderDeleteChannel(item) {
+  if (!deployStandaloneRecorderRequireLogin()) return;
+  const payload = deployStandaloneRecorderPayload();
+  const channel = Number(item?.channel || 0);
+  if (!channel) {
+    showToast('Selecione um canal para excluir.', true);
+    return;
+  }
+  const title = item?.title || item?.camera_ip || `Canal ${String(channel).padStart(2, '0')}`;
+  const ok = await showConfirm({
+    eyebrow: 'Gravador',
+    title: `Excluir canal ${String(channel).padStart(2, '0')}`,
+    msg: `Remover "${title}" do gravador ${payload.recorder_host}? Isso limpa a camera configurada neste canal e atualiza o inventario salvo.`,
+    label: 'Excluir canal',
+    danger: true,
+  });
+  if (!ok) return;
+
+  deployStandaloneRecorderSetQuickResult(`Excluindo canal ${String(channel).padStart(2, '0')} de ${esc(payload.recorder_host)}...`);
+  showToast(`Excluindo canal ${String(channel).padStart(2, '0')}...`);
+  try {
+    const res = await api('/api/deployments/recorder-remove-camera', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, recorder_channel: channel, channel }),
+    });
+    const data = await res?.json().catch(() => ({}));
+    if (!res?.ok || data?.ok === false) {
+      const detail = data?.detail || data?.message || 'Falha ao excluir canal.';
+      deployStandaloneRecorderSetQuickResult(esc(detail), true);
+      showToast(detail, true);
+      return;
+    }
+    _deployStandaloneRecorderProbe = { ..._deployStandaloneRecorderProbe, ...data, channels: data.channels || [] };
+    _deployRecorderSelectedChannel = 0;
+    deployStandaloneRecorderRenderProbe(_deployStandaloneRecorderProbe);
+    await deployStandaloneRecorderLoadSaved();
+    deployStandaloneRecorderSetQuickResult(`Canal ${String(channel).padStart(2, '0')} excluido do gravador.`);
+    showToast('Canal excluido.');
+  } catch (err) {
+    const detail = err?.detail || err?.message || 'Falha ao excluir canal.';
+    deployStandaloneRecorderSetQuickResult(esc(detail), true);
+    showToast(detail, true);
+  }
 }
 
 function deployStandaloneRecorderOpenWeb() {
@@ -1905,12 +2265,12 @@ async function onuConfirmDelete() {
 
   const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   const data = await res?.json().catch(() => ({}));
-  closeOnuDeleteModal();
-  _onuDeleteTarget = null;
-  if (!res?.ok || data?.ok === false) {
-    onuSetResult('onuDeleteResult', esc(data?.detail || 'Falha ao excluir ONU (confira se a posicao esta correta).'), true);
-    return;
-  }
+    closeOnuDeleteModal();
+    _onuDeleteTarget = null;
+    if (!res?.ok || data?.ok === false) {
+      onuSetResult('onuDeleteResult', esc(data?.detail || data?.error || 'Falha ao excluir ONU (confira se a posicao esta correta).'), true);
+      return;
+    }
   _oltInventoryRows = null;
   const removed = Number(data.inventory?.removed || 0);
   const invMsg = removed > 0 ? ` Removida do inventario OLT (${removed} registro${removed !== 1 ? 's' : ''}).` : ' Nenhum registro correspondente no inventario OLT.';

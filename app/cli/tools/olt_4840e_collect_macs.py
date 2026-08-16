@@ -166,6 +166,226 @@ def find_onu_4840e_from_show_pon(output: str, serial: str) -> Optional[Dict[str,
     return None
 
 
+def build_delete_onu_4840e_command(
+    show_pon_output: str,
+    pon: int | str,
+    onu: int | str,
+    serial: str = "",
+    status_output: str = "",
+) -> Dict[str, Any]:
+    """Monta o comando seguro de exclusao para Intelbras 4840E.
+
+    A 4840E remove ONU autorizada pela whitelist da PON. Antes de gerar o
+    comando, localizamos a posicao no `show pon` e conferimos o serial/MAC
+    quando ele foi informado pela tela.
+    """
+    pon_label = _pon_number_to_label(pon)
+    onu_id = str(onu or "").strip()
+    wanted_serial = _norm_mac(serial)
+    if not pon_label or not onu_id:
+        return {"ok": False, "error": "Informe PON e numero da ONU para excluir."}
+
+    found: Optional[Dict[str, Any]] = None
+    for entry in _parse_show_pon(show_pon_output):
+        if str(entry.get("pon") or "") == pon_label and str(entry.get("onu_id") or "") == onu_id:
+            found = entry
+            break
+    if not found and status_output:
+        status_entry = _parse_onu_status_4840e(status_output).get(f"{pon_label}/{onu_id}")
+        if status_entry:
+            found = {
+                "pon": status_entry.get("pon", ""),
+                "pon_num": status_entry.get("pon_num", 0),
+                "onu_id": status_entry.get("onu_id", ""),
+                "onu_mac": status_entry.get("onu_mac", ""),
+                "onu_type": status_entry.get("onu_type", ""),
+                "description": "",
+            }
+
+    if not found:
+        return {"ok": False, "error": f"ONU {pon_label}/{onu_id} nao encontrada no show pon/show onu-status da 4840E."}
+
+    onu_mac = _norm_mac(found.get("onu_mac", ""))
+    if not onu_mac:
+        return {"ok": False, "error": f"ONU {pon_label}/{onu_id} sem MAC/serial valido no show pon."}
+    if wanted_serial and wanted_serial != onu_mac:
+        return {"ok": False, "error": "O serial informado nao pertence a PON/ONU selecionada."}
+
+    return {
+        "ok": True,
+        "driver": "intelbras_4840e",
+        "pon": int(found.get("pon_num") or 0),
+        "pon_label": pon_label,
+        "onu": int(onu_id),
+        "onu_label": f"{pon_label}/{onu_id}",
+        "serial": found.get("onu_mac", ""),
+        "model": found.get("onu_type", ""),
+        "description": found.get("description", ""),
+        "command": f"white-list del mac {found.get('onu_mac', '')}",
+    }
+
+
+def _command_failed_4840e(output: str) -> bool:
+    text = (output or "").lower()
+    success_markers = (
+        "success",
+        "successful",
+        "done",
+        "complete",
+        "completed",
+        "saved",
+        "ok",
+    )
+    hard_fail_markers = (
+        "invalid",
+        "incomplete",
+        "ambiguous",
+        "unknown command",
+        "failed",
+        "not found",
+        "not exist",
+        "does not exist",
+        "permission denied",
+    )
+    if any(marker in text for marker in success_markers) and not any(marker in text for marker in hard_fail_markers):
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "invalid",
+            "incomplete",
+            "ambiguous",
+            "unknown command",
+            "failed",
+            "not found",
+            "not exist",
+            "does not exist",
+            "permission denied",
+        )
+    ) or bool(re.search(r"\berror\b(?!\s*[:=]?\s*0\b)", text))
+
+
+def _cli_with_yes(chan, cmd: str, timeout: float = 30.0) -> str:
+    out = _cli(chan, cmd, timeout=timeout)
+    for _ in range(4):
+        tail = (out or "")[-700:]
+        if re.search(r"destination\s+filename|file\s+name", tail, re.I):
+            chan.send("\n")
+        elif re.search(r"are you sure|sure\s*\(?y/n\)?|\[y/n\]|\[n\]|continue\?|save current configuration", tail, re.I):
+            chan.send("y\n")
+        else:
+            break
+        time.sleep(0.2)
+        out += _read(chan, timeout=timeout)
+    return out
+
+
+def _save_config_4840e(chan, timeout: float = 45.0) -> Dict[str, Any]:
+    commands = ("copy running-config startup-config", "write", "save")
+    attempts: List[Dict[str, str]] = []
+    for cmd in commands:
+        out = _cli_with_yes(chan, cmd, timeout=timeout)
+        attempts.append({"command": cmd, "output": out.strip()[:800]})
+        if not _command_failed_4840e(out):
+            return {"ok": True, "command": cmd, "output": out, "attempts": attempts}
+    return {"ok": False, "command": commands[-1], "output": attempts[-1]["output"] if attempts else "", "attempts": attempts}
+
+
+def _leave_config_mode_4840e(chan, timeout: float = 12.0) -> List[str]:
+    commands: List[str] = []
+    out = _cli(chan, "end", timeout=timeout)
+    commands.append("end")
+    if not _command_failed_4840e(out):
+        return commands
+    _cli(chan, "exit", timeout=timeout)
+    _cli(chan, "exit", timeout=timeout)
+    commands.extend(["exit", "exit"])
+    return commands
+
+
+def delete_onu_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: int | str,
+    onu: int | str,
+    serial: str = "",
+    port: int = 22,
+    timeout: float = 22.0,
+) -> Dict[str, Any]:
+    """Exclui ONU autorizada na Intelbras 4840E pela whitelist da PON."""
+
+    def run(chan) -> Dict[str, Any]:
+        show_pon = _cli(chan, "show pon", timeout=max(30.0, timeout * 3))
+        try:
+            status_out = _cli(chan, "show onu-status", timeout=max(30.0, timeout * 3))
+        except Exception:
+            status_out = ""
+        target = build_delete_onu_4840e_command(show_pon, pon=pon, onu=onu, serial=serial, status_output=status_out)
+        if not target.get("ok"):
+            return target
+
+        commands_run = ["show pon", "show onu-status", "conf t", f"interface pon {target['pon_label']}", target["command"]]
+        _cli(chan, "conf t", timeout=max(12.0, timeout))
+        _cli(chan, f"interface pon {target['pon_label']}", timeout=max(12.0, timeout))
+        output = _cli(chan, target["command"], timeout=max(20.0, timeout))
+        if _command_failed_4840e(output):
+            fallback_command = f"white-list del {target['serial']}"
+            fallback_output = _cli(chan, fallback_command, timeout=max(20.0, timeout))
+            commands_run.append(fallback_command)
+            if _command_failed_4840e(fallback_output):
+                return {
+                    "ok": False,
+                    "error": "A 4840E recusou o comando de exclusao da whitelist.",
+                    "failed_at": fallback_command,
+                    "commands_run": commands_run,
+                    "raw_output": (output + "\n" + fallback_output).strip()[:800],
+                }
+            output = fallback_output
+
+        verify = _cli(chan, "show white-list", timeout=max(20.0, timeout))
+        commands_run.append("show white-list")
+        if _norm_mac(target["serial"]) and _norm_mac(target["serial"]) in _norm_mac(verify):
+            return {
+                "ok": False,
+                "error": "A 4840E respondeu sem erro, mas a ONU continua na whitelist.",
+                "failed_at": "show white-list",
+                "commands_run": commands_run,
+                "raw_output": verify.strip()[:800],
+            }
+
+        commands_run.extend(_leave_config_mode_4840e(chan, timeout=max(12.0, timeout)))
+        save_result = _save_config_4840e(chan, timeout=max(45.0, timeout * 2))
+        commands_run.extend([attempt["command"] for attempt in save_result.get("attempts") or []])
+        if not save_result.get("ok"):
+            return {
+                "ok": False,
+                "error": "ONU removida, mas a 4840E recusou salvar a configuracao.",
+                "failed_at": save_result.get("command") or "save",
+                "commands_run": commands_run,
+                "raw_output": "\n".join(
+                    f"{attempt.get('command')}: {attempt.get('output')}"
+                    for attempt in save_result.get("attempts") or []
+                )[:1200],
+            }
+
+        return {
+            "ok": True,
+            "driver": "intelbras_4840e",
+            "pon": target["pon"],
+            "pon_label": target["pon_label"],
+            "onu": target["onu"],
+            "serial": target["serial"],
+            "model": target["model"],
+            "commands_run": commands_run,
+            "save_command": save_result.get("command"),
+            "raw_output": output.strip()[:500],
+            "save_output": (save_result.get("output") or "").strip()[:500],
+        }
+
+    return _with_4840e_session(olt_ip, user, password, port, timeout, run)
+
+
 def _parse_onu_status_4840e(output: str) -> Dict[str, Dict[str, Any]]:
     rows: Dict[str, Dict[str, Any]] = {}
     for raw in (output or "").splitlines():
@@ -537,6 +757,10 @@ def _read(chan, timeout: float = 10.0) -> str:
     user_re   = re.compile(r"(?:^|\n)\s*(?:login\s+as|username)\b.*:\s*$", re.I)
     pass_re   = re.compile(r"(?:^|\n)\s*password\b.*:\s*$", re.I)
     err_re    = re.compile(r"username\s+or\s+password\s+error", re.I)
+    ask_re    = re.compile(
+        r"(destination\s+filename|file\s+name|are you sure|sure\s*\(?y/n\)?|\[y/n\]|\[n\]|continue\?|save current configuration)",
+        re.I,
+    )
 
     more_re   = re.compile(r"(--More--|More:|Press any key|Press any button|next page|continue)", re.I)
 
@@ -554,7 +778,7 @@ def _read(chan, timeout: float = 10.0) -> str:
                 except Exception:
                     pass
 
-            if err_re.search(buf) or user_re.search(buf) or pass_re.search(buf) or prompt_re.search(buf):
+            if err_re.search(buf) or user_re.search(buf) or pass_re.search(buf) or ask_re.search(tail) or prompt_re.search(buf):
                 return buf
 
         if time.time() - t0 > timeout:

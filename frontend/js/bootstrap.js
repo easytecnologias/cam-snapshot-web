@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // tem 1.600 linhas de fiacao e foi o motivo de dividir o app.js.
   bindDeployOlt();
   bindMonitoring();
+  bindAccessControl();
 
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
@@ -192,23 +193,39 @@ document.addEventListener('DOMContentLoaded', () => {
     select.addEventListener('change', () => deploymentSetPreferredInventoryMode(select.value));
   });
   document.getElementById('deployStandaloneRecorderConnector')?.addEventListener('change', () => {
-    _deployStandaloneRecorderProbe = null;
-    deployStandaloneRecorderRenderProbe(null);
+    deployStandaloneRecorderClearRecorderFields({ keepConnector: true });
     deployStandaloneRecorderRenderOltsForOrigin();
-    deployStandaloneRecorderApplyOlt();
     deployStandaloneRecorderRenderConnectorStatus();
   });
-  document.getElementById('btnDeployStandaloneRecorderLogin')?.addEventListener('click', deployStandaloneRecorderLogin);
+  document.getElementById('btnDeployStandaloneRecorderOpenEntryModal')?.addEventListener('click', openDeployStandaloneRecorderEntryModal);
+  document.getElementById('btnDeployStandaloneRecorderOpenModal')?.addEventListener('click', () => openDeployStandaloneRecorderModal('create'));
+  document.getElementById('btnDeployStandaloneRecorderCloseModal')?.addEventListener('click', closeDeployStandaloneRecorderModal);
+  document.getElementById('btnDeployStandaloneRecorderCancelModal')?.addEventListener('click', closeDeployStandaloneRecorderModal);
+  document.getElementById('btnDeployStandaloneRecorderLoginModal')?.addEventListener('click', deployStandaloneRecorderLogin);
   document.getElementById('btnDeployStandaloneRecorderClear')?.addEventListener('click', deployStandaloneRecorderClear);
+  document.getElementById('btnDeployStandaloneRecorderReloadSaved')?.addEventListener('click', deployStandaloneRecorderLoadSaved);
+  document.getElementById('deployStandaloneRecorderSavedSelect')?.addEventListener('change', event => {
+    const key = event.target?.value || '';
+    if (key) deployStandaloneRecorderUseSaved(key);
+  });
   document.getElementById('btnDeployStandaloneRecorderOpenWeb')?.addEventListener('click', deployStandaloneRecorderOpenWeb);
   document.getElementById('btnDeployStandaloneRecorderRefreshChannels')?.addEventListener('click', deployStandaloneRecorderLogin);
   document.getElementById('btnDeployStandaloneRecorderPlayback')?.addEventListener('click', deployStandaloneRecorderPlayback);
   document.getElementById('btnDeployStandaloneRecorderSetNtp')?.addEventListener('click', deployStandaloneRecorderSetNtp);
   document.getElementById('btnDeployStandaloneRecorderReboot')?.addEventListener('click', deployStandaloneRecorderReboot);
   document.getElementById('btnDeployStandaloneRecorderFicha')?.addEventListener('click', deployStandaloneRecorderFicha);
+  document.getElementById('deployRecorderChannelDrawerBackdrop')?.addEventListener('click', () => {
+    _deployRecorderSelectedChannel = 0;
+    deployRenderStandaloneRecorderChannels();
+  });
   document.getElementById('deployRecorderChannelSearch')?.addEventListener('input', deployRenderStandaloneRecorderChannels);
   document.getElementById('deployRecorderChannelFilter')?.addEventListener('change', deployRenderStandaloneRecorderChannels);
   document.getElementById('viewDeployRecorder')?.addEventListener('click', event => {
+    const savedRecorder = event.target.closest('[data-recorder-saved-key]');
+    if (savedRecorder) {
+      deployStandaloneRecorderUseSaved(savedRecorder.dataset.recorderSavedKey || '');
+      return;
+    }
     const channelCard = event.target.closest('[data-recorder-channel]');
     if (channelCard) {
       _deployRecorderSelectedChannel = Number(channelCard.dataset.recorderChannel || 0);
@@ -222,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (channelAction === 'refresh') { deployStandaloneRecorderLogin(); return; }
       if (channelAction === 'web' && item?.camera_ip) { window.open(`http://${item.camera_ip}`, '_blank', 'noopener'); return; }
       if (channelAction === 'ping' && item?.camera_ip) { openPingTerminal(item.camera_ip); return; }
+      if (channelAction === 'delete' && item?.used) { deployStandaloneRecorderDeleteChannel(item); return; }
       if (channelAction === 'add') { navigateTo('deploy-new'); return; }
     }
     const action = event.target.closest('[data-recorder-overview-action]')?.dataset.recorderOverviewAction;

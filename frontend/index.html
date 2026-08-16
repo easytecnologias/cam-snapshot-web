@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=141">
+  <link rel="stylesheet" href="styles.css?v=151">
 </head>
 <body>
 
@@ -101,6 +101,10 @@
         <button class="nav-item" data-view="playback"><i data-lucide="film"></i><span>Reproducao</span></button>
         <button class="nav-item" data-view="ia-nvr"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
 
+        <!-- Controle de Acesso -->
+        <div class="nav-section-label">Controle de Acesso</div>
+        <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
+
         </div>
 
         <div id="navOwnerMode" hidden>
@@ -179,7 +183,7 @@
             <div><span>Cameras IP</span><strong id="mCamsOnline">-</strong><small id="mCamsTotal"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
           </article>
-          <article class="dash-kpi-card" id="kpiGravadores" data-dash-type="dvr" title="Ver gravadores">
+          <article class="dash-kpi-card" id="kpiGravadores" data-dash-type="recorders" title="Ver gravadores">
             <div class="metric-icon blue"><i data-lucide="hard-drive"></i></div>
             <div><span>Gravadores</span><strong id="mDvrNvr">-</strong><small id="mDvrNvrCanais"></small></div>
             <i data-lucide="chevron-right" class="kpi-arrow"></i>
@@ -1382,6 +1386,161 @@
               <div><h2>Resultado</h2><p id="iaNvrStatus">Faca uma busca para ver os resultados.</p></div>
             </div>
             <div id="iaNvrResults" class="playback-result"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- --- VIEW: CONTROLE DE ACESSO --- -->
+      <section class="workspace hidden" id="viewAccessControl">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de Acesso</p>
+            <h1>Controle de Acesso</h1>
+            <p>Base para reconhecimento facial, dispositivos multi-marca e notificacoes de entrada e saida.</p>
+          </div>
+          <button class="primary-action" id="btnAccessPersonNew" type="button"><i data-lucide="plus"></i> Nova pessoa</button>
+        </div>
+
+        <div class="metrics access-control-kpis">
+          <article class="dash-kpi-card">
+            <div class="metric-icon green"><i data-lucide="graduation-cap"></i></div>
+            <div><span>Alunos</span><strong id="accessKpiStudents">0</strong><small id="accessKpiPeopleSub">nenhum cadastro</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon blue"><i data-lucide="scan-face"></i></div>
+            <div><span>Dispositivos</span><strong id="accessKpiDevices">0</strong><small>Intelbras primeiro</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon cyan"><i data-lucide="door-open"></i></div>
+            <div><span>Eventos hoje</span><strong id="accessKpiEvents">0</strong><small>entradas e saidas</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon amber"><i data-lucide="message-circle"></i></div>
+            <div><span>WhatsApp</span><strong id="accessKpiWhatsapp">0</strong><small>fila aguardando homologacao</small></div>
+          </article>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Pessoas</h2>
+              <p>Alunos, responsaveis e contato para notificacao.</p>
+            </div>
+            <div class="access-control-toolbar">
+              <input id="accessPeopleSearch" type="search" placeholder="Buscar nome, matricula, documento ou WhatsApp">
+              <select id="accessPeopleStatus">
+                <option value="">Todos</option>
+                <option value="active">Ativos</option>
+                <option value="inactive">Inativos</option>
+              </select>
+              <button class="secondary-action" id="btnAccessPeopleRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table responsive-data-table" id="accessPeopleTable">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Tipo</th>
+                  <th>Matricula</th>
+                  <th>Turma</th>
+                  <th>Responsavel</th>
+                  <th>WhatsApp</th>
+                  <th>Status</th>
+                  <th>Acoes</th>
+                </tr>
+              </thead>
+              <tbody id="accessPeopleBody">
+                <tr class="empty-row"><td colspan="8">Nenhuma pessoa cadastrada.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-header">
+            <div><h2>Fluxo planejado</h2><p>Cadastro central do SightOps com drivers por fabricante.</p></div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Etapa</th><th>Objetivo</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Pessoas</td><td>Aluno, responsavel, foto facial e WhatsApp.</td><td><span class="pill neutral">planejado</span></td></tr>
+                <tr><td>Dispositivos</td><td>Controladoras Intelbras primeiro, depois Control iD e Hikvision.</td><td><span class="pill neutral">planejado</span></td></tr>
+                <tr><td>Eventos</td><td>Entrada, saida, negado e equipamento offline.</td><td><span class="pill neutral">planejado</span></td></tr>
+                <tr><td>Notificacao</td><td>Mensagem ao responsavel quando aluno entrar ou sair.</td><td><span class="pill neutral">planejado</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="modalAccessPerson" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessPersonModal()">
+          <div class="modal access-person-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Controle de Acesso</p>
+                <h2 id="accessPersonModalTitle">Nova pessoa</h2>
+                <p>Cadastro base para reconhecimento facial e notificacao ao responsavel.</p>
+              </div>
+              <button class="icon-button" id="btnAccessPersonClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <form id="accessPersonForm" class="access-person-form">
+              <input id="accessPersonId" type="hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessPersonName">Nome</label>
+                  <input id="accessPersonName" required placeholder="Nome completo">
+                </div>
+                <div class="form-group">
+                  <label for="accessPersonType">Tipo</label>
+                  <select id="accessPersonType">
+                    <option value="student">Aluno</option>
+                    <option value="employee">Funcionario</option>
+                    <option value="visitor">Visitante</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessPersonEnrollment">Matricula</label>
+                  <input id="accessPersonEnrollment" placeholder="Ex: 2026-001">
+                </div>
+                <div class="form-group">
+                  <label for="accessPersonDocument">Documento</label>
+                  <input id="accessPersonDocument" placeholder="CPF/RG opcional">
+                </div>
+                <div class="form-group">
+                  <label for="accessPersonClass">Turma / setor</label>
+                  <input id="accessPersonClass" placeholder="Ex: 5 ano A">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessPersonGuardian">Responsavel</label>
+                  <input id="accessPersonGuardian" placeholder="Nome do responsavel">
+                </div>
+                <div class="form-group">
+                  <label for="accessPersonPhone">WhatsApp</label>
+                  <input id="accessPersonPhone" placeholder="DDD + numero">
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-group">
+                  <label for="accessPersonNotes">Observacoes</label>
+                  <textarea id="accessPersonNotes" rows="3" placeholder="Observacao interna"></textarea>
+                </div>
+              </div>
+              <div class="access-person-checks">
+                <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
+                <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
+              </div>
+            </form>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessPersonCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessPersonSave" type="submit" form="accessPersonForm"><i data-lucide="save"></i> Salvar pessoa</button>
+            </div>
           </div>
         </div>
       </section>
@@ -2612,12 +2771,24 @@
             <p>Configure DVR/NVR, valide acesso e grave os canais no inventario.</p>
           </div>
           <div class="page-heading-actions">
+            <button class="secondary-action" id="btnDeployStandaloneRecorderOpenEntryModal" type="button"><i data-lucide="log-in"></i> Entrar em gravador</button>
+            <button class="primary-action" id="btnDeployStandaloneRecorderOpenModal" type="button"><i data-lucide="plus"></i> Cadastrar gravador</button>
             <button class="secondary-action" id="btnDeployStandaloneRecorderClear" type="button"><i data-lucide="rotate-ccw"></i> Limpar formulario</button>
           </div>
         </div>
 
-        <div class="deployment-grid recorder-deploy-grid">
-          <div class="panel deployment-form-panel">
+        <div id="modalDeployStandaloneRecorder" class="modal-backdrop hidden" onclick="if(event.target===this)closeDeployStandaloneRecorderModal()">
+          <div class="modal recorder-deploy-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Implantacao</p>
+                <h2 id="deployStandaloneRecorderModalTitle">Cadastrar gravador</h2>
+                <p id="deployStandaloneRecorderModalSubtitle">Informe site, acesso e quantidade de canais para registrar no inventario.</p>
+              </div>
+              <button class="icon-button" id="btnDeployStandaloneRecorderCloseModal" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body recorder-deploy-modal-body">
+          <div class="deployment-form-panel">
             <div class="panel-header">
               <div><h2>Novo gravador</h2><p>Informe site, acesso e quantidade de canais para registrar no inventario.</p></div>
             </div>
@@ -2640,11 +2811,20 @@
                     </select>
                   </div>
                 </div>
+                <div class="recorder-saved-inline" data-recorder-modal-mode="entry">
+                  <div class="recorder-saved-inline-head">
+                    <label>Gravadores cadastrados</label>
+                    <button class="icon-button" id="btnDeployStandaloneRecorderReloadSaved" type="button" title="Atualizar gravadores cadastrados"><i data-lucide="refresh-cw"></i></button>
+                  </div>
+                  <select id="deployStandaloneRecorderSavedSelect" class="filter-select recorder-saved-select" style="width:100%">
+                    <option value="">Carregando gravadores cadastrados...</option>
+                  </select>
+                </div>
                 <div id="deployStandaloneRecorderConnectorStatus" class="deploy-result-box error">
                   Escolha Local/VPN do servidor ou um conector online com VPN. Os dados do gravador ficam bloqueados ate definir a origem.
                 </div>
               </div>
-              <div class="form-row recorder-destination-row">
+              <div class="form-row recorder-destination-row" data-recorder-modal-mode="create">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderSite">Site / local</label>
                   <input id="deployStandaloneRecorderSite" data-recorder-needs-connector="1" list="deployStandaloneRecorderSiteList" placeholder="Site manual ou vindo do conector" disabled>
@@ -2666,7 +2846,7 @@
                   </select>
                 </div>
               </div>
-              <div class="form-row deploy-standalone-recorder-host-row">
+              <div class="form-row deploy-standalone-recorder-host-row" data-recorder-modal-mode="create">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderHost">Host do gravador</label>
                   <input id="deployStandaloneRecorderHost" data-recorder-needs-connector="1" placeholder="10.10.9.154" disabled>
@@ -2680,7 +2860,7 @@
                   <input id="deployStandaloneRecorderChannelTotal" data-recorder-needs-connector="1" type="number" value="32" min="1" max="256" disabled>
                 </div>
               </div>
-              <div class="form-row deploy-standalone-recorder-login-row">
+              <div class="form-row deploy-standalone-recorder-login-row recorder-login-fields-only">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderUser">Usuario</label>
                   <input id="deployStandaloneRecorderUser" data-recorder-needs-connector="1" value="admin" autocomplete="username" disabled>
@@ -2689,12 +2869,8 @@
                   <label for="deployStandaloneRecorderPassword">Senha</label>
                   <input id="deployStandaloneRecorderPassword" data-recorder-needs-connector="1" type="password" placeholder="Senha" autocomplete="current-password" disabled>
                 </div>
-                <div class="form-group deploy-button-field">
-                  <label>&nbsp;</label>
-                  <button class="primary-action" id="btnDeployStandaloneRecorderLogin" data-recorder-needs-connector="1" type="button" disabled><i data-lucide="log-in"></i> Entrar</button>
-                </div>
               </div>
-              <div class="form-row" style="grid-template-columns:1fr">
+              <div class="form-row" style="grid-template-columns:1fr" data-recorder-modal-mode="create">
                 <div class="form-group">
                   <label for="deployStandaloneRecorderName">Nome do gravador (opcional)</label>
                   <input id="deployStandaloneRecorderName" data-recorder-needs-connector="1" placeholder="Ex: NVR Portaria" disabled>
@@ -2703,7 +2879,15 @@
               <div id="deployStandaloneRecorderResult" class="deploy-result-box">Entre no gravador para validar modelo, serial e canais.</div>
             </form>
           </div>
+            </div>
+            <div class="modal-actions recorder-deploy-modal-actions">
+              <button class="secondary-action" id="btnDeployStandaloneRecorderCancelModal" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnDeployStandaloneRecorderLoginModal" data-recorder-needs-connector="1" type="button" disabled><i data-lucide="log-in"></i> Entrar</button>
+            </div>
+          </div>
+        </div>
 
+        <div class="deployment-grid recorder-deploy-grid recorder-console-only">
           <div class="panel deployment-side-panel">
             <div class="panel-header">
               <div><h2>Console do gravador</h2><p>Descoberta, configuracoes e canais em um fluxo lateral.</p></div>
@@ -2728,7 +2912,7 @@
                   <div id="deployStandaloneRecorderSummary" class="recorder-deploy-summary">
                     <div class="recorder-discovery-empty">
                       <i data-lucide="log-in"></i>
-                      <div><b>Aguardando acesso ao gravador</b><span>Preencha os dados ao lado e clique em Entrar.</span></div>
+                      <div><b>Aguardando acesso ao gravador</b><span>Clique em Novo gravador, preencha os dados e entre.</span></div>
                     </div>
                   </div>
                 </section>
@@ -2752,7 +2936,6 @@
                     <div id="deployStandaloneRecorderChannels" class="recorder-deploy-channel-grid">
                       <div class="recorder-deploy-empty">Nenhum canal carregado ainda.</div>
                     </div>
-                    <aside id="deployRecorderChannelDetail" class="recorder-channel-detail hidden"></aside>
                   </div>
                 </section>
 
@@ -2827,6 +3010,11 @@
             </div>
           </div>
         </div>
+
+        <div id="deployRecorderChannelDrawerBackdrop" class="drawer-backdrop recorder-channel-drawer-backdrop"></div>
+        <aside id="deployRecorderChannelDrawer" class="drawer recorder-channel-drawer" aria-label="Detalhes do canal do gravador" aria-hidden="true">
+          <div id="deployRecorderChannelDetail" class="recorder-channel-detail"></div>
+        </aside>
       </section>
 
       <!-- --- VIEW: IMPLANTACAO --- -->
@@ -4746,8 +4934,8 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=158"></script>
-  <script src="js/dashboard.js?v=152"></script>
+  <script src="js/core.js?v=159"></script>
+  <script src="js/dashboard.js?v=153"></script>
   <script src="js/cameras.js?v=171"></script>
   <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
@@ -4755,12 +4943,12 @@
   <script src="js/maintenance.js?v=141"></script>
   <script src="js/analysis.js?v=143"></script>
   <script src="js/network.js?v=157"></script>
-  <script src="js/deploy.js?v=157"></script>
+  <script src="js/deploy.js?v=168"></script>
   <script src="js/deployOlt.js?v=158"></script>
   <script src="js/connectors.js?v=161"></script>
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/bootstrap.js?v=177"></script>
+  <script src="js/bootstrap.js?v=186"></script>
 </body>
 </html>

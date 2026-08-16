@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Query
 from app.services.ping_service import ping as ping_with_cache
 from app.services.ws_scan_service import ping_via_connector
+from app.services.connector_service import ensure_connector_targets_allowed
 
 from pydantic import BaseModel
 
@@ -261,7 +262,13 @@ def api_cameras(
             seen_ips.add(ip)
             rec = recorder_by_ip.get(ip)
             if rec:
-                cam = _apply_recorder_fallback(cam, rec)
+                cam_connector = _txt(cam.get("remote_connector_id") or cam.get("connector_id"))
+                rec_connector = _txt(rec.get("remote_connector_id") or rec.get("connector_id"))
+                cam_site = _txt(cam.get("site") or cam.get("site_name") or cam.get("local"))
+                same_connector = not cam_connector or not rec_connector or cam_connector == rec_connector
+                same_site = not cam_site or _site_matches(rec, cam_site)
+                if same_connector and same_site:
+                    cam = _apply_recorder_fallback(cam, rec)
 
         health_label = r.get("ai_health_label") or ""
         if not health_label:
@@ -516,6 +523,10 @@ async def api_cameras_ping(
     result = await ping_with_cache(ip=target, timeout=timeout, method=method_n, force=force)
     connector_id = str(remote_connector_id or "").strip()
     if connector_id and not bool(result.get("online")):
+        # O conector so deve confirmar alcance de IPs da propria LAN --
+        # sem isso, um conector de um site consegue "confirmar online"
+        # o IP de outro site/cliente que tenha rota de rede coincidente.
+        ensure_connector_targets_allowed(connector_id, [target], "IP da camera")
         via_connector = await ping_via_connector(connector_id, target)
         result["via_connector"] = via_connector
         if via_connector:

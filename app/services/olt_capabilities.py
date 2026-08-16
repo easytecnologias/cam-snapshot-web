@@ -73,10 +73,11 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
             "telemetry": True,
             "discover_onus": True,
             "find_onu": True,
+            "delete_onu": True,
             "onu_signal": True,
         })
         label = "Intelbras 4840E"
-        notes = "Homologada para inventario, telemetria, localizar/consultar ONU e MACs. Autorizacao/exclusao ainda bloqueadas ate homologacao."
+        notes = "Homologada para inventario, telemetria, localizar/consultar ONU, MACs e exclusao por whitelist. Autorizacao ainda bloqueada ate homologacao."
     elif driver == "fiberhome":
         caps.update({
             "collect_macs": True,

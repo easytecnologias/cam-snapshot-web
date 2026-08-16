@@ -308,6 +308,7 @@ const VIEW_META = {
   'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
+  'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
   'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
   'deploy-olt':    { title: 'Implantacao - OLT', sub: 'Cadastro das OLTs usadas na operacao' },
@@ -343,6 +344,7 @@ const VIEW_ID_MAP = {
   'mnt-nvr':        'viewMntNvr',
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
+  'access-control':  'viewAccessControl',
   'net-operate':    'viewNetOperate',
   planning:         'viewPlanning',
   'deploy-olt':     'viewDeployOlt',
@@ -411,6 +413,7 @@ function loadView(view) {
     case 'mnt-nvr':     loadMntNvr();       break;
     case 'playback':    loadPlayback();     break;
     case 'ia-nvr':      loadIaNvr();        break;
+    case 'access-control': loadAccessControl(); break;
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;
     case 'kmz':         loadKmz();          break;

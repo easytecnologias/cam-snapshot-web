@@ -26,6 +26,7 @@ from app.services.olt_ignore_list import is_ignored_olt_row
 from app.cli.tools.olt_4840e_collect_macs import (
     collect_macs_4840e,
     collect_onu_telemetry_4840e,
+    delete_onu_4840e,
     discover_onus_4840e,
     find_onu_4840e,
     onu_signal_4840e,
@@ -48,7 +49,7 @@ from app.cli.tools.olt_8820i_add_onu import (
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.connector_service import get_connector, list_connectors
+from app.services.connector_service import ensure_connector_targets_allowed, get_connector, list_connectors
 from app.services.olt_capabilities import require_olt_capability
 
 logger = logging.getLogger("cam-snapshot")
@@ -63,6 +64,29 @@ def _is_fiberhome(req: Any) -> bool:
 def _is_intelbras_4840e(req: Any) -> bool:
     model = _norm_text(getattr(req, "olt_model", "") or getattr(req, "model", "")).lower()
     return model in {"4840e", "4840", "intelbras_4840e", "intelbras-4840e", "4840e_epon", "4840e-epon"}
+
+
+def _validate_olt_target_connector(req: Any) -> None:
+    """Confere que o IP da OLT desta acao esta na LAN do conector informado.
+
+    Ao contrario de `_validate_olt_network_context`, nao exige `scan_origin`
+    (discover/add/find/delete/onu_signal nao tem esse campo no request model)
+    -- dispara sempre que `remote_connector_id`/`connector_id` vier
+    preenchido. Sem isso, era possivel apontar o conector de um site pra IP de
+    outro e a acao seguia em frente sem checar se o alvo faz sentido ali.
+    """
+    connector_id = str(
+        getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or ""
+    ).strip()
+    if not connector_id:
+        return
+    olt_ip = str(getattr(req, "olt_ip", "") or "").strip()
+    if not olt_ip:
+        return
+    connector = get_connector(connector_id, include_token=False, enforce_tenant=True)
+    if not connector:
+        raise HTTPException(404, "Conector nao encontrado.")
+    ensure_connector_targets_allowed(connector_id, [olt_ip], "IP da OLT", connector=connector)
 
 
 def _validate_olt_network_context(req: OltCollectMacsRequest) -> dict[str, Any] | None:
@@ -86,6 +110,9 @@ def _validate_olt_network_context(req: OltCollectMacsRequest) -> dict[str, Any] 
     tunnel = connector.get("tunnel") if isinstance(connector.get("tunnel"), dict) else {}
     if not tunnel.get("enabled"):
         raise HTTPException(409, "VPN do conector nao configurada. Prepare a VPN antes de coletar a OLT.")
+    olt_ip = str(getattr(req, "olt_ip", "") or "").strip()
+    if olt_ip:
+        ensure_connector_targets_allowed(connector_id, [olt_ip], "IP da OLT", connector=connector)
     return connector
 
 
@@ -411,6 +438,8 @@ def _upsert_onu_inventory(req: OltAddOnuRequest, result: dict[str, Any]) -> dict
 
 
 def _remove_onu_inventory(req: OltDeleteOnuRequest) -> dict[str, Any]:
+    from app.services.monitoring_service import disable_onu_monitoring_for_rows
+
     obj = load_olt_cpe_state() or {}
     existing_rows = [r for r in list(obj.get("cpes") or obj.get("rows") or []) if isinstance(r, dict)]
     serial = _norm_text(req.serial).upper()
@@ -431,11 +460,18 @@ def _remove_onu_inventory(req: OltDeleteOnuRequest) -> dict[str, Any]:
         "cpes": kept,
     }
     save_olt_cpe_state(out_obj)
+    monitoring_sync = disable_onu_monitoring_for_rows(removed_rows)
     camera_sync = _sync_camera_inventory_from_olt_rows(
         kept,
         clear_macs={_norm_text(row.get("cpe_mac") or row.get("mac")) for row in removed_rows},
     )
-    return {"ok": True, "removed": removed, "remaining": len(kept), **camera_sync}
+    return {
+        "ok": True,
+        "removed": removed,
+        "remaining": len(kept),
+        "monitoring_disabled": int(monitoring_sync.get("disabled") or 0),
+        **camera_sync,
+    }
 
 
 def _sync_authorized_onu_devices(
@@ -1094,6 +1130,7 @@ def list_macs(site: str = "") -> Dict[str, Any]:
 def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
     """Descobre ONUs nao autorizadas ou lista ocupacao por driver homologado."""
     require_olt_capability(req, "discover_onus", "descobrir ONUs")
+    _validate_olt_target_connector(req)
     with perf_step("OLT_discover_onus"):
         try:
             if _is_fiberhome(req):
@@ -1128,6 +1165,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     """Autoriza uma ONU descoberta (serno_id) na OLT Intelbras 8820i, com
     servico/VLAN opcional. Equipamento vivo -- ver aviso na UI de Implantacao."""
     require_olt_capability(req, "add_onu", "autorizar ONU")
+    _validate_olt_target_connector(req)
     if _is_fiberhome(req):
         with perf_step("OLT_add_onu_fiberhome"):
             try:
@@ -1190,6 +1228,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
 def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
     """Localiza uma ONU ja autorizada pelo serial no driver da OLT."""
     require_olt_capability(req, "find_onu", "localizar ONU")
+    _validate_olt_target_connector(req)
     with perf_step("OLT_find_onu"):
         try:
             if _is_fiberhome(req):
@@ -1238,14 +1277,25 @@ def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
 
 
 def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
-    """Exclui uma ONU ja autorizada (posicao pon/onu) na OLT Intelbras 8820i.
+    """Exclui uma ONU ja autorizada (posicao pon/onu) no driver homologado.
 
     Equipamento vivo -- remove o cadastro e desliga o servico da ONU."""
     require_olt_capability(req, "delete_onu", "excluir ONU")
+    _validate_olt_target_connector(req)
     with perf_step("OLT_delete_onu"):
         try:
             if _is_fiberhome(req):
                 result = delete_onu_fiberhome(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon,
+                    onu=req.onu,
+                    serial=req.serial,
+                    timeout=req.timeout,
+                )
+            elif _is_intelbras_4840e(req):
+                result = delete_onu_4840e(
                     olt_ip=req.olt_ip,
                     user=req.user,
                     password=req.password,
@@ -1276,6 +1326,7 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
 def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
     """Consulta status/MACs aprendidos atras de uma ONU autorizada."""
     require_olt_capability(req, "onu_signal", "consultar sinal/MACs")
+    _validate_olt_target_connector(req)
     with perf_step("OLT_onu_signal"):
         try:
             if _is_fiberhome(req):
