@@ -569,6 +569,14 @@ a { color: inherit; text-decoration: none; }
   height: 16px;
   cursor: pointer;
 }
+.row-menu-toggle {
+  width: 28px;
+  height: 28px;
+}
+.row-menu-toggle svg {
+  width: 14px;
+  height: 14px;
+}
 .row-actions-panel {
   position: fixed;
   z-index: 200;

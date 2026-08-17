@@ -122,7 +122,7 @@ function renderAccessPeople(rows) {
       <td>${esc(formatBrPhone(person.guardian_phone) || '-')}</td>
       <td>${accessPersonStatusBadge(person.active)}</td>
       <td class="access-checkbox-cell">
-        <button class="icon-button" type="button" data-row-menu-person="${esc(person.id)}" aria-label="Mais acoes para ${esc(person.full_name)}"><i data-lucide="more-vertical"></i></button>
+        <button class="icon-button row-menu-toggle" type="button" data-row-menu-person="${esc(person.id)}" aria-label="Mais acoes para ${esc(person.full_name)}"><i data-lucide="more-vertical"></i></button>
       </td>
     </tr>
   `).join('');
