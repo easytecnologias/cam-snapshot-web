@@ -75,13 +75,19 @@ def _apply_additive_columns(c: Any, backend: str) -> None:
     normalmente pelo CREATE TABLE IF NOT EXISTS logo abaixo, que ja traz todas
     as colunas.
     """
+    is_postgres = str(backend or "sqlite").strip().lower() == "postgres"
     for table, column, column_ddl in _ADDITIVE_COLUMNS:
         if not _table_exists(c, backend, table):
             continue
         if _column_exists(c, backend, table, column):
             continue
         # table/column/column_ddl vem so da constante acima, nunca de input.
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_ddl}")
+        # No Postgres ainda usamos IF NOT EXISTS como segunda rede: a consulta a
+        # information_schema nao filtra por schema, entao a checagem acima pode
+        # errar num banco com search_path incomum -- e ai o ALTER cru abortaria
+        # o ensure_access_control_schema inteiro. SQLite nao aceita essa clausula.
+        if_not_exists = "IF NOT EXISTS " if is_postgres else ""
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {if_not_exists}{column} {column_ddl}")
 
 
 def ensure_access_control_schema() -> None:
