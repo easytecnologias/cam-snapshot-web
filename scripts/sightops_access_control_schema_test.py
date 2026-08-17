@@ -34,12 +34,51 @@ def test_group_tables_exist() -> None:
         assert row["name"] == "Alunos Manha"
 
 
+def test_group_and_rule_crud() -> None:
+    from app.services.access_control_store import (
+        list_door_groups,
+        list_group_members,
+        list_groups,
+        list_rules,
+        save_door_group,
+        save_group,
+        save_rule,
+        set_door_group_members,
+        set_group_members,
+    )
+
+    token = set_current_tenant_slug("cliente-b")
+    try:
+        person = save_person({"full_name": "Maria Teste", "site": "Sede"})
+        group = save_group({"name": "Alunos Manha", "site": "Sede"})
+        set_group_members(group["id"], [person["id"]])
+        assert list_group_members(group["id"]) == [person["id"]]
+        assert list_groups()[0]["name"] == "Alunos Manha"
+
+        door_group = save_door_group({"name": "Portao Principal", "site": "Sede"})
+        set_door_group_members(door_group["id"], ["dev1"])
+        assert list_door_groups()[0]["name"] == "Portao Principal"
+
+        rule = save_rule({
+            "people_group_id": group["id"],
+            "door_group_id": door_group["id"],
+            "weekdays": "12345",
+            "time_start": "06:00",
+            "time_end": "19:00",
+        })
+        assert rule["weekdays"] == "12345"
+        assert list_rules()[0]["door_group_id"] == door_group["id"]
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sightops-access-schema-") as tmp:
         db_store.SIGHTOPS_DB_PATH = Path(tmp) / "access.db"
         db_store.init_db()
         test_person_has_site_column()
         test_group_tables_exist()
+        test_group_and_rule_crud()
     print("OK access control schema: site em pessoa + tabelas de grupo")
 
 

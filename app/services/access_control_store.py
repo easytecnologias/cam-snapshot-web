@@ -117,6 +117,21 @@ def ensure_access_control_schema() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_access_door_group_members_device
               ON access_door_group_members(tenant_slug, device_id);
+
+            CREATE TABLE IF NOT EXISTS access_rules (
+              id TEXT PRIMARY KEY,
+              tenant_slug TEXT NOT NULL,
+              people_group_id TEXT NOT NULL,
+              door_group_id TEXT NOT NULL,
+              weekdays TEXT NOT NULL DEFAULT '1234567',
+              time_start TEXT NOT NULL DEFAULT '',
+              time_end TEXT NOT NULL DEFAULT '',
+              active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_rules_tenant
+              ON access_rules(tenant_slug, active);
             """,
         )
 
@@ -281,3 +296,225 @@ def access_control_summary() -> Dict[str, Any]:
         "events_today": 0,
         "whatsapp_queue": 0,
     }
+
+
+def list_groups(site: str = "") -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    where = ["tenant_slug = ?"]
+    params: list[Any] = [tenant]
+    if site:
+        where.append("site = ?")
+        params.append(_clean_text(site, 120))
+    with db_store._conn() as c:
+        rows = c.execute(
+            f"SELECT * FROM access_groups WHERE {' AND '.join(where)} ORDER BY active DESC, name COLLATE NOCASE",
+            tuple(params),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_group(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    group_id = _clean_text(payload.get("id"), 80) or uuid.uuid4().hex
+    name = _clean_text(payload.get("name"), 160)
+    if not name:
+        raise ValueError("Informe o nome do grupo.")
+    site = _clean_text(payload.get("site"), 120)
+    active = _bool_int(payload.get("active"), True)
+    with db_store._conn() as c:
+        c.execute(
+            """
+            INSERT INTO access_groups(id, tenant_slug, site, name, active, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
+              site=excluded.site, name=excluded.name, active=excluded.active, updated_at=datetime('now')
+            WHERE access_groups.tenant_slug=excluded.tenant_slug
+            """,
+            (group_id, tenant, site, name, active),
+        )
+        row = c.execute("SELECT * FROM access_groups WHERE tenant_slug=? AND id=?", (tenant, group_id)).fetchone()
+    if row is None:
+        raise ValueError("Grupo nao encontrado neste cliente.")
+    return dict(row)
+
+
+def delete_group(group_id: str) -> bool:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    gid = _clean_text(group_id, 80)
+    if not gid:
+        return False
+    with db_store._conn() as c:
+        cur = c.execute("DELETE FROM access_groups WHERE tenant_slug=? AND id=?", (tenant, gid))
+        c.execute("DELETE FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid))
+        return int(cur.rowcount or 0) > 0
+
+
+def set_group_members(group_id: str, person_ids: List[str]) -> None:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    gid = _clean_text(group_id, 80)
+    with db_store._conn() as c:
+        c.execute("DELETE FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid))
+        for pid in person_ids:
+            clean_pid = _clean_text(pid, 80)
+            if clean_pid:
+                c.execute(
+                    "INSERT OR IGNORE INTO access_group_members(tenant_slug, group_id, person_id) VALUES(?, ?, ?)",
+                    (tenant, gid, clean_pid),
+                )
+
+
+def list_group_members(group_id: str) -> List[str]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    gid = _clean_text(group_id, 80)
+    with db_store._conn() as c:
+        rows = c.execute(
+            "SELECT person_id FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid)
+        ).fetchall()
+    return [r["person_id"] for r in rows]
+
+
+def list_door_groups(site: str = "") -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    where = ["tenant_slug = ?"]
+    params: list[Any] = [tenant]
+    if site:
+        where.append("site = ?")
+        params.append(_clean_text(site, 120))
+    with db_store._conn() as c:
+        rows = c.execute(
+            f"SELECT * FROM access_door_groups WHERE {' AND '.join(where)} ORDER BY active DESC, name COLLATE NOCASE",
+            tuple(params),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_door_group(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    door_group_id = _clean_text(payload.get("id"), 80) or uuid.uuid4().hex
+    name = _clean_text(payload.get("name"), 160)
+    if not name:
+        raise ValueError("Informe o nome do grupo de portas.")
+    site = _clean_text(payload.get("site"), 120)
+    active = _bool_int(payload.get("active"), True)
+    with db_store._conn() as c:
+        c.execute(
+            """
+            INSERT INTO access_door_groups(id, tenant_slug, site, name, active, created_at, updated_at)
+            VALUES(?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
+              site=excluded.site, name=excluded.name, active=excluded.active, updated_at=datetime('now')
+            WHERE access_door_groups.tenant_slug=excluded.tenant_slug
+            """,
+            (door_group_id, tenant, site, name, active),
+        )
+        row = c.execute(
+            "SELECT * FROM access_door_groups WHERE tenant_slug=? AND id=?", (tenant, door_group_id)
+        ).fetchone()
+    if row is None:
+        raise ValueError("Grupo de portas nao encontrado neste cliente.")
+    return dict(row)
+
+
+def delete_door_group(door_group_id: str) -> bool:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(door_group_id, 80)
+    if not did:
+        return False
+    with db_store._conn() as c:
+        cur = c.execute("DELETE FROM access_door_groups WHERE tenant_slug=? AND id=?", (tenant, did))
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did))
+        return int(cur.rowcount or 0) > 0
+
+
+def set_door_group_members(door_group_id: str, device_ids: List[str]) -> None:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(door_group_id, 80)
+    with db_store._conn() as c:
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did))
+        for dev_id in device_ids:
+            clean_dev = _clean_text(dev_id, 80)
+            if clean_dev:
+                c.execute(
+                    "INSERT OR IGNORE INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES(?, ?, ?)",
+                    (tenant, did, clean_dev),
+                )
+
+
+def list_door_group_members(door_group_id: str) -> List[str]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(door_group_id, 80)
+    with db_store._conn() as c:
+        rows = c.execute(
+            "SELECT device_id FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did)
+        ).fetchall()
+    return [r["device_id"] for r in rows]
+
+
+def list_rules() -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    with db_store._conn() as c:
+        rows = c.execute(
+            "SELECT * FROM access_rules WHERE tenant_slug=? ORDER BY active DESC, created_at",
+            (tenant,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_rule(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    rule_id = _clean_text(payload.get("id"), 80) or uuid.uuid4().hex
+    people_group_id = _clean_text(payload.get("people_group_id"), 80)
+    door_group_id = _clean_text(payload.get("door_group_id"), 80)
+    if not people_group_id or not door_group_id:
+        raise ValueError("Informe o grupo de pessoas e o grupo de portas.")
+    weekdays = re.sub(r"[^1-7]", "", str(payload.get("weekdays") or "1234567")) or "1234567"
+    time_start = _clean_text(payload.get("time_start"), 5)
+    time_end = _clean_text(payload.get("time_end"), 5)
+    active = _bool_int(payload.get("active"), True)
+    with db_store._conn() as c:
+        c.execute(
+            """
+            INSERT INTO access_rules(
+              id, tenant_slug, people_group_id, door_group_id, weekdays, time_start, time_end,
+              active, created_at, updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET
+              people_group_id=excluded.people_group_id,
+              door_group_id=excluded.door_group_id,
+              weekdays=excluded.weekdays,
+              time_start=excluded.time_start,
+              time_end=excluded.time_end,
+              active=excluded.active,
+              updated_at=datetime('now')
+            WHERE access_rules.tenant_slug=excluded.tenant_slug
+            """,
+            (rule_id, tenant, people_group_id, door_group_id, weekdays, time_start, time_end, active),
+        )
+        row = c.execute("SELECT * FROM access_rules WHERE tenant_slug=? AND id=?", (tenant, rule_id)).fetchone()
+    if row is None:
+        raise ValueError("Regra nao encontrada neste cliente.")
+    return dict(row)
+
+
+def delete_rule(rule_id: str) -> bool:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    rid = _clean_text(rule_id, 80)
+    if not rid:
+        return False
+    with db_store._conn() as c:
+        cur = c.execute("DELETE FROM access_rules WHERE tenant_slug=? AND id=?", (tenant, rid))
+        return int(cur.rowcount or 0) > 0
