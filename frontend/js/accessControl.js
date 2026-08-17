@@ -238,6 +238,12 @@ function openAccessDeviceModal(device = null) {
   const item = device || {};
   setText('accessDeviceModalTitle', item.id ? 'Editar dispositivo' : 'Novo dispositivo');
   document.getElementById('accessDeviceId').value = item.id || '';
+  // Preserva vendor/model do registro existente: o backend faz UPDATE completo
+  // (ON CONFLICT DO UPDATE SET vendor=excluded.vendor, model=excluded.model), entao
+  // se nao reenviarmos esses campos aqui, editar um dispositivo apaga o model salvo
+  // e forca o vendor de volta para o default "dahua".
+  document.getElementById('accessDeviceVendor').value = item.vendor || 'dahua';
+  document.getElementById('accessDeviceModel').value = item.model || '';
   document.getElementById('accessDeviceName').value = item.name || '';
   document.getElementById('accessDeviceSite').value = item.site || '';
   document.getElementById('accessDeviceHost').value = item.host || '';
@@ -263,6 +269,8 @@ async function saveAccessDeviceFromForm(event) {
     id: document.getElementById('accessDeviceId').value.trim(),
     name: document.getElementById('accessDeviceName').value.trim(),
     site: document.getElementById('accessDeviceSite').value.trim(),
+    vendor: document.getElementById('accessDeviceVendor').value.trim(),
+    model: document.getElementById('accessDeviceModel').value.trim(),
     host: document.getElementById('accessDeviceHost').value.trim(),
     username: document.getElementById('accessDeviceUsername').value.trim(),
     password: document.getElementById('accessDevicePassword').value,

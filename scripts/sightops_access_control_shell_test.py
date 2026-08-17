@@ -100,6 +100,21 @@ def test_access_devices_tab_exists() -> None:
     assert "data-access-open-door" in access_js
 
 
+def test_access_device_save_preserves_vendor_and_model() -> None:
+    # save_device() no backend faz UPDATE completo (ON CONFLICT DO UPDATE SET
+    # vendor=excluded.vendor, model=excluded.model), entao o payload de edicao
+    # precisa sempre carregar vendor/model do registro atual -- senao editar um
+    # dispositivo apaga o model salvo e reseta o vendor pro default "dahua".
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert 'id="accessDeviceVendor"' in html
+    assert 'id="accessDeviceModel"' in html
+    assert "item.vendor" in access_js
+    assert "item.model" in access_js
+    assert "vendor: document.getElementById('accessDeviceVendor')" in access_js
+    assert "model: document.getElementById('accessDeviceModel')" in access_js
+
+
 if __name__ == "__main__":
     test_access_control_menu_has_own_sidebar_section()
     test_access_control_view_exists_and_is_routable()
@@ -108,4 +123,5 @@ if __name__ == "__main__":
     test_access_control_module_can_be_enabled_per_tenant()
     test_access_control_backend_router_is_registered()
     test_access_devices_tab_exists()
+    test_access_device_save_preserves_vendor_and_model()
     print("OK access control shell")
