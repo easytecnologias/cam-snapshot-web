@@ -25,6 +25,7 @@ function bindAccessControl() {
   document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleAction);
   bindAccessTabs();
   bindAccessDevices();
+  bindAccessGroups();
 }
 
 let _accessPeopleSearchTimer = null;
@@ -176,6 +177,8 @@ function bindAccessTabs() {
         panel.hidden = panel.dataset.accessPanel !== tab;
       });
       if (tab === 'devices') loadAccessDevices();
+      if (tab === 'groups') loadAccessGroups();
+      if (tab === 'rules') loadAccessRules();
     });
   });
 }
@@ -375,4 +378,176 @@ async function handleAccessPeopleAction(event) {
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel excluir a pessoa.', true);
   }
+}
+
+let _accessGroupRows = [];
+let _accessDoorGroupRows = [];
+let _accessRuleRows = [];
+
+function bindAccessGroups() {
+  document.getElementById('btnAccessGroupNew')?.addEventListener('click', () => openAccessGroupModal());
+  document.getElementById('btnAccessDoorGroupNew')?.addEventListener('click', () => openAccessDoorGroupModal());
+  document.getElementById('btnAccessRuleNew')?.addEventListener('click', () => openAccessRuleModal());
+  document.getElementById('accessGroupsBody')?.addEventListener('click', handleAccessGroupAction);
+  document.getElementById('accessDoorGroupsBody')?.addEventListener('click', handleAccessDoorGroupAction);
+  document.getElementById('accessRulesBody')?.addEventListener('click', handleAccessRuleAction);
+}
+
+async function loadAccessGroups(force = false) {
+  try {
+    const [groupsRes, doorGroupsRes] = await Promise.all([
+      apiJson('/api/access-control/groups', { forceRefresh: force, cacheTtl: 0 }),
+      apiJson('/api/access-control/door-groups', { forceRefresh: force, cacheTtl: 0 }),
+    ]);
+    _accessGroupRows = groupsRes?.groups || [];
+    _accessDoorGroupRows = doorGroupsRes?.door_groups || [];
+    renderAccessGroups(_accessGroupRows);
+    renderAccessDoorGroups(_accessDoorGroupRows);
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel carregar grupos.', true);
+  }
+}
+
+function renderAccessGroups(rows) {
+  const body = document.getElementById('accessGroupsBody');
+  if (!body) return;
+  if (!rows.length) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum grupo cadastrado.</td></tr>';
+    scheduleResponsiveHydration(body);
+    return;
+  }
+  body.innerHTML = rows.map(group => `
+    <tr>
+      <td><strong>${esc(group.name)}</strong></td>
+      <td>${esc(group.site || '-')}</td>
+      <td>${(group.member_ids || []).length}</td>
+      <td>
+        <div class="access-person-actions">
+          <button class="icon-button" type="button" data-access-edit-group="${esc(group.id)}" aria-label="Editar ${esc(group.name)}"><i data-lucide="pencil"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  scheduleResponsiveHydration(body);
+  lucide.createIcons();
+}
+
+function renderAccessDoorGroups(rows) {
+  const body = document.getElementById('accessDoorGroupsBody');
+  if (!body) return;
+  if (!rows.length) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum grupo de porta cadastrado.</td></tr>';
+    scheduleResponsiveHydration(body);
+    return;
+  }
+  body.innerHTML = rows.map(group => `
+    <tr>
+      <td><strong>${esc(group.name)}</strong></td>
+      <td>${esc(group.site || '-')}</td>
+      <td>${(group.device_ids || []).length}</td>
+      <td>
+        <div class="access-person-actions">
+          <button class="icon-button" type="button" data-access-edit-door-group="${esc(group.id)}" aria-label="Editar ${esc(group.name)}"><i data-lucide="pencil"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  scheduleResponsiveHydration(body);
+  lucide.createIcons();
+}
+
+async function loadAccessRules(force = false) {
+  try {
+    // Busca grupos e grupos de porta junto com as regras -- sem isso a tabela de
+    // regras so teria os IDs crus (people_group_id/door_group_id) pra mostrar,
+    // caso o usuario abra a aba Regras sem antes visitar a aba Grupos.
+    const [groupsRes, doorGroupsRes, rulesRes] = await Promise.all([
+      apiJson('/api/access-control/groups', { forceRefresh: force, cacheTtl: 0 }),
+      apiJson('/api/access-control/door-groups', { forceRefresh: force, cacheTtl: 0 }),
+      apiJson('/api/access-control/rules', { forceRefresh: force, cacheTtl: 0 }),
+    ]);
+    _accessGroupRows = groupsRes?.groups || [];
+    _accessDoorGroupRows = doorGroupsRes?.door_groups || [];
+    _accessRuleRows = rulesRes?.rules || [];
+    renderAccessRules(_accessRuleRows);
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel carregar regras.', true);
+  }
+}
+
+const ACCESS_WEEKDAY_LABELS = { 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sab', 7: 'Dom' };
+
+function accessRuleWeekdaysLabel(weekdays) {
+  const digits = String(weekdays || '').split('').filter(d => ACCESS_WEEKDAY_LABELS[d]);
+  if (digits.length === 7) return 'Todos os dias';
+  if (!digits.length) return '-';
+  return digits.map(d => ACCESS_WEEKDAY_LABELS[d]).join(', ');
+}
+
+function renderAccessRules(rows) {
+  const body = document.getElementById('accessRulesBody');
+  if (!body) return;
+  if (!rows.length) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhuma regra cadastrada.</td></tr>';
+    scheduleResponsiveHydration(body);
+    return;
+  }
+  const groupName = id => _accessGroupRows.find(g => g.id === id)?.name || id || '-';
+  const doorGroupName = id => _accessDoorGroupRows.find(g => g.id === id)?.name || id || '-';
+  body.innerHTML = rows.map(rule => `
+    <tr>
+      <td>${esc(groupName(rule.people_group_id))}</td>
+      <td>${esc(doorGroupName(rule.door_group_id))}</td>
+      <td>${esc(accessRuleWeekdaysLabel(rule.weekdays))}</td>
+      <td>${esc(rule.time_start || '00:00')} - ${esc(rule.time_end || '23:59')}</td>
+      <td>
+        <div class="access-person-actions">
+          <button class="icon-button" type="button" data-access-edit-rule="${esc(rule.id)}" aria-label="Editar regra"><i data-lucide="pencil"></i></button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  scheduleResponsiveHydration(body);
+  lucide.createIcons();
+}
+
+function handleAccessGroupAction(event) {
+  const editBtn = event.target.closest?.('[data-access-edit-group]');
+  if (!editBtn) return;
+  const group = _accessGroupRows.find(row => row.id === editBtn.dataset.accessEditGroup);
+  if (group) openAccessGroupModal(group);
+}
+
+function handleAccessDoorGroupAction(event) {
+  const editBtn = event.target.closest?.('[data-access-edit-door-group]');
+  if (!editBtn) return;
+  const doorGroup = _accessDoorGroupRows.find(row => row.id === editBtn.dataset.accessEditDoorGroup);
+  if (doorGroup) openAccessDoorGroupModal(doorGroup);
+}
+
+function handleAccessRuleAction(event) {
+  const editBtn = event.target.closest?.('[data-access-edit-rule]');
+  if (!editBtn) return;
+  const rule = _accessRuleRows.find(row => row.id === editBtn.dataset.accessEditRule);
+  if (rule) openAccessRuleModal(rule);
+}
+
+// TODO(Task 10): os tres abridores de modal abaixo ficam com corpo vazio de proposito
+// nesta task -- Task 9 fecha so o fluxo de listagem (carregar/renderizar grupos,
+// grupos de porta e regras a partir da API real). O modal completo de cada um
+// (HTML do formulario + submit) e responsabilidade da Task 10, seguindo o mesmo
+// padrao de openAccessDeviceModal/saveAccessDeviceFromForm da Task 8: checklist de
+// pessoas (member_ids) pro grupo, checklist de dispositivos (device_ids) pro grupo
+// de porta, e select de grupo de pessoas + grupo de porta + dias + horario pra regra.
+
+function openAccessGroupModal(group = null) {
+  // TODO(Task 10): formulario de grupo de pessoas com checklist de member_ids.
+}
+
+function openAccessDoorGroupModal(doorGroup = null) {
+  // TODO(Task 10): formulario de grupo de porta com checklist de device_ids.
+}
+
+function openAccessRuleModal(rule = null) {
+  // TODO(Task 10): formulario de regra (grupo de pessoas + grupo de porta + dias + horario).
 }

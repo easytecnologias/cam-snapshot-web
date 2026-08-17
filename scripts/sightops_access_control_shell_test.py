@@ -115,6 +115,39 @@ def test_access_device_save_preserves_vendor_and_model() -> None:
     assert "model: document.getElementById('accessDeviceModel')" in access_js
 
 
+def test_access_groups_and_rules_tabs_exist() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert 'data-access-panel="groups"' in html
+    assert 'data-access-panel="rules"' in html
+    assert 'id="btnAccessGroupNew"' in html
+    assert 'id="btnAccessRuleNew"' in html
+    assert "function loadAccessGroups" in access_js
+    assert "function loadAccessRules" in access_js
+
+
+def test_access_rules_table_resolves_group_names() -> None:
+    # A tabela de regras guarda so people_group_id/door_group_id -- sem resolver
+    # pro nome do grupo/grupo de porta a coluna ficaria com UUID cru, inutil pro
+    # usuario. loadAccessRules tem que carregar groups/door-groups tambem (nao so
+    # rules) pra render funcionar mesmo se o usuario nunca abriu a aba Grupos.
+    access_js = _read(ACCESS_JS)
+    assert "function renderAccessRules" in access_js
+    assert "/api/access-control/groups" in access_js
+    assert "/api/access-control/door-groups" in access_js
+    assert "/api/access-control/rules" in access_js
+    assert "groupName(rule.people_group_id)" in access_js
+    assert "doorGroupName(rule.door_group_id)" in access_js
+
+
+def test_access_group_modals_are_task10_placeholders() -> None:
+    access_js = _read(ACCESS_JS)
+    assert "function openAccessGroupModal" in access_js
+    assert "function openAccessDoorGroupModal" in access_js
+    assert "function openAccessRuleModal" in access_js
+    assert "Task 10" in access_js
+
+
 if __name__ == "__main__":
     test_access_control_menu_has_own_sidebar_section()
     test_access_control_view_exists_and_is_routable()
@@ -124,4 +157,7 @@ if __name__ == "__main__":
     test_access_control_backend_router_is_registered()
     test_access_devices_tab_exists()
     test_access_device_save_preserves_vendor_and_model()
+    test_access_groups_and_rules_tabs_exist()
+    test_access_rules_table_resolves_group_names()
+    test_access_group_modals_are_task10_placeholders()
     print("OK access control shell")

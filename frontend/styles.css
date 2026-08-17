@@ -465,6 +465,17 @@ a { color: inherit; text-decoration: none; }
 .access-tab-panel[hidden] {
   display: none;
 }
+.access-groups-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .access-groups-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .access-device-modal {
   width: min(640px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);

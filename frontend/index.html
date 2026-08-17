@@ -1498,6 +1498,77 @@
         </div>
         </div>
 
+        <div class="access-tab-panel" data-access-panel="groups" hidden>
+        <div class="access-groups-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Grupos de pessoas</h2>
+                <p>Conjuntos de pessoas usados nas regras de acesso.</p>
+              </div>
+              <div class="access-control-toolbar">
+                <button class="primary-action" id="btnAccessGroupNew" type="button"><i data-lucide="plus"></i> Novo grupo</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table responsive-data-table" id="accessGroupsTable">
+                <thead>
+                  <tr><th>Nome</th><th>Site</th><th>Pessoas</th><th>Acoes</th></tr>
+                </thead>
+                <tbody id="accessGroupsBody">
+                  <tr class="empty-row"><td colspan="4">Nenhum grupo cadastrado.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Grupos de porta</h2>
+                <p>Conjuntos de dispositivos usados nas regras de acesso.</p>
+              </div>
+              <div class="access-control-toolbar">
+                <button class="primary-action" id="btnAccessDoorGroupNew" type="button"><i data-lucide="plus"></i> Novo grupo de porta</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table responsive-data-table" id="accessDoorGroupsTable">
+                <thead>
+                  <tr><th>Nome</th><th>Site</th><th>Dispositivos</th><th>Acoes</th></tr>
+                </thead>
+                <tbody id="accessDoorGroupsBody">
+                  <tr class="empty-row"><td colspan="4">Nenhum grupo de porta cadastrado.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div class="access-tab-panel" data-access-panel="rules" hidden>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Regras</h2>
+              <p>Quem pode abrir quais portas e em qual horario.</p>
+            </div>
+            <div class="access-control-toolbar">
+              <button class="primary-action" id="btnAccessRuleNew" type="button"><i data-lucide="plus"></i> Nova regra</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table responsive-data-table" id="accessRulesTable">
+              <thead>
+                <tr><th>Grupo de pessoas</th><th>Grupo de portas</th><th>Dias</th><th>Horario</th><th>Acoes</th></tr>
+              </thead>
+              <tbody id="accessRulesBody">
+                <tr class="empty-row"><td colspan="5">Nenhuma regra cadastrada.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div>
+
         <div class="panel" style="margin-top:16px">
           <div class="panel-header">
             <div><h2>Fluxo planejado</h2><p>Cadastro central do SightOps com drivers por fabricante.</p></div>
@@ -5041,7 +5112,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=2"></script>
+  <script src="js/accessControl.js?v=3"></script>
   <script src="js/bootstrap.js?v=186"></script>
 </body>
 </html>
