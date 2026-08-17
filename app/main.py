@@ -22,6 +22,8 @@ from app.services.maintenance_ping_service import maintenance_ping_hub
 from app.services.monitoring_service import list_monitoring_tenants, refresh_from_inventory
 from app.services.zabbix_monitoring_service import sync_monitoring_to_zabbix
 from app.services.telegram_notification_service import process_monitoring_notifications
+from app.services.access_control_sync import poll_device_events, retry_pending_provisions
+from app.services.access_control_store import list_devices as list_access_devices
 from app.api.endpoints.maintenance import scripts_zabbix_status_sync
 from app.api.endpoints.olt import api_olt_registry_telemetry
 from app.services.olt_registry import list_olts
@@ -122,6 +124,8 @@ app.state.monitoring_refresh_task = None
 app.state.monitoring_refresh_last = {}
 app.state.olt_telemetry_task = None
 app.state.olt_telemetry_last = {}
+app.state.access_control_sync_task = None
+app.state.access_control_sync_last = {}
 
 
 def _zabbix_status_interval_s() -> int:
@@ -256,6 +260,36 @@ async def _olt_telemetry_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _access_control_sync_loop() -> None:
+    try:
+        interval = max(60, min(int(os.getenv("SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL", "120")), 900))
+    except Exception:
+        interval = 120
+    await asyncio.sleep(30)
+    while True:
+        results: dict[str, object] = {}
+        try:
+            for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
+                token = set_current_tenant_slug(tenant_slug)
+                try:
+                    retry_result = await asyncio.to_thread(retry_pending_provisions)
+                    events_count = 0
+                    for device in await asyncio.to_thread(list_access_devices):
+                        if not device.get("active"):
+                            continue
+                        events_count += await asyncio.to_thread(poll_device_events, device["id"])
+                    results[tenant_slug] = {"retried": retry_result.get("retried", 0), "events": events_count}
+                finally:
+                    reset_current_tenant_slug(token)
+            app.state.access_control_sync_last = {"ok": True, "interval_s": interval, "tenants": results}
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.access_control_sync_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("access control sync loop failed")
+        await asyncio.sleep(interval)
+
+
 @app.get("/api/scripts/zabbix/status-sync/auto")
 def zabbix_status_sync_auto_state() -> JSONResponse:
     task = getattr(app.state, "zabbix_status_task", None)
@@ -282,11 +316,19 @@ async def startup_events() -> None:
         _monitoring_refresh_loop(), name="monitoring-refresh-loop"
     )
     app.state.olt_telemetry_task = asyncio.create_task(_olt_telemetry_loop(), name="olt-telemetry-loop")
+    app.state.access_control_sync_task = asyncio.create_task(
+        _access_control_sync_loop(), name="access-control-sync-loop"
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_events() -> None:
-    for task_name in ("zabbix_status_task", "monitoring_refresh_task", "olt_telemetry_task"):
+    for task_name in (
+        "zabbix_status_task",
+        "monitoring_refresh_task",
+        "olt_telemetry_task",
+        "access_control_sync_task",
+    ):
         task = getattr(app.state, task_name, None)
         if task:
             task.cancel()
