@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.access_control_device import get_system_info, open_door, poll_events
+from app.services.access_control_device import get_system_info, open_door, poll_events, provision_person
 
 
 def test_get_system_info_parses_response() -> None:
@@ -76,12 +77,58 @@ def test_poll_events_empty_response_is_confirmed_real_device_behavior() -> None:
     assert "getEventIndexes" in called_url
 
 
+def test_poll_events_raises_on_unexpected_error_body() -> None:
+    """Review finding: so "Error: No Events" (confirmado ao vivo) pode virar
+    lista vazia. Qualquer OUTRO corpo iniciado por "Error" (ex.: falha de
+    autenticacao, mau funcionamento) tem que levantar HTTPException com o
+    texto real do dispositivo -- nao pode virar lista vazia silenciosa,
+    senao quem faz polling em loop nao consegue distinguir "sem novidade"
+    de "dispositivo com problema".
+    """
+    from fastapi import HTTPException
+
+    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    fake_response = MagicMock()
+    fake_response.status_code = 200
+    fake_response.text = "Error: Authentication Failed"
+    with patch("app.services.access_control_device.requests.get", return_value=fake_response):
+        try:
+            poll_events(device)
+            raise AssertionError("deveria ter levantado HTTPException")
+        except HTTPException as exc:
+            assert "Authentication Failed" in str(exc.detail)
+
+
+def test_provision_person_sends_valid_json_not_python_repr() -> None:
+    """Review finding: o multipart 'json' era montado com str(dict) (repr do
+    Python -- aspas simples, True/False/None capitalizados), nao JSON de
+    verdade. Trocado para json.dumps(). Este teste falha se alguem reverter
+    pra str() -- json.loads() rejeitaria o repr do Python.
+    """
+    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    person = {"id": "p1", "full_name": "Fulano de Tal"}
+    fake_response = MagicMock()
+    fake_response.status_code = 200
+    fake_response.text = "OK"
+    with patch("app.services.access_control_device.requests.post", return_value=fake_response) as mock_post:
+        result = provision_person(device, person)
+    assert result["ok"] is True
+    sent_files = mock_post.call_args.kwargs["files"]
+    sent_json_text = sent_files["json"][1]
+    payload = json.loads(sent_json_text)  # levanta ValueError se nao for JSON valido
+    assert payload["action"] == "insertMulti"
+    assert payload["Info"][0]["UserID"] == "p1"
+    assert payload["Info"][0]["UserName"] == "Fulano de Tal"
+
+
 def main() -> None:
     test_get_system_info_parses_response()
     test_open_door_checks_ok_response()
     test_open_door_raises_on_device_error()
     test_poll_events_empty_response_is_confirmed_real_device_behavior()
-    print("OK access control device client: getSystemInfo, openDoor, poll_events (empty)")
+    test_poll_events_raises_on_unexpected_error_body()
+    test_provision_person_sends_valid_json_not_python_repr()
+    print("OK access control device client: getSystemInfo, openDoor, poll_events, provision_person")
 
 
 if __name__ == "__main__":
