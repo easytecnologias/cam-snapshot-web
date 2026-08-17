@@ -89,12 +89,13 @@ def ensure_access_control_schema() -> None:
               ON access_groups(tenant_slug, site, active);
 
             CREATE TABLE IF NOT EXISTS access_group_members (
+              tenant_slug TEXT NOT NULL,
               group_id TEXT NOT NULL,
               person_id TEXT NOT NULL,
               PRIMARY KEY (group_id, person_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_group_members_person
-              ON access_group_members(person_id);
+              ON access_group_members(tenant_slug, person_id);
 
             CREATE TABLE IF NOT EXISTS access_door_groups (
               id TEXT PRIMARY KEY,
@@ -109,12 +110,13 @@ def ensure_access_control_schema() -> None:
               ON access_door_groups(tenant_slug, site, active);
 
             CREATE TABLE IF NOT EXISTS access_door_group_members (
+              tenant_slug TEXT NOT NULL,
               door_group_id TEXT NOT NULL,
               device_id TEXT NOT NULL,
               PRIMARY KEY (door_group_id, device_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_door_group_members_device
-              ON access_door_group_members(device_id);
+              ON access_door_group_members(tenant_slug, device_id);
             """,
         )
 

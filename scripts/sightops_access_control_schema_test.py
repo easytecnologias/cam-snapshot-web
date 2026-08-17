@@ -28,8 +28,8 @@ def test_group_tables_exist() -> None:
     with db_store._conn() as c:
         c.execute("INSERT INTO access_groups(id, tenant_slug, site, name) VALUES('g1','cliente-a','Sede','Alunos Manha')")
         c.execute("INSERT INTO access_door_groups(id, tenant_slug, site, name) VALUES('d1','cliente-a','Sede','Portao Principal')")
-        c.execute("INSERT INTO access_group_members(group_id, person_id) VALUES('g1','p1')")
-        c.execute("INSERT INTO access_door_group_members(door_group_id, device_id) VALUES('d1','dev1')")
+        c.execute("INSERT INTO access_group_members(tenant_slug, group_id, person_id) VALUES('cliente-a','g1','p1')")
+        c.execute("INSERT INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES('cliente-a','d1','dev1')")
         row = c.execute("SELECT name FROM access_groups WHERE id='g1'").fetchone()
         assert row["name"] == "Alunos Manha"
 
