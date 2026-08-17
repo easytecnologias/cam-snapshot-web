@@ -78,8 +78,8 @@ def test_group_tables_exist() -> None:
     with db_store._conn() as c:
         c.execute("INSERT INTO access_groups(id, tenant_slug, site, name) VALUES('g1','cliente-a','Sede','Alunos Manha')")
         c.execute("INSERT INTO access_door_groups(id, tenant_slug, site, name) VALUES('d1','cliente-a','Sede','Portao Principal')")
-        c.execute("INSERT INTO access_group_members(group_id, person_id) VALUES('g1','p1')")
-        c.execute("INSERT INTO access_door_group_members(door_group_id, device_id) VALUES('d1','dev1')")
+        c.execute("INSERT INTO access_group_members(tenant_slug, group_id, person_id) VALUES('cliente-a','g1','p1')")
+        c.execute("INSERT INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES('cliente-a','d1','dev1')")
         row = c.execute("SELECT name FROM access_groups WHERE id='g1'").fetchone()
         assert row["name"] == "Alunos Manha"
 
@@ -172,12 +172,13 @@ def ensure_access_control_schema() -> None:
               ON access_groups(tenant_slug, site, active);
 
             CREATE TABLE IF NOT EXISTS access_group_members (
+              tenant_slug TEXT NOT NULL,
               group_id TEXT NOT NULL,
               person_id TEXT NOT NULL,
               PRIMARY KEY (group_id, person_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_group_members_person
-              ON access_group_members(person_id);
+              ON access_group_members(tenant_slug, person_id);
 
             CREATE TABLE IF NOT EXISTS access_door_groups (
               id TEXT PRIMARY KEY,
@@ -192,12 +193,13 @@ def ensure_access_control_schema() -> None:
               ON access_door_groups(tenant_slug, site, active);
 
             CREATE TABLE IF NOT EXISTS access_door_group_members (
+              tenant_slug TEXT NOT NULL,
               door_group_id TEXT NOT NULL,
               device_id TEXT NOT NULL,
               PRIMARY KEY (door_group_id, device_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_door_group_members_device
-              ON access_door_group_members(device_id);
+              ON access_door_group_members(tenant_slug, device_id);
             """,
         )
 ```
@@ -369,29 +371,33 @@ def delete_group(group_id: str) -> bool:
         return False
     with db_store._conn() as c:
         cur = c.execute("DELETE FROM access_groups WHERE tenant_slug=? AND id=?", (tenant, gid))
-        c.execute("DELETE FROM access_group_members WHERE group_id=?", (gid,))
+        c.execute("DELETE FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid))
         return int(cur.rowcount or 0) > 0
 
 
 def set_group_members(group_id: str, person_ids: List[str]) -> None:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     gid = _clean_text(group_id, 80)
     with db_store._conn() as c:
-        c.execute("DELETE FROM access_group_members WHERE group_id=?", (gid,))
+        c.execute("DELETE FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid))
         for pid in person_ids:
             clean_pid = _clean_text(pid, 80)
             if clean_pid:
                 c.execute(
-                    "INSERT OR IGNORE INTO access_group_members(group_id, person_id) VALUES(?, ?)",
-                    (gid, clean_pid),
+                    "INSERT OR IGNORE INTO access_group_members(tenant_slug, group_id, person_id) VALUES(?, ?, ?)",
+                    (tenant, gid, clean_pid),
                 )
 
 
 def list_group_members(group_id: str) -> List[str]:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     gid = _clean_text(group_id, 80)
     with db_store._conn() as c:
-        rows = c.execute("SELECT person_id FROM access_group_members WHERE group_id=?", (gid,)).fetchall()
+        rows = c.execute(
+            "SELECT person_id FROM access_group_members WHERE tenant_slug=? AND group_id=?", (tenant, gid)
+        ).fetchall()
     return [r["person_id"] for r in rows]
 
 
@@ -447,30 +453,32 @@ def delete_door_group(door_group_id: str) -> bool:
         return False
     with db_store._conn() as c:
         cur = c.execute("DELETE FROM access_door_groups WHERE tenant_slug=? AND id=?", (tenant, did))
-        c.execute("DELETE FROM access_door_group_members WHERE door_group_id=?", (did,))
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did))
         return int(cur.rowcount or 0) > 0
 
 
 def set_door_group_members(door_group_id: str, device_ids: List[str]) -> None:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     did = _clean_text(door_group_id, 80)
     with db_store._conn() as c:
-        c.execute("DELETE FROM access_door_group_members WHERE door_group_id=?", (did,))
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did))
         for dev_id in device_ids:
             clean_dev = _clean_text(dev_id, 80)
             if clean_dev:
                 c.execute(
-                    "INSERT OR IGNORE INTO access_door_group_members(door_group_id, device_id) VALUES(?, ?)",
-                    (did, clean_dev),
+                    "INSERT OR IGNORE INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES(?, ?, ?)",
+                    (tenant, did, clean_dev),
                 )
 
 
 def list_door_group_members(door_group_id: str) -> List[str]:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     did = _clean_text(door_group_id, 80)
     with db_store._conn() as c:
         rows = c.execute(
-            "SELECT device_id FROM access_door_group_members WHERE door_group_id=?", (did,)
+            "SELECT device_id FROM access_door_group_members WHERE tenant_slug=? AND door_group_id=?", (tenant, did)
         ).fetchall()
     return [r["device_id"] for r in rows]
 
@@ -741,7 +749,7 @@ def delete_device(device_id: str) -> bool:
         return False
     with db_store._conn() as c:
         cur = c.execute("DELETE FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, did))
-        c.execute("DELETE FROM access_door_group_members WHERE device_id=?", (did,))
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND device_id=?", (tenant, did))
         c.execute("DELETE FROM access_provision_status WHERE device_id=?", (did,))
         return int(cur.rowcount or 0) > 0
 
