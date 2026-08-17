@@ -115,8 +115,8 @@ function renderAccessPeople(rows) {
           <strong>${esc(person.full_name)}</strong>
         </div>
       </td>
-      <td title="${esc(person.site || '')}">${esc(person.site || '-')}</td>
       <td title="${esc(formatDocument(person.document_id) || '')}">${esc(formatDocument(person.document_id) || '-')}</td>
+      <td title="${esc(person.site || '')}">${esc(person.site || '-')}</td>
       <td>${esc(person.enrollment_code || '-')}</td>
       <td title="${esc(person.class_name || '')}">${esc(person.class_name || '-')}</td>
       <td title="${esc(person.guardian_name || '')}">${esc(person.guardian_name || '-')}</td>
