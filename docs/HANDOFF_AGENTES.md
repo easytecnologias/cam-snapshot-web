@@ -7,6 +7,77 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-16 — Task 5 (Controle de Acesso): `poll_device_events` não deduplica eventos — risco de duplicata quando o polling de verdade for ligado
+
+**Agente:** Claude
+
+**Contexto:** Task 5 do plano `.superpowers/sdd/2026-08-16-controle-de-acesso-fase1/`
+criou `app/services/access_control_sync.py` com a orquestração
+(`resolve_target_devices_for_person`, `provision_person_everywhere`,
+`retry_pending_provisions`, `poll_device_events`). `poll_device_events(device_id)`
+hoje faz: busca o dispositivo, chama
+`access_control_device.poll_events(device, since_id=device.get("last_event_id") or "")`
+e grava **todo** evento que voltar via `access_control_store.record_event`,
+sem nenhuma checagem de "já vi esse evento antes".
+
+Isso é seguro apenas enquanto `poll_device_events` for chamado manualmente/
+sob demanda (como nos testes desta task). **Não é seguro** para um loop
+contínuo de background (Task 7) chamando isso a cada N segundos por
+dispositivo, pelos seguintes motivos, já documentados no docstring de
+`access_control_device.poll_events` (ajustado na Task 4):
+
+1. `since_id` é um **no-op confirmado ao vivo** — o parâmetro existe na
+   assinatura por contrato de interface, mas a implementação atual sempre
+   busca o índice de eventos inteiro que o firmware expõe
+   (`eventManager.cgi?action=getEventIndexes`), ignorando `since_id`. Não
+   há confirmação ao vivo de qual parâmetro real o dispositivo aceitaria
+   para filtrar incrementalmente (a sondagem da Task 4 não teve nenhum
+   evento populado pra testar isso).
+2. `access_events` (tabela criada na Task 1/`access_control_store.py`)
+   **não tem coluna `raw_id`** — só `id` (uuid gerado internamente a cada
+   `record_event`), então hoje não há como consultar "esse raw_id do
+   dispositivo já foi gravado?" antes de inserir.
+3. `access_devices.last_event_id` **existe no schema** (Task 1) mas
+   **nada escreve nele** — `poll_device_events` até lê esse campo pra
+   montar o `since_id` que passa pra `poll_events`, mas como ninguém
+   atualiza esse campo depois de processar eventos, ele fica sempre vazio
+   na prática.
+
+**Consequência prática se ligado sem ajuste:** cada chamada de
+`poll_device_events` para um dispositivo com eventos no índice vai
+regravar os **mesmos** eventos como se fossem novos, a cada polling —
+duplicando linhas em `access_events` indefinidamente.
+
+**Próximo passo (Task 7, ou quem ligar o loop de polling real):** antes de
+rodar isso em produção contra um dispositivo com tráfego real, escolher
+uma destas:
+- (a) Adicionar coluna `raw_id` em `access_events` (migração em
+  `ensure_access_control_schema()`), e em `poll_device_events` comparar
+  cada `event["raw_id"]` retornado por `poll_events` contra o maior
+  `raw_id` já gravado para aquele `device_id` antes de chamar
+  `record_event` — só gravar o que for maior/novo, e atualizar
+  `access_devices.last_event_id` ao final (mesmo que `poll_events` em si
+  ainda não filtre no dispositivo, a dedup fica do lado do SightOps).
+- (b) Achar e confirmar ao vivo um parâmetro real do firmware Dahua que
+  filtre por evento/tempo, ligar via `since_id`, e só então tirar a
+  dedup do lado do SightOps.
+Não fiz nenhuma das duas na Task 5 — ficaria fora de escopo (YAGNI: a
+Task 5 é só a camada de orquestração, sem loop de polling contínuo ainda
+rodando) e exigiria decidir a coluna nova/migração sem um evento real
+pra validar o formato.
+
+**Arquivos alterados:** `app/services/access_control_sync.py` (novo, cria
+`poll_device_events`), `scripts/sightops_access_control_sync_test.py`
+(novo, cobre o caminho feliz com eventos mockados e o caminho de erro do
+dispositivo — nenhum dos dois testa dedup, porque dedup ainda não existe).
+
+**Não reverter:** a leitura de `device.get("last_event_id")` em
+`poll_device_events` — está lá de propósito, como o ponto de extensão
+óbvio pra quando a dedup for implementada (opção "a" acima), mesmo não
+tendo efeito nenhum hoje.
+
+---
+
 ## 2026-08-16 — Task 4 (Controle de Acesso): `poll_events` ajustado contra a catraca Dahua real (10.10.13.33)
 
 **Agente:** Claude

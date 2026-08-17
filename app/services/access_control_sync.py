@@ -92,6 +92,19 @@ def retry_pending_provisions() -> Dict[str, Any]:
     Sem backoff/retry-count aqui de proposito -- essa funcao so tenta uma vez
     por chamada; a politica de repeticao (intervalo, limite de tentativas)
     e responsabilidade de quem a chama em loop (Task 7), nao dela.
+
+    Se a pessoa ou o dispositivo referenciados pela linha pendente nao
+    existirem mais (removidos depois que o provisionamento foi enfileirado),
+    a linha e marcada como "failed" com um erro explicito em vez de
+    simplesmente pulada. Pular silenciosamente deixaria o status "pending"
+    parado para sempre (list_pending_provisions() inclui pending e failed,
+    entao de qualquer forma o item continuaria sendo revisitado a cada
+    chamada) sem nenhum sinal visivel de que o item esta permanentemente
+    quebrado -- quem olhar o status via list_provision_status_for_person()
+    veria "pending" indefinidamente, como se so estivesse aguardando, quando
+    na verdade nunca vai progredir sozinho. Marcar como "failed" com o motivo
+    torna o problema visivel (ex.: na UI da Task 6) sem exigir nenhuma
+    tentativa real no dispositivo.
     """
     from app.services.access_control_store import list_people  # import tardio evita ciclo
 
@@ -104,6 +117,14 @@ def retry_pending_provisions() -> Dict[str, Any]:
         person = people_by_id.get(item["person_id"])
         device = get_device_with_password(item["device_id"])
         if not person or not device:
+            error_text = (
+                "Pessoa nao encontrada." if not person else "Dispositivo nao encontrado."
+            )
+            upsert_provision_status(item["person_id"], item["device_id"], "failed", error_text)
+            logger.warning(
+                "Provisionamento pendente descartado (pessoa %s, dispositivo %s): %s",
+                item["person_id"], item["device_id"], error_text,
+            )
             continue
         try:
             provision_person(device, person)
