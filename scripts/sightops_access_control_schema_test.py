@@ -125,6 +125,13 @@ def test_device_event_and_provision_status() -> None:
         assert pending[0]["person_id"] == "p1" and pending[0]["status"] == "pending"
         upsert_provision_status("p1", device["id"], "ok")
         assert list_pending_provisions() == []
+
+        # Cross-tenant isolation check: another tenant should see no pending provisions
+        other_token = set_current_tenant_slug("cliente-d-isolation-check")
+        try:
+            assert list_pending_provisions() == [], "provision status vazou pra outro tenant"
+        finally:
+            reset_current_tenant_slug(other_token)
     finally:
         reset_current_tenant_slug(token)
 
