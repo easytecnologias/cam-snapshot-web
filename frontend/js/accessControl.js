@@ -101,6 +101,10 @@ function openAccessPersonModal(person = null) {
   document.getElementById('accessPersonEnrollment').value = item.enrollment_code || '';
   document.getElementById('accessPersonDocument').value = item.document_id || '';
   document.getElementById('accessPersonClass').value = item.class_name || '';
+  // save_person() no backend faz UPDATE completo (ON CONFLICT DO UPDATE SET
+  // site=excluded.site), entao o formulario precisa carregar e reenviar o site
+  // atual -- sem este campo, qualquer edicao pela UI apagava o site da pessoa.
+  document.getElementById('accessPersonSite').value = item.site || '';
   document.getElementById('accessPersonGuardian').value = item.guardian_name || '';
   document.getElementById('accessPersonPhone').value = item.guardian_phone || '';
   document.getElementById('accessPersonNotes').value = item.notes || '';
@@ -141,6 +145,7 @@ async function saveAccessPersonFromForm(event) {
     enrollment_code: document.getElementById('accessPersonEnrollment').value.trim(),
     document_id: document.getElementById('accessPersonDocument').value.trim(),
     class_name: document.getElementById('accessPersonClass').value.trim(),
+    site: document.getElementById('accessPersonSite').value.trim(),
     guardian_name: document.getElementById('accessPersonGuardian').value.trim(),
     guardian_phone: document.getElementById('accessPersonPhone').value.trim(),
     notes: document.getElementById('accessPersonNotes').value.trim(),
@@ -398,6 +403,10 @@ async function handleAccessPeopleAction(event) {
 let _accessGroupRows = [];
 let _accessDoorGroupRows = [];
 let _accessRuleRows = [];
+// true quando o checklist de pessoas do modal de grupo nao carregou -- salvar
+// nesse estado enviaria member_ids incompleto e o backend apagaria os membros
+// que faltaram (set_group_members faz DELETE + reinsert).
+let _accessGroupPeopleLoadFailed = false;
 
 function bindAccessGroups() {
   document.getElementById('btnAccessGroupNew')?.addEventListener('click', () => openAccessGroupModal());
@@ -563,7 +572,7 @@ function handleAccessRuleAction(event) {
   if (rule) openAccessRuleModal(rule);
 }
 
-function openAccessGroupModal(group = null) {
+async function openAccessGroupModal(group = null) {
   const item = group || {};
   setText('accessGroupModalTitle', item.id ? 'Editar grupo' : 'Novo grupo');
   document.getElementById('accessGroupId').value = item.id || '';
@@ -571,13 +580,33 @@ function openAccessGroupModal(group = null) {
   document.getElementById('accessGroupSite').value = item.site || '';
   const checklist = document.getElementById('accessGroupMembersChecklist');
   const memberIds = new Set(item.member_ids || []);
+  if (checklist) checklist.innerHTML = '<p class="muted-block">Carregando pessoas...</p>';
+  document.getElementById('modalAccessGroup')?.classList.remove('hidden');
+  lucide.createIcons();
+
+  // Busca a lista COMPLETA de pessoas aqui, sem search/active -- NAO reusa
+  // _accessPeopleRows, que carrega o resultado ja filtrado pelos controles da
+  // aba Pessoas. Como saveAccessGroupFromForm envia os marcados como a lista
+  // COMPLETA de member_ids e o backend faz DELETE + reinsert, montar o
+  // checklist a partir de uma lista filtrada apagava do grupo todo mundo que
+  // nao casava com o filtro ativo (ex: busca "Silva" na aba Pessoas, edita o
+  // nome de um grupo de 30 pessoas, salva -> sobram so os "Silva").
+  _accessGroupPeopleLoadFailed = false;
+  let people = [];
+  try {
+    const res = await apiJson('/api/access-control/people', { forceRefresh: true, cacheTtl: 0 });
+    people = res?.people || [];
+  } catch (err) {
+    _accessGroupPeopleLoadFailed = true;
+    if (checklist) checklist.innerHTML = '<p class="muted-block">Nao foi possivel carregar a lista de pessoas.</p>';
+    showToast(err?.message || 'Nao foi possivel carregar a lista de pessoas.', true);
+    return;
+  }
   if (checklist) {
-    checklist.innerHTML = _accessPeopleRows.map(p => `
+    checklist.innerHTML = people.map(p => `
       <label class="access-checklist-item"><input type="checkbox" value="${esc(p.id)}" ${memberIds.has(p.id) ? 'checked' : ''}> ${esc(p.full_name)}</label>
     `).join('') || '<p class="muted-block">Cadastre pessoas primeiro.</p>';
   }
-  document.getElementById('modalAccessGroup')?.classList.remove('hidden');
-  lucide.createIcons();
 }
 
 function closeAccessGroupModal() {
@@ -588,6 +617,10 @@ async function saveAccessGroupFromForm(event) {
   event.preventDefault();
   const btn = document.getElementById('btnAccessGroupSave');
   const oldHtml = btn?.innerHTML;
+  if (_accessGroupPeopleLoadFailed) {
+    showToast('A lista de pessoas nao carregou -- feche e reabra o grupo antes de salvar.', true);
+    return;
+  }
   const memberIds = Array.from(document.querySelectorAll('#accessGroupMembersChecklist input:checked')).map(el => el.value);
   const payload = {
     id: document.getElementById('accessGroupId').value.trim(),

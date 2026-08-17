@@ -115,6 +115,43 @@ def test_access_device_save_preserves_vendor_and_model() -> None:
     assert "model: document.getElementById('accessDeviceModel')" in access_js
 
 
+def test_access_person_save_preserves_site() -> None:
+    # save_person() no backend faz UPDATE completo (ON CONFLICT DO UPDATE SET
+    # site=excluded.site) e AccessPersonRequest.site tem default "" -- sem um
+    # campo de site no modal, toda pessoa salva/editada pela UI ficava com
+    # site="" (apagando o valor que existisse). Mesmo bug ja corrigido em
+    # vendor/model no modal de dispositivo.
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert 'id="accessPersonSite"' in html
+    assert '<label for="accessPersonSite">Site</label>' in html
+    assert "document.getElementById('accessPersonSite').value = item.site" in access_js
+    assert "site: document.getElementById('accessPersonSite')" in access_js
+
+
+def test_group_modal_loads_unfiltered_people_list() -> None:
+    # O checklist de membros do modal de grupo era montado a partir de
+    # _accessPeopleRows, que guarda o resultado JA FILTRADO pela busca/status da
+    # aba Pessoas. Como saveAccessGroupFromForm envia os marcados como a lista
+    # COMPLETA de member_ids e set_group_members faz DELETE + reinsert, editar um
+    # grupo com filtro ativo apagava do grupo todo mundo que nao aparecia na tela.
+    # O modal precisa buscar /api/access-control/people sem nenhum parametro.
+    access_js = _read(ACCESS_JS)
+    assert "async function openAccessGroupModal(" in access_js
+    body = access_js.split("async function openAccessGroupModal(", 1)[1].split("\nfunction closeAccessGroupModal", 1)[0]
+    # Ignora comentarios: eles citam _accessPeopleRows/filtros justamente para
+    # explicar por que o codigo nao os usa.
+    body = "\n".join(line for line in body.splitlines() if not line.strip().startswith("//"))
+    assert "apiJson('/api/access-control/people'" in body, "modal de grupo deve buscar a lista completa de pessoas"
+    assert "_accessPeopleRows" not in body, "modal de grupo nao pode reusar a lista filtrada da aba Pessoas"
+    for filtro in ("accessPeopleSearch", "accessPeopleStatus", "?search=", "URLSearchParams", "active="):
+        assert filtro not in body, f"a busca do modal de grupo nao pode carregar filtro ({filtro})"
+    # Se a busca falhar, salvar tem que ser bloqueado -- um checklist vazio
+    # enviaria member_ids: [] e o backend apagaria os membros reais.
+    save_body = access_js.split("async function saveAccessGroupFromForm(", 1)[1].split("\nfunction ", 1)[0]
+    assert "_accessGroupPeopleLoadFailed" in save_body
+
+
 def test_access_groups_and_rules_tabs_exist() -> None:
     html = _read(INDEX_HTML)
     access_js = _read(ACCESS_JS)
@@ -202,6 +239,8 @@ if __name__ == "__main__":
     test_access_control_backend_router_is_registered()
     test_access_devices_tab_exists()
     test_access_device_save_preserves_vendor_and_model()
+    test_access_person_save_preserves_site()
+    test_group_modal_loads_unfiltered_people_list()
     test_access_groups_and_rules_tabs_exist()
     test_access_rules_table_resolves_group_names()
     test_access_group_modals_are_fully_implemented()
