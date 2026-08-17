@@ -108,7 +108,7 @@ function renderAccessPeople(rows) {
       <td>
         <div class="access-person-name-cell">
           ${accessPersonTypeIcon(person.person_type)}
-          <div><strong>${esc(person.full_name)}</strong><small class="muted-block">${esc(formatDocument(person.document_id) || '')}</small></div>
+          <div title="${esc(person.full_name)}"><strong>${esc(person.full_name)}</strong><small class="muted-block">${esc(formatDocument(person.document_id) || '')}</small></div>
         </div>
       </td>
       <td>${esc(accessPersonTypeLabel(person.person_type))}</td>

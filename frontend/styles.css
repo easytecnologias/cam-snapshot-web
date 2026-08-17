@@ -478,6 +478,15 @@ a { color: inherit; text-decoration: none; }
 .access-tab-panel .data-table td {
   vertical-align: top;
 }
+/* .data-table td:first-child tem overflow:visible por padrao (para outras
+   telas que precisam disso) -- aqui a 1a coluna e nome/host com texto longo
+   e precisa truncar com reticencias, senao o texto invade as colunas ao
+   lado (visualmente "por cima" da tabela). */
+.access-tab-panel .data-table td:first-child,
+.access-tab-panel .data-table th:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .access-groups-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -539,6 +548,21 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+}
+.access-person-name-cell .access-type-icon {
+  flex-shrink: 0;
+}
+.access-person-name-cell > div {
+  min-width: 0;
+  overflow: hidden;
+}
+.access-person-name-cell > div strong,
+.access-person-name-cell > div small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .access-person-checks {
   display: flex;
