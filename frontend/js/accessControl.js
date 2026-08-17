@@ -102,7 +102,7 @@ function renderAccessPeople(rows) {
   _accessPeopleSelected.clear();
   syncAccessPeopleSelectAll();
   if (!rows.length) {
-    body.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhuma pessoa encontrada com esses filtros.</td></tr>';
+    body.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhuma pessoa encontrada com esses filtros.</td></tr>';
     scheduleResponsiveHydration(body);
     return;
   }
@@ -115,6 +115,7 @@ function renderAccessPeople(rows) {
           <strong>${esc(person.full_name)}</strong>
         </div>
       </td>
+      <td title="${esc(person.site || '')}">${esc(person.site || '-')}</td>
       <td title="${esc(formatDocument(person.document_id) || '')}">${esc(formatDocument(person.document_id) || '-')}</td>
       <td>${esc(person.enrollment_code || '-')}</td>
       <td title="${esc(person.class_name || '')}">${esc(person.class_name || '-')}</td>
