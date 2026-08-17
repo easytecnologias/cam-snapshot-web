@@ -419,12 +419,19 @@ function bindAccessGroups() {
 
 async function loadAccessGroups(force = false) {
   try {
-    const [groupsRes, doorGroupsRes] = await Promise.all([
+    // Busca dispositivos junto com os grupos -- sem isso, _accessDeviceRows so
+    // seria preenchido ao visitar a aba Dispositivos. Se o usuario for direto de
+    // Pessoas pra Grupos e editar um grupo de porta existente, o checklist de
+    // dispositivos renderizaria vazio (nada marcado) e salvar sobrescreveria
+    // device_ids com [] no backend, apagando os dispositivos reais do grupo.
+    const [groupsRes, doorGroupsRes, devicesRes] = await Promise.all([
       apiJson('/api/access-control/groups', { forceRefresh: force, cacheTtl: 0 }),
       apiJson('/api/access-control/door-groups', { forceRefresh: force, cacheTtl: 0 }),
+      apiJson('/api/access-control/devices', { forceRefresh: force, cacheTtl: 0 }),
     ]);
     _accessGroupRows = groupsRes?.groups || [];
     _accessDoorGroupRows = doorGroupsRes?.door_groups || [];
+    _accessDeviceRows = devicesRes?.devices || [];
     renderAccessGroups(_accessGroupRows);
     renderAccessDoorGroups(_accessDoorGroupRows);
   } catch (err) {

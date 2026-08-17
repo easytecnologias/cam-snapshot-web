@@ -151,6 +151,26 @@ def test_access_group_modals_are_fully_implemented() -> None:
     assert "TODO(Task 10)" not in access_js
 
 
+def test_load_access_groups_also_fetches_devices_for_door_group_checklist() -> None:
+    # Regression: openAccessDoorGroupModal renders its device checklist from
+    # _accessDeviceRows, which used to only be populated by visiting the
+    # Dispositivos tab (loadAccessDevices(), called from bindAccessTabs()). If the
+    # user went straight from Pessoas to Grupos (tabs are independent/unordered)
+    # and edited an existing door group, the checklist rendered with nothing
+    # checked -- and saving POSTed device_ids: [], which the backend's
+    # set_door_group_members() applies as an unconditional DELETE + re-INSERT,
+    # permanently wiping the door group's real device membership.
+    #
+    # loadAccessGroups() must fetch devices too, mirroring how loadAccessRules()
+    # already fetches groups/door-groups so it works even if the user never
+    # visited the Grupos tab first.
+    access_js = _read(ACCESS_JS)
+    assert "async function loadAccessGroups(" in access_js
+    body = access_js.split("async function loadAccessGroups(", 1)[1].split("\nfunction ", 1)[0]
+    assert "/api/access-control/devices" in body
+    assert "_accessDeviceRows = " in body
+
+
 def test_access_group_and_rule_modals_are_functional() -> None:
     html = _read(INDEX_HTML)
     access_js = _read(ACCESS_JS)
@@ -185,5 +205,6 @@ if __name__ == "__main__":
     test_access_groups_and_rules_tabs_exist()
     test_access_rules_table_resolves_group_names()
     test_access_group_modals_are_fully_implemented()
+    test_load_access_groups_also_fetches_devices_for_door_group_checklist()
     test_access_group_and_rule_modals_are_functional()
     print("OK access control shell")
