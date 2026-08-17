@@ -1,5 +1,5 @@
 let _accessPeopleRows = [];
-let _accessDeleteConfirmId = '';
+let _accessPeopleSelected = new Set();
 
 function accessPersonTypeLabel(type) {
   const key = String(type || '').toLowerCase();
@@ -47,10 +47,11 @@ function bindAccessControl() {
   document.getElementById('accessPeopleSearch')?.addEventListener('input', debounceAccessPeopleSearch);
   document.getElementById('accessPeopleStatus')?.addEventListener('change', () => loadAccessControl(true));
   document.getElementById('accessPeopleType')?.addEventListener('change', () => loadAccessControl(true));
+  document.getElementById('accessPeopleSelectAll')?.addEventListener('change', toggleAccessPeopleSelectAll);
   document.getElementById('btnAccessPersonClose')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('btnAccessPersonCancel')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('accessPersonForm')?.addEventListener('submit', saveAccessPersonFromForm);
-  document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleAction);
+  document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleBodyClick);
   bindAccessTabs();
   bindAccessDevices();
   bindAccessGroups();
@@ -98,30 +99,30 @@ function renderAccessPeople(rows) {
   if (!body) return;
   const countEl = document.getElementById('accessPeopleCount');
   if (countEl) countEl.textContent = rows.length === 1 ? '1 pessoa encontrada.' : `${rows.length} pessoas encontradas.`;
+  _accessPeopleSelected.clear();
+  syncAccessPeopleSelectAll();
   if (!rows.length) {
-    body.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhuma pessoa encontrada com esses filtros.</td></tr>';
+    body.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhuma pessoa encontrada com esses filtros.</td></tr>';
     scheduleResponsiveHydration(body);
     return;
   }
   body.innerHTML = rows.map(person => `
     <tr>
+      <td class="access-checkbox-cell"><input type="checkbox" class="access-row-check" data-person-check="${esc(person.id)}" aria-label="Selecionar ${esc(person.full_name)}"></td>
       <td>
-        <div class="access-person-name-cell">
+        <div class="access-person-name-cell" title="${esc(person.full_name)} (${esc(accessPersonTypeLabel(person.person_type))})">
           ${accessPersonTypeIcon(person.person_type)}
-          <div title="${esc(person.full_name)}"><strong>${esc(person.full_name)}</strong><small class="muted-block">${esc(formatDocument(person.document_id) || '')}</small></div>
+          <strong>${esc(person.full_name)}</strong>
         </div>
       </td>
-      <td>${esc(accessPersonTypeLabel(person.person_type))}</td>
+      <td title="${esc(formatDocument(person.document_id) || '')}">${esc(formatDocument(person.document_id) || '-')}</td>
       <td>${esc(person.enrollment_code || '-')}</td>
-      <td>${esc(person.class_name || '-')}</td>
-      <td>${esc(person.guardian_name || '-')}</td>
+      <td title="${esc(person.class_name || '')}">${esc(person.class_name || '-')}</td>
+      <td title="${esc(person.guardian_name || '')}">${esc(person.guardian_name || '-')}</td>
       <td>${esc(formatBrPhone(person.guardian_phone) || '-')}</td>
       <td>${accessPersonStatusBadge(person.active)}</td>
-      <td>
-        <div class="access-person-actions">
-          <button class="icon-button" type="button" data-access-edit="${esc(person.id)}" aria-label="Editar ${esc(person.full_name)}"><i data-lucide="pencil"></i></button>
-          <button class="icon-button danger-action" type="button" data-access-delete="${esc(person.id)}" aria-label="Excluir ${esc(person.full_name)}"><i data-lucide="trash-2"></i></button>
-        </div>
+      <td class="access-checkbox-cell">
+        <button class="icon-button" type="button" data-row-menu-person="${esc(person.id)}" aria-label="Mais acoes para ${esc(person.full_name)}"><i data-lucide="more-vertical"></i></button>
       </td>
     </tr>
   `).join('');
@@ -412,34 +413,114 @@ async function handleAccessDeviceAction(event) {
   }
 }
 
-async function handleAccessPeopleAction(event) {
-  const editBtn = event.target.closest?.('[data-access-edit]');
-  const deleteBtn = event.target.closest?.('[data-access-delete]');
-  if (editBtn) {
-    const person = _accessPeopleRows.find(row => row.id === editBtn.dataset.accessEdit);
-    if (person) openAccessPersonModal(person);
-    return;
-  }
-  if (!deleteBtn) return;
-  const person = _accessPeopleRows.find(row => row.id === deleteBtn.dataset.accessDelete);
-  if (!person) return;
-  if (_accessDeleteConfirmId !== person.id) {
-    _accessDeleteConfirmId = person.id;
-    showToast(`Clique novamente para excluir ${person.full_name}.`);
-    setTimeout(() => {
-      if (_accessDeleteConfirmId === person.id) _accessDeleteConfirmId = '';
-    }, 4500);
-    return;
-  }
+async function deletePersonWithConfirm(person) {
+  const ok = await showConfirm({
+    title: 'Excluir pessoa',
+    msg: `Excluir ${person.full_name} do controle de acesso? Isso remove o cadastro e o historico de sincronizacao.`,
+    label: 'Excluir',
+  });
+  if (!ok) return;
   try {
     const res = await api(`/api/access-control/people/${encodeURIComponent(person.id)}`, { method: 'DELETE' });
     await jsonOrReadableError(res, 'Nao foi possivel excluir a pessoa.');
-    _accessDeleteConfirmId = '';
     await loadAccessControl(true);
     showToast('Pessoa excluida.');
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel excluir a pessoa.', true);
   }
+}
+
+function handleAccessPeopleBodyClick(event) {
+  const menuBtn = event.target.closest?.('[data-row-menu-person]');
+  if (menuBtn) {
+    const person = _accessPeopleRows.find(row => row.id === menuBtn.dataset.rowMenuPerson);
+    if (!person) return;
+    openRowActionsMenu(menuBtn, [
+      { label: 'Editar', icon: 'pencil', onClick: () => openAccessPersonModal(person) },
+      { label: 'Excluir', icon: 'trash-2', danger: true, onClick: () => deletePersonWithConfirm(person) },
+    ]);
+    return;
+  }
+  const check = event.target.closest?.('[data-person-check]');
+  if (check) {
+    if (check.checked) _accessPeopleSelected.add(check.dataset.personCheck);
+    else _accessPeopleSelected.delete(check.dataset.personCheck);
+    syncAccessPeopleSelectAll();
+  }
+}
+
+function syncAccessPeopleSelectAll() {
+  const master = document.getElementById('accessPeopleSelectAll');
+  if (!master) return;
+  const total = _accessPeopleRows.length;
+  const selected = _accessPeopleSelected.size;
+  master.checked = total > 0 && selected === total;
+  master.indeterminate = selected > 0 && selected < total;
+}
+
+function toggleAccessPeopleSelectAll(event) {
+  const checked = event.target.checked;
+  _accessPeopleSelected = new Set(checked ? _accessPeopleRows.map(p => p.id) : []);
+  document.querySelectorAll('#accessPeopleBody [data-person-check]').forEach(el => { el.checked = checked; });
+  syncAccessPeopleSelectAll();
+}
+
+// Menu flutuante de acoes por linha ("3 pontinhos") -- anexado no <body> (nao
+// dentro da celula) e posicionado via getBoundingClientRect, pra nao ficar
+// cortado pelo overflow:hidden do .table-wrap quando a linha esta perto da
+// borda da tabela. Generico o bastante pra reaproveitar em outras tabelas
+// deste arquivo (dispositivos, grupos, regras) se precisar.
+let _openRowActionsMenu = null;
+let _openRowActionsAnchor = null;
+function closeRowActionsMenu() {
+  if (!_openRowActionsMenu) return;
+  _openRowActionsMenu.remove();
+  _openRowActionsMenu = null;
+  _openRowActionsAnchor = null;
+  document.removeEventListener('click', _rowActionsOutsideHandler, true);
+  document.removeEventListener('keydown', _rowActionsEscHandler, true);
+  window.removeEventListener('scroll', closeRowActionsMenu, true);
+  window.removeEventListener('resize', closeRowActionsMenu, true);
+}
+function _rowActionsOutsideHandler(e) {
+  if (_openRowActionsMenu && !_openRowActionsMenu.contains(e.target) && e.target !== _openRowActionsAnchor) closeRowActionsMenu();
+}
+function _rowActionsEscHandler(e) {
+  if (e.key === 'Escape') closeRowActionsMenu();
+}
+function openRowActionsMenu(anchorBtn, items) {
+  const wasOpenForSameAnchor = _openRowActionsAnchor === anchorBtn;
+  closeRowActionsMenu();
+  if (wasOpenForSameAnchor) return;
+  const panel = document.createElement('div');
+  panel.className = 'row-actions-panel';
+  panel.setAttribute('role', 'menu');
+  panel.innerHTML = items.map((it, idx) => `
+    <button type="button" class="${it.danger ? 'danger' : ''}" data-idx="${idx}" role="menuitem">
+      <i data-lucide="${it.icon}"></i> ${esc(it.label)}
+    </button>
+  `).join('');
+  document.body.appendChild(panel);
+  panel.querySelectorAll('button').forEach((btn, idx) => {
+    btn.addEventListener('click', () => { closeRowActionsMenu(); items[idx].onClick(); });
+  });
+  lucide.createIcons();
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const top = spaceBelow >= panelRect.height + 8 ? rect.bottom + 4 : rect.top - panelRect.height - 4;
+  let left = rect.right - panelRect.width;
+  left = Math.max(8, Math.min(left, window.innerWidth - panelRect.width - 8));
+  panel.style.top = `${Math.max(8, top)}px`;
+  panel.style.left = `${left}px`;
+
+  _openRowActionsMenu = panel;
+  _openRowActionsAnchor = anchorBtn;
+  setTimeout(() => document.addEventListener('click', _rowActionsOutsideHandler, true), 0);
+  document.addEventListener('keydown', _rowActionsEscHandler, true);
+  window.addEventListener('scroll', closeRowActionsMenu, true);
+  window.addEventListener('resize', closeRowActionsMenu, true);
 }
 
 let _accessGroupRows = [];
