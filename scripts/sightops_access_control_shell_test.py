@@ -152,6 +152,37 @@ def test_group_modal_loads_unfiltered_people_list() -> None:
     assert "_accessGroupPeopleLoadFailed" in save_body
 
 
+def test_group_modal_detects_load_failure_without_throwing() -> None:
+    # apiJson (core.js) NAO lanca em resposta HTTP nao-2xx: um 401/403/500
+    # volta como res == null (api() ja devolve null em 401), entao um
+    # try/catch sozinho nunca pega esse caso -- people vira [] em silencio e
+    # _accessGroupPeopleLoadFailed fica false, deixando o operador salvar um
+    # member_ids: [] que apaga a composicao real do grupo. A deteccao de falha
+    # precisa checar o formato da resposta explicitamente, nao so o catch.
+    access_js = _read(ACCESS_JS)
+    assert "async function openAccessGroupModal(" in access_js
+    body = access_js.split("async function openAccessGroupModal(", 1)[1].split("\nfunction closeAccessGroupModal", 1)[0]
+    assert "!res || !Array.isArray(res.people)" in body, (
+        "a deteccao de falha precisa tratar resposta nula/nao-array como erro, nao so exception"
+    )
+
+
+def test_group_modal_disables_save_button_while_people_load() -> None:
+    # O modal fica visivel (classList.remove('hidden')) antes do await da
+    # busca de pessoas terminar -- sem desabilitar o Salvar nesse intervalo,
+    # o operador consegue clicar com o checklist ainda em "Carregando
+    # pessoas..." e postar member_ids: [] igual ao bug do load-failure.
+    access_js = _read(ACCESS_JS)
+    assert "async function openAccessGroupModal(" in access_js
+    body = access_js.split("async function openAccessGroupModal(", 1)[1].split("\nfunction closeAccessGroupModal", 1)[0]
+    assert "btnAccessGroupSave" in body
+    assert "disabled = true" in body
+    assert "disabled = false" in body
+    # O reset do botao tem que acontecer independente de sucesso/falha da
+    # busca (finally), nao so no caminho feliz.
+    assert "finally" in body
+
+
 def test_access_groups_and_rules_tabs_exist() -> None:
     html = _read(INDEX_HTML)
     access_js = _read(ACCESS_JS)
@@ -241,6 +272,8 @@ if __name__ == "__main__":
     test_access_device_save_preserves_vendor_and_model()
     test_access_person_save_preserves_site()
     test_group_modal_loads_unfiltered_people_list()
+    test_group_modal_detects_load_failure_without_throwing()
+    test_group_modal_disables_save_button_while_people_load()
     test_access_groups_and_rules_tabs_exist()
     test_access_rules_table_resolves_group_names()
     test_access_group_modals_are_fully_implemented()

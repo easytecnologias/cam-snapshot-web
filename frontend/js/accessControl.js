@@ -584,6 +584,13 @@ async function openAccessGroupModal(group = null) {
   document.getElementById('modalAccessGroup')?.classList.remove('hidden');
   lucide.createIcons();
 
+  // O modal fica visivel (linha acima) antes do await abaixo terminar --
+  // desabilita o Salvar enquanto a lista de pessoas carrega para o operador
+  // nao conseguir salvar com o checklist ainda em "Carregando pessoas...",
+  // o que postaria member_ids: [] e apagaria a composicao real do grupo.
+  const groupSaveBtn = document.getElementById('btnAccessGroupSave');
+  if (groupSaveBtn) groupSaveBtn.disabled = true;
+
   // Busca a lista COMPLETA de pessoas aqui, sem search/active -- NAO reusa
   // _accessPeopleRows, que carrega o resultado ja filtrado pelos controles da
   // aba Pessoas. Como saveAccessGroupFromForm envia os marcados como a lista
@@ -595,12 +602,23 @@ async function openAccessGroupModal(group = null) {
   let people = [];
   try {
     const res = await apiJson('/api/access-control/people', { forceRefresh: true, cacheTtl: 0 });
-    people = res?.people || [];
+    // apiJson NAO lanca em resposta HTTP nao-2xx -- res.ok=false ou um 401
+    // (onde api() ja devolve null) voltam como res == null, sem excecao. So
+    // depender do try/catch aqui deixava esse caso passar como sucesso: res
+    // era null, res?.people virava [] "silenciosamente" e o guard
+    // _accessGroupPeopleLoadFailed nunca disparava -- exatamente o mesmo
+    // data-loss que esse guard deveria evitar, so que por outro caminho.
+    if (!res || !Array.isArray(res.people)) {
+      throw new Error('Nao foi possivel carregar a lista de pessoas.');
+    }
+    people = res.people;
   } catch (err) {
     _accessGroupPeopleLoadFailed = true;
-    if (checklist) checklist.innerHTML = '<p class="muted-block">Nao foi possivel carregar a lista de pessoas.</p>';
+    if (checklist) checklist.innerHTML = '<p class="muted-block">Nao foi possivel carregar a lista de pessoas. Feche e reabra o grupo para tentar de novo.</p>';
     showToast(err?.message || 'Nao foi possivel carregar a lista de pessoas.', true);
     return;
+  } finally {
+    if (groupSaveBtn) groupSaveBtn.disabled = false;
   }
   if (checklist) {
     checklist.innerHTML = people.map(p => `
