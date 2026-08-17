@@ -505,6 +505,26 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 8px;
 }
+.access-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.access-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.access-checklist-item input { flex: 0 0 auto; }
 .access-person-actions {
   display: inline-flex;
   gap: 8px;

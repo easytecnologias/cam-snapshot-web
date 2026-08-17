@@ -109,6 +109,21 @@ function openAccessPersonModal(person = null) {
   document.getElementById('modalAccessPerson')?.classList.remove('hidden');
   setTimeout(() => document.getElementById('accessPersonName')?.focus(), 50);
   lucide.createIcons();
+
+  const syncEl = document.getElementById('accessPersonSyncStatus');
+  if (syncEl) {
+    if (item.id) {
+      syncEl.textContent = 'Carregando status de sincronizacao...';
+      apiJson(`/api/access-control/events?person_id=${encodeURIComponent(item.id)}&limit=1`, { cacheTtl: 0 })
+        .then(res => {
+          const last = (res?.events || [])[0];
+          syncEl.textContent = last ? `Ultimo evento: ${last.event_type} em ${last.occurred_at}` : 'Sem eventos registrados ainda.';
+        })
+        .catch(() => { syncEl.textContent = ''; });
+    } else {
+      syncEl.textContent = '';
+    }
+  }
 }
 
 function closeAccessPersonModal() {
@@ -391,6 +406,15 @@ function bindAccessGroups() {
   document.getElementById('accessGroupsBody')?.addEventListener('click', handleAccessGroupAction);
   document.getElementById('accessDoorGroupsBody')?.addEventListener('click', handleAccessDoorGroupAction);
   document.getElementById('accessRulesBody')?.addEventListener('click', handleAccessRuleAction);
+  document.getElementById('btnAccessGroupClose')?.addEventListener('click', closeAccessGroupModal);
+  document.getElementById('btnAccessGroupCancel')?.addEventListener('click', closeAccessGroupModal);
+  document.getElementById('accessGroupForm')?.addEventListener('submit', saveAccessGroupFromForm);
+  document.getElementById('btnAccessDoorGroupClose')?.addEventListener('click', closeAccessDoorGroupModal);
+  document.getElementById('btnAccessDoorGroupCancel')?.addEventListener('click', closeAccessDoorGroupModal);
+  document.getElementById('accessDoorGroupForm')?.addEventListener('submit', saveAccessDoorGroupFromForm);
+  document.getElementById('btnAccessRuleClose')?.addEventListener('click', closeAccessRuleModal);
+  document.getElementById('btnAccessRuleCancel')?.addEventListener('click', closeAccessRuleModal);
+  document.getElementById('accessRuleForm')?.addEventListener('submit', saveAccessRuleFromForm);
 }
 
 async function loadAccessGroups(force = false) {
@@ -532,22 +556,183 @@ function handleAccessRuleAction(event) {
   if (rule) openAccessRuleModal(rule);
 }
 
-// TODO(Task 10): os tres abridores de modal abaixo ficam com corpo vazio de proposito
-// nesta task -- Task 9 fecha so o fluxo de listagem (carregar/renderizar grupos,
-// grupos de porta e regras a partir da API real). O modal completo de cada um
-// (HTML do formulario + submit) e responsabilidade da Task 10, seguindo o mesmo
-// padrao de openAccessDeviceModal/saveAccessDeviceFromForm da Task 8: checklist de
-// pessoas (member_ids) pro grupo, checklist de dispositivos (device_ids) pro grupo
-// de porta, e select de grupo de pessoas + grupo de porta + dias + horario pra regra.
-
 function openAccessGroupModal(group = null) {
-  // TODO(Task 10): formulario de grupo de pessoas com checklist de member_ids.
+  const item = group || {};
+  setText('accessGroupModalTitle', item.id ? 'Editar grupo' : 'Novo grupo');
+  document.getElementById('accessGroupId').value = item.id || '';
+  document.getElementById('accessGroupName').value = item.name || '';
+  document.getElementById('accessGroupSite').value = item.site || '';
+  const checklist = document.getElementById('accessGroupMembersChecklist');
+  const memberIds = new Set(item.member_ids || []);
+  if (checklist) {
+    checklist.innerHTML = _accessPeopleRows.map(p => `
+      <label class="access-checklist-item"><input type="checkbox" value="${esc(p.id)}" ${memberIds.has(p.id) ? 'checked' : ''}> ${esc(p.full_name)}</label>
+    `).join('') || '<p class="muted-block">Cadastre pessoas primeiro.</p>';
+  }
+  document.getElementById('modalAccessGroup')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeAccessGroupModal() {
+  document.getElementById('modalAccessGroup')?.classList.add('hidden');
+}
+
+async function saveAccessGroupFromForm(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnAccessGroupSave');
+  const oldHtml = btn?.innerHTML;
+  const memberIds = Array.from(document.querySelectorAll('#accessGroupMembersChecklist input:checked')).map(el => el.value);
+  const payload = {
+    id: document.getElementById('accessGroupId').value.trim(),
+    name: document.getElementById('accessGroupName').value.trim(),
+    site: document.getElementById('accessGroupSite').value.trim(),
+    member_ids: memberIds,
+  };
+  if (!payload.name) {
+    showToast('Informe o nome do grupo.', true);
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Salvando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/groups', { method: 'POST', body: JSON.stringify(payload) });
+    await jsonOrReadableError(res, 'Nao foi possivel salvar o grupo.');
+    closeAccessGroupModal();
+    await loadAccessGroups(true);
+    showToast('Grupo salvo.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel salvar o grupo.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="save"></i> Salvar grupo';
+      lucide.createIcons();
+    }
+  }
 }
 
 function openAccessDoorGroupModal(doorGroup = null) {
-  // TODO(Task 10): formulario de grupo de porta com checklist de device_ids.
+  const item = doorGroup || {};
+  setText('accessDoorGroupModalTitle', item.id ? 'Editar grupo de porta' : 'Novo grupo de porta');
+  document.getElementById('accessDoorGroupId').value = item.id || '';
+  document.getElementById('accessDoorGroupName').value = item.name || '';
+  document.getElementById('accessDoorGroupSite').value = item.site || '';
+  const checklist = document.getElementById('accessDoorGroupDevicesChecklist');
+  const deviceIds = new Set(item.device_ids || []);
+  if (checklist) {
+    checklist.innerHTML = _accessDeviceRows.map(d => `
+      <label class="access-checklist-item"><input type="checkbox" value="${esc(d.id)}" ${deviceIds.has(d.id) ? 'checked' : ''}> ${esc(d.name)}</label>
+    `).join('') || '<p class="muted-block">Cadastre dispositivos primeiro.</p>';
+  }
+  document.getElementById('modalAccessDoorGroup')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeAccessDoorGroupModal() {
+  document.getElementById('modalAccessDoorGroup')?.classList.add('hidden');
+}
+
+async function saveAccessDoorGroupFromForm(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnAccessDoorGroupSave');
+  const oldHtml = btn?.innerHTML;
+  const deviceIds = Array.from(document.querySelectorAll('#accessDoorGroupDevicesChecklist input:checked')).map(el => el.value);
+  const payload = {
+    id: document.getElementById('accessDoorGroupId').value.trim(),
+    name: document.getElementById('accessDoorGroupName').value.trim(),
+    site: document.getElementById('accessDoorGroupSite').value.trim(),
+    device_ids: deviceIds,
+  };
+  if (!payload.name) {
+    showToast('Informe o nome do grupo de porta.', true);
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Salvando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/door-groups', { method: 'POST', body: JSON.stringify(payload) });
+    await jsonOrReadableError(res, 'Nao foi possivel salvar o grupo de porta.');
+    closeAccessDoorGroupModal();
+    await loadAccessGroups(true);
+    showToast('Grupo de porta salvo.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel salvar o grupo de porta.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="save"></i> Salvar grupo de porta';
+      lucide.createIcons();
+    }
+  }
 }
 
 function openAccessRuleModal(rule = null) {
-  // TODO(Task 10): formulario de regra (grupo de pessoas + grupo de porta + dias + horario).
+  const item = rule || {};
+  setText('accessRuleModalTitle', item.id ? 'Editar regra' : 'Nova regra');
+  document.getElementById('accessRuleId').value = item.id || '';
+  const peopleSelect = document.getElementById('accessRulePeopleGroup');
+  const doorSelect = document.getElementById('accessRuleDoorGroup');
+  if (peopleSelect) {
+    peopleSelect.innerHTML = _accessGroupRows.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')
+      || '<option value="">Cadastre um grupo primeiro</option>';
+    peopleSelect.value = item.people_group_id || '';
+  }
+  if (doorSelect) {
+    doorSelect.innerHTML = _accessDoorGroupRows.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')
+      || '<option value="">Cadastre um grupo de porta primeiro</option>';
+    doorSelect.value = item.door_group_id || '';
+  }
+  document.getElementById('accessRuleWeekdays').value = item.weekdays || '1234567';
+  document.getElementById('accessRuleTimeStart').value = item.time_start || '';
+  document.getElementById('accessRuleTimeEnd').value = item.time_end || '';
+  document.getElementById('modalAccessRule')?.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function closeAccessRuleModal() {
+  document.getElementById('modalAccessRule')?.classList.add('hidden');
+}
+
+async function saveAccessRuleFromForm(event) {
+  event.preventDefault();
+  const btn = document.getElementById('btnAccessRuleSave');
+  const oldHtml = btn?.innerHTML;
+  const payload = {
+    id: document.getElementById('accessRuleId').value.trim(),
+    people_group_id: document.getElementById('accessRulePeopleGroup').value,
+    door_group_id: document.getElementById('accessRuleDoorGroup').value,
+    weekdays: document.getElementById('accessRuleWeekdays').value.trim() || '1234567',
+    time_start: document.getElementById('accessRuleTimeStart').value,
+    time_end: document.getElementById('accessRuleTimeEnd').value,
+  };
+  if (!payload.people_group_id || !payload.door_group_id) {
+    showToast('Escolha o grupo de pessoas e o grupo de portas.', true);
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Salvando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/rules', { method: 'POST', body: JSON.stringify(payload) });
+    await jsonOrReadableError(res, 'Nao foi possivel salvar a regra.');
+    closeAccessRuleModal();
+    await loadAccessRules(true);
+    showToast('Regra salva.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel salvar a regra.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="save"></i> Salvar regra';
+      lucide.createIcons();
+    }
+  }
 }

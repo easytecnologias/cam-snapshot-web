@@ -140,12 +140,37 @@ def test_access_rules_table_resolves_group_names() -> None:
     assert "doorGroupName(rule.door_group_id)" in access_js
 
 
-def test_access_group_modals_are_task10_placeholders() -> None:
+def test_access_group_modals_are_fully_implemented() -> None:
+    # Task 9 left openAccess*Modal as `// TODO(Task 10): ...` placeholders.
+    # Task 10 replaces them with the real implementation, so the marker must
+    # be gone and the functions must still exist.
     access_js = _read(ACCESS_JS)
     assert "function openAccessGroupModal" in access_js
     assert "function openAccessDoorGroupModal" in access_js
     assert "function openAccessRuleModal" in access_js
-    assert "Task 10" in access_js
+    assert "TODO(Task 10)" not in access_js
+
+
+def test_access_group_and_rule_modals_are_functional() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert "function saveAccessGroupFromForm" in access_js
+    assert "function saveAccessDoorGroupFromForm" in access_js
+    assert "function saveAccessRuleFromForm" in access_js
+    assert "accessPersonSyncStatus" in access_js
+    assert 'id="accessPersonSyncStatus"' in html
+    # Checklists pre-check existing members/devices when editing.
+    assert "accessGroupMembersChecklist" in access_js
+    assert "accessDoorGroupDevicesChecklist" in access_js
+    assert "memberIds.has(p.id)" in access_js
+    assert "deviceIds.has(d.id)" in access_js
+    # Rule modal selects are populated from already-loaded rows, not a fresh fetch.
+    assert "_accessGroupRows.map(g =>" in access_js
+    assert "_accessDoorGroupRows.map(g =>" in access_js
+    # Modal markup exists in index.html following the modal-backdrop convention.
+    assert 'id="modalAccessGroup" class="modal-backdrop hidden"' in html
+    assert 'id="modalAccessDoorGroup" class="modal-backdrop hidden"' in html
+    assert 'id="modalAccessRule" class="modal-backdrop hidden"' in html
 
 
 if __name__ == "__main__":
@@ -159,5 +184,6 @@ if __name__ == "__main__":
     test_access_device_save_preserves_vendor_and_model()
     test_access_groups_and_rules_tabs_exist()
     test_access_rules_table_resolves_group_names()
-    test_access_group_modals_are_task10_placeholders()
+    test_access_group_modals_are_fully_implemented()
+    test_access_group_and_rule_modals_are_functional()
     print("OK access control shell")

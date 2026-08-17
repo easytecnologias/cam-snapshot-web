@@ -1644,6 +1644,7 @@
                   <textarea id="accessPersonNotes" rows="3" placeholder="Observacao interna"></textarea>
                 </div>
               </div>
+              <p id="accessPersonSyncStatus" class="muted-block"></p>
               <div class="access-person-checks">
                 <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
                 <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
@@ -1703,6 +1704,120 @@
             <div class="modal-actions">
               <button class="secondary-action" id="btnAccessDeviceCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
               <button class="primary-action" id="btnAccessDeviceSave" type="submit" form="accessDeviceForm"><i data-lucide="save"></i> Salvar dispositivo</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="modalAccessGroup" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessGroupModal()">
+          <div class="modal access-device-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Controle de Acesso</p>
+                <h2 id="accessGroupModalTitle">Novo grupo</h2>
+                <p>Conjunto de pessoas usado nas regras de acesso.</p>
+              </div>
+              <button class="icon-button" id="btnAccessGroupClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <form id="accessGroupForm" class="access-person-form">
+              <input id="accessGroupId" type="hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessGroupName">Nome</label>
+                  <input id="accessGroupName" required placeholder="Ex: Alunos manha">
+                </div>
+                <div class="form-group">
+                  <label for="accessGroupSite">Site</label>
+                  <input id="accessGroupSite" placeholder="Ex: Unidade Alameda">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="accessGroupMembersChecklist">Pessoas</label>
+                <div class="access-checklist" id="accessGroupMembersChecklist"></div>
+              </div>
+            </form>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessGroupCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessGroupSave" type="submit" form="accessGroupForm"><i data-lucide="save"></i> Salvar grupo</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="modalAccessDoorGroup" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessDoorGroupModal()">
+          <div class="modal access-device-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Controle de Acesso</p>
+                <h2 id="accessDoorGroupModalTitle">Novo grupo de porta</h2>
+                <p>Conjunto de dispositivos usado nas regras de acesso.</p>
+              </div>
+              <button class="icon-button" id="btnAccessDoorGroupClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <form id="accessDoorGroupForm" class="access-person-form">
+              <input id="accessDoorGroupId" type="hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessDoorGroupName">Nome</label>
+                  <input id="accessDoorGroupName" required placeholder="Ex: Portas da manha">
+                </div>
+                <div class="form-group">
+                  <label for="accessDoorGroupSite">Site</label>
+                  <input id="accessDoorGroupSite" placeholder="Ex: Unidade Alameda">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="accessDoorGroupDevicesChecklist">Dispositivos</label>
+                <div class="access-checklist" id="accessDoorGroupDevicesChecklist"></div>
+              </div>
+            </form>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessDoorGroupCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessDoorGroupSave" type="submit" form="accessDoorGroupForm"><i data-lucide="save"></i> Salvar grupo de porta</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="modalAccessRule" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessRuleModal()">
+          <div class="modal access-device-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Controle de Acesso</p>
+                <h2 id="accessRuleModalTitle">Nova regra</h2>
+                <p>Quem pode abrir quais portas e em qual horario.</p>
+              </div>
+              <button class="icon-button" id="btnAccessRuleClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <form id="accessRuleForm" class="access-person-form">
+              <input id="accessRuleId" type="hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessRulePeopleGroup">Grupo de pessoas</label>
+                  <select id="accessRulePeopleGroup" required></select>
+                </div>
+                <div class="form-group">
+                  <label for="accessRuleDoorGroup">Grupo de portas</label>
+                  <select id="accessRuleDoorGroup" required></select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessRuleWeekdays">Dias (1=seg .. 7=dom)</label>
+                  <input id="accessRuleWeekdays" placeholder="1234567" value="1234567">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessRuleTimeStart">Horario inicio</label>
+                  <input id="accessRuleTimeStart" type="time">
+                </div>
+                <div class="form-group">
+                  <label for="accessRuleTimeEnd">Horario fim</label>
+                  <input id="accessRuleTimeEnd" type="time">
+                </div>
+              </div>
+            </form>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessRuleCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessRuleSave" type="submit" form="accessRuleForm"><i data-lucide="save"></i> Salvar regra</button>
             </div>
           </div>
         </div>
@@ -5112,7 +5227,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=3"></script>
+  <script src="js/accessControl.js?v=4"></script>
   <script src="js/bootstrap.js?v=186"></script>
 </body>
 </html>
