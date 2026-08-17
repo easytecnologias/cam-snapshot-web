@@ -68,6 +68,15 @@ def test_group_and_rule_crud() -> None:
         })
         assert rule["weekdays"] == "12345"
         assert list_rules()[0]["door_group_id"] == door_group["id"]
+
+        # Cross-tenant isolation check: verify another tenant sees none of cliente-b's data
+        other_token = set_current_tenant_slug("cliente-c-isolation-check")
+        try:
+            assert list_groups() == [], "grupo vazou pra outro tenant"
+            assert list_door_groups() == [], "grupo de porta vazou pra outro tenant"
+            assert list_rules() == [], "regra vazou pra outro tenant"
+        finally:
+            reset_current_tenant_slug(other_token)
     finally:
         reset_current_tenant_slug(token)
 
