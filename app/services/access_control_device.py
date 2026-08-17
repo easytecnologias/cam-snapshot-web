@@ -31,7 +31,11 @@ def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None
         raise HTTPException(status_code=502, detail=f"Nao foi possivel falar com o dispositivo: {exc}") from exc
     if resp.status_code == 401:
         raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Dispositivo respondeu com erro (HTTP {resp.status_code}): {(resp.text or '').strip()}",
+        )
     return resp
 
 
@@ -86,9 +90,8 @@ def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes
         raise HTTPException(status_code=502, detail=f"Nao foi possivel provisionar no dispositivo: {exc}") from exc
     if resp.status_code == 401:
         raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
-    resp.raise_for_status()
     text = (resp.text or "").strip()
-    if "Error" in text or "error" in text:
+    if resp.status_code >= 400 or "Error" in text or "error" in text:
         raise HTTPException(status_code=502, detail=f"Dispositivo recusou o cadastro: {text}")
     return {"ok": True, "raw": text}
 
@@ -100,14 +103,38 @@ def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
         resp = requests.post(url, auth=_auth(device), files=files, timeout=_TIMEOUT)
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel remover no dispositivo: {exc}") from exc
-    resp.raise_for_status()
-    return {"ok": True, "raw": (resp.text or "").strip()}
+    text = (resp.text or "").strip()
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+    if resp.status_code >= 400 or "Error" in text or "error" in text:
+        raise HTTPException(status_code=502, detail=f"Dispositivo recusou a remocao: {text}")
+    return {"ok": True, "raw": text}
 
 
 def poll_events(device: Dict[str, Any], since_id: str = "") -> List[Dict[str, Any]]:
-    """Placeholder de parsing -- shape real confirmado/ajustado na Task 4 Step 6 (smoke test ao vivo)."""
-    resp = _get(device, "/cgi-bin/accessControl.cgi", {"action": "getRecordList", "sinceId": since_id})
+    """Busca eventos de acesso recentes no dispositivo.
+
+    Ajustado na Task 4 Step 6 (smoke test ao vivo contra 10.10.13.33): a acao
+    original do plano (`accessControl.cgi?action=getRecordList`) NAO existe
+    neste firmware -- responde HTTP 501 "Error / Not Implemented!". A acao
+    real confirmada por sondagem ao vivo e `eventManager.cgi?action=getEventIndexes`
+    (HTTP 200; responde "Error: No Events" em texto quando a lista esta vazia,
+    e HTTP 400 "Error / Bad Request!" se o parametro `code` faltar).
+
+    O formato de um evento *populado* (pessoa passou/tentou passar) NAO foi
+    capturado ao vivo -- gerar um evento real exigiria abrir a porta ou
+    apresentar um rosto ao terminal fisico, e a abertura remota da porta foi
+    bloqueada pelo classificador de seguranca do ambiente de execucao deste
+    agente (acao com efeito fisico real, corretamente recusada). O parsing
+    abaixo trata "sem eventos" (respostas iniciadas por "Error") como lista
+    vazia -- isso e confirmado -- mas o mapeamento de campos de um evento real
+    e melhor esforco e PRECISA ser revalidado assim que houver um evento real
+    no log do dispositivo (ex.: proximo acesso legitimo no local).
+    """
+    resp = _get(device, "/cgi-bin/eventManager.cgi", {"action": "getEventIndexes", "code": "AccessControlCardRec"})
     text = (resp.text or "").strip()
+    if not text or text.startswith("Error"):
+        return []
     events: List[Dict[str, Any]] = []
     for line in text.splitlines():
         parts = line.split(",")

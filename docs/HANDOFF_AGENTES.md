@@ -7,6 +7,59 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-16 — Task 4 (Controle de Acesso): `poll_events` ajustado contra a catraca Dahua real (10.10.13.33)
+
+**Agente:** Claude
+
+**Contexto:** Task 4 do plano `.superpowers/sdd/2026-08-16-controle-de-acesso-fase1/`
+criou `app/services/access_control_device.py` (cliente HTTP Digest pra
+catraca facial Dahua ASI6214S-W). `get_system_info`/`open_door` foram
+modelados num teste manual já validado nesta sessão. `poll_events` era
+melhor-esforço baseado na API pública da Dahua, sem confirmação ao vivo.
+Rodei o smoke test do Step 6 do brief contra `10.10.13.33` (admin/xzydsP2011):
+
+- `GET /cgi-bin/accessControl.cgi?action=getRecordList` (o que o parser
+  original chamava) → **HTTP 501**, corpo `Error\nNot Implemented!` — essa
+  action não existe neste firmware.
+- Sondagem adicional (getDoorStatus, getCaps, recordFinder.cgi
+  factory.create, várias actions candidatas) até achar
+  `GET /cgi-bin/eventManager.cgi?action=getEventIndexes&code=AccessControlCardRec`
+  → **HTTP 200**, corpo `Error: No Events` (mesmo texto pra qualquer `code`,
+  inclusive um inválido — só confirma que a lista está vazia, não valida o
+  nome do `code`). Sem `code` → HTTP 400 `Error\nBad Request!`.
+- `openDoor` (curl do brief) **não foi executado**: o classificador de
+  segurança do ambiente bloqueou a ação por abrir uma porta física de
+  verdade. Não tentei contornar.
+
+**Ajustado:** `poll_events` agora chama `eventManager.cgi?action=getEventIndexes`
+em vez da action inexistente, e trata qualquer resposta iniciada por
+`"Error"` como lista vazia (comportamento confirmado ao vivo). O parsing de
+um evento *populado* continua melhor-esforço — não há evento real registrado
+pra observar o formato, e eu não consigo gerar um (porta bloqueada). Também
+corrigi um bug separado achado durante a sondagem: `_get()`/`provision_person`/
+`remove_person` chamavam `resp.raise_for_status()` fora do bloco que
+preserva o texto do dispositivo — qualquer erro HTTP (ex.: o 501 acima)
+subia como `requests.HTTPError` genérico, não como `HTTPException` com o
+texto real do dispositivo (exigência do plano). Trocado por checagem
+explícita de `status_code >= 400` que inclui `resp.text` no detail.
+
+**Não reverter sem novo teste ao vivo:** a troca de action em `poll_events`
+— voltar pra `getRecordList` reintroduz uma chamada que sempre falha (501)
+neste firmware.
+
+**Observação/limite conhecido:** o mapeamento de campos de um evento de
+acesso *real* (pessoa passou/tentou passar) em `poll_events` segue não
+confirmado. Quando a Task 5 (ou alguém no local) gerar um evento real
+(crachá/rosto no terminal, ou abrir a porta manualmente pela interface do
+próprio dispositivo), vale rodar o smoke test de novo e ajustar o parsing
+de evento populado — hoje ele é só melhor esforço (split por vírgula).
+
+**Validado:** `python scripts/sightops_access_control_device_test.py` e os
+outros scripts `sightops_access_control_*_test.py` (store/schema/route/shell)
+— todos OK.
+
+---
+
 ## 2026-08-14 — Vazamento entre conectores: IP de um site alcançável pelo conector de outro
 
 **Agente:** Claude
