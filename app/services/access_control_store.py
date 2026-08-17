@@ -457,7 +457,8 @@ def set_group_members(group_id: str, person_ids: List[str]) -> None:
             clean_pid = _clean_text(pid, 80)
             if clean_pid:
                 c.execute(
-                    "INSERT OR IGNORE INTO access_group_members(tenant_slug, group_id, person_id) VALUES(?, ?, ?)",
+                    "INSERT INTO access_group_members(tenant_slug, group_id, person_id) VALUES(?, ?, ?) "
+                    "ON CONFLICT(tenant_slug, group_id, person_id) DO NOTHING",
                     (tenant, gid, clean_pid),
                 )
 
@@ -539,7 +540,8 @@ def set_door_group_members(door_group_id: str, device_ids: List[str]) -> None:
             clean_dev = _clean_text(dev_id, 80)
             if clean_dev:
                 c.execute(
-                    "INSERT OR IGNORE INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES(?, ?, ?)",
+                    "INSERT INTO access_door_group_members(tenant_slug, door_group_id, device_id) VALUES(?, ?, ?) "
+                    "ON CONFLICT(tenant_slug, door_group_id, device_id) DO NOTHING",
                     (tenant, did, clean_dev),
                 )
 
