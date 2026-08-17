@@ -274,11 +274,20 @@ async def _access_control_sync_loop() -> None:
                 try:
                     retry_result = await asyncio.to_thread(retry_pending_provisions)
                     events_count = 0
+                    device_errors: list[dict[str, object]] = []
                     for device in await asyncio.to_thread(list_access_devices):
                         if not device.get("active"):
                             continue
-                        events_count += await asyncio.to_thread(poll_device_events, device["id"])
-                    results[tenant_slug] = {"retried": retry_result.get("retried", 0), "events": events_count}
+                        try:
+                            events_count += await asyncio.to_thread(poll_device_events, device["id"])
+                        except Exception as exc:
+                            device_errors.append({"ok": False, "device_id": device.get("id"), "error": str(exc)})
+                            logger.exception("access control event poll failed for device %s", device.get("id"))
+                    results[tenant_slug] = {
+                        "retried": retry_result.get("retried", 0),
+                        "events": events_count,
+                        "device_errors": device_errors,
+                    }
                 finally:
                     reset_current_tenant_slug(token)
             app.state.access_control_sync_last = {"ok": True, "interval_s": interval, "tenants": results}

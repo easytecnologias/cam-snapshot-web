@@ -657,10 +657,35 @@ def get_device_with_password(device_id: str) -> Dict[str, Any] | None:
 
 
 def record_event(event: Dict[str, Any]) -> str:
+    """Grava um evento de acesso, ignorando duplicatas.
+
+    O device do controle de acesso ainda nao filtra por since_id (ver
+    poll_device_events em access_control_sync.py), entao cada poll do loop
+    de fundo (Task 7) reenvia o indice de eventos inteiro do equipamento.
+    Sem essa deduplicacao, access_events cresceria sem limite com o mesmo
+    conjunto de eventos repetido a cada ciclo. Tratamos como duplicata
+    qualquer evento com a mesma tupla (tenant_slug, device_id,
+    person_name_raw, event_type, occurred_at) ja gravada -- se ja existir,
+    devolve o id existente em vez de inserir de novo.
+    """
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
-    event_id = uuid.uuid4().hex
+    device_id = _clean_text(event.get("device_id"), 80)
+    person_name_raw = _clean_text(event.get("person_name_raw"), 160)
+    event_type = _clean_text(event.get("event_type"), 20) or "entrada"
+    occurred_at = _clean_text(event.get("occurred_at"), 40)
     with db_store._conn() as c:
+        existing = c.execute(
+            """
+            SELECT id FROM access_events
+            WHERE tenant_slug = ? AND device_id = ? AND person_name_raw = ?
+              AND event_type = ? AND occurred_at = ?
+            """,
+            (tenant, device_id, person_name_raw, event_type, occurred_at),
+        ).fetchone()
+        if existing:
+            return str(existing["id"])
+        event_id = uuid.uuid4().hex
         c.execute(
             """
             INSERT INTO access_events(
@@ -673,11 +698,11 @@ def record_event(event: Dict[str, Any]) -> str:
                 event_id,
                 tenant,
                 _clean_text(event.get("site"), 120),
-                _clean_text(event.get("device_id"), 80),
+                device_id,
                 _clean_text(event.get("person_id"), 80),
-                _clean_text(event.get("person_name_raw"), 160),
-                _clean_text(event.get("event_type"), 20) or "entrada",
-                _clean_text(event.get("occurred_at"), 40),
+                person_name_raw,
+                event_type,
+                occurred_at,
             ),
         )
     return event_id

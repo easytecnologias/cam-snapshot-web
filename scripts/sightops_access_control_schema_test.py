@@ -142,6 +142,50 @@ def test_device_event_and_provision_status() -> None:
         reset_current_tenant_slug(token)
 
 
+def test_record_event_is_idempotent() -> None:
+    """poll_device_events (Task 7) re-envia o indice inteiro do dispositivo a
+    cada ciclo porque since_id ainda nao filtra nada no firmware -- sem essa
+    deduplicacao em record_event, access_events cresceria sem limite com o
+    mesmo evento repetido a cada poll. Chamar record_event duas vezes com os
+    mesmos campos deve gravar uma unica linha."""
+    from app.services.access_control_store import list_events, record_event, save_device
+
+    token = set_current_tenant_slug("cliente-e")
+    try:
+        device = save_device({
+            "name": "Catraca Duplicata",
+            "site": "Sede",
+            "vendor": "dahua",
+            "model": "ASI6214S-W",
+            "host": "10.10.13.34",
+            "username": "admin",
+            "password": "xzydsP2011",
+        })
+        payload = {
+            "device_id": device["id"],
+            "site": "Sede",
+            "person_id": "",
+            "person_name_raw": "Maria Duplicada",
+            "event_type": "entrada",
+            "occurred_at": "2026-08-16T08:00:00",
+        }
+        first_id = record_event(dict(payload))
+        second_id = record_event(dict(payload))
+        assert first_id == second_id, "segunda chamada deveria devolver o id ja existente"
+        matches = [e for e in list_events() if e["person_name_raw"] == "Maria Duplicada"]
+        assert len(matches) == 1, f"esperava 1 evento gravado, achou {len(matches)}"
+
+        # Um evento com occurred_at diferente NAO e duplicata -- deve gravar linha nova.
+        other = dict(payload)
+        other["occurred_at"] = "2026-08-16T08:05:00"
+        third_id = record_event(other)
+        assert third_id != first_id
+        matches = [e for e in list_events() if e["person_name_raw"] == "Maria Duplicada"]
+        assert len(matches) == 2, f"esperava 2 eventos distintos, achou {len(matches)}"
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sightops-access-schema-") as tmp:
         db_store.SIGHTOPS_DB_PATH = Path(tmp) / "access.db"
@@ -150,6 +194,7 @@ def main() -> None:
         test_group_tables_exist()
         test_group_and_rule_crud()
         test_device_event_and_provision_status()
+        test_record_event_is_idempotent()
     print("OK access control schema: site em pessoa + tabelas de grupo")
 
 
