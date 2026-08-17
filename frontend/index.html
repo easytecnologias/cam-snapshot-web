@@ -1420,6 +1420,14 @@
           </article>
         </div>
 
+        <div class="tabs access-control-tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-access-tab="people" role="tab" aria-selected="true">Pessoas</button>
+          <button type="button" class="tab-btn" id="accessTabDevices" data-access-tab="devices" role="tab" aria-selected="false">Dispositivos</button>
+          <button type="button" class="tab-btn" data-access-tab="groups" role="tab" aria-selected="false">Grupos</button>
+          <button type="button" class="tab-btn" data-access-tab="rules" role="tab" aria-selected="false">Regras</button>
+        </div>
+
+        <div class="access-tab-panel" data-access-panel="people">
         <div class="panel">
           <div class="panel-header">
             <div>
@@ -1455,6 +1463,39 @@
               </tbody>
             </table>
           </div>
+        </div>
+        </div>
+
+        <div class="access-tab-panel" data-access-panel="devices" hidden>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Dispositivos</h2>
+              <p>Controladoras de acesso cadastradas por site.</p>
+            </div>
+            <div class="access-control-toolbar">
+              <button class="primary-action" id="btnAccessDeviceNew" type="button"><i data-lucide="plus"></i> Novo dispositivo</button>
+              <button class="secondary-action" id="btnAccessDevicesRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table responsive-data-table" id="accessDevicesTable">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Site</th>
+                  <th>Host</th>
+                  <th>Modelo</th>
+                  <th>Status</th>
+                  <th>Acoes</th>
+                </tr>
+              </thead>
+              <tbody id="accessDevicesBody">
+                <tr class="empty-row"><td colspan="6">Nenhum dispositivo cadastrado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
         </div>
 
         <div class="panel" style="margin-top:16px">
@@ -1540,6 +1581,55 @@
             <div class="modal-actions">
               <button class="secondary-action" id="btnAccessPersonCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
               <button class="primary-action" id="btnAccessPersonSave" type="submit" form="accessPersonForm"><i data-lucide="save"></i> Salvar pessoa</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="modalAccessDevice" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessDeviceModal()">
+          <div class="modal access-device-modal">
+            <div class="modal-header">
+              <div>
+                <p class="eyebrow">Controle de Acesso</p>
+                <h2 id="accessDeviceModalTitle">Novo dispositivo</h2>
+                <p>Controladora de acesso (Dahua/Intelbras) para liberacao manual de porta.</p>
+              </div>
+              <button class="icon-button" id="btnAccessDeviceClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
+            </div>
+            <form id="accessDeviceForm" class="access-person-form">
+              <input id="accessDeviceId" type="hidden">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessDeviceName">Nome</label>
+                  <input id="accessDeviceName" required placeholder="Ex: Portaria principal">
+                </div>
+                <div class="form-group">
+                  <label for="accessDeviceSite">Site</label>
+                  <input id="accessDeviceSite" placeholder="Ex: Unidade Alameda">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessDeviceHost">Host/IP</label>
+                  <input id="accessDeviceHost" required placeholder="Ex: 10.10.9.50">
+                </div>
+                <div class="form-group">
+                  <label for="accessDeviceUsername">Usuario</label>
+                  <input id="accessDeviceUsername" value="admin">
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-group">
+                  <label for="accessDevicePassword">Senha</label>
+                  <input id="accessDevicePassword" type="password" placeholder="Deixe em branco para manter">
+                </div>
+              </div>
+              <div class="access-person-checks">
+                <label><input id="accessDeviceActive" type="checkbox" checked> Dispositivo ativo</label>
+              </div>
+            </form>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessDeviceCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessDeviceSave" type="submit" form="accessDeviceForm"><i data-lucide="save"></i> Salvar dispositivo</button>
             </div>
           </div>
         </div>
@@ -4949,6 +5039,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
+  <script src="js/accessControl.js?v=2"></script>
   <script src="js/bootstrap.js?v=186"></script>
 </body>
 </html>

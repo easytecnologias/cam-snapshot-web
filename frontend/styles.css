@@ -438,6 +438,39 @@ a { color: inherit; text-decoration: none; }
   color: var(--text);
   font-size: 14px;
 }
+.access-control-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.access-control-tabs .tab-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.access-control-tabs .tab-btn:hover {
+  color: var(--text);
+}
+.access-control-tabs .tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.access-tab-panel[hidden] {
+  display: none;
+}
+.access-device-modal {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
 .access-person-modal {
   width: min(880px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
