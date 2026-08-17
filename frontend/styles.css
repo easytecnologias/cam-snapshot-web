@@ -427,6 +427,12 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   min-width: min(720px, 100%);
 }
+/* Pessoas tem um filtro a mais (Tipo) que os outros toolbars deste bloco
+   (que so tem botoes) -- layout proprio pra nao empurrar os botoes dos
+   outros paineis pra colunas mais estreitas. */
+.access-tab-panel[data-access-panel="people"] .access-control-toolbar {
+  grid-template-columns: minmax(220px, 1fr) 150px 150px auto;
+}
 .access-control-toolbar input,
 .access-control-toolbar select {
   width: 100%;
@@ -498,6 +504,41 @@ a { color: inherit; text-decoration: none; }
 .access-person-form {
   padding: 18px 22px;
   overflow: auto;
+}
+.form-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+  margin: 0 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.form-section-title:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.access-people-count {
+  margin: -4px 0 10px;
+}
+.access-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.access-type-icon svg { width: 13px; height: 13px; }
+.access-type-icon.student { background: var(--primary-soft); color: var(--primary); }
+.access-type-icon.employee { background: var(--blue-soft); color: var(--blue); }
+.access-type-icon.visitor { background: var(--amber-soft); color: var(--amber); }
+.access-person-name-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .access-person-checks {
   display: flex;

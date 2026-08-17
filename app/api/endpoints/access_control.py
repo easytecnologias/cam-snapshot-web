@@ -146,8 +146,9 @@ def api_access_control_summary() -> Dict[str, Any]:
 def api_access_control_people(
     search: str = Query(""),
     active: str = Query(""),
+    person_type: str = Query(""),
 ) -> Dict[str, Any]:
-    people = list_people(search=search, active=active)
+    people = list_people(search=search, active=active, person_type=person_type)
     return {"ok": True, "count": len(people), "people": people}
 
 

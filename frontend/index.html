@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=152">
+  <link rel="stylesheet" href="styles.css?v=153">
 </head>
 <body>
 
@@ -1436,6 +1436,12 @@
             </div>
             <div class="access-control-toolbar">
               <input id="accessPeopleSearch" type="search" placeholder="Buscar nome, matricula, documento ou WhatsApp">
+              <select id="accessPeopleType">
+                <option value="">Todos os tipos</option>
+                <option value="student">Alunos</option>
+                <option value="employee">Funcionarios</option>
+                <option value="visitor">Visitantes</option>
+              </select>
               <select id="accessPeopleStatus">
                 <option value="">Todos</option>
                 <option value="active">Ativos</option>
@@ -1444,6 +1450,7 @@
               <button class="secondary-action" id="btnAccessPeopleRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
             </div>
           </div>
+          <p id="accessPeopleCount" class="muted-block access-people-count"></p>
           <div class="table-wrap">
             <table class="data-table responsive-data-table" id="accessPeopleTable">
               <thead>
@@ -1600,6 +1607,7 @@
             </div>
             <form id="accessPersonForm" class="access-person-form">
               <input id="accessPersonId" type="hidden">
+              <h3 class="form-section-title">Dados pessoais</h3>
               <div class="form-row">
                 <div class="form-group">
                   <label for="accessPersonName">Nome</label>
@@ -1632,6 +1640,7 @@
                   <input id="accessPersonSite" placeholder="Ex: Sede">
                 </div>
               </div>
+              <h3 class="form-section-title">Responsavel e notificacoes</h3>
               <div class="form-row">
                 <div class="form-group">
                   <label for="accessPersonGuardian">Responsavel</label>
@@ -1639,9 +1648,14 @@
                 </div>
                 <div class="form-group">
                   <label for="accessPersonPhone">WhatsApp</label>
-                  <input id="accessPersonPhone" placeholder="DDD + numero">
+                  <input id="accessPersonPhone" placeholder="Ex: 82 98136-6839">
                 </div>
               </div>
+              <div class="access-person-checks">
+                <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
+                <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
+              </div>
+              <h3 class="form-section-title">Observacoes</h3>
               <div class="form-row" style="grid-template-columns:1fr">
                 <div class="form-group">
                   <label for="accessPersonNotes">Observacoes</label>
@@ -1649,10 +1663,6 @@
                 </div>
               </div>
               <p id="accessPersonSyncStatus" class="muted-block"></p>
-              <div class="access-person-checks">
-                <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
-                <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
-              </div>
             </form>
             <div class="modal-actions">
               <button class="secondary-action" id="btnAccessPersonCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
@@ -5231,7 +5241,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=4"></script>
+  <script src="js/accessControl.js?v=5"></script>
   <script src="js/bootstrap.js?v=187"></script>
 </body>
 </html>

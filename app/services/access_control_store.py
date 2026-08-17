@@ -238,11 +238,12 @@ def _row_dict(row: Any) -> Dict[str, Any]:
     return data
 
 
-def list_people(search: str = "", active: str = "") -> List[Dict[str, Any]]:
+def list_people(search: str = "", active: str = "", person_type: str = "") -> List[Dict[str, Any]]:
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     term = _clean_text(search, 120).lower()
     active_filter = str(active or "").strip().lower()
+    type_filter = _clean_text(person_type, 32).lower()
     where = ["tenant_slug = ?"]
     params: list[Any] = [tenant]
     if term:
@@ -255,6 +256,9 @@ def list_people(search: str = "", active: str = "") -> List[Dict[str, Any]]:
         where.append("active = 1")
     elif active_filter in {"0", "false", "inactive", "inativo"}:
         where.append("active = 0")
+    if type_filter in {"student", "employee", "visitor"}:
+        where.append("person_type = ?")
+        params.append(type_filter)
 
     with db_store._conn() as c:
         rows = c.execute(

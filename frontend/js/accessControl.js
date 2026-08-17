@@ -14,11 +14,39 @@ function accessPersonStatusBadge(active) {
     : '<span class="pill neutral">Inativo</span>';
 }
 
+const ACCESS_TYPE_ICONS = { student: 'graduation-cap', employee: 'briefcase', visitor: 'user' };
+function accessPersonTypeIcon(type) {
+  const key = String(type || '').toLowerCase();
+  const icon = ACCESS_TYPE_ICONS[key] || ACCESS_TYPE_ICONS.student;
+  const cls = ACCESS_TYPE_ICONS[key] ? key : 'student';
+  return `<span class="access-type-icon ${cls}"><i data-lucide="${icon}"></i></span>`;
+}
+
+// Numero fica salvo so com digitos (+ opcional na frente, ver _clean_phone no
+// backend) -- aqui e so pra exibicao, nunca reenviado formatado.
+function formatBrPhone(phone) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length === 11) return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  if (digits.length === 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return phone || '';
+}
+
+// Documento e texto livre no cadastro (CPF/RG) -- so aplica mascara de CPF
+// quando bate exatamente com 11 digitos, senao mostra como foi digitado.
+function formatDocument(doc) {
+  const digits = String(doc || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits === String(doc || '').trim()) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+  return doc || '';
+}
+
 function bindAccessControl() {
   document.getElementById('btnAccessPersonNew')?.addEventListener('click', () => openAccessPersonModal());
   document.getElementById('btnAccessPeopleRefresh')?.addEventListener('click', () => loadAccessControl(true));
   document.getElementById('accessPeopleSearch')?.addEventListener('input', debounceAccessPeopleSearch);
   document.getElementById('accessPeopleStatus')?.addEventListener('change', () => loadAccessControl(true));
+  document.getElementById('accessPeopleType')?.addEventListener('change', () => loadAccessControl(true));
   document.getElementById('btnAccessPersonClose')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('btnAccessPersonCancel')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('accessPersonForm')?.addEventListener('submit', saveAccessPersonFromForm);
@@ -38,8 +66,10 @@ async function loadAccessControl(force = false) {
   const query = new URLSearchParams();
   const search = document.getElementById('accessPeopleSearch')?.value?.trim() || '';
   const active = document.getElementById('accessPeopleStatus')?.value || '';
+  const type = document.getElementById('accessPeopleType')?.value || '';
   if (search) query.set('search', search);
   if (active) query.set('active', active);
+  if (type) query.set('person_type', type);
 
   try {
     const [summaryRes, peopleRes] = await Promise.all([
@@ -66,19 +96,26 @@ function renderAccessControlSummary(summary) {
 function renderAccessPeople(rows) {
   const body = document.getElementById('accessPeopleBody');
   if (!body) return;
+  const countEl = document.getElementById('accessPeopleCount');
+  if (countEl) countEl.textContent = rows.length === 1 ? '1 pessoa encontrada.' : `${rows.length} pessoas encontradas.`;
   if (!rows.length) {
-    body.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhuma pessoa cadastrada.</td></tr>';
+    body.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhuma pessoa encontrada com esses filtros.</td></tr>';
     scheduleResponsiveHydration(body);
     return;
   }
   body.innerHTML = rows.map(person => `
     <tr>
-      <td><strong>${esc(person.full_name)}</strong><small class="muted-block">${esc(person.document_id || '')}</small></td>
+      <td>
+        <div class="access-person-name-cell">
+          ${accessPersonTypeIcon(person.person_type)}
+          <div><strong>${esc(person.full_name)}</strong><small class="muted-block">${esc(formatDocument(person.document_id) || '')}</small></div>
+        </div>
+      </td>
       <td>${esc(accessPersonTypeLabel(person.person_type))}</td>
       <td>${esc(person.enrollment_code || '-')}</td>
       <td>${esc(person.class_name || '-')}</td>
       <td>${esc(person.guardian_name || '-')}</td>
-      <td>${esc(person.guardian_phone || '-')}</td>
+      <td>${esc(formatBrPhone(person.guardian_phone) || '-')}</td>
       <td>${accessPersonStatusBadge(person.active)}</td>
       <td>
         <div class="access-person-actions">
@@ -154,6 +191,11 @@ async function saveAccessPersonFromForm(event) {
   };
   if (!payload.full_name) {
     showToast('Informe o nome da pessoa.', true);
+    return;
+  }
+  if (payload.whatsapp_enabled && !payload.guardian_phone) {
+    showToast('Informe o WhatsApp do responsavel ou desmarque o envio de notificacoes.', true);
+    document.getElementById('accessPersonPhone')?.focus();
     return;
   }
   if (btn) {
