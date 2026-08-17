@@ -25,9 +25,69 @@ def _bool_int(value: Any, default: bool = True) -> int:
     return 1 if bool(value) else 0
 
 
+# Colunas acrescentadas a tabelas que JA EXISTIAM antes deste plano
+# (access_people e access_devices ja rodavam em homologacao). CREATE TABLE IF
+# NOT EXISTS e no-op quando a tabela existe, entao sem esta migration aditiva
+# o banco antigo nunca ganharia essas colunas e o primeiro list_people()/
+# list_devices() quebraria com "no such column: site".
+_ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("access_people", "site", "TEXT NOT NULL DEFAULT ''"),
+    ("access_devices", "password_enc", "TEXT NOT NULL DEFAULT ''"),
+    ("access_devices", "status", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("access_devices", "last_seen_at", "TEXT NOT NULL DEFAULT ''"),
+    ("access_devices", "last_event_id", "TEXT NOT NULL DEFAULT ''"),
+)
+
+
+def _table_exists(c: Any, backend: str, table: str) -> bool:
+    try:
+        if str(backend or "sqlite").strip().lower() == "postgres":
+            query = (
+                "SELECT 1 AS ok FROM information_schema.tables "
+                "WHERE table_name = ? AND table_schema NOT IN ('pg_catalog', 'information_schema')"
+            )
+        else:
+            query = "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?"
+        return c.execute(db_store._sql_for_backend(backend, query), (table,)).fetchone() is not None
+    except Exception:
+        return False
+
+
+def _column_exists(c: Any, backend: str, table: str, column: str) -> bool:
+    """Mesma convencao de db_store (_sqlite_columns no SQLite, information_schema no Postgres)."""
+    try:
+        if str(backend or "sqlite").strip().lower() == "postgres":
+            query = "SELECT 1 AS ok FROM information_schema.columns WHERE table_name = ? AND column_name = ?"
+            return c.execute(db_store._sql_for_backend(backend, query), (table, column)).fetchone() is not None
+        return column in db_store._sqlite_columns(c, table)
+    except Exception:
+        return False
+
+
+def _apply_additive_columns(c: Any, backend: str) -> None:
+    """ALTER TABLE ... ADD COLUMN guardado, para bancos que ja tinham as tabelas.
+
+    Roda ANTES do script de CREATE TABLE/CREATE INDEX de proposito: os indices
+    idx_access_people_tenant_site / idx_access_devices_tenant_site referenciam
+    justamente as colunas novas, entao num banco antigo o CREATE INDEX
+    estouraria ("no such column: site") antes de qualquer ALTER que viesse
+    depois. Instalacao nova cai no guard de tabela inexistente e e atendida
+    normalmente pelo CREATE TABLE IF NOT EXISTS logo abaixo, que ja traz todas
+    as colunas.
+    """
+    for table, column, column_ddl in _ADDITIVE_COLUMNS:
+        if not _table_exists(c, backend, table):
+            continue
+        if _column_exists(c, backend, table, column):
+            continue
+        # table/column/column_ddl vem so da constante acima, nunca de input.
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_ddl}")
+
+
 def ensure_access_control_schema() -> None:
     backend = db_store._db_backend()
     with db_store._conn() as c:
+        _apply_additive_columns(c, backend)
         db_store._exec_many_statements(
             c,
             backend,

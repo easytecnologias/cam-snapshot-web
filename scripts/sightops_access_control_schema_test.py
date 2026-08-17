@@ -186,10 +186,101 @@ def test_record_event_is_idempotent() -> None:
         reset_current_tenant_slug(token)
 
 
+LEGACY_PEOPLE_DDL = """
+CREATE TABLE access_people (
+  id TEXT PRIMARY KEY,
+  tenant_slug TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  person_type TEXT NOT NULL DEFAULT 'student',
+  document_id TEXT NOT NULL DEFAULT '',
+  enrollment_code TEXT NOT NULL DEFAULT '',
+  class_name TEXT NOT NULL DEFAULT '',
+  guardian_name TEXT NOT NULL DEFAULT '',
+  guardian_phone TEXT NOT NULL DEFAULT '',
+  whatsapp_enabled INTEGER NOT NULL DEFAULT 1,
+  active INTEGER NOT NULL DEFAULT 1,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+LEGACY_DEVICES_DDL = """
+CREATE TABLE access_devices (
+  id TEXT PRIMARY KEY,
+  tenant_slug TEXT NOT NULL,
+  site TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  vendor TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '',
+  connector_id TEXT NOT NULL DEFAULT '',
+  username TEXT NOT NULL DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+
+def test_existing_schema_gets_new_columns(tmp_dir: str) -> None:
+    """Regressao da homologacao: access_people/access_devices ja existiam (sem as
+    colunas que este plano acrescentou) antes do primeiro deploy deste codigo.
+    CREATE TABLE IF NOT EXISTS e no-op numa tabela existente, entao sem a
+    migration aditiva o primeiro list_people() quebraria com
+    'no such column: site' e a tela de Pessoas que ja funciona hoje pararia."""
+    from app.services.access_control_store import (
+        ensure_access_control_schema,
+        list_devices,
+        list_people,
+    )
+
+    previous_path = db_store.SIGHTOPS_DB_PATH
+    db_store.SIGHTOPS_DB_PATH = Path(tmp_dir) / "legacy.db"
+    token = set_current_tenant_slug("cliente-legado")
+    try:
+        with db_store._conn() as c:
+            c.execute(LEGACY_PEOPLE_DDL)
+            c.execute(LEGACY_DEVICES_DDL)
+            c.execute(
+                "INSERT INTO access_people(id, tenant_slug, full_name) VALUES('p-legado','cliente-legado','Pessoa Antiga')"
+            )
+            c.execute(
+                "INSERT INTO access_devices(id, tenant_slug, name, host) "
+                "VALUES('d-legado','cliente-legado','Catraca Antiga','10.10.13.33')"
+            )
+            assert "site" not in db_store._sqlite_columns(c, "access_people")
+            assert "password_enc" not in db_store._sqlite_columns(c, "access_devices")
+
+        ensure_access_control_schema()
+
+        with db_store._conn() as c:
+            people_cols = db_store._sqlite_columns(c, "access_people")
+            device_cols = db_store._sqlite_columns(c, "access_devices")
+        assert "site" in people_cols, "migration aditiva nao criou access_people.site"
+        for col in ("password_enc", "status", "last_seen_at", "last_event_id"):
+            assert col in device_cols, f"migration aditiva nao criou access_devices.{col}"
+
+        people = list_people()
+        assert len(people) == 1 and people[0]["full_name"] == "Pessoa Antiga"
+        assert people[0]["site"] == ""
+        devices = list_devices()
+        assert len(devices) == 1 and devices[0]["name"] == "Catraca Antiga"
+        assert devices[0]["status"] == "unknown"
+
+        # Idempotente: rodar de novo nao pode tentar recriar as colunas.
+        ensure_access_control_schema()
+        assert len(list_people()) == 1
+    finally:
+        reset_current_tenant_slug(token)
+        db_store.SIGHTOPS_DB_PATH = previous_path
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sightops-access-schema-") as tmp:
         db_store.SIGHTOPS_DB_PATH = Path(tmp) / "access.db"
         db_store.init_db()
+        test_existing_schema_gets_new_columns(tmp)
         test_person_has_site_column()
         test_group_tables_exist()
         test_group_and_rule_crud()
