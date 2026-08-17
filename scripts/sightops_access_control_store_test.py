@@ -85,7 +85,30 @@ def test_list_people_filters_by_type() -> None:
             reset_current_tenant_slug(token)
 
 
+def test_list_people_filters_by_site_and_lists_distinct_sites() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        _prepare_env(Path(d))
+
+        from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+        from app.services.access_control_store import list_people, list_people_sites, save_person
+
+        token = set_current_tenant_slug("escola-site")
+        try:
+            save_person({"full_name": "Aluno Sede", "site": "Sede"})
+            save_person({"full_name": "Aluno Anexo", "site": "Anexo"})
+            save_person({"full_name": "Aluno Sem Site", "site": ""})
+
+            assert list_people_sites() == ["Anexo", "Sede"]
+            assert [p["full_name"] for p in list_people(site="Sede")] == ["Aluno Sede"]
+            assert [p["full_name"] for p in list_people(site="Anexo")] == ["Aluno Anexo"]
+            assert len(list_people(site="")) == 3
+            assert len(list_people(site="Inexistente")) == 0
+        finally:
+            reset_current_tenant_slug(token)
+
+
 if __name__ == "__main__":
     test_people_are_tenant_scoped()
     test_list_people_filters_by_type()
+    test_list_people_filters_by_site_and_lists_distinct_sites()
     print("OK access control store")

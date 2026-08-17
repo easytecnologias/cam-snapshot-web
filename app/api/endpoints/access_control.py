@@ -18,6 +18,7 @@ from app.services.access_control_store import (
     list_group_members,
     list_groups,
     list_people,
+    list_people_sites,
     list_provision_status_for_person,
     list_rules,
     save_device,
@@ -147,9 +148,15 @@ def api_access_control_people(
     search: str = Query(""),
     active: str = Query(""),
     person_type: str = Query(""),
+    site: str = Query(""),
 ) -> Dict[str, Any]:
-    people = list_people(search=search, active=active, person_type=person_type)
+    people = list_people(search=search, active=active, person_type=person_type, site=site)
     return {"ok": True, "count": len(people), "people": people}
+
+
+@router.get("/people/sites")
+def api_access_control_people_sites() -> Dict[str, Any]:
+    return {"ok": True, "sites": list_people_sites()}
 
 
 @router.post("/people")

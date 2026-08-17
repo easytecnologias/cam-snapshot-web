@@ -47,11 +47,13 @@ function bindAccessControl() {
   document.getElementById('accessPeopleSearch')?.addEventListener('input', debounceAccessPeopleSearch);
   document.getElementById('accessPeopleStatus')?.addEventListener('change', () => loadAccessControl(true));
   document.getElementById('accessPeopleType')?.addEventListener('change', () => loadAccessControl(true));
+  document.getElementById('accessPeopleSite')?.addEventListener('change', () => loadAccessControl(true));
   document.getElementById('accessPeopleSelectAll')?.addEventListener('change', toggleAccessPeopleSelectAll);
   document.getElementById('btnAccessPersonClose')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('btnAccessPersonCancel')?.addEventListener('click', closeAccessPersonModal);
   document.getElementById('accessPersonForm')?.addEventListener('submit', saveAccessPersonFromForm);
   document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleBodyClick);
+  loadAccessPeopleSiteOptions();
   bindAccessTabs();
   bindAccessDevices();
   bindAccessGroups();
@@ -68,9 +70,11 @@ async function loadAccessControl(force = false) {
   const search = document.getElementById('accessPeopleSearch')?.value?.trim() || '';
   const active = document.getElementById('accessPeopleStatus')?.value || '';
   const type = document.getElementById('accessPeopleType')?.value || '';
+  const site = document.getElementById('accessPeopleSite')?.value || '';
   if (search) query.set('search', search);
   if (active) query.set('active', active);
   if (type) query.set('person_type', type);
+  if (site) query.set('site', site);
 
   try {
     const [summaryRes, peopleRes] = await Promise.all([
@@ -83,6 +87,21 @@ async function loadAccessControl(force = false) {
     renderAccessPeople(_accessPeopleRows);
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel carregar controle de acesso.', true);
+  }
+}
+
+async function loadAccessPeopleSiteOptions() {
+  const select = document.getElementById('accessPeopleSite');
+  if (!select) return;
+  try {
+    const res = await apiJson('/api/access-control/people/sites', { cacheTtl: 0 });
+    const sites = res?.sites || [];
+    const current = select.value;
+    select.innerHTML = '<option value="">Todos os sites</option>'
+      + sites.map(site => `<option value="${esc(site)}">${esc(site)}</option>`).join('');
+    if (sites.includes(current)) select.value = current;
+  } catch (err) {
+    // Filtro fica so com "Todos os sites" se a busca falhar -- nao bloqueia a tela.
   }
 }
 
@@ -213,6 +232,7 @@ async function saveAccessPersonFromForm(event) {
     await jsonOrReadableError(res, 'Nao foi possivel salvar a pessoa.');
     closeAccessPersonModal();
     await loadAccessControl(true);
+    loadAccessPeopleSiteOptions();
     showToast('Pessoa salva.');
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel salvar a pessoa.', true);

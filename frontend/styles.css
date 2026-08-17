@@ -431,7 +431,7 @@ a { color: inherit; text-decoration: none; }
    (que so tem botoes) -- layout proprio pra nao empurrar os botoes dos
    outros paineis pra colunas mais estreitas. */
 .access-tab-panel[data-access-panel="people"] .access-control-toolbar {
-  grid-template-columns: minmax(220px, 1fr) 150px 150px auto;
+  grid-template-columns: minmax(200px, 1fr) 140px 140px 130px auto;
 }
 .access-control-toolbar input,
 .access-control-toolbar select {
