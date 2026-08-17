@@ -81,6 +81,54 @@ def test_group_and_rule_crud() -> None:
         reset_current_tenant_slug(token)
 
 
+def test_device_event_and_provision_status() -> None:
+    from app.services.access_control_store import (
+        get_device_with_password,
+        list_devices,
+        list_events,
+        list_pending_provisions,
+        record_event,
+        save_device,
+        upsert_provision_status,
+    )
+
+    token = set_current_tenant_slug("cliente-c")
+    try:
+        device = save_device({
+            "name": "Catraca Portao",
+            "site": "Sede",
+            "vendor": "dahua",
+            "model": "ASI6214S-W",
+            "host": "10.10.13.33",
+            "username": "admin",
+            "password": "xzydsP2011",
+        })
+        assert "password" not in device and "password_enc" not in device
+        full = get_device_with_password(device["id"])
+        assert full["password"] == "xzydsP2011"
+        assert list_devices()[0]["host"] == "10.10.13.33"
+
+        event_id = record_event({
+            "device_id": device["id"],
+            "site": "Sede",
+            "person_id": "p1",
+            "person_name_raw": "Joao Teste",
+            "event_type": "entrada",
+            "occurred_at": "2026-08-16T07:55:00",
+        })
+        assert event_id
+        events = list_events(person_id="p1")
+        assert events[0]["event_type"] == "entrada"
+
+        upsert_provision_status("p1", device["id"], "pending")
+        pending = list_pending_provisions()
+        assert pending[0]["person_id"] == "p1" and pending[0]["status"] == "pending"
+        upsert_provision_status("p1", device["id"], "ok")
+        assert list_pending_provisions() == []
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sightops-access-schema-") as tmp:
         db_store.SIGHTOPS_DB_PATH = Path(tmp) / "access.db"
@@ -88,6 +136,7 @@ def main() -> None:
         test_person_has_site_column()
         test_group_tables_exist()
         test_group_and_rule_crud()
+        test_device_event_and_provision_status()
     print("OK access control schema: site em pessoa + tabelas de grupo")
 
 

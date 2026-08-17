@@ -4,6 +4,7 @@ import re
 import uuid
 from typing import Any, Dict, List
 
+from app.core.crypto import decrypt, encrypt
 from app.services import db_store
 
 
@@ -132,6 +133,31 @@ def ensure_access_control_schema() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_access_rules_tenant
               ON access_rules(tenant_slug, active);
+
+            CREATE TABLE IF NOT EXISTS access_events (
+              id TEXT PRIMARY KEY,
+              tenant_slug TEXT NOT NULL,
+              site TEXT NOT NULL DEFAULT '',
+              device_id TEXT NOT NULL,
+              person_id TEXT NOT NULL DEFAULT '',
+              person_name_raw TEXT NOT NULL DEFAULT '',
+              event_type TEXT NOT NULL,
+              occurred_at TEXT NOT NULL,
+              synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_events_tenant_time
+              ON access_events(tenant_slug, occurred_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_access_events_person
+              ON access_events(tenant_slug, person_id, occurred_at DESC);
+
+            CREATE TABLE IF NOT EXISTS access_provision_status (
+              person_id TEXT NOT NULL,
+              device_id TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending',
+              last_error TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+              PRIMARY KEY (person_id, device_id)
+            );
             """,
         )
 
@@ -518,3 +544,189 @@ def delete_rule(rule_id: str) -> bool:
     with db_store._conn() as c:
         cur = c.execute("DELETE FROM access_rules WHERE tenant_slug=? AND id=?", (tenant, rid))
         return int(cur.rowcount or 0) > 0
+
+
+def _device_row_dict(row: Any) -> Dict[str, Any]:
+    data = dict(row)
+    data.pop("password_enc", None)
+    data["active"] = bool(int(data.get("active") or 0))
+    return data
+
+
+def list_devices(site: str = "") -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    where = ["tenant_slug = ?"]
+    params: list[Any] = [tenant]
+    if site:
+        where.append("site = ?")
+        params.append(_clean_text(site, 120))
+    with db_store._conn() as c:
+        rows = c.execute(
+            f"SELECT * FROM access_devices WHERE {' AND '.join(where)} ORDER BY active DESC, name COLLATE NOCASE",
+            tuple(params),
+        ).fetchall()
+    return [_device_row_dict(r) for r in rows]
+
+
+def save_device(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    device_id = _clean_text(payload.get("id"), 80) or uuid.uuid4().hex
+    name = _clean_text(payload.get("name"), 160)
+    if not name:
+        raise ValueError("Informe o nome do dispositivo.")
+    site = _clean_text(payload.get("site"), 120)
+    vendor = _clean_text(payload.get("vendor"), 60)
+    model = _clean_text(payload.get("model"), 60)
+    host = _clean_text(payload.get("host"), 120)
+    connector_id = _clean_text(payload.get("connector_id"), 80)
+    username = _clean_text(payload.get("username"), 80)
+    active = _bool_int(payload.get("active"), True)
+    raw_password = payload.get("password")
+    with db_store._conn() as c:
+        if raw_password:
+            password_enc = encrypt(str(raw_password))
+            c.execute(
+                """
+                INSERT INTO access_devices(
+                  id, tenant_slug, site, name, vendor, model, host, connector_id, username,
+                  password_enc, active, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                  site=excluded.site, name=excluded.name, vendor=excluded.vendor, model=excluded.model,
+                  host=excluded.host, connector_id=excluded.connector_id, username=excluded.username,
+                  password_enc=excluded.password_enc, active=excluded.active, updated_at=datetime('now')
+                WHERE access_devices.tenant_slug=excluded.tenant_slug
+                """,
+                (device_id, tenant, site, name, vendor, model, host, connector_id, username, password_enc, active),
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO access_devices(
+                  id, tenant_slug, site, name, vendor, model, host, connector_id, username,
+                  active, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                  site=excluded.site, name=excluded.name, vendor=excluded.vendor, model=excluded.model,
+                  host=excluded.host, connector_id=excluded.connector_id, username=excluded.username,
+                  active=excluded.active, updated_at=datetime('now')
+                WHERE access_devices.tenant_slug=excluded.tenant_slug
+                """,
+                (device_id, tenant, site, name, vendor, model, host, connector_id, username, active),
+            )
+        row = c.execute("SELECT * FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, device_id)).fetchone()
+    if row is None:
+        raise ValueError("Dispositivo nao encontrado neste cliente.")
+    return _device_row_dict(row)
+
+
+def delete_device(device_id: str) -> bool:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(device_id, 80)
+    if not did:
+        return False
+    with db_store._conn() as c:
+        cur = c.execute("DELETE FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, did))
+        c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND device_id=?", (tenant, did))
+        c.execute("DELETE FROM access_provision_status WHERE device_id=?", (did,))
+        return int(cur.rowcount or 0) > 0
+
+
+def get_device_with_password(device_id: str) -> Dict[str, Any] | None:
+    """Uso interno (access_control_device.py) -- unica funcao que devolve a senha decifrada."""
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(device_id, 80)
+    with db_store._conn() as c:
+        row = c.execute("SELECT * FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, did)).fetchone()
+    if row is None:
+        return None
+    data = dict(row)
+    enc = data.pop("password_enc", "")
+    data["password"] = decrypt(enc) if enc else ""
+    data["active"] = bool(int(data.get("active") or 0))
+    return data
+
+
+def record_event(event: Dict[str, Any]) -> str:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    event_id = uuid.uuid4().hex
+    with db_store._conn() as c:
+        c.execute(
+            """
+            INSERT INTO access_events(
+              id, tenant_slug, site, device_id, person_id, person_name_raw, event_type,
+              occurred_at, synced_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                event_id,
+                tenant,
+                _clean_text(event.get("site"), 120),
+                _clean_text(event.get("device_id"), 80),
+                _clean_text(event.get("person_id"), 80),
+                _clean_text(event.get("person_name_raw"), 160),
+                _clean_text(event.get("event_type"), 20) or "entrada",
+                _clean_text(event.get("occurred_at"), 40),
+            ),
+        )
+    return event_id
+
+
+def list_events(person_id: str = "", site: str = "", limit: int = 200) -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    where = ["tenant_slug = ?"]
+    params: list[Any] = [tenant]
+    if person_id:
+        where.append("person_id = ?")
+        params.append(_clean_text(person_id, 80))
+    if site:
+        where.append("site = ?")
+        params.append(_clean_text(site, 120))
+    with db_store._conn() as c:
+        rows = c.execute(
+            f"SELECT * FROM access_events WHERE {' AND '.join(where)} ORDER BY occurred_at DESC LIMIT ?",
+            tuple(params) + (max(1, min(int(limit or 200), 1000)),),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_provision_status(person_id: str, device_id: str, status: str, last_error: str = "") -> None:
+    ensure_access_control_schema()
+    pid = _clean_text(person_id, 80)
+    did = _clean_text(device_id, 80)
+    with db_store._conn() as c:
+        c.execute(
+            """
+            INSERT INTO access_provision_status(person_id, device_id, status, last_error, updated_at)
+            VALUES(?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(person_id, device_id) DO UPDATE SET
+              status=excluded.status, last_error=excluded.last_error, updated_at=datetime('now')
+            """,
+            (pid, did, _clean_text(status, 20) or "pending", _clean_text(last_error, 500)),
+        )
+
+
+def list_pending_provisions() -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    with db_store._conn() as c:
+        rows = c.execute(
+            "SELECT * FROM access_provision_status WHERE status IN ('pending','failed')"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_provision_status_for_person(person_id: str) -> List[Dict[str, Any]]:
+    ensure_access_control_schema()
+    pid = _clean_text(person_id, 80)
+    with db_store._conn() as c:
+        rows = c.execute("SELECT * FROM access_provision_status WHERE person_id=?", (pid,)).fetchall()
+    return [dict(r) for r in rows]
