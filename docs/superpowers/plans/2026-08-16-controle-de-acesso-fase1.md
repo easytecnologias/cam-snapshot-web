@@ -651,13 +651,16 @@ Adicionar ao schema SQL da Task 1 (dentro da mesma string, dois blocos a mais):
               ON access_events(tenant_slug, person_id, occurred_at DESC);
 
             CREATE TABLE IF NOT EXISTS access_provision_status (
+              tenant_slug TEXT NOT NULL,
               person_id TEXT NOT NULL,
               device_id TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'pending',
               last_error TEXT NOT NULL DEFAULT '',
               updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-              PRIMARY KEY (person_id, device_id)
+              PRIMARY KEY (tenant_slug, person_id, device_id)
             );
+            CREATE INDEX IF NOT EXISTS idx_access_provision_status_pending
+              ON access_provision_status(tenant_slug, status);
 ```
 
 E as funções, no fim do arquivo (novo import no topo: `from app.core.crypto import decrypt, encrypt`):
@@ -750,7 +753,7 @@ def delete_device(device_id: str) -> bool:
     with db_store._conn() as c:
         cur = c.execute("DELETE FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, did))
         c.execute("DELETE FROM access_door_group_members WHERE tenant_slug=? AND device_id=?", (tenant, did))
-        c.execute("DELETE FROM access_provision_status WHERE device_id=?", (did,))
+        c.execute("DELETE FROM access_provision_status WHERE tenant_slug=? AND device_id=?", (tenant, did))
         return int(cur.rowcount or 0) > 0
 
 
@@ -818,34 +821,40 @@ def list_events(person_id: str = "", site: str = "", limit: int = 200) -> List[D
 
 def upsert_provision_status(person_id: str, device_id: str, status: str, last_error: str = "") -> None:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     pid = _clean_text(person_id, 80)
     did = _clean_text(device_id, 80)
     with db_store._conn() as c:
         c.execute(
             """
-            INSERT INTO access_provision_status(person_id, device_id, status, last_error, updated_at)
-            VALUES(?, ?, ?, ?, datetime('now'))
-            ON CONFLICT(person_id, device_id) DO UPDATE SET
+            INSERT INTO access_provision_status(tenant_slug, person_id, device_id, status, last_error, updated_at)
+            VALUES(?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(tenant_slug, person_id, device_id) DO UPDATE SET
               status=excluded.status, last_error=excluded.last_error, updated_at=datetime('now')
             """,
-            (pid, did, _clean_text(status, 20) or "pending", _clean_text(last_error, 500)),
+            (tenant, pid, did, _clean_text(status, 20) or "pending", _clean_text(last_error, 500)),
         )
 
 
 def list_pending_provisions() -> List[Dict[str, Any]]:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     with db_store._conn() as c:
         rows = c.execute(
-            "SELECT * FROM access_provision_status WHERE status IN ('pending','failed')"
+            "SELECT * FROM access_provision_status WHERE tenant_slug=? AND status IN ('pending','failed')",
+            (tenant,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def list_provision_status_for_person(person_id: str) -> List[Dict[str, Any]]:
     ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
     pid = _clean_text(person_id, 80)
     with db_store._conn() as c:
-        rows = c.execute("SELECT * FROM access_provision_status WHERE person_id=?", (pid,)).fetchall()
+        rows = c.execute(
+            "SELECT * FROM access_provision_status WHERE tenant_slug=? AND person_id=?", (tenant, pid)
+        ).fetchall()
     return [dict(r) for r in rows]
 ```
 
