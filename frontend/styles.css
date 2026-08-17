@@ -465,6 +465,13 @@ a { color: inherit; text-decoration: none; }
 .access-tab-panel[hidden] {
   display: none;
 }
+/* Linhas de pessoa/dispositivo tem celula de nome com 2 linhas (nome +
+   documento/host em .muted-block) -- vertical-align:middle (padrao global
+   de .data-table td) centraliza as outras celulas de uma linha so no meio
+   dessa altura maior, ficando "flutuando" entre as duas linhas do nome. */
+.access-tab-panel .data-table td {
+  vertical-align: top;
+}
 .access-groups-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
