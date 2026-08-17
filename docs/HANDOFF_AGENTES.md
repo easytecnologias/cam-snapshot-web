@@ -7,6 +7,74 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-17 — Controle de Acesso Fase 1: achados "Importantes" da revisão final adiados (não são bugs cegos, são pendências reais)
+
+**Agente:** Claude
+
+**Contexto:** plano `.superpowers/sdd/2026-08-16-controle-de-acesso-fase1/`
+terminou as 10 tasks (cada uma com revisão própria + rodada de fix quando
+necessário) e passou por revisão final de branch inteira. A revisão achou
+5 Críticos (sendo corrigidos agora numa wave separada) e 9 Importantes +
+alguns Minor que o usuário decidiu **adiar de propósito** — não são
+esquecimento, é escopo. Registrando aqui pra não virar surpresa depois.
+
+**Adiado (Importante):**
+1. Eventos da catraca nunca são casados com `person_id` (fica tudo
+   `person_name_raw` sem dono) — `access_control_sync.py` `poll_device_events`.
+2. Ficha da pessoa mostra "último evento" em vez do status de sincronização
+   por dispositivo que a spec pedia — **isso é falha minha na tradução
+   spec→plano** (a spec tinha o requisito certo, o plano perdeu ele antes de
+   virar código); `list_provision_status_for_person()` existe, testado, sem
+   endpoint nem chamador.
+3. Horário/dia da regra (`weekdays`/`time_start`/`time_end`) é só decorativo
+   — nunca aplicado na credencial do dispositivo (`ValidFrom`/`ValidTo`
+   hardcoded pra 2020-2037, `Doors` fixo em `[0]`). O painel de Regras
+   promete um comportamento que o sistema não cumpre.
+4. Status do dispositivo nunca atualiza (`get_system_info` só é chamado no
+   teste) — coluna `status` fica em "desconhecido" pra sempre na UI.
+5. Excluir/desativar pessoa não chama `remove_person` (revogar credencial
+   na catraca) nem limpa `access_group_members`/`access_provision_status`
+   órfãos — fica tentando reprocessar pra sempre.
+6. Loop de fundo só itera tenant que já tem câmera/OLT/gravador cadastrado
+   (`list_monitoring_tenants`) — cliente só com Controle de Acesso nunca é
+   visitado.
+7. Nenhuma foto de rosto é capturada/enviada em lugar nenhum — numa catraca
+   de reconhecimento facial, sem isso ninguém realmente entra pela
+   biometria mesmo com tudo mais corrigido. **Isso é lacuna do plano**, não
+   dos implementadores — nenhuma task cobria captura de foto.
+8. `host` do dispositivo não é validado contra a LAN do conector
+   (`connector_service.ensure_connector_targets_allowed`, já usado em
+   `cameras.py`/`deployments.py`) — SSRF autenticado real: servidor faz
+   requisição HTTP pra qualquer IP que o usuário salvar como `host` e
+   devolve o corpo da resposta. `connector_id` existe no schema e no
+   Pydantic model mas nunca é lido por `access_control_device.py`.
+9. `scripts/sightops_access_control_route_test.py` e
+   `scripts/sightops_access_control_routes_test.py` só verificam que a
+   rota existe — nenhum teste bate um request real (TestClient) contra
+   `POST /people`/`/groups`/`/rules` e confere o que foi persistido. É
+   exatamente essa camada que deixou passar os bugs #2 e #3 da wave de
+   Críticos (site apagado, checklist de grupo com membro sumindo).
+
+**Minor (não bloqueiam nada, só ficam registrados):** dois arquivos de
+teste de rota quase duplicados; `active` tratado como bool numas listagens
+e int cru em outras; sem botão de excluir grupo/grupo-de-porta/regra na UI
+(endpoint existe, botão não); `access_control_summary()` retorna
+`events_today: 0` fixo; dedup de evento em `record_event` faz scan sem
+índice (ok na escala atual); `tenant_slug` vaza no payload de resposta
+(mesmo padrão já usado em `list_people`, não é regressão nova).
+
+**Não reverter:** nada aqui foi implementado ainda — é lista de pendência,
+não código. Não remover esta entrada até cada item virar tarefa própria ou
+for descartado explicitamente.
+
+**Próximo passo:** cada item acima vira sua própria mini-spec/task quando
+o usuário priorizar — o maior (item 7, foto facial) provavelmente precisa
+de uma decisão de produto antes (como capturar a foto: upload manual?
+foto da câmera mais próxima? webcam do técnico no app de implantação?)
+antes de virar código.
+
+---
+
 ## 2026-08-16 — Task 5 (Controle de Acesso): `poll_device_events` não deduplica eventos — risco de duplicata quando o polling de verdade for ligado
 
 **Agente:** Claude
