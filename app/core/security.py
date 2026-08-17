@@ -100,6 +100,12 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/dvr/", "operator"),
             (("POST",), "/api/nvr/", "operator"),
             (("POST",), "/api/ia/", "operator"),
+            # Controle de acesso tem efeito fisico (abrir porta) e mexe com dado
+            # pessoal de aluno/responsavel. Mesmo piso dos outros endpoints de
+            # efeito fisico do projeto (reboot de camera, PTZ, OLT/switch/DVR/NVR):
+            # 'operator'. Inclui GET porque a listagem de pessoas e PII, seguindo
+            # o mesmo criterio ja usado em /api/connectors e /api/deployments.
+            (("GET", "POST", "PUT", "DELETE"), "/api/access-control/", "operator"),
         ]
 
     def _is_public_path(self, path: str) -> bool:
