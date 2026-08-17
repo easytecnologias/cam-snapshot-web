@@ -92,7 +92,7 @@ def ensure_access_control_schema() -> None:
               tenant_slug TEXT NOT NULL,
               group_id TEXT NOT NULL,
               person_id TEXT NOT NULL,
-              PRIMARY KEY (group_id, person_id)
+              PRIMARY KEY (tenant_slug, group_id, person_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_group_members_person
               ON access_group_members(tenant_slug, person_id);
@@ -113,7 +113,7 @@ def ensure_access_control_schema() -> None:
               tenant_slug TEXT NOT NULL,
               door_group_id TEXT NOT NULL,
               device_id TEXT NOT NULL,
-              PRIMARY KEY (door_group_id, device_id)
+              PRIMARY KEY (tenant_slug, door_group_id, device_id)
             );
             CREATE INDEX IF NOT EXISTS idx_access_door_group_members_device
               ON access_door_group_members(tenant_slug, device_id);
