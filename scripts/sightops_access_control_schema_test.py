@@ -126,7 +126,13 @@ def test_device_event_and_provision_status() -> None:
         upsert_provision_status("p1", device["id"], "ok")
         assert list_pending_provisions() == []
 
-        # Cross-tenant isolation check: another tenant should see no pending provisions
+        # Keep a genuinely pending row under cliente-c before switching --
+        # otherwise the cross-tenant check below would pass even if
+        # tenant_slug filtering were broken (nothing pending anywhere).
+        upsert_provision_status("p2", device["id"], "pending")
+
+        # Cross-tenant isolation check: p2's pending provision under cliente-c
+        # must NOT be visible to cliente-d. If tenant_slug filter is broken, test fails.
         other_token = set_current_tenant_slug("cliente-d-isolation-check")
         try:
             assert list_pending_provisions() == [], "provision status vazou pra outro tenant"
