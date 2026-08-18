@@ -1,0 +1,31 @@
+services:
+  cam-snapshot-api:
+    container_name: sightops-api
+  sightops-prod-nginx:
+    container_name: sightops-homol-nginx
+  sightops-prod-postgres:
+    container_name: sightops-postgres
+  zabbix-prod-postgres:
+    container_name: zabbix-postgres
+  zabbix-prod-server:
+    container_name: zabbix-server
+  zabbix-prod-web:
+    container_name: zabbix-web
+  zabbix-prod-agent2:
+    container_name: zabbix-agent2
+  grafana-prod:
+    container_name: grafana
+networks:
+  sightops-prod:
+    name: sightops-homol-platform
+volumes:
+  sightops_prod_data:
+    name: cam-snapshot-web_sightops_data
+  sightops_prod_output:
+    name: cam-snapshot-web_sightops_output
+  sightops_prod_postgres:
+    name: cam-snapshot-web_sightops_postgres
+  zabbix_prod_postgres:
+    name: cam-snapshot-web_zabbix_postgres
+  grafana_prod_data:
+    name: cam-snapshot-web_grafana_data
