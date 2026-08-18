@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.services.access_control_store import (
@@ -28,9 +29,12 @@ from app.services.access_control_store import (
     save_rule,
     set_door_group_members,
     set_group_members,
+    update_device_health,
     upsert_provision_status,
 )
+from app.services.access_control_device import get_system_info as device_get_system_info
 from app.services.access_control_device import open_door as device_open_door
+from app.services.access_control_photos import load_person_face_photo, save_person_face_photo
 from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
 
 router = APIRouter(prefix="/api/access-control", tags=["access-control"])
@@ -84,6 +88,37 @@ def _people_of_door_group(door_group_id: str) -> List[str]:
     return person_ids
 
 
+def _provision_summary_for_person(person_id: str) -> Dict[str, Any]:
+    rows = list_provision_status_for_person(person_id)
+    total = len(rows)
+    ok_count = sum(1 for row in rows if str(row.get("status") or "") == "ok")
+    failed_count = sum(1 for row in rows if str(row.get("status") or "") == "failed")
+    pending_count = sum(1 for row in rows if str(row.get("status") or "") == "pending")
+    last_error = next((str(row.get("last_error") or "") for row in rows if row.get("last_error")), "")
+    if failed_count:
+        status = "failed"
+    elif pending_count:
+        status = "pending"
+    elif total and ok_count == total:
+        status = "ok"
+    else:
+        status = "not_configured"
+    return {
+        "status": status,
+        "total": total,
+        "ok": ok_count,
+        "pending": pending_count,
+        "failed": failed_count,
+        "last_error": last_error,
+    }
+
+
+def _attach_people_provision_summary(people: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for person in people:
+        person["provision_summary"] = _provision_summary_for_person(str(person.get("id") or ""))
+    return people
+
+
 class AccessPersonRequest(BaseModel):
     id: Optional[str] = ""
     full_name: str = Field(min_length=1, max_length=160)
@@ -92,6 +127,7 @@ class AccessPersonRequest(BaseModel):
     enrollment_code: str = ""
     class_name: str = ""
     site: str = ""
+    controller_user_id: str = ""
     guardian_name: str = ""
     guardian_phone: str = ""
     whatsapp_enabled: bool = True
@@ -132,6 +168,7 @@ class AccessRuleRequest(BaseModel):
     id: Optional[str] = ""
     people_group_id: str
     door_group_id: str
+    name: str = ""
     weekdays: str = "1234567"
     time_start: str = ""
     time_end: str = ""
@@ -151,7 +188,7 @@ def api_access_control_people(
     site: str = Query(""),
 ) -> Dict[str, Any]:
     people = list_people(search=search, active=active, person_type=person_type, site=site)
-    return {"ok": True, "count": len(people), "people": people}
+    return {"ok": True, "count": len(people), "people": _attach_people_provision_summary(people)}
 
 
 @router.get("/people/sites")
@@ -185,6 +222,38 @@ def api_access_control_delete_person(person_id: str) -> Dict[str, Any]:
     return {"ok": True, "removed": True}
 
 
+@router.post("/people/{person_id}/face-photo")
+async def api_access_control_person_face_photo(
+    person_id: str,
+    file: UploadFile = File(...),
+) -> Dict[str, Any]:
+    content_type = str(file.content_type or "").lower()
+    if content_type and content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=400, detail="Envie uma foto JPG, PNG ou WebP.")
+    try:
+        result = save_person_face_photo(person_id, await file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _enqueue_provisioning([result["person"]["id"]], force=True)
+    return {"ok": True, **result}
+
+
+@router.get("/people/{person_id}/face-photo")
+def api_access_control_person_face_photo_get(person_id: str) -> Response:
+    people = list_people()
+    person = next((p for p in people if p["id"] == person_id), None)
+    if not person:
+        raise HTTPException(status_code=404, detail="Pessoa nao encontrada neste cliente.")
+    photo = load_person_face_photo(person)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Foto facial nao encontrada.")
+    return Response(
+        content=photo,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
 @router.post("/people/{person_id}/sync")
 def api_access_control_sync_person(person_id: str) -> Dict[str, Any]:
     people = list_people()
@@ -192,7 +261,7 @@ def api_access_control_sync_person(person_id: str) -> Dict[str, Any]:
     if not person:
         raise HTTPException(status_code=404, detail="Pessoa nao encontrada neste cliente.")
     result = provision_person_everywhere(person)
-    return {"ok": True, **result}
+    return {"ok": True, **result, "provision_summary": _provision_summary_for_person(person_id)}
 
 
 @router.get("/devices")
@@ -208,6 +277,27 @@ def api_access_control_save_device(req: AccessDeviceRequest) -> Dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "device": device}
+
+
+@router.post("/devices/{device_id}/test")
+def api_access_control_test_device(device_id: str) -> Dict[str, Any]:
+    from app.services.access_control_store import get_device_with_password
+
+    device = get_device_with_password(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo nao encontrado neste cliente.")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        info = device_get_system_info(device)
+    except HTTPException:
+        try:
+            update_device_health(device_id, status="offline", last_seen_at=now)
+        except ValueError:
+            pass
+        raise
+    model = str(info.get("updateSerial") or info.get("deviceType") or device.get("model") or "").strip()
+    updated = update_device_health(device_id, status="online", model=model, last_seen_at=now)
+    return {"ok": True, "device": updated, "info": info}
 
 
 @router.delete("/devices/{device_id}")

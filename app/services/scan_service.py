@@ -17,7 +17,8 @@ from app.models.requests import ScanRequest
 from app.services.camsnapshot.device_info import get_snapshot
 from app.services.camsnapshot.uploader_imgbb import upload_to_imgbb
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.olt_ignore_list import remove_ignored_rows
+from app.services.camera_allowlist import filter_rows as filter_allowlist_rows
+from app.services.olt_ignore_list import filter_ignored_rows, remove_ignored_rows
 from app.services.photo_store import (
     attach_snapshot_fields,
     resolve_snapshot_file,
@@ -258,14 +259,26 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
     merged: list[dict[str, Any]] = [dict(r) for r in (old_rows or [])]
 
     def find_match(nr: dict[str, Any]) -> int | None:
-        nkey = inventory_row_key(nr)
-        for i, r in enumerate(merged):
-            if inventory_row_key(r) == nkey:
-                return i
-
         nip = norm_ip(nr.get("ip") or nr.get("IP"))
         nmac = norm_mac(nr.get("mac") or nr.get("MAC"))
         nsite = norm_site(nr)
+
+        def site_conflita(r: dict[str, Any]) -> bool:
+            # Faixa privada se repete entre sites (100.65.x em todo cliente).
+            # Se as duas linhas dizem de que site sao e os sites diferem, NAO
+            # e a mesma camera -- casar aqui misturava o inventario e ainda
+            # sobrescrevia o site antigo pelo da varredura nova.
+            rsite = norm_site(r)
+            return bool(nsite and rsite and rsite != nsite)
+
+        nkey = inventory_row_key(nr)
+        for i, r in enumerate(merged):
+            # inventory_row_key de linha local e so "IP:x", sem site, entao a
+            # checagem de site precisa vir junto aqui tambem.
+            if site_conflita(r):
+                continue
+            if inventory_row_key(r) == nkey:
+                return i
 
         # Linhas remotas nunca casam somente por IP/MAC: redes privadas se repetem
         # entre clientes e sites. O unico match aceito e site+IP, que ja identifica
@@ -279,16 +292,22 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
 
         # 1) IP+MAC
         for i, r in enumerate(merged):
+            if site_conflita(r):
+                continue
             if norm_ip(r.get("ip") or r.get("IP")) == nip and norm_mac(r.get("mac") or r.get("MAC")) == nmac and (nip or nmac):
                 return i
         # 2) IP apenas
         if nip:
             for i, r in enumerate(merged):
+                if site_conflita(r):
+                    continue
                 if norm_ip(r.get("ip") or r.get("IP")) == nip:
                     return i
         # 3) MAC apenas
         if nmac:
             for i, r in enumerate(merged):
+                if site_conflita(r):
+                    continue
                 if norm_mac(r.get("mac") or r.get("MAC")) == nmac:
                     return i
         return None
@@ -401,7 +420,11 @@ def _capture_snapshots(
     return rows
 
 
-def _apply_default_local(rows: List[Dict[str, Any]], local_value: str) -> tuple[List[Dict[str, Any]], int]:
+def _apply_default_local(
+    rows: List[Dict[str, Any]],
+    local_value: str,
+    only_ips: set[str] | None = None,
+) -> tuple[List[Dict[str, Any]], int]:
     if not rows:
         return rows, 0
 
@@ -413,6 +436,13 @@ def _apply_default_local(rows: List[Dict[str, Any]], local_value: str) -> tuple[
     for cam in rows:
         if not isinstance(cam, dict):
             continue
+        # So carimba o site nas linhas que ESTA varredura achou. Antes pegava o
+        # inventario inteiro e batizava com o site novo qualquer linha antiga
+        # que estivesse sem local, de outro site inclusive.
+        if only_ips is not None:
+            ip = str(cam.get("ip") or cam.get("IP") or "").strip()
+            if ip not in only_ips:
+                continue
         current = str(cam.get("local") or cam.get("LOCAL") or "").strip()
         if current:
             continue
@@ -604,6 +634,30 @@ def _generate_inventory_xlsx() -> tuple[bool, str]:
     return True, ""
 
 
+def _explicit_target_ips(alvo: str) -> set[str]:
+    """IPs que o usuario digitou UM A UM no alvo da varredura.
+
+    Varrer um IP especifico e um pedido explicito de "quero esse de volta",
+    entao ele sai da lista de ignorados. Varrer faixa (10.0.0.1-10.0.0.50) ou
+    CIDR (10.0.0.0/24) e descoberta ampla: ali o bloqueio do usuario continua
+    valendo, senao apagar camera nao adianta nada.
+    """
+    raw = str(alvo or "").strip()
+    if not raw:
+        return set()
+    ips: set[str] = set()
+    for part in re.split(r"[,;\s]+", raw):
+        token = part.strip()
+        if not token:
+            continue
+        if "/" in token or "-" in token or "*" in token:
+            return set()
+        if not re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", token):
+            return set()
+        ips.add(token)
+    return ips
+
+
 def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     """HTTP /api/scan - compat legado, sem quebrar o front.
     Refatoracao incremental: movemos para service para router dedicado.
@@ -635,6 +689,8 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     current_scan_ips: set[str] | None = None
     discovered_count = 0
     restored_ignored_count = 0
+    blocked_ignored_count = 0
+    blocked_allowlist_count = 0
     if mode == "scan":
         old_rows_for_merge: list[dict[str, Any]] = []
         tmp_out: Path | None = None
@@ -695,10 +751,23 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
             }
             discovered_count = len(current_scan_ips) or len(new_rows)
 
+            # Allowlist: se o site e declarativo, so entra o que o usuario
+            # autorizou. Corta ANTES do merge pra nao encostar no inventario.
+            new_rows, blocked_allowlist_count = filter_allowlist_rows(
+                new_rows, default_site=str(getattr(req, "local", "") or "")
+            )
+
             if should_merge:
                 new_rows = _merge_inventory_rows(old_rows_for_merge, new_rows)
 
-            restored_ignored_count = remove_ignored_rows(new_rows)
+            # So o que o usuario mirou explicitamente volta da lista de
+            # ignorados; o resto que ele mandou apagar continua bloqueado.
+            explicit_ips = _explicit_target_ips(alvo)
+            if explicit_ips:
+                restored_ignored_count = remove_ignored_rows(
+                    [r for r in new_rows if str((r or {}).get("ip") or (r or {}).get("IP") or "").strip() in explicit_ips]
+                )
+            new_rows, blocked_ignored_count = filter_ignored_rows(new_rows)
 
             # Sempre passa pelo serviço de inventário para manter JSON e json_state
             # sincronizados, inclusive depois de "Apagar inventário".
@@ -716,7 +785,9 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
     inventory_rows = load_inventory_json(mode=inventory_mode)
     local_applied = 0
     if mode == "scan" and bool(getattr(req, "set_local", False)) and inventory_rows:
-        inventory_rows, local_applied = _apply_default_local(inventory_rows, getattr(req, "local", ""))
+        inventory_rows, local_applied = _apply_default_local(
+            inventory_rows, getattr(req, "local", ""), only_ips=current_scan_ips
+        )
         if local_applied > 0:
             save_inventory_json(inventory_rows, mode=inventory_mode)
 
@@ -814,6 +885,8 @@ def run_http_scan(req: ScanRequest) -> Dict[str, Any]:
         "auth_warning": auth_warning,
         "dvr_snapshots_moved": dvr_snapshots_moved,
         "restored_ignored_count": restored_ignored_count,
+        "blocked_ignored_count": blocked_ignored_count,
+        "blocked_allowlist_count": blocked_allowlist_count,
         "inventory": inventory_rows,
     }
 

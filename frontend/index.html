@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=157">
+  <link rel="stylesheet" href="styles.css?v=203">
 </head>
 <body>
 
@@ -282,6 +282,7 @@
             <p>Varredura, filtros e casamento com informa--es da OLT e Switch.</p>
           </div>
           <div class="page-heading-actions">
+            <button class="secondary-action" id="btnAllowlist"><i data-lucide="list-checks"></i> IPs permitidos</button>
             <button class="primary-action" id="btnScanOlt"><i data-lucide="scan-search"></i> Varredura</button>
           </div>
         </div>
@@ -1398,15 +1399,15 @@
             <h1>Controle de Acesso</h1>
             <p>Base para reconhecimento facial, dispositivos multi-marca e notificacoes de entrada e saida.</p>
           </div>
-          <button class="primary-action" id="btnAccessPersonNew" type="button"><i data-lucide="plus"></i> Nova pessoa</button>
+          <button class="primary-action" id="btnAccessPrimaryAction" type="button" data-access-primary-action="people"><i data-lucide="plus"></i> <span id="accessPrimaryActionLabel">Nova pessoa</span></button>
         </div>
 
         <div class="metrics access-control-kpis">
-          <article class="dash-kpi-card">
+          <article class="dash-kpi-card" id="accessKpiStudentsCard" role="button" tabindex="0" title="Ver alunos por site e status" aria-label="Ver alunos por site e status">
             <div class="metric-icon green"><i data-lucide="graduation-cap"></i></div>
             <div><span>Alunos</span><strong id="accessKpiStudents">0</strong><small id="accessKpiPeopleSub">nenhum cadastro</small></div>
           </article>
-          <article class="dash-kpi-card">
+          <article class="dash-kpi-card" id="accessKpiDevicesCard" role="button" tabindex="0" title="Ver dispositivos por site e status" aria-label="Ver dispositivos por site e status">
             <div class="metric-icon blue"><i data-lucide="scan-face"></i></div>
             <div><span>Dispositivos</span><strong id="accessKpiDevices">0</strong><small>Intelbras primeiro</small></div>
           </article>
@@ -1428,14 +1429,18 @@
         </div>
 
         <div class="access-tab-panel" data-access-panel="people">
-        <div class="panel">
-          <div class="panel-header">
+          <div class="access-people-heading">
             <div>
+              <p class="eyebrow">Cadastro</p>
               <h2>Pessoas</h2>
               <p>Alunos, responsaveis e contato para notificacao.</p>
             </div>
-            <div class="access-control-toolbar">
+          </div>
+          <div class="filters access-people-filters">
+            <label class="search-box">
+              <i data-lucide="search"></i>
               <input id="accessPeopleSearch" type="search" placeholder="Buscar nome, matricula, documento ou WhatsApp">
+            </label>
               <select id="accessPeopleType">
                 <option value="">Todos os tipos</option>
                 <option value="student">Alunos</option>
@@ -1450,42 +1455,55 @@
                 <option value="active">Ativos</option>
                 <option value="inactive">Inativos</option>
               </select>
-              <button class="secondary-action" id="btnAccessPeopleRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
-            </div>
+              <button class="ghost-action" id="btnAccessPeopleClearFilters" type="button">Limpar</button>
           </div>
-          <p id="accessPeopleCount" class="muted-block access-people-count"></p>
+        <div class="panel access-people-panel">
           <div class="table-wrap">
-            <table class="data-table responsive-data-table" id="accessPeopleTable">
+            <table class="data-table responsive-data-table access-people-table" id="accessPeopleTable">
               <colgroup>
-                <col style="width:3%">
-                <col style="width:23%">
-                <col style="width:12%">
-                <col style="width:9%">
-                <col style="width:9%">
-                <col style="width:11%">
-                <col style="width:10%">
-                <col style="width:13%">
-                <col style="width:6%">
-                <col style="width:4%">
+                <col class="access-col-check">
+                <col class="access-col-name">
+                <col class="access-col-photo">
+                <col class="access-col-document">
+                <col class="access-col-site">
+                <col class="access-col-enrollment">
+                <col class="access-col-class">
+                <col class="access-col-guardian">
+                <col class="access-col-phone">
+                <col class="access-col-status">
+                <col class="access-col-sync">
               </colgroup>
               <thead>
                 <tr>
-                  <th class="access-checkbox-cell"><input type="checkbox" id="accessPeopleSelectAll" aria-label="Selecionar todas as pessoas"></th>
-                  <th>Nome</th>
-                  <th>Documento</th>
-                  <th>Site</th>
-                  <th>Matricula</th>
-                  <th>Turma</th>
-                  <th>Responsavel</th>
-                  <th>WhatsApp</th>
-                  <th>Status</th>
-                  <th class="access-checkbox-cell">Acoes</th>
+                  <th class="access-head-check access-checkbox-cell"><input type="checkbox" id="accessPeopleSelectAll" aria-label="Selecionar todas as pessoas"></th>
+                  <th class="access-head-name">Nome</th>
+                  <th class="access-head-photo">Foto</th>
+                  <th class="access-head-document">Documento</th>
+                  <th class="access-head-site">Site</th>
+                  <th class="access-head-enrollment">Matricula</th>
+                  <th class="access-head-class">Turma</th>
+                  <th class="access-head-guardian">Responsavel</th>
+                  <th class="access-head-phone">WhatsApp</th>
+                  <th class="access-head-status">Status</th>
+                  <th class="access-head-sync">Sync</th>
                 </tr>
               </thead>
               <tbody id="accessPeopleBody">
-                <tr class="empty-row"><td colspan="10">Nenhuma pessoa cadastrada.</td></tr>
+                <tr class="empty-row"><td colspan="11">Nenhuma pessoa cadastrada.</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="table-footer access-people-footer">
+            <span id="accessPeopleCount">0 pessoas</span>
+            <div class="access-people-footer-actions">
+              <button class="icon-action" id="btnAccessPeopleFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-action primary" id="btnAccessPersonFooterNew" type="button" data-tip="Nova pessoa"><i data-lucide="plus"></i></button>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+              <button class="icon-action primary" id="btnAccessPeopleFooterEdit" type="button" data-tip="Editar selecionado" disabled><i data-lucide="pencil"></i></button>
+              <button class="icon-action danger" id="btnAccessPeopleFooterDeleteSelected" type="button" data-tip="Excluir selecionados" disabled><i data-lucide="trash-2"></i></button>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+              <button class="icon-action danger" id="btnAccessPeopleFooterDeleteAll" type="button" data-tip="Excluir tudo filtrado"><i data-lucide="trash"></i></button>
+            </div>
           </div>
         </div>
         </div>
@@ -1497,27 +1515,38 @@
               <h2>Dispositivos</h2>
               <p>Controladoras de acesso cadastradas por site.</p>
             </div>
-            <div class="access-control-toolbar">
-              <button class="primary-action" id="btnAccessDeviceNew" type="button"><i data-lucide="plus"></i> Novo dispositivo</button>
-              <button class="secondary-action" id="btnAccessDevicesRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
-            </div>
           </div>
           <div class="table-wrap">
             <table class="data-table responsive-data-table" id="accessDevicesTable">
               <thead>
                 <tr>
+                  <th class="access-checkbox-cell"><input type="checkbox" id="accessDevicesSelectAll" aria-label="Selecionar dispositivo"></th>
                   <th>Nome</th>
                   <th>Site</th>
+                  <th>Conector</th>
                   <th>Host</th>
                   <th>Modelo</th>
                   <th>Status</th>
-                  <th>Acoes</th>
                 </tr>
               </thead>
               <tbody id="accessDevicesBody">
-                <tr class="empty-row"><td colspan="6">Nenhum dispositivo cadastrado.</td></tr>
+                <tr class="empty-row"><td colspan="7">Nenhum dispositivo cadastrado.</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="table-footer access-devices-footer">
+            <div>
+              <span id="accessDevicesCount">0 dispositivos</span>
+              <span id="accessDevicesFooterHint">Selecione uma controladora para testar conexao, abrir porta, editar ou excluir.</span>
+            </div>
+            <div class="access-people-footer-actions">
+              <button class="icon-action" id="btnAccessDevicesFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+              <button class="icon-action" id="btnAccessDevicesFooterTest" type="button" data-tip="Testar conexao" disabled><i data-lucide="plug-zap"></i></button>
+              <button class="icon-action" id="btnAccessDevicesFooterOpenDoor" type="button" data-tip="Abrir porta" disabled><i data-lucide="door-open"></i></button>
+              <button class="icon-action primary" id="btnAccessDevicesFooterEdit" type="button" data-tip="Editar selecionado" disabled><i data-lucide="pencil"></i></button>
+              <button class="icon-action danger" id="btnAccessDevicesFooterDelete" type="button" data-tip="Excluir selecionado" disabled><i data-lucide="trash-2"></i></button>
+            </div>
           </div>
         </div>
         </div>
@@ -1530,19 +1559,29 @@
                 <h2>Grupos de pessoas</h2>
                 <p>Conjuntos de pessoas usados nas regras de acesso.</p>
               </div>
-              <div class="access-control-toolbar">
-                <button class="primary-action" id="btnAccessGroupNew" type="button"><i data-lucide="plus"></i> Novo grupo</button>
-              </div>
             </div>
             <div class="table-wrap">
               <table class="data-table responsive-data-table" id="accessGroupsTable">
                 <thead>
-                  <tr><th>Nome</th><th>Site</th><th>Pessoas</th><th>Acoes</th></tr>
+                  <tr><th class="access-checkbox-cell"><input type="checkbox" id="accessGroupsSelectAll" aria-label="Selecionar grupo de pessoas"></th><th>Nome</th><th>Site</th><th>Pessoas</th></tr>
                 </thead>
                 <tbody id="accessGroupsBody">
                   <tr class="empty-row"><td colspan="4">Nenhum grupo cadastrado.</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="table-footer access-groups-footer">
+              <div>
+                <span id="accessGroupsCount">0 grupos</span>
+                <span id="accessGroupsFooterHint">Selecione um grupo para editar ou excluir.</span>
+              </div>
+              <div class="access-people-footer-actions">
+                <button class="icon-action" id="btnAccessGroupsFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+                <button class="icon-action primary" id="btnAccessGroupNew" type="button" data-tip="Novo grupo"><i data-lucide="plus"></i></button>
+                <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+                <button class="icon-action primary" id="btnAccessGroupsFooterEdit" type="button" data-tip="Editar selecionado" disabled><i data-lucide="pencil"></i></button>
+                <button class="icon-action danger" id="btnAccessGroupsFooterDelete" type="button" data-tip="Excluir selecionado" disabled><i data-lucide="trash-2"></i></button>
+              </div>
             </div>
           </div>
           <div class="panel">
@@ -1551,19 +1590,29 @@
                 <h2>Grupos de porta</h2>
                 <p>Conjuntos de dispositivos usados nas regras de acesso.</p>
               </div>
-              <div class="access-control-toolbar">
-                <button class="primary-action" id="btnAccessDoorGroupNew" type="button"><i data-lucide="plus"></i> Novo grupo de porta</button>
-              </div>
             </div>
             <div class="table-wrap">
               <table class="data-table responsive-data-table" id="accessDoorGroupsTable">
                 <thead>
-                  <tr><th>Nome</th><th>Site</th><th>Dispositivos</th><th>Acoes</th></tr>
+                  <tr><th class="access-checkbox-cell"><input type="checkbox" id="accessDoorGroupsSelectAll" aria-label="Selecionar grupo de porta"></th><th>Nome</th><th>Site</th><th>Dispositivos</th></tr>
                 </thead>
                 <tbody id="accessDoorGroupsBody">
                   <tr class="empty-row"><td colspan="4">Nenhum grupo de porta cadastrado.</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="table-footer access-groups-footer">
+              <div>
+                <span id="accessDoorGroupsCount">0 grupos de porta</span>
+                <span id="accessDoorGroupsFooterHint">Selecione um grupo de porta para editar ou excluir.</span>
+              </div>
+              <div class="access-people-footer-actions">
+                <button class="icon-action" id="btnAccessDoorGroupsFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+                <button class="icon-action primary" id="btnAccessDoorGroupNew" type="button" data-tip="Novo grupo de porta"><i data-lucide="plus"></i></button>
+                <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+                <button class="icon-action primary" id="btnAccessDoorGroupsFooterEdit" type="button" data-tip="Editar selecionado" disabled><i data-lucide="pencil"></i></button>
+                <button class="icon-action danger" id="btnAccessDoorGroupsFooterDelete" type="button" data-tip="Excluir selecionado" disabled><i data-lucide="trash-2"></i></button>
+              </div>
             </div>
           </div>
         </div>
@@ -1576,114 +1625,178 @@
               <h2>Regras</h2>
               <p>Quem pode abrir quais portas e em qual horario.</p>
             </div>
-            <div class="access-control-toolbar">
-              <button class="primary-action" id="btnAccessRuleNew" type="button"><i data-lucide="plus"></i> Nova regra</button>
-            </div>
           </div>
           <div class="table-wrap">
             <table class="data-table responsive-data-table" id="accessRulesTable">
               <thead>
-                <tr><th>Grupo de pessoas</th><th>Grupo de portas</th><th>Dias</th><th>Horario</th><th>Acoes</th></tr>
+                <tr><th class="access-checkbox-cell"><input type="checkbox" id="accessRulesSelectAll" aria-label="Selecionar regra"></th><th>Nome</th><th>Grupo de pessoas</th><th>Grupo de portas</th><th>Dias</th><th>Horario</th></tr>
               </thead>
               <tbody id="accessRulesBody">
-                <tr class="empty-row"><td colspan="5">Nenhuma regra cadastrada.</td></tr>
+                <tr class="empty-row"><td colspan="6">Nenhuma regra cadastrada.</td></tr>
               </tbody>
             </table>
+          </div>
+          <div class="table-footer access-groups-footer">
+            <div>
+              <span id="accessRulesCount">0 regras</span>
+              <span id="accessRulesFooterHint">Selecione uma regra para editar ou excluir.</span>
+            </div>
+            <div class="access-people-footer-actions">
+              <button class="icon-action" id="btnAccessRulesFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-action primary" id="btnAccessRuleNew" type="button" data-tip="Nova regra"><i data-lucide="plus"></i></button>
+              <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+              <button class="icon-action primary" id="btnAccessRulesFooterEdit" type="button" data-tip="Editar selecionada" disabled><i data-lucide="pencil"></i></button>
+              <button class="icon-action danger" id="btnAccessRulesFooterDelete" type="button" data-tip="Excluir selecionada" disabled><i data-lucide="trash-2"></i></button>
+            </div>
           </div>
         </div>
         </div>
 
-        <div class="panel" style="margin-top:16px">
-          <div class="panel-header">
-            <div><h2>Fluxo planejado</h2><p>Cadastro central do SightOps com drivers por fabricante.</p></div>
-          </div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr><th>Etapa</th><th>Objetivo</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                <tr><td>Pessoas</td><td>Aluno, responsavel, foto facial e WhatsApp.</td><td><span class="pill neutral">planejado</span></td></tr>
-                <tr><td>Dispositivos</td><td>Controladoras Intelbras primeiro, depois Control iD e Hikvision.</td><td><span class="pill neutral">planejado</span></td></tr>
-                <tr><td>Eventos</td><td>Entrada, saida, negado e equipamento offline.</td><td><span class="pill neutral">planejado</span></td></tr>
-                <tr><td>Notificacao</td><td>Mensagem ao responsavel quando aluno entrar ou sair.</td><td><span class="pill neutral">planejado</span></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="modalAccessPerson" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessPersonModal()">
+        <div id="modalAccessPerson" class="modal-backdrop hidden">
           <div class="modal access-person-modal">
             <div class="modal-header">
               <div>
                 <p class="eyebrow">Controle de Acesso</p>
                 <h2 id="accessPersonModalTitle">Nova pessoa</h2>
-                <p>Cadastro base para reconhecimento facial e notificacao ao responsavel.</p>
+                <p>Cadastro, notificacao e acesso da pessoa em um unico fluxo.</p>
               </div>
               <button class="icon-button" id="btnAccessPersonClose" type="button" aria-label="Fechar cadastro"><i data-lucide="x"></i></button>
             </div>
+            <div class="access-person-hero">
+              <div class="access-person-hero-photo" id="accessPersonHeroPhoto"><i data-lucide="user"></i></div>
+              <div class="access-person-hero-copy">
+                <strong id="accessPersonHeroName">Pessoa sem nome</strong>
+                <span id="accessPersonHeroMeta">Aluno</span>
+              </div>
+              <div class="access-person-hero-badges">
+                <span id="accessPersonHeroType" class="pill neutral">Aluno</span>
+                <span id="accessPersonHeroStatus" class="pill neutral">salve primeiro</span>
+              </div>
+            </div>
+            <div class="tabs access-control-tabs access-person-tabs" role="tablist" aria-label="Secoes do cadastro">
+              <button type="button" class="tab-btn active" data-access-person-tab="details" role="tab" aria-selected="true">Pessoa</button>
+              <button type="button" class="tab-btn" data-access-person-tab="guardian" role="tab" aria-selected="false">Responsavel</button>
+              <button type="button" class="tab-btn" data-access-person-tab="access" role="tab" aria-selected="false">Acesso</button>
+              <button type="button" class="tab-btn" data-access-person-tab="notes" role="tab" aria-selected="false">Observacoes</button>
+            </div>
             <form id="accessPersonForm" class="access-person-form">
               <input id="accessPersonId" type="hidden">
-              <h3 class="form-section-title">Dados pessoais</h3>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="accessPersonName">Nome</label>
-                  <input id="accessPersonName" required placeholder="Nome completo">
+              <section class="access-person-tab-panel" data-access-person-panel="details">
+                <h3 class="form-section-title">Dados pessoais</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="accessPersonName">Nome</label>
+                    <input id="accessPersonName" required placeholder="Nome completo">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonType">Tipo</label>
+                    <select id="accessPersonType">
+                      <option value="student">Aluno</option>
+                      <option value="employee">Funcionario</option>
+                      <option value="visitor">Visitante</option>
+                    </select>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="accessPersonType">Tipo</label>
-                  <select id="accessPersonType">
-                    <option value="student">Aluno</option>
-                    <option value="employee">Funcionario</option>
-                    <option value="visitor">Visitante</option>
-                  </select>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="accessPersonEnrollment">Matricula</label>
+                    <input id="accessPersonEnrollment" placeholder="Ex: 2026-001">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonDocument">Documento</label>
+                    <input id="accessPersonDocument" placeholder="CPF/RG opcional">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonClass">Turma / setor</label>
+                    <input id="accessPersonClass" placeholder="Ex: 5 ano A">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonSite">Site</label>
+                    <input id="accessPersonSite" placeholder="Ex: Sede">
+                  </div>
                 </div>
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="accessPersonEnrollment">Matricula</label>
-                  <input id="accessPersonEnrollment" placeholder="Ex: 2026-001">
+                <h3 class="form-section-title">Reconhecimento facial</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="accessPersonControllerId">ID na controladora</label>
+                    <input id="accessPersonControllerId" inputmode="numeric" pattern="[0-9]*" placeholder="Ex: 1001">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonFacePhoto">Foto facial</label>
+                    <div class="access-file-control">
+                      <label class="secondary-action access-file-picker" for="accessPersonFacePhoto"><i data-lucide="image-plus"></i> Escolher foto</label>
+                      <input id="accessPersonFacePhoto" class="access-file-input" type="file" accept="image/jpeg,image/png,image/webp">
+                    </div>
+                    <p id="accessPersonFacePhotoStatus" class="muted-block"></p>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="accessPersonDocument">Documento</label>
-                  <input id="accessPersonDocument" placeholder="CPF/RG opcional">
+              </section>
+              <section class="access-person-tab-panel" data-access-person-panel="guardian" hidden>
+                <h3 class="form-section-title">Responsavel e notificacoes</h3>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="accessPersonGuardian">Responsavel</label>
+                    <input id="accessPersonGuardian" placeholder="Nome do responsavel">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessPersonPhone">WhatsApp</label>
+                    <input id="accessPersonPhone" placeholder="Ex: 82 98136-6839">
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="accessPersonClass">Turma / setor</label>
-                  <input id="accessPersonClass" placeholder="Ex: 5 ano A">
+                <div class="access-person-checks">
+                  <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
+                  <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
                 </div>
-                <div class="form-group">
-                  <label for="accessPersonSite">Site</label>
-                  <input id="accessPersonSite" placeholder="Ex: Sede">
+              </section>
+              <section class="access-person-tab-panel" data-access-person-panel="access" hidden>
+                <h3 class="form-section-title">Grupos e controladoras</h3>
+                <div class="access-person-access-grid">
+                  <div class="access-access-card">
+                    <div>
+                      <strong>Grupos da pessoa</strong>
+                      <p class="muted-block">Marque os grupos que essa pessoa pertence.</p>
+                    </div>
+                    <div class="access-checklist" id="accessPersonGroupsChecklist">
+                      <p class="muted-block">Carregando grupos...</p>
+                    </div>
+                  </div>
+                  <div class="access-access-card">
+                    <div>
+                      <strong>Portas liberadas</strong>
+                      <p class="muted-block">Resultado das regras ativas para os grupos marcados.</p>
+                    </div>
+                    <div class="access-access-summary" id="accessPersonDoorAccessSummary">
+                      <p class="muted-block">Selecione um grupo para ver as portas.</p>
+                    </div>
+                    <div>
+                      <strong>Controladoras</strong>
+                      <div class="access-access-summary" id="accessPersonDeviceAccessSummary">
+                        <p class="muted-block">Nenhuma controladora vinculada ainda.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <h3 class="form-section-title">Responsavel e notificacoes</h3>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="accessPersonGuardian">Responsavel</label>
-                  <input id="accessPersonGuardian" placeholder="Nome do responsavel">
+                <div class="access-sync-panel">
+                  <div>
+                    <span>Status na controladora</span>
+                    <strong id="accessPersonProvisionStatus"><span class="pill neutral">salve primeiro</span></strong>
+                    <p id="accessPersonSyncStatus" class="muted-block"></p>
+                  </div>
                 </div>
-                <div class="form-group">
-                  <label for="accessPersonPhone">WhatsApp</label>
-                  <input id="accessPersonPhone" placeholder="Ex: 82 98136-6839">
+              </section>
+              <section class="access-person-tab-panel" data-access-person-panel="notes" hidden>
+                <h3 class="form-section-title">Observacoes</h3>
+                <div class="form-row" style="grid-template-columns:1fr">
+                  <div class="form-group">
+                    <label for="accessPersonNotes">Observacoes</label>
+                    <textarea id="accessPersonNotes" rows="6" placeholder="Observacao interna"></textarea>
+                  </div>
                 </div>
-              </div>
-              <div class="access-person-checks">
-                <label><input id="accessPersonWhatsapp" type="checkbox" checked> Enviar notificacoes por WhatsApp</label>
-                <label><input id="accessPersonActive" type="checkbox" checked> Pessoa ativa</label>
-              </div>
-              <h3 class="form-section-title">Observacoes</h3>
-              <div class="form-row" style="grid-template-columns:1fr">
-                <div class="form-group">
-                  <label for="accessPersonNotes">Observacoes</label>
-                  <textarea id="accessPersonNotes" rows="3" placeholder="Observacao interna"></textarea>
-                </div>
-              </div>
-              <p id="accessPersonSyncStatus" class="muted-block"></p>
+              </section>
             </form>
             <div class="modal-actions">
               <button class="secondary-action" id="btnAccessPersonCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
-              <button class="primary-action" id="btnAccessPersonSave" type="submit" form="accessPersonForm"><i data-lucide="save"></i> Salvar pessoa</button>
+              <button class="primary-action" id="btnAccessPersonSave" type="submit" form="accessPersonForm"><i data-lucide="save"></i> Salvar e sincronizar</button>
             </div>
           </div>
         </div>
@@ -1700,7 +1813,7 @@
             </div>
             <form id="accessDeviceForm" class="access-person-form">
               <input id="accessDeviceId" type="hidden">
-              <input id="accessDeviceVendor" type="hidden" value="dahua">
+              <input id="accessDeviceVendor" type="hidden" value="intelbras">
               <input id="accessDeviceModel" type="hidden">
               <div class="form-row">
                 <div class="form-group">
@@ -1710,6 +1823,14 @@
                 <div class="form-group">
                   <label for="accessDeviceSite">Site</label>
                   <input id="accessDeviceSite" placeholder="Ex: Unidade Alameda">
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-group">
+                  <label for="accessDeviceConnector">Origem / conector</label>
+                  <select id="accessDeviceConnector">
+                    <option value="">Local / VPN do servidor</option>
+                  </select>
                 </div>
               </div>
               <div class="form-row">
@@ -1740,10 +1861,9 @@
         </div>
 
         <div id="modalAccessGroup" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessGroupModal()">
-          <div class="modal access-device-modal">
+          <div class="modal access-device-modal access-group-smart-modal">
             <div class="modal-header">
               <div>
-                <p class="eyebrow">Controle de Acesso</p>
                 <h2 id="accessGroupModalTitle">Novo grupo</h2>
                 <p>Conjunto de pessoas usado nas regras de acesso.</p>
               </div>
@@ -1774,10 +1894,9 @@
         </div>
 
         <div id="modalAccessDoorGroup" class="modal-backdrop hidden" onclick="if(event.target===this)closeAccessDoorGroupModal()">
-          <div class="modal access-device-modal">
+          <div class="modal access-device-modal access-group-smart-modal access-door-group-smart-modal">
             <div class="modal-header">
               <div>
-                <p class="eyebrow">Controle de Acesso</p>
                 <h2 id="accessDoorGroupModalTitle">Novo grupo de porta</h2>
                 <p>Conjunto de dispositivos usado nas regras de acesso.</p>
               </div>
@@ -1819,6 +1938,10 @@
             </div>
             <form id="accessRuleForm" class="access-person-form">
               <input id="accessRuleId" type="hidden">
+              <div class="form-group">
+                <label for="accessRuleName">Nome da regra</label>
+                <input id="accessRuleName" maxlength="120" placeholder="Ex: Alunos - manha">
+              </div>
               <div class="form-row">
                 <div class="form-group">
                   <label for="accessRulePeopleGroup">Grupo de pessoas</label>
@@ -1829,10 +1952,14 @@
                   <select id="accessRuleDoorGroup" required></select>
                 </div>
               </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="accessRuleWeekdays">Dias (1=seg .. 7=dom)</label>
-                  <input id="accessRuleWeekdays" placeholder="1234567" value="1234567">
+              <div class="form-group">
+                <label>Dias da semana</label>
+                <input id="accessRuleWeekdays" type="hidden" value="1234567">
+                <div class="access-weekday-picker" id="accessRuleWeekdayPicker"></div>
+                <div class="access-weekday-presets">
+                  <button class="ghost-action" type="button" data-access-weekday-preset="1234567">Todos os dias</button>
+                  <button class="ghost-action" type="button" data-access-weekday-preset="12345">Seg a Sex</button>
+                  <button class="ghost-action" type="button" data-access-weekday-preset="67">Fim de semana</button>
                 </div>
               </div>
               <div class="form-row">
@@ -1845,6 +1972,13 @@
                   <input id="accessRuleTimeEnd" type="time">
                 </div>
               </div>
+              <div class="access-weekday-presets" id="accessRuleTimePresets">
+                <button class="ghost-action" type="button" data-access-time-preset="00:00-23:59">Dia inteiro</button>
+                <button class="ghost-action" type="button" data-access-time-preset="07:00-18:00">Comercial</button>
+                <button class="ghost-action" type="button" data-access-time-preset="06:00-12:00">Manha</button>
+                <button class="ghost-action" type="button" data-access-time-preset="12:00-18:00">Tarde</button>
+              </div>
+              <p class="access-rule-summary" id="accessRuleSummary"></p>
             </form>
             <div class="modal-actions">
               <button class="secondary-action" id="btnAccessRuleCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
@@ -4225,6 +4359,44 @@
     </div>
   </div>
 
+  <!-- --- MODAL: IPS PERMITIDOS (inventario declarativo) --- -->
+  <div id="modalAllowlist" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <div><p class="eyebrow">Inventario declarativo</p><h2>IPs permitidos por site</h2></div>
+        <button id="closeAllowlistModal" class="icon-button"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="deploy-result-box" style="padding:10px 12px;margin:0 0 14px;font-size:13px">
+          Com a lista preenchida, a varredura para de mandar no inventario: ela pode
+          encontrar qualquer coisa na rede, mas so cadastra os IPs desta lista.
+          Site sem lista continua funcionando como antes.
+        </div>
+
+        <div class="form-group">
+          <label>Site</label>
+          <select id="allowlistSite" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);color:var(--text)"></select>
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:14px">
+          <input type="checkbox" id="allowlistEnforced" style="accent-color:var(--primary);width:15px;height:15px">
+          <span>Modo estrito ligado para este site</span>
+        </label>
+
+        <div class="form-group">
+          <label>IPs autorizados <span style="color:var(--muted);font-size:11px">um por linha; aceita IP, faixa (10.0.0.10-20) e CIDR (10.0.0.0/24)</span></label>
+          <textarea id="allowlistEntries" rows="9" placeholder="100.65.10.57&#10;100.65.10.58&#10;100.65.8.0/24" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:7px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace;outline:none;background:var(--surface);color:var(--text);resize:vertical"></textarea>
+        </div>
+
+        <div id="allowlistStatus" class="deploy-result-box" style="padding:10px 12px;margin:0;font-size:13px;display:none"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" id="btnAllowlistImport"><i data-lucide="download"></i> Puxar do inventario deste site</button>
+        <button class="primary-action" id="btnAllowlistSave"><i data-lucide="save"></i> Salvar lista</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- MODAL: VARREDURA --- -->
   <div id="modalScan" class="modal-backdrop hidden">
     <div class="modal" style="max-width:620px">
@@ -5245,7 +5417,7 @@
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
   <script src="js/core.js?v=160"></script>
   <script src="js/dashboard.js?v=153"></script>
-  <script src="js/cameras.js?v=171"></script>
+  <script src="js/cameras.js?v=172"></script>
   <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=142"></script>
@@ -5258,7 +5430,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=11"></script>
-  <script src="js/bootstrap.js?v=187"></script>
+  <script src="js/accessControl.js?v=40"></script>
+  <script src="js/bootstrap.js?v=189"></script>
 </body>
 </html>

@@ -109,6 +109,15 @@ def add_ignored_rows(rows: Iterable[Dict[str, Any]], reason: str = "") -> int:
     return added
 
 
+# site/conector dizem DE QUEM e o IP -- sao os campos que impedem bloquear
+# 100.65.10.57 de um cliente por causa do mesmo IP privado em outro.
+_SCOPE_IDENTIDADE = {"site", "connector_id"}
+# olt_ip/pon/onu descrevem por onde a camera estava pendurada. A mesma camera
+# aparece com esses campos vazios quando vem de varredura basica ou switch, e
+# exigir que batessem fazia o bloqueio nao valer -- a camera apagada voltava.
+_SCOPE_TOPOLOGIA = {"olt_ip", "pon", "onu_id", "onu_serial"}
+
+
 def _matches_scope(meta: Dict[str, Any], row: Dict[str, Any]) -> bool:
     scope = _row_scope(row)
     has_scope = False
@@ -118,8 +127,15 @@ def _matches_scope(meta: Dict[str, Any], row: Dict[str, Any]) -> bool:
         expected_text = str(expected or "").strip()
         if not expected_text:
             continue
-        has_scope = True
         actual = str(scope.get(key) or "").strip()
+        if key in _SCOPE_TOPOLOGIA:
+            if not actual:
+                continue
+            has_scope = True
+            if actual != expected_text:
+                return False
+            continue
+        has_scope = True
         if key == "site":
             if actual.lower() != expected_text.lower():
                 return False
@@ -165,3 +181,24 @@ def remove_ignored_rows(rows: Iterable[Dict[str, Any]]) -> int:
             if ip:
                 ips.append(ip)
     return remove_ignored_ips(ips)
+
+
+# Nome generico: a lista vale para inventario basico, OLT e switch.
+is_ignored_row = is_ignored_olt_row
+
+
+def filter_ignored_rows(rows: Iterable[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
+    """Tira das linhas de uma varredura tudo que o usuario mandou ignorar.
+
+    Antes a varredura fazia o contrario: chamava remove_ignored_rows() e
+    apagava o bloqueio de qualquer IP que reencontrasse, entao camera excluida
+    voltava sozinha na varredura seguinte.
+    """
+    kept: List[Dict[str, Any]] = []
+    blocked = 0
+    for row in rows or []:
+        if isinstance(row, dict) and is_ignored_row(row):
+            blocked += 1
+            continue
+        kept.append(row)
+    return kept, blocked

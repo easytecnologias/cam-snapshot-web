@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from app.core.paths import ensure_dirs
 from app.models.requests import InventoryDeleteRequest
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
+from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
 from app.services.olt_ignore_list import add_ignored_rows
 
 
@@ -63,9 +64,18 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         save_inventory_json(rows_kept, mode=current_mode)
         inventories[current_mode] = rows_kept
 
+    # Em site declarativo, apagar e apagar: o IP sai da lista de permitidos e
+    # pronto -- nao precisa entrar tambem numa lista de bloqueados. Para voltar,
+    # basta o usuario recolocar o IP na lista.
+    allowlist_forget = allowlist_forget_rows(removed_rows, default_site=site)
+    allowlist_removed = int(allowlist_forget.get("removed") or 0)
+
     ignored_added = 0
-    if getattr(req, "permanent", False) and removed_rows:
-        ignored_added = add_ignored_rows(removed_rows, reason="apagado manualmente no inventario")
+    rows_legado = allowlist_forget.get("rows_legado") or []
+    if getattr(req, "permanent", False) and rows_legado:
+        # Só os sites que ainda nao usam allowlist dependem da lista de
+        # bloqueados pra varredura/sync nao recriarem a linha.
+        ignored_added = add_ignored_rows(rows_legado, reason="apagado manualmente no inventario")
 
     inventory = inventories.get("olt") or inventories.get(modes[0], [])
     return {
@@ -74,6 +84,8 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         "ips_removed": sorted(list(removed_ips)),
         "keys_removed": sorted(list(removed_keys)),
         "ignored_added": ignored_added,
+        "allowlist_removed": allowlist_removed,
+        "allowlist_sites": allowlist_forget.get("sites") or [],
         "inventory": inventory,
         "inventories": inventories,
     }

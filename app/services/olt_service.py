@@ -22,6 +22,7 @@ from app.models.requests import (
     OltOnuSignalRequest,
 )
 from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu_telemetry_8820i
+from app.services.camera_allowlist import is_allowed as allowlist_is_allowed
 from app.services.olt_ignore_list import is_ignored_olt_row
 from app.cli.tools.olt_4840e_collect_macs import (
     collect_macs_4840e,
@@ -209,6 +210,7 @@ def _sync_camera_inventory_from_olt_rows(
     cleared = 0
     created = 0
     removed_ignored = 0
+    blocked_allowlist = 0
     kept_cameras: list[dict[str, Any]] = []
     for camera in cameras:
         if is_ignored_olt_row(camera):
@@ -267,6 +269,12 @@ def _sync_camera_inventory_from_olt_rows(
             continue
         connector_id = _norm_text(row.get("connector_id") or row.get("remote_connector_id"))
         site = _norm_text(row.get("site") or row.get("SITE") or row.get("local"))
+        if site and not allowlist_is_allowed(site, ip):
+            # Site declarativo: o sync da OLT nao cria camera que o usuario
+            # nao autorizou. Sem allowlist cadastrada, is_allowed() e sempre
+            # True e o comportamento continua o de antes.
+            blocked_allowlist += 1
+            continue
         camera = {
             "ip": ip,
             "mac": _display_mac(mac),
@@ -298,13 +306,14 @@ def _sync_camera_inventory_from_olt_rows(
         cameras.append(camera)
         created += 1
 
-    if changed or created or removed_ignored:
+    if changed or created or removed_ignored or blocked_allowlist:
         save_inventory_json(cameras, mode="olt")
     return {
         "updated_cameras": changed,
         "created_cameras": created,
         "cleared_cameras": cleared,
         "removed_ignored": removed_ignored,
+        "blocked_allowlist": blocked_allowlist,
     }
 
 

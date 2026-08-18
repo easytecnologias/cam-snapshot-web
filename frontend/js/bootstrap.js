@@ -667,7 +667,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     _camRemoveIpsLocally(keys);
-    showToast(`${ips.length} camera(s) removida(s).`);
+    const saiuDaLista = Number(data?.allowlist_removed || 0);
+    showToast(saiuDaLista
+      ? `${ips.length} camera(s) removida(s). ${saiuDaLista} IP(s) sairam da lista de permitidos e nao voltam na varredura.`
+      : `${ips.length} camera(s) removida(s).`);
     closeCamPanel();
     updateCamTabs();
     populateCamSiteFilter();
@@ -684,7 +687,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!await showConfirm({ title: 'Apagar inventario', msg, label: 'Apagar' })) return;
     const res = await api('/api/inventory/clear', {
       method: 'POST',
-      body: JSON.stringify({ mode, site, permanent: mode === 'olt' }),
+      // permanent nos tres modos: no basico/switch tambem precisa gravar o
+      // bloqueio, senao a proxima varredura recadastra tudo de novo.
+      body: JSON.stringify({ mode, site, permanent: true }),
     });
     const data = await res?.json().catch(() => ({}));
     if (!res?.ok || data?.ok === false) {
@@ -1771,6 +1776,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Varredura OLT (via inventario)
   document.getElementById('btnScanOlt')?.addEventListener('click', openScanModal);
+  document.getElementById('btnAllowlist')?.addEventListener('click', openAllowlistModal);
+  document.getElementById('closeAllowlistModal')?.addEventListener('click', () => document.getElementById('modalAllowlist')?.classList.add('hidden'));
+  document.getElementById('allowlistSite')?.addEventListener('change', (e) => allowlistLoadSite(e.target.value));
+  document.getElementById('btnAllowlistSave')?.addEventListener('click', allowlistSave);
+  document.getElementById('btnAllowlistImport')?.addEventListener('click', allowlistImportFromInventory);
 
   //  Manutencao Cameras 
   document.getElementById('btnMntCamRefresh')?.addEventListener('click', () => { _mntCamAll = []; loadMntCam(); });

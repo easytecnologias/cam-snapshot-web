@@ -2102,3 +2102,98 @@ async function runInvOltReport(button) {
 }
 
 //  Inventario DVR
+
+//  Allowlist de IPs por site (inventario declarativo)
+//  Com lista salva, a varredura para de mandar: so cadastra o que esta aqui.
+
+function _allowlistSites() {
+  const rows = _invCam[_invOltView] || [];
+  const doInventario = rows.map(c => c.local || c.site || c.site_name).filter(Boolean);
+  const atual = document.getElementById('filterSiteOlt')?.value || '';
+  return [...new Set([atual, ...doInventario].filter(Boolean))].sort();
+}
+
+function _allowlistStatus(msg, erro) {
+  const box = document.getElementById('allowlistStatus');
+  if (!box) return;
+  box.style.display = msg ? 'block' : 'none';
+  box.textContent = msg || '';
+  box.style.color = erro ? 'var(--danger)' : 'var(--muted)';
+}
+
+async function allowlistLoadSite(site) {
+  const entriesEl = document.getElementById('allowlistEntries');
+  const enforcedEl = document.getElementById('allowlistEnforced');
+  if (!site) { entriesEl.value = ''; enforcedEl.checked = false; _allowlistStatus(''); return; }
+  try {
+    const res = await api(`/api/inventory/allowlist?site=${encodeURIComponent(site)}`);
+    const data = await res.json();
+    const entries = (data?.entries || []).map(e => e.value).filter(Boolean);
+    entriesEl.value = entries.join('\n');
+    enforcedEl.checked = Boolean(data?.enforced && entries.length);
+    _allowlistStatus(entries.length
+      ? `${entries.length} IP(s) autorizado(s). ${enforcedEl.checked ? 'A varredura so cadastra estes.' : 'Modo estrito desligado: a varredura cadastra tudo.'}`
+      : 'Nenhum IP declarado. Enquanto a lista estiver vazia, a varredura cadastra tudo que achar neste site.');
+  } catch (err) {
+    _allowlistStatus(err?.message || 'Nao foi possivel carregar a lista.', true);
+  }
+}
+
+function openAllowlistModal() {
+  const sel = document.getElementById('allowlistSite');
+  if (!sel) return;
+  const sites = _allowlistSites();
+  const atual = document.getElementById('filterSiteOlt')?.value || sites[0] || '';
+  sel.innerHTML = sites.length
+    ? sites.map(s => `<option value="${esc(s)}"${s === atual ? ' selected' : ''}>${esc(s)}</option>`).join('')
+    : '<option value="">Nenhum site no inventario</option>';
+  document.getElementById('modalAllowlist')?.classList.remove('hidden');
+  lucide.createIcons();
+  allowlistLoadSite(sel.value);
+}
+
+async function allowlistSave() {
+  const site = document.getElementById('allowlistSite')?.value || '';
+  if (!site) { showToast('Selecione um site.', true); return; }
+  const raw = document.getElementById('allowlistEntries')?.value || '';
+  const entries = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+  const enforced = Boolean(document.getElementById('allowlistEnforced')?.checked);
+  const btn = document.getElementById('btnAllowlistSave');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/inventory/allowlist', {
+      method: 'POST',
+      body: JSON.stringify({ site, entries, enforced, action: 'set' }),
+    });
+    const data = await res.json();
+    if (!res.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'Falha ao salvar.');
+    const invalidos = data?.invalid || [];
+    if (invalidos.length) {
+      _allowlistStatus(`Salvo, mas ignorei ${invalidos.length} entrada(s) invalida(s): ${invalidos.slice(0, 5).join(', ')}`, true);
+    } else {
+      _allowlistStatus(`Salvo: ${(data?.entries || []).length} IP(s) autorizado(s) em ${site}.`);
+    }
+    showToast('Lista de IPs permitidos salva.');
+  } catch (err) {
+    _allowlistStatus(err?.message || 'Nao foi possivel salvar.', true);
+    showToast(err?.message || 'Nao foi possivel salvar a lista.', true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function allowlistImportFromInventory() {
+  const site = document.getElementById('allowlistSite')?.value || '';
+  if (!site) return;
+  const alvo = site.toLowerCase();
+  const ips = [...new Set(
+    (_invCam[_invOltView] || [])
+      .filter(c => String(c.local || c.site || c.site_name || '').toLowerCase() === alvo)
+      .map(c => String(c.ip || '').trim())
+      .filter(Boolean)
+  )].sort();
+  if (!ips.length) { _allowlistStatus('Esse site nao tem camera no inventario para importar.', true); return; }
+  document.getElementById('allowlistEntries').value = ips.join('\n');
+  document.getElementById('allowlistEnforced').checked = true;
+  _allowlistStatus(`${ips.length} IP(s) trazidos do inventario atual. Revise e clique em Salvar lista.`);
+}

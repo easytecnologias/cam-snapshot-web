@@ -54,26 +54,102 @@ def test_access_control_layout_uses_sightops_components() -> None:
     assert 'class="metrics access-control-kpis"' in section
     assert section.count('class="dash-kpi-card"') == 4
     assert section.count('class="metric-icon') == 4
-    assert 'id="btnAccessPersonNew"' in section
+    assert 'id="accessKpiStudentsCard"' in section
+    assert 'id="accessKpiDevicesCard"' in section
+    assert 'role="button"' in section
+    assert 'id="btnAccessPrimaryAction"' in section
+    assert 'id="accessPrimaryActionLabel"' in section
+    assert 'data-access-primary-action="people"' in section
     assert 'id="accessPeopleTable"' in section
+    assert 'class="access-people-heading"' in section
+    assert 'class="filters access-people-filters"' in section
+    assert 'id="btnAccessPeopleClearFilters"' in section
+    assert 'id="btnAccessPeopleRefresh"' not in section
+    assert 'class="panel access-people-panel"' in section
+    people_panel_before_table = section.split('class="access-tab-panel" data-access-panel="people"', 1)[1].split('id="accessPeopleTable"', 1)[0]
+    assert 'class="panel-header"' not in people_panel_before_table
+    assert 'class="search-box"' in people_panel_before_table
+    assert '<p id="accessPeopleCount"' not in section
+    assert 'class="table-footer access-people-footer"' in section
+    assert '<span id="accessPeopleCount">0 pessoas</span>' in section
+    assert 'id="btnAccessPeopleFooterRefresh"' in section
+    assert 'id="btnAccessPersonFooterNew"' in section
+    assert 'id="btnAccessPeopleFooterEdit"' in section
+    assert 'id="btnAccessPeopleFooterDeleteSelected"' in section
+    assert 'id="btnAccessPeopleFooterDeleteAll"' in section
     assert 'id="modalAccessPerson"' in section
+    access_person_open = section.split('id="modalAccessPerson"', 1)[1].split('>', 1)[0]
+    assert "onclick=" not in access_person_open
     assert 'class="dashboard-grid"' not in section
     assert 'class="kpi-card"' not in section
     assert 'class="quick-actions-grid"' not in section
     assert ".access-control-kpis" in styles
+    assert ".access-people-heading" in styles
+    assert ".access-people-filters" in styles
+    assert ".filters.access-people-filters" in styles
+    assert "padding: 14px 0 12px;" in styles
+    assert "flex: 1 1 760px;" in styles
+    assert "min-width: 520px;" in styles
+    assert ".access-people-filters .ghost-action" in styles
+    assert ".access-people-panel" in styles
     assert ".access-control-toolbar" in styles
     assert ".access-person-modal" in styles
+
+
+def test_access_control_planned_flow_panel_is_removed() -> None:
+    section = _access_control_section()
+
+    assert "Fluxo planejado" not in section
+    assert "Cadastro central do SightOps com drivers por fabricante." not in section
+    assert '<span class="pill neutral">planejado</span>' not in section
 
 
 def test_access_control_frontend_is_bound() -> None:
     html = _read(INDEX_HTML)
     bootstrap = _read(BOOTSTRAP_JS)
     access_js = _read(ACCESS_JS)
+    styles = _read(STYLES)
 
     assert 'js/accessControl.js' in html
     assert "bindAccessControl();" in bootstrap
     assert "function bindAccessControl()" in access_js
     assert "/api/access-control/people" in access_js
+    assert "btnAccessPrimaryAction" in access_js
+    assert "function updateAccessPrimaryAction" in access_js
+    assert "function handleAccessPrimaryAction" in access_js
+    assert "Novo dispositivo" in access_js
+    assert "accessKpiStudentsCard" in access_js
+    assert "accessKpiDevicesCard" in access_js
+    assert "function openAccessStudentsDrawer" in access_js
+    assert "function focusAccessPersonFromDrawer" in access_js
+    assert "function openAccessDevicesDrawer" in access_js
+    assert "function showAccessControlTab" in access_js
+    assert "function focusAccessDeviceFromDrawer" in access_js
+    assert "_drawerFilterBar" in access_js
+    assert ".access-device-drawer-item" in styles
+    assert ".access-people-table tbody tr.selected" in styles
+    assert "person_type=student" in access_js
+    assert "data-access-student-id" in access_js
+    assert "data-access-person-row" in access_js
+    student_click_body = access_js.split("document.querySelectorAll('[data-access-student-id]')", 1)[1].split("\n  });\n}", 1)[0]
+    assert "focusAccessPersonFromDrawer(person.id)" in student_click_body
+    assert "openAccessPersonModal(person)" not in student_click_body
+    assert "data-access-drawer-device-id" in access_js
+    drawer_click_body = access_js.split("document.querySelectorAll('[data-access-drawer-device-id]')", 1)[1].split("\n  });\n}", 1)[0]
+    assert "focusAccessDeviceFromDrawer(device.id)" in drawer_click_body
+    assert "openAccessDeviceModal(device)" not in drawer_click_body
+    assert "Local', count: counts.local" in access_js
+    assert "Conector', count: counts.connector" in access_js
+    assert "btnAccessPeopleClearFilters" in access_js
+    assert "function clearAccessPeopleFilters" in access_js
+    assert "btnAccessPeopleFooterRefresh" in access_js
+    assert "btnAccessPersonFooterNew" in access_js
+    assert "btnAccessPeopleFooterEdit" in access_js
+    assert "btnAccessPeopleFooterDeleteSelected" in access_js
+    assert "btnAccessPeopleFooterDeleteAll" in access_js
+    assert "function syncAccessPeopleFooterActions" in access_js
+    assert "function deleteSelectedAccessPeople" in access_js
+    assert "function deleteAllVisibleAccessPeople" in access_js
 
 
 def test_access_control_module_can_be_enabled_per_tenant() -> None:
@@ -94,10 +170,43 @@ def test_access_devices_tab_exists() -> None:
     access_js = _read(ACCESS_JS)
     assert 'id="accessTabDevices"' in html
     assert 'id="accessDevicesTable"' in html
-    assert 'id="btnAccessDeviceNew"' in html
+    assert 'id="accessDevicesSelectAll"' in html
+    assert 'id="accessDeviceConnector"' in html
+    assert "<th>Conector</th>" in html
+    assert '<tr class="empty-row"><td colspan="7">Nenhum dispositivo cadastrado.</td></tr>' in html
+    devices_table = html.split('id="accessDevicesTable"', 1)[1].split('</table>', 1)[0]
+    assert "<th>Acoes</th>" not in devices_table
+    assert 'id="accessDevicesCount"' in html
+    assert 'id="accessDevicesFooterHint"' in html
+    assert 'id="btnAccessDevicesFooterRefresh"' in html
+    assert 'id="btnAccessDevicesFooterTest"' in html
+    assert 'id="btnAccessDevicesFooterOpenDoor"' in html
+    assert 'id="btnAccessDevicesFooterEdit"' in html
+    assert 'id="btnAccessDevicesFooterDelete"' in html
+    assert 'id="btnAccessDeviceNew"' not in html
+    assert 'id="btnAccessDevicesRefresh"' not in html
+    assert "updateAccessPrimaryAction(tab)" in access_js
+    assert "openAccessDeviceModal();" in access_js
     assert "function loadAccessDevices" in access_js
+    assert "function loadAccessConnectors" in access_js
+    assert "/api/connectors" in access_js
+    assert "connector_id: document.getElementById('accessDeviceConnector')" in access_js
     assert "function renderAccessDevices" in access_js
-    assert "data-access-open-door" in access_js
+    assert "data-access-device-check" in access_js
+    assert "function toggleAccessDeviceMasterCheck" in access_js
+    assert "data-access-device-row" in access_js
+    assert "function syncAccessDevicesFooterActions" in access_js
+    assert "function selectedAccessDevice" in access_js
+    assert "function openSelectedAccessDeviceDoor" in access_js
+    assert "btnAccessDevicesFooterOpenDoor" in access_js
+
+
+def test_access_devices_can_test_connection_from_table() -> None:
+    access_js = _read(ACCESS_JS)
+    assert "btnAccessDevicesFooterTest" in access_js
+    assert "function testSelectedAccessDevice" in access_js
+    assert "/api/access-control/devices/${encodeURIComponent(device.id)}/test" in access_js
+    assert "Conexao testada." in access_js
 
 
 def test_access_device_save_preserves_vendor_and_model() -> None:
@@ -115,6 +224,13 @@ def test_access_device_save_preserves_vendor_and_model() -> None:
     assert "model: document.getElementById('accessDeviceModel')" in access_js
 
 
+def test_access_device_default_vendor_is_intelbras() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert 'id="accessDeviceVendor" type="hidden" value="intelbras"' in html
+    assert "item.vendor || 'intelbras'" in access_js
+
+
 def test_access_person_save_preserves_site() -> None:
     # save_person() no backend faz UPDATE completo (ON CONFLICT DO UPDATE SET
     # site=excluded.site) e AccessPersonRequest.site tem default "" -- sem um
@@ -127,6 +243,137 @@ def test_access_person_save_preserves_site() -> None:
     assert '<label for="accessPersonSite">Site</label>' in html
     assert "document.getElementById('accessPersonSite').value = item.site" in access_js
     assert "site: document.getElementById('accessPersonSite')" in access_js
+
+
+def test_access_person_modal_collects_controller_id_and_face_photo() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+
+    assert 'id="accessPersonControllerId"' in html
+    assert '<label for="accessPersonControllerId">ID na controladora</label>' in html
+    assert 'id="accessPersonFacePhoto"' in html
+    assert 'class="access-file-control"' in html
+    assert 'class="secondary-action access-file-picker"' in html
+    assert 'class="access-file-input"' in html
+    assert 'accept="image/jpeg,image/png,image/webp"' in html
+    assert "document.getElementById('accessPersonControllerId').value = item.controller_user_id" in access_js
+    assert "controller_user_id: document.getElementById('accessPersonControllerId')" in access_js
+    assert "const faceFile = document.getElementById('accessPersonFacePhoto')?.files?.[0]" in access_js
+    assert "new FormData()" in access_js
+    assert "/api/access-control/people/${encodeURIComponent(person.id)}/face-photo" in access_js
+    assert "function loadAccessPersonSavedFacePreview" in access_js
+    assert "await fetch(`${API_BASE}/api/access-control/people/${encodeURIComponent(person.id)}/face-photo`" in access_js
+    assert "URL.createObjectURL(blob)" in access_js
+    assert "accessPersonFacePhotoStatus" in access_js
+    assert "Foto facial salva." not in access_js
+    assert "Sem foto facial salva." not in access_js
+    assert "face_photo_path" in access_js
+
+
+def test_access_people_table_shows_sync_status_and_save_syncs_person() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+
+    assert '<th class="access-head-sync">Sync</th>' in html
+    assert "function accessProvisionStatusBadge" in access_js
+    assert "person.provision_summary" in access_js
+    assert 'id="accessPersonProvisionStatus"' in html
+    assert 'id="btnAccessPersonSync"' not in html
+    assert "function renderAccessPersonProvisionStatus" in access_js
+    assert "syncAccessPersonAfterSave(person)" in access_js
+    assert "function syncAccessPersonAfterSave" in access_js
+    assert "btnAccessPersonSync" not in access_js
+    assert "/api/access-control/people/${encodeURIComponent(person.id)}/sync" in access_js
+    assert "Pessoa salva e sincronizada." in access_js
+    assert "data-access-sync-person" not in access_js
+
+
+def test_access_person_modal_has_access_planning_inside_form() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    styles = _read(STYLES)
+
+    assert 'class="access-person-hero"' in html
+    assert 'id="accessPersonHeroPhoto"' in html
+    assert 'class="tabs access-control-tabs access-person-tabs"' in html
+    assert 'data-access-person-tab="details"' in html
+    assert 'data-access-person-tab="guardian"' in html
+    assert 'data-access-person-tab="access"' in html
+    assert 'data-access-person-tab="notes"' in html
+    assert 'id="accessPersonGroupsChecklist"' in html
+    assert 'id="accessPersonDoorAccessSummary"' in html
+    assert 'id="accessPersonDeviceAccessSummary"' in html
+    assert "Salvar e sincronizar" in html
+
+    assert "function bindAccessPersonModal" in access_js
+    assert "event.stopPropagation()" in access_js
+    assert ".access-control-tabs [data-access-tab]" in access_js
+    assert "function ensureAccessPersonAccessData" in access_js
+    assert "function renderAccessPersonAccessPanel" in access_js
+    assert "function saveAccessPersonGroupMembership" in access_js
+    assert "await saveAccessPersonGroupMembership(person.id)" in access_js
+    assert "syncAccessPersonAfterSave(person)" in access_js
+    assert "/api/access-control/groups" in access_js
+    assert "/api/access-control/door-groups" in access_js
+    assert "/api/access-control/rules" in access_js
+    assert "/api/access-control/devices" in access_js
+    assert "member_ids" in access_js
+
+    assert ".access-person-tabs" in styles
+    assert ".access-person-tab-panel" in styles
+    assert ".access-person-hero-photo" in styles
+    assert ".access-person-access-grid" in styles
+    assert ".access-person-form::-webkit-scrollbar" in styles
+    assert "scrollbar-width: none" in styles
+    assert "max-height: calc(100vh - 32px)" in styles
+
+
+def test_access_people_table_has_stable_column_layout() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    styles = _read(STYLES)
+
+    assert 'class="data-table responsive-data-table access-people-table" id="accessPeopleTable"' in html
+    assert '<col class="access-col-check">' in html
+    assert '<col class="access-col-name">' in html
+    assert '<col class="access-col-photo">' in html
+    assert '<col class="access-col-sync">' in html
+    assert 'class="access-head-name"' in html
+    assert 'class="access-head-photo"' in html
+    assert 'class="access-head-document"' in html
+    assert '<col class="access-col-actions">' not in html
+    assert '<col style="width:' not in html.split('id="accessPeopleTable"', 1)[1].split('</colgroup>', 1)[0]
+    assert '<th class="access-head-photo">Foto</th>' in html
+    assert 'colspan="11"' in html
+    assert ".access-people-table {" in styles
+    assert "min-width: 1120px" in styles
+    assert "table-layout: fixed" in styles
+    assert '.access-tab-panel[data-access-panel="people"] .access-people-table th {' in styles
+    assert "text-align: left" in styles
+    assert ".access-people-table .access-col-photo { width: 68px; }" in styles
+    assert ".access-people-table .access-col-status { width: 78px; }" in styles
+    assert ".access-people-table .access-col-sync { width: 86px; }" in styles
+    assert '.access-tab-panel[data-access-panel="people"] .access-people-table .access-head-photo' in styles
+    assert '.access-tab-panel[data-access-panel="people"] .access-people-table .access-cell-photo .pill' in styles
+    assert ".access-people-table .access-head-name" in styles
+    assert ".access-people-table .access-cell-check" in styles
+    assert "margin: 0 auto" in styles
+    assert "padding-left: 6px" in styles
+    assert '.access-tab-panel[data-access-panel="people"] .access-people-table td {' in styles
+    assert "height: 48px" in styles
+    assert "vertical-align: middle" in styles
+    assert ".access-cell-truncate" in styles
+    assert ".access-cell-nowrap" in styles
+    assert ".access-cell-actions" not in styles
+    for klass in (
+        "access-cell-name",
+        "access-cell-photo",
+        "access-cell-document",
+        "access-cell-phone",
+        "access-cell-status",
+        "access-cell-sync",
+    ):
+        assert klass in access_js
 
 
 def test_group_modal_loads_unfiltered_people_list() -> None:
@@ -143,6 +390,13 @@ def test_group_modal_loads_unfiltered_people_list() -> None:
     # explicar por que o codigo nao os usa.
     body = "\n".join(line for line in body.splitlines() if not line.strip().startswith("//"))
     assert "apiJson('/api/access-control/people'" in body, "modal de grupo deve buscar a lista completa de pessoas"
+    assert "access-smart-group-builder" in body
+    assert 'id="accessGroupMemberSearch"' in body
+    assert 'id="accessGroupAutoSite"' in body
+    assert 'id="accessGroupAutoClass"' in body
+    assert 'id="btnAccessGroupAddFiltered"' in body
+    assert 'id="accessGroupSelectedMembers"' in body
+    assert "renderAccessGroupSmartMembers()" in body
     assert "_accessPeopleRows" not in body, "modal de grupo nao pode reusar a lista filtrada da aba Pessoas"
     for filtro in ("accessPeopleSearch", "accessPeopleStatus", "?search=", "URLSearchParams", "active="):
         assert filtro not in body, f"a busca do modal de grupo nao pode carregar filtro ({filtro})"
@@ -186,12 +440,35 @@ def test_group_modal_disables_save_button_while_people_load() -> None:
 def test_access_groups_and_rules_tabs_exist() -> None:
     html = _read(INDEX_HTML)
     access_js = _read(ACCESS_JS)
+    styles = _read(STYLES)
     assert 'data-access-panel="groups"' in html
     assert 'data-access-panel="rules"' in html
     assert 'id="btnAccessGroupNew"' in html
+    assert 'id="btnAccessDoorGroupNew"' in html
+    assert 'id="accessGroupsSelectAll"' in html
+    assert 'id="accessDoorGroupsSelectAll"' in html
+    assert 'id="accessGroupsCount"' in html
+    assert 'id="accessDoorGroupsCount"' in html
+    assert 'id="btnAccessGroupsFooterEdit"' in html
+    assert 'id="btnAccessDoorGroupsFooterEdit"' in html
+    assert 'id="btnAccessGroupsFooterDelete"' in html
+    assert 'id="btnAccessDoorGroupsFooterDelete"' in html
+    groups_table = html.split('id="accessGroupsTable"', 1)[1].split('</table>', 1)[0]
+    door_groups_table = html.split('id="accessDoorGroupsTable"', 1)[1].split('</table>', 1)[0]
+    assert "<th>Acoes</th>" not in groups_table
+    assert "<th>Acoes</th>" not in door_groups_table
     assert 'id="btnAccessRuleNew"' in html
     assert "function loadAccessGroups" in access_js
     assert "function loadAccessRules" in access_js
+    assert "data-access-group-row" in access_js
+    assert "data-access-door-group-row" in access_js
+    assert "function syncAccessGroupFooterActions" in access_js
+    assert "function syncAccessDoorGroupFooterActions" in access_js
+    assert "function deleteSelectedAccessGroup" in access_js
+    assert "function deleteSelectedAccessDoorGroup" in access_js
+    assert "/api/access-control/groups/${encodeURIComponent(group.id)}" in access_js
+    assert "/api/access-control/door-groups/${encodeURIComponent(group.id)}" in access_js
+    assert "#accessGroupsTable tbody tr[data-access-group-row].selected" in styles
 
 
 def test_access_rules_table_resolves_group_names() -> None:
@@ -242,6 +519,7 @@ def test_load_access_groups_also_fetches_devices_for_door_group_checklist() -> N
 def test_access_group_and_rule_modals_are_functional() -> None:
     html = _read(INDEX_HTML)
     access_js = _read(ACCESS_JS)
+    styles = _read(STYLES)
     assert "function saveAccessGroupFromForm" in access_js
     assert "function saveAccessDoorGroupFromForm" in access_js
     assert "function saveAccessRuleFromForm" in access_js
@@ -250,8 +528,22 @@ def test_access_group_and_rule_modals_are_functional() -> None:
     # Checklists pre-check existing members/devices when editing.
     assert "accessGroupMembersChecklist" in access_js
     assert "accessDoorGroupDevicesChecklist" in access_js
-    assert "memberIds.has(p.id)" in access_js
-    assert "deviceIds.has(d.id)" in access_js
+    assert "_accessGroupSelectedPeople = new Set(item.member_ids || [])" in access_js
+    assert "const memberIds = Array.from(_accessGroupSelectedPeople)" in access_js
+    # A selecao de dispositivos vive num Set, nao no DOM: com filtro por site/
+    # modelo/status, ler os checkboxes marcados na hora de salvar mandaria
+    # device_ids sem os que estao fora do filtro -- e set_door_group_members()
+    # apaga e reinsere, entao a diferenca vira perda de vinculo real.
+    assert "_accessDoorGroupSelectedIds = new Set(item.device_ids || [])" in access_js
+    assert "_accessDoorGroupSelectedIds.has(d.id)" in access_js
+    assert "const deviceIds = Array.from(_accessDoorGroupSelectedIds)" in access_js
+    assert 'id="accessDoorGroupDevice-${esc(d.id)}"' in access_js
+    assert "<strong>${esc(d.name" in access_js
+    assert "overflow-x: hidden" in styles
+    assert ".access-group-smart-modal" in styles
+    assert ".access-smart-filters" in styles
+    assert ".access-smart-columns" in styles
+    assert ".access-smart-member" in styles
     # Rule modal selects are populated from already-loaded rows, not a fresh fetch.
     assert "_accessGroupRows.map(g =>" in access_js
     assert "_accessDoorGroupRows.map(g =>" in access_js
@@ -265,12 +557,19 @@ if __name__ == "__main__":
     test_access_control_menu_has_own_sidebar_section()
     test_access_control_view_exists_and_is_routable()
     test_access_control_layout_uses_sightops_components()
+    test_access_control_planned_flow_panel_is_removed()
     test_access_control_frontend_is_bound()
     test_access_control_module_can_be_enabled_per_tenant()
     test_access_control_backend_router_is_registered()
     test_access_devices_tab_exists()
+    test_access_devices_can_test_connection_from_table()
     test_access_device_save_preserves_vendor_and_model()
+    test_access_device_default_vendor_is_intelbras()
     test_access_person_save_preserves_site()
+    test_access_person_modal_collects_controller_id_and_face_photo()
+    test_access_people_table_shows_sync_status_and_save_syncs_person()
+    test_access_person_modal_has_access_planning_inside_form()
+    test_access_people_table_has_stable_column_layout()
     test_group_modal_loads_unfiltered_people_list()
     test_group_modal_detects_load_failure_without_throwing()
     test_group_modal_disables_save_button_while_people_load()

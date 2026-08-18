@@ -855,7 +855,14 @@ async def api_inventory_clear(payload: Dict[str, Any] | None = None) -> dict[str
         kept = [r for r in rows if not (isinstance(r, dict) and _row_matches_site(r, site))]
         removed_count = max(0, len(rows) - len(kept))
         _save_inventory_rows(kept, mode=mode)
-        ignored_added = add_ignored_rows(removed_rows, reason="apagado manualmente no inventario") if permanent and mode == "olt" else 0
+        # Site declarativo: apagar tira o IP da lista de permitidos e acabou.
+        # Bloqueio so pros sites que ainda nao usam allowlist -- ali, sem
+        # registrar, a camera voltava na varredura seguinte (nos tres modos).
+        from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
+
+        allowlist_forget = allowlist_forget_rows(removed_rows, default_site=site)
+        rows_legado = allowlist_forget.get("rows_legado") or []
+        ignored_added = add_ignored_rows(rows_legado, reason="apagado manualmente no inventario") if permanent and rows_legado else 0
         return {
             "ok": True,
             "mode": mode,
@@ -863,19 +870,31 @@ async def api_inventory_clear(payload: Dict[str, Any] | None = None) -> dict[str
             "scope": "site",
             "removed_rows": removed_count,
             "ignored_added": ignored_added,
+            "allowlist_removed": int(allowlist_forget.get("removed") or 0),
             "remaining": len(kept),
             "wiped": {},
             "removed": [],
         }
 
     try:
+        from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
+
         rows_before_clear = _load_inventory_rows(mode=mode)
         _save_inventory_rows([], mode=mode)
+        allowlist_forget = allowlist_forget_rows(
+            [r for r in rows_before_clear if isinstance(r, dict)]
+        )
+        rows_legado = allowlist_forget.get("rows_legado") or []
         ignored_added = add_ignored_rows(
-            [r for r in rows_before_clear if isinstance(r, dict)],
+            rows_legado,
             reason="apagado manualmente no inventario",
-        ) if permanent and mode == "olt" else 0
-        db_clear = {"ok": True, "mode": mode, "ignored_added": ignored_added}
+        ) if permanent and rows_legado else 0
+        db_clear = {
+            "ok": True,
+            "mode": mode,
+            "ignored_added": ignored_added,
+            "allowlist_removed": int(allowlist_forget.get("removed") or 0),
+        }
     except Exception:
         db_clear = {"ok": False, "mode": mode}
 
@@ -1908,3 +1927,47 @@ async def api_telegram_relay_send(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="download/sendPhoto exception")
+
+
+# ---------------------------------------------------------------
+# Allowlist de cameras por site (inventario declarativo)
+# ---------------------------------------------------------------
+
+@router.get("/inventory/allowlist")
+async def api_inventory_allowlist_get(site: str = "") -> dict[str, Any]:
+    from app.services import camera_allowlist
+
+    if str(site or "").strip():
+        return {"ok": True, **camera_allowlist.get_site(site)}
+    return {"ok": True, "sites": camera_allowlist.list_all()}
+
+
+@router.post("/inventory/allowlist")
+async def api_inventory_allowlist_set(payload: Dict[str, Any] | None = None) -> dict[str, Any]:
+    from app.services import camera_allowlist
+
+    data = payload if isinstance(payload, dict) else {}
+    site = str(data.get("site") or "").strip()
+    if not site:
+        raise HTTPException(400, "Informe o site.")
+
+    action = str(data.get("action") or "set").strip().lower()
+    raw_values = data.get("entries") if data.get("entries") is not None else data.get("ips")
+    if isinstance(raw_values, str):
+        values = [v for v in re.split(r"[,;\s]+", raw_values) if v.strip()]
+    elif isinstance(raw_values, list):
+        values = [str(v).strip() for v in raw_values if str(v or "").strip()]
+    else:
+        values = []
+
+    if action == "add":
+        return camera_allowlist.add_entries(site, values, note=str(data.get("note") or ""))
+    if action == "remove":
+        return camera_allowlist.remove_entries(site, values)
+    if action == "enforce":
+        return camera_allowlist.set_enforced(site, bool(data.get("enforced", True)))
+    return camera_allowlist.set_site(
+        site, values,
+        enforced=bool(data.get("enforced", True)),
+        note=str(data.get("note") or ""),
+    )

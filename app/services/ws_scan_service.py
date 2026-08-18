@@ -12,8 +12,9 @@ from app.core.tenant_context import reset_current_tenant_slug, set_current_tenan
 from app.models.requests import ScanRequest
 from app.services.connector_service import connector_target_scope, create_job, get_connector, list_connectors, list_jobs
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.olt_ignore_list import remove_ignored_rows
-from app.services.scan_service import run_http_scan
+from app.services.camera_allowlist import filter_rows as filter_allowlist_rows
+from app.services.olt_ignore_list import filter_ignored_rows, remove_ignored_rows
+from app.services.scan_service import _explicit_target_ips, run_http_scan
 
 
 async def _ws_send(ws: WebSocket, obj: Dict[str, Any]) -> None:
@@ -438,6 +439,8 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
 
     mode = str(payload.get("inventory_mode") or "olt").strip().lower() or "olt"
     restored_ignored_count = 0
+    blocked_ignored_count = 0
+    blocked_allowlist_count = 0
     ctx = set_current_tenant_slug(str(tenant_slug or "").strip().lower())
     try:
         existing = load_inventory_json(mode=mode) or []
@@ -457,8 +460,16 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
             }
             for ip in online_targets
         ]
+        # Mesmo criterio da varredura HTTP: alvo digitado IP a IP e pedido
+        # explicito de reabilitar; faixa/CIDR respeita o que o usuario apagou.
+        explicit_ips = _explicit_target_ips(str(payload.get("alvo") or ""))
+        if explicit_ips:
+            restored_ignored_count = remove_ignored_rows(
+                [r for r in rows if str((r or {}).get("ip") or "").strip() in explicit_ips]
+            )
+        rows, blocked_ignored_count = filter_ignored_rows(rows)
+        rows, blocked_allowlist_count = filter_allowlist_rows(rows, default_site=site)
         merged = _merge_remote_rows(existing, rows)
-        restored_ignored_count = remove_ignored_rows(rows)
         save_inventory_json(merged, mode=mode)
     finally:
         reset_current_tenant_slug(ctx)
@@ -468,6 +479,8 @@ async def _remote_inventory_via_connector(ws: WebSocket, payload: Dict[str, Any]
     result["discovered_count"] = len(online_targets)
     result["remote_discovered"] = len(online_targets)
     result["restored_ignored_count"] = restored_ignored_count
+    result["blocked_ignored_count"] = blocked_ignored_count
+    result["blocked_allowlist_count"] = blocked_allowlist_count
     await _ws_send(ws, {"type": "status", "message": f"Conector {connector.get('name') or site}: {len(online_targets)} IP(s) ativo(s) gravado(s) no inventario."})
     return result
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 from typing import Any, Dict, List
 from urllib.parse import urlencode
 
@@ -40,6 +41,30 @@ def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None
     return resp
 
 
+def _is_intelbras_device(device: Dict[str, Any]) -> bool:
+    vendor = str(device.get("vendor") or "").strip().lower()
+    model = str(device.get("model") or "").strip().lower()
+    return vendor == "intelbras" or model.startswith("asi") or "intelbras" in model
+
+
+def _check_device_response(resp: requests.Response, action: str) -> str:
+    if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+    text = (resp.text or "").strip()
+    if resp.status_code >= 400 or "Error" in text or "error" in text:
+        raise HTTPException(status_code=502, detail=f"Dispositivo recusou {action}: {text}")
+    return text
+
+
+def _post_json(device: Dict[str, Any], path_with_query: str, payload: Dict[str, Any], action_label: str) -> str:
+    url = f"{_base_url(device)}{path_with_query}"
+    try:
+        resp = requests.post(url, auth=_auth(device), json=payload, timeout=_TIMEOUT)
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Nao foi possivel {action_label} no dispositivo: {exc}") from exc
+    return _check_device_response(resp, action_label)
+
+
 def _parse_kv_text(text: str) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for line in (text or "").splitlines():
@@ -68,11 +93,69 @@ def open_door(device: Dict[str, Any], channel: int = 1) -> Dict[str, Any]:
     return {"ok": True, "raw": text}
 
 
+def _provision_intelbras_person(
+    device: Dict[str, Any], person: Dict[str, Any], photo_bytes: bytes | None = None
+) -> Dict[str, Any]:
+    full_name = str(person.get("full_name") or "").strip()
+    controller_user_id = "".join(ch for ch in str(person.get("controller_user_id") or "") if ch.isdigit())
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Pessoa sem nome para provisionar.")
+    if not controller_user_id:
+        raise HTTPException(status_code=400, detail="Informe o ID na controladora para provisionar na Intelbras.")
+
+    user_payload = {
+        "UserList": [
+            {
+                "UserID": controller_user_id,
+                "UserName": full_name,
+                "UserType": 0,
+                "UseTime": 200,
+                "IsFirstEnter": False,
+                "UserStatus": 1 if person.get("active") is False else 0,
+                "Authority": 2,
+                "CitizenIDNo": "",
+                "Password": "123456",
+                "Doors": [0],
+                "TimeSections": [0],
+                "ValidFrom": "2024-08-01 00:00:00",
+                "ValidTo": "2034-08-01 23:59:59",
+            }
+        ]
+    }
+    card_text = _post_json(
+        device,
+        "/cgi-bin/AccessUser.cgi?action=insertMulti",
+        user_payload,
+        "o cadastro do usuario",
+    )
+
+    face_text = ""
+    if photo_bytes:
+        payload = {
+            "FaceList": [
+                {
+                    "UserID": controller_user_id,
+                    "PhotoData": [base64.b64encode(photo_bytes).decode("ascii")],
+                }
+            ]
+        }
+        try:
+            face_text = _post_json(device, "/cgi-bin/AccessFace.cgi?action=insertMulti", payload, "a face")
+        except HTTPException as exc:
+            if "Batch Process Error" not in str(exc.detail):
+                raise
+            face_text = _post_json(device, "/cgi-bin/AccessFace.cgi?action=updateMulti", payload, "a face")
+
+    return {"ok": True, "raw": card_text, "face_raw": face_text, "controller_user_id": controller_user_id}
+
+
 def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes: bytes | None = None) -> Dict[str, Any]:
     full_name = str(person.get("full_name") or "").strip()
     person_id = str(person.get("id") or "").strip()
     if not full_name or not person_id:
         raise HTTPException(status_code=400, detail="Pessoa sem nome/id para provisionar.")
+    if _is_intelbras_device(device):
+        return _provision_intelbras_person(device, person, photo_bytes)
     info = {
         "UserID": person_id,
         "UserName": full_name,

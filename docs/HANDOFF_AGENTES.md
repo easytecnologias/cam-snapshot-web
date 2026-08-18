@@ -770,3 +770,136 @@ sair automaticamente da lista de ignorados.
 **Nao reverter:** a separacao e intencional. O sync automatico da OLT continua
 respeitando `olt-ignored-ips.json`; somente caminhos manuais de scan/rescan
 podem retirar IPs dessa lista quando a camera for encontrada de novo.
+
+---
+
+## 2026-08-18 - Camera apagada voltava e site novo roubava IP do antigo
+
+**Agente:** Claude
+
+**Contexto:** reclamacao do usuario em producao: "eu apago as cameras mas elas
+voltam, e coloco um site novo numa varredura e ele pega o IP antigo e mistura
+tudo". Eram tres defeitos distintos, todos confirmados no codigo.
+
+**1. Varredura desfazia a exclusao.** `scan_service` e `ws_scan_service`
+chamavam `remove_ignored_rows()` com TUDO que a varredura encontrasse. Bastava
+varrer a faixa do site para o proprio sistema desbloquear e recadastrar todas
+as cameras que o usuario tinha apagado.
+
+**Nao revertemos a entrada de 2026-08-14** (Codex): varredura manual continua
+reabilitando IP ignorado. O que mudou e o ALCANCE -- agora so reabilita quando
+o alvo foi digitado IP a IP (`100.65.10.72` ou lista separada por virgula),
+que e o pedido explicito "quero esse de volta". Alvo em faixa
+(`100.65.10.1-100.65.10.100`) ou CIDR (`/24`) e descoberta ampla: ali o
+bloqueio do usuario continua valendo e as linhas ignoradas sao FILTRADAS antes
+de salvar. `scripts/sightops_manual_scan_restores_ignored_test.py` continua
+passando.
+
+**2. Bloqueio so valia no modo OLT.** `is_ignored_olt_row` so era consultado em
+`olt_service`, e `tools.py` so gravava o bloqueio `if permanent and mode ==
+"olt"`. Nos modos Basico e Switch, apagar nunca grudava. Alem disso o escopo
+exigia que `olt_ip`/`pon`/`onu_id` batessem -- campos que varredura basica nao
+traz --, entao o bloqueio nao casava e a camera voltava. Agora site/conector
+continuam rigidos (protegem IP privado repetido entre clientes) e os campos de
+topologia so sao comparados quando a linha nova os informa.
+
+**3. Merge cruzava sites.** Para linha local (sem conector), `_merge_inventory_rows`
+casava por `IP:` (a chave logica), depois por IP sozinho e por MAC sozinho, sem
+olhar site. Como 100.65.x se repete em todo cliente, a camera do site novo
+casava com a linha do site antigo -- e `site`/`local`/`site_name` estao na lista
+de campos que sempre sobrescrevem, entao o registro antigo passava a apontar
+para o site novo. Agora nenhuma regra de match cruza linhas de sites diferentes.
+`_apply_default_local` tambem so carimba o site nas linhas desta varredura
+(antes pegava o inventario inteiro e batizava qualquer linha sem `local`).
+
+**Arquivos alterados:**
+- `app/services/olt_ignore_list.py` - `filter_ignored_rows()`, alias
+  `is_ignored_row`, escopo tolerante em topologia.
+- `app/services/scan_service.py` - `_explicit_target_ips()`, filtro de
+  ignorados, guarda de site no merge, `_apply_default_local(only_ips=...)`.
+- `app/services/ws_scan_service.py` - mesmo criterio na varredura via conector.
+- `app/api/endpoints/tools.py` - bloqueio gravado nos tres modos.
+- `frontend/js/bootstrap.js` - "Apagar inventario" manda `permanent` nos tres modos.
+- `scripts/sightops_scan_respects_deleted_test.py` - regressao dos tres casos.
+
+**Allowlist estrita: IMPLEMENTADA na mesma sessao (ver entrada abaixo).**
+
+
+---
+
+## 2026-08-18 - Inventario declarativo: allowlist de IPs por site
+
+**Agente:** Claude
+
+**Contexto:** pedido direto do usuario -- "eu nao quero ele descobrindo IP, eu
+que digo qual IP ele deve olhar". A varredura era autoritativa: cadastrava tudo
+que respondia na faixa, e o usuario passava o dia apagando. Agora a lista dele
+manda.
+
+**Modelo escolhido (por ele): ESTRITO.** O que nao esta na lista do site nao
+entra e nao vira pendencia -- e descartado. Nao ha tela de aprovacao.
+
+**Ativacao por site, nao global.** `site_is_enforced()` so retorna True se o
+site tem lista cadastrada e o modo estrito esta ligado. Site sem lista continua
+com o comportamento antigo -- ligar isso num cliente nao quebra os outros. Foi
+de proposito: nao existe flag global que bote todo mundo em estrito de uma vez.
+
+**Onde e o corte** (os tres caminhos que criam camera sozinhos):
+- `app/services/scan_service.py` - varredura HTTP, filtra ANTES do merge.
+- `app/services/ws_scan_service.py` - varredura via conector remoto.
+- `app/services/olt_service.py` - sync automatico da OLT (era o pior: recriava
+  em background sem o usuario pedir nada).
+
+**Arquivos alterados:**
+- `app/services/camera_allowlist.py` (novo) - store por tenant
+  (`camera-allowlist.json`), aceita IP, faixa `10.0.0.10-20` e CIDR.
+- `app/api/endpoints/tools.py` - `GET/POST /api/inventory/allowlist`
+  (actions: set, add, remove, enforce). Ficou em tools.py de proposito, pra nao
+  disputar `endpoints/__init__.py` e `main.py` com quem mexe em outra area.
+- `frontend/index.html` - botao "IPs permitidos" e modal (`modalAllowlist`);
+  versoes de cameras.js/bootstrap.js incrementadas (cache-busting).
+- `frontend/js/cameras.js` - `openAllowlistModal`, `allowlistSave`,
+  `allowlistImportFromInventory` (puxa os IPs que ja estao no inventario do
+  site pra virar a lista inicial).
+- `frontend/js/bootstrap.js` - listeners do modal.
+- `scripts/sightops_camera_allowlist_test.py` - regressao.
+
+**Contadores novos** no retorno do scan, uteis pra depurar em producao:
+`blocked_allowlist_count` (varredura) e `blocked_allowlist` (sync OLT).
+
+---
+
+## 2026-08-18 - Apagar e apagar: allowlist substitui a lista de bloqueados
+
+**Agente:** Claude
+
+**Contexto:** pergunta do usuario -- "pq eu preciso dessa lista de IPs
+bloqueados? pq nao posso simplesmente apagar, e se eu quiser chamo de novo?".
+Ele esta certo. A lista de bloqueados (`olt-ignored-ips.json`) so existia porque
+varredura e sync da OLT recriavam linha por conta propria; era remendo, nao
+solucao. Com allowlist estrita ela vira redundante -- sair da lista de
+permitidos ja garante que nao volta.
+
+Pior: do jeito que ficou na entrega anterior, as duas listas podiam se
+contradizer. Apagar camera em site estrito gravava o IP nos bloqueados mas
+**nao tirava dos permitidos** -- dois cadastros discordando sobre o mesmo IP.
+
+**Regra agora:**
+- Site COM allowlist ligada -> apagar remove o IP da lista de permitidos e
+  **nao** grava bloqueio. Para trazer de volta, recolocar o IP na lista.
+- Site SEM allowlist -> comportamento antigo, continua dependendo da lista de
+  bloqueados (sem ela a varredura recadastra tudo).
+
+**Arquivos alterados:**
+- `app/services/camera_allowlist.py` - `forget_rows()`, que separa as linhas de
+  site declarativo (tira da allowlist) das de site legado (`rows_legado`, que o
+  chamador ainda manda pra lista de bloqueados).
+- `app/services/inventory_delete_service.py` - remocao de cameras selecionadas.
+- `app/api/endpoints/tools.py` - "Apagar inventario" por site e total.
+- `frontend/js/bootstrap.js` - o toast diz quantos IPs sairam da lista.
+- `scripts/sightops_apagar_e_chamar_de_volta_test.py` - ciclo completo:
+  autoriza -> varre -> apaga -> varre de novo (nao volta) -> recoloca na lista
+  -> varre (volta). Cobre tambem que site sem allowlist segue usando bloqueio.
+
+**Nao "simplificar" removendo a lista de bloqueados.** Ela continua sendo a
+unica protecao dos sites que ainda nao migraram pro modo declarativo.

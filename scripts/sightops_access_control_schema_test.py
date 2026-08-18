@@ -258,12 +258,16 @@ def test_existing_schema_gets_new_columns(tmp_dir: str) -> None:
             people_cols = db_store._sqlite_columns(c, "access_people")
             device_cols = db_store._sqlite_columns(c, "access_devices")
         assert "site" in people_cols, "migration aditiva nao criou access_people.site"
+        for col in ("controller_user_id", "face_photo_path", "face_photo_updated_at"):
+            assert col in people_cols, f"migration aditiva nao criou access_people.{col}"
         for col in ("password_enc", "status", "last_seen_at", "last_event_id"):
             assert col in device_cols, f"migration aditiva nao criou access_devices.{col}"
 
         people = list_people()
         assert len(people) == 1 and people[0]["full_name"] == "Pessoa Antiga"
         assert people[0]["site"] == ""
+        assert people[0]["controller_user_id"] == ""
+        assert people[0]["face_photo_path"] == ""
         devices = list_devices()
         assert len(devices) == 1 and devices[0]["name"] == "Catraca Antiga"
         assert devices[0]["status"] == "unknown"

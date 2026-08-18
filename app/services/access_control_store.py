@@ -32,10 +32,14 @@ def _bool_int(value: Any, default: bool = True) -> int:
 # list_devices() quebraria com "no such column: site".
 _ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("access_people", "site", "TEXT NOT NULL DEFAULT ''"),
+    ("access_people", "controller_user_id", "TEXT NOT NULL DEFAULT ''"),
+    ("access_people", "face_photo_path", "TEXT NOT NULL DEFAULT ''"),
+    ("access_people", "face_photo_updated_at", "TEXT NOT NULL DEFAULT ''"),
     ("access_devices", "password_enc", "TEXT NOT NULL DEFAULT ''"),
     ("access_devices", "status", "TEXT NOT NULL DEFAULT 'unknown'"),
     ("access_devices", "last_seen_at", "TEXT NOT NULL DEFAULT ''"),
     ("access_devices", "last_event_id", "TEXT NOT NULL DEFAULT ''"),
+    ("access_rules", "name", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -107,6 +111,9 @@ def ensure_access_control_schema() -> None:
               enrollment_code TEXT NOT NULL DEFAULT '',
               class_name TEXT NOT NULL DEFAULT '',
               site TEXT NOT NULL DEFAULT '',
+              controller_user_id TEXT NOT NULL DEFAULT '',
+              face_photo_path TEXT NOT NULL DEFAULT '',
+              face_photo_updated_at TEXT NOT NULL DEFAULT '',
               guardian_name TEXT NOT NULL DEFAULT '',
               guardian_phone TEXT NOT NULL DEFAULT '',
               whatsapp_enabled INTEGER NOT NULL DEFAULT 1,
@@ -190,6 +197,7 @@ def ensure_access_control_schema() -> None:
               tenant_slug TEXT NOT NULL,
               people_group_id TEXT NOT NULL,
               door_group_id TEXT NOT NULL,
+              name TEXT NOT NULL DEFAULT '',
               weekdays TEXT NOT NULL DEFAULT '1234567',
               time_start TEXT NOT NULL DEFAULT '',
               time_end TEXT NOT NULL DEFAULT '',
@@ -268,8 +276,8 @@ def list_people(search: str = "", active: str = "", person_type: str = "", site:
         rows = c.execute(
             f"""
             SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
-                   class_name, site, guardian_name, guardian_phone, whatsapp_enabled, active,
-                   notes, created_at, updated_at
+                   class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
+                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
             FROM access_people
             WHERE {' AND '.join(where)}
             ORDER BY active DESC, full_name COLLATE NOCASE
@@ -306,6 +314,7 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     enrollment_code = _clean_text(payload.get("enrollment_code"), 64)
     class_name = _clean_text(payload.get("class_name"), 80)
     site = _clean_text(payload.get("site"), 120)
+    controller_user_id = re.sub(r"\D", "", str(payload.get("controller_user_id") or ""))[:32]
     guardian_name = _clean_text(payload.get("guardian_name"), 160)
     guardian_phone = _clean_phone(payload.get("guardian_phone"))
     whatsapp_enabled = _bool_int(payload.get("whatsapp_enabled"), True)
@@ -317,10 +326,10 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
             """
             INSERT INTO access_people(
               id, tenant_slug, full_name, person_type, document_id, enrollment_code,
-              class_name, site, guardian_name, guardian_phone, whatsapp_enabled, active,
-              notes, created_at, updated_at
+              class_name, site, controller_user_id, guardian_name, guardian_phone,
+              whatsapp_enabled, active, notes, created_at, updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
               full_name=excluded.full_name,
               person_type=excluded.person_type,
@@ -328,6 +337,7 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
               enrollment_code=excluded.enrollment_code,
               class_name=excluded.class_name,
               site=excluded.site,
+              controller_user_id=excluded.controller_user_id,
               guardian_name=excluded.guardian_name,
               guardian_phone=excluded.guardian_phone,
               whatsapp_enabled=excluded.whatsapp_enabled,
@@ -345,6 +355,7 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
                 enrollment_code,
                 class_name,
                 site,
+                controller_user_id,
                 guardian_name,
                 guardian_phone,
                 whatsapp_enabled,
@@ -355,12 +366,43 @@ def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
         row = c.execute(
             """
             SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
-                   class_name, site, guardian_name, guardian_phone, whatsapp_enabled, active,
-                   notes, created_at, updated_at
+                   class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
+                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
             FROM access_people
             WHERE tenant_slug=? AND id=?
             """,
             (tenant, person_id),
+        ).fetchone()
+    if row is None:
+        raise ValueError("Pessoa nao encontrada neste cliente.")
+    return _row_dict(row)
+
+
+def update_person_face_photo(person_id: str, face_photo_path: str) -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    pid = _clean_text(person_id, 80)
+    clean_path = _clean_text(face_photo_path, 500)
+    if not pid or not clean_path:
+        raise ValueError("Pessoa ou foto facial invalida.")
+    with db_store._conn() as c:
+        c.execute(
+            """
+            UPDATE access_people
+            SET face_photo_path=?, face_photo_updated_at=datetime('now'), updated_at=datetime('now')
+            WHERE tenant_slug=? AND id=?
+            """,
+            (clean_path, tenant, pid),
+        )
+        row = c.execute(
+            """
+            SELECT id, tenant_slug, full_name, person_type, document_id, enrollment_code,
+                   class_name, site, controller_user_id, face_photo_path, face_photo_updated_at,
+                   guardian_name, guardian_phone, whatsapp_enabled, active, notes, created_at, updated_at
+            FROM access_people
+            WHERE tenant_slug=? AND id=?
+            """,
+            (tenant, pid),
         ).fetchone()
     if row is None:
         raise ValueError("Pessoa nao encontrada neste cliente.")
@@ -599,6 +641,7 @@ def save_rule(payload: Dict[str, Any]) -> Dict[str, Any]:
     door_group_id = _clean_text(payload.get("door_group_id"), 80)
     if not people_group_id or not door_group_id:
         raise ValueError("Informe o grupo de pessoas e o grupo de portas.")
+    name = _clean_text(payload.get("name"), 120)
     weekdays = re.sub(r"[^1-7]", "", str(payload.get("weekdays") or "1234567")) or "1234567"
     time_start = _clean_text(payload.get("time_start"), 5)
     time_end = _clean_text(payload.get("time_end"), 5)
@@ -607,13 +650,14 @@ def save_rule(payload: Dict[str, Any]) -> Dict[str, Any]:
         c.execute(
             """
             INSERT INTO access_rules(
-              id, tenant_slug, people_group_id, door_group_id, weekdays, time_start, time_end,
+              id, tenant_slug, people_group_id, door_group_id, name, weekdays, time_start, time_end,
               active, created_at, updated_at
             )
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             ON CONFLICT(id) DO UPDATE SET
               people_group_id=excluded.people_group_id,
               door_group_id=excluded.door_group_id,
+              name=excluded.name,
               weekdays=excluded.weekdays,
               time_start=excluded.time_start,
               time_end=excluded.time_end,
@@ -621,7 +665,7 @@ def save_rule(payload: Dict[str, Any]) -> Dict[str, Any]:
               updated_at=datetime('now')
             WHERE access_rules.tenant_slug=excluded.tenant_slug
             """,
-            (rule_id, tenant, people_group_id, door_group_id, weekdays, time_start, time_end, active),
+            (rule_id, tenant, people_group_id, door_group_id, name, weekdays, time_start, time_end, active),
         )
         row = c.execute("SELECT * FROM access_rules WHERE tenant_slug=? AND id=?", (tenant, rule_id)).fetchone()
     if row is None:
@@ -661,6 +705,38 @@ def list_devices(site: str = "") -> List[Dict[str, Any]]:
             tuple(params),
         ).fetchall()
     return [_device_row_dict(r) for r in rows]
+
+
+def update_device_health(device_id: str, *, status: str, model: str = "", last_seen_at: str = "") -> Dict[str, Any]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(device_id, 80)
+    clean_status = _clean_text(status, 20) or "unknown"
+    clean_model = _clean_text(model, 60)
+    clean_seen = _clean_text(last_seen_at, 40)
+    with db_store._conn() as c:
+        if clean_model:
+            c.execute(
+                """
+                UPDATE access_devices
+                SET status=?, model=?, last_seen_at=?, updated_at=datetime('now')
+                WHERE tenant_slug=? AND id=?
+                """,
+                (clean_status, clean_model, clean_seen, tenant, did),
+            )
+        else:
+            c.execute(
+                """
+                UPDATE access_devices
+                SET status=?, last_seen_at=?, updated_at=datetime('now')
+                WHERE tenant_slug=? AND id=?
+                """,
+                (clean_status, clean_seen, tenant, did),
+            )
+        row = c.execute("SELECT * FROM access_devices WHERE tenant_slug=? AND id=?", (tenant, did)).fetchone()
+    if row is None:
+        raise ValueError("Dispositivo nao encontrado neste cliente.")
+    return _device_row_dict(row)
 
 
 def save_device(payload: Dict[str, Any]) -> Dict[str, Any]:

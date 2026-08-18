@@ -121,6 +121,71 @@ def test_provision_person_sends_valid_json_not_python_repr() -> None:
     assert payload["Info"][0]["UserName"] == "Fulano de Tal"
 
 
+def test_provision_intelbras_uses_legacy_card_and_face_endpoints() -> None:
+    device = {"host": "10.10.10.175", "username": "admin", "password": "secret", "vendor": "intelbras"}
+    person = {"id": "internal-id", "controller_user_id": "1001", "full_name": "Elishafan Teste"}
+    fake_user = MagicMock()
+    fake_user.status_code = 200
+    fake_user.text = "OK"
+    fake_face = MagicMock()
+    fake_face.status_code = 200
+    fake_face.text = "OK"
+
+    with patch("app.services.access_control_device.requests.post", side_effect=[fake_user, fake_face]) as mock_post:
+        result = provision_person(device, person, photo_bytes=b"jpeg-bytes")
+
+    assert result["ok"] is True
+    user_url = mock_post.call_args_list[0].args[0]
+    assert user_url.endswith("/cgi-bin/AccessUser.cgi?action=insertMulti")
+    sent_user_payload = mock_post.call_args_list[0].kwargs["json"]
+    assert sent_user_payload["UserList"][0]["UserID"] == "1001"
+    assert sent_user_payload["UserList"][0]["UserName"] == "Elishafan Teste"
+    assert sent_user_payload["UserList"][0]["Password"] == "123456"
+    assert sent_user_payload["UserList"][0]["Doors"] == [0]
+
+    face_url = mock_post.call_args_list[1].args[0]
+    assert face_url.endswith("/cgi-bin/AccessFace.cgi?action=insertMulti")
+    sent_payload = mock_post.call_args_list[1].kwargs["json"]
+    assert sent_payload["FaceList"][0]["UserID"] == "1001"
+    assert sent_payload["FaceList"][0]["PhotoData"][0]
+
+
+def test_provision_intelbras_requires_controller_user_id() -> None:
+    from fastapi import HTTPException
+
+    device = {"host": "10.10.10.175", "username": "admin", "password": "secret", "vendor": "intelbras"}
+    person = {"id": "internal-id", "full_name": "Sem Id"}
+    try:
+        provision_person(device, person, photo_bytes=b"jpeg-bytes")
+        raise AssertionError("deveria exigir controller_user_id para Intelbras")
+    except HTTPException as exc:
+        assert "ID na controladora" in str(exc.detail)
+
+
+def test_provision_intelbras_updates_face_when_insert_reports_batch_error() -> None:
+    device = {"host": "10.10.10.175", "username": "admin", "password": "secret", "vendor": "intelbras"}
+    person = {"id": "internal-id", "controller_user_id": "1001", "full_name": "Elishafan Teste"}
+    fake_user = MagicMock()
+    fake_user.status_code = 200
+    fake_user.text = "OK"
+    fake_face_insert = MagicMock()
+    fake_face_insert.status_code = 400
+    fake_face_insert.text = "Batch Process Error"
+    fake_face_update = MagicMock()
+    fake_face_update.status_code = 200
+    fake_face_update.text = "OK"
+
+    with patch(
+        "app.services.access_control_device.requests.post",
+        side_effect=[fake_user, fake_face_insert, fake_face_update],
+    ) as mock_post:
+        result = provision_person(device, person, photo_bytes=b"jpeg-bytes")
+
+    assert result["ok"] is True
+    assert mock_post.call_args_list[1].args[0].endswith("/cgi-bin/AccessFace.cgi?action=insertMulti")
+    assert mock_post.call_args_list[2].args[0].endswith("/cgi-bin/AccessFace.cgi?action=updateMulti")
+
+
 def main() -> None:
     test_get_system_info_parses_response()
     test_open_door_checks_ok_response()
@@ -128,6 +193,9 @@ def main() -> None:
     test_poll_events_empty_response_is_confirmed_real_device_behavior()
     test_poll_events_raises_on_unexpected_error_body()
     test_provision_person_sends_valid_json_not_python_repr()
+    test_provision_intelbras_uses_legacy_card_and_face_endpoints()
+    test_provision_intelbras_requires_controller_user_id()
+    test_provision_intelbras_updates_face_when_insert_reports_batch_error()
     print("OK access control device client: getSystemInfo, openDoor, poll_events, provision_person")
 
 

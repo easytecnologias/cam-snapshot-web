@@ -107,8 +107,38 @@ def test_list_people_filters_by_site_and_lists_distinct_sites() -> None:
             reset_current_tenant_slug(token)
 
 
+def test_person_stores_controller_id_and_face_photo_path() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        _prepare_env(Path(d))
+
+        from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+        from app.services.access_control_store import list_people, save_person, update_person_face_photo
+
+        token = set_current_tenant_slug("escola-face")
+        try:
+            person = save_person(
+                {
+                    "full_name": "Elishafan Teste",
+                    "site": "Sede",
+                    "controller_user_id": "1001",
+                }
+            )
+            assert person["controller_user_id"] == "1001"
+            assert person["face_photo_path"] == ""
+            assert person["face_photo_updated_at"] == ""
+
+            updated = update_person_face_photo(person["id"], "access-control/faces/1001.jpg")
+            assert updated["controller_user_id"] == "1001"
+            assert updated["face_photo_path"] == "access-control/faces/1001.jpg"
+            assert updated["face_photo_updated_at"]
+            assert list_people()[0]["face_photo_path"] == "access-control/faces/1001.jpg"
+        finally:
+            reset_current_tenant_slug(token)
+
+
 if __name__ == "__main__":
     test_people_are_tenant_scoped()
     test_list_people_filters_by_type()
     test_list_people_filters_by_site_and_lists_distinct_sites()
+    test_person_stores_controller_id_and_face_photo_path()
     print("OK access control store")

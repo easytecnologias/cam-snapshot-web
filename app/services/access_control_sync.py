@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from app.services.access_control_device import poll_events, provision_person
+from app.services.access_control_photos import load_person_face_photo
 from app.services.access_control_store import (
     get_device_with_password,
     list_devices,
@@ -64,7 +65,7 @@ def provision_person_everywhere(person: Dict[str, Any]) -> Dict[str, Any]:
             results.append({"device_id": device["id"], "status": "failed", "error": error_text})
             continue
         try:
-            provision_person(full_device, person)
+            provision_person(full_device, person, load_person_face_photo(person))
             upsert_provision_status(person["id"], device["id"], "ok")
             results.append({"device_id": device["id"], "status": "ok", "error": ""})
         except HTTPException as exc:
@@ -127,7 +128,7 @@ def retry_pending_provisions() -> Dict[str, Any]:
             )
             continue
         try:
-            provision_person(device, person)
+            provision_person(device, person, load_person_face_photo(person))
             upsert_provision_status(item["person_id"], item["device_id"], "ok")
         except HTTPException as exc:
             upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc.detail))

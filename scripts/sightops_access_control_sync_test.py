@@ -162,6 +162,41 @@ def test_retry_pending_provisions_marks_success() -> None:
         reset_current_tenant_slug(token)
 
 
+def test_retry_pending_provisions_loads_saved_face_photo() -> None:
+    token = set_current_tenant_slug("cliente-sync-face")
+    try:
+        person = save_person({
+            "full_name": "Elishafan Teste",
+            "site": "Sede",
+            "controller_user_id": "1001",
+        })
+        device = save_device({
+            "name": "Intelbras Portaria",
+            "site": "Sede",
+            "vendor": "intelbras",
+            "host": "10.10.10.175",
+            "username": "admin",
+            "password": "secret",
+        })
+        from app.core.tenant_context import tenant_data_dir
+        from app.services.access_control_store import update_person_face_photo, upsert_provision_status
+
+        rel_path = f"access-control/faces/{person['id']}.jpg"
+        target = tenant_data_dir() / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"face-jpeg")
+        update_person_face_photo(person["id"], rel_path)
+        upsert_provision_status(person["id"], device["id"], "pending")
+
+        with patch("app.services.access_control_sync.provision_person", return_value={"ok": True, "raw": "OK"}) as mock_provision:
+            result = retry_pending_provisions()
+
+        assert result["retried"] == 1
+        assert mock_provision.call_args.args[2] == b"face-jpeg"
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def test_retry_pending_provisions_skips_and_fails_orphaned_rows() -> None:
     """Se a pessoa ou o dispositivo referenciados por uma linha pendente ja
     foram removidos, retry_pending_provisions nao pode levantar excecao nem
@@ -247,6 +282,7 @@ def main() -> None:
         test_resolve_ignores_inactive_rule_and_inactive_device()
         test_resolve_returns_empty_for_person_with_no_groups()
         test_retry_pending_provisions_marks_success()
+        test_retry_pending_provisions_loads_saved_face_photo()
         test_retry_pending_provisions_skips_and_fails_orphaned_rows()
         test_poll_device_events_records_events_and_returns_count()
         test_poll_device_events_swallows_device_error_and_returns_zero()
