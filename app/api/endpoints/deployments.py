@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
-from app.services.connector_service import connector_target_scope, get_connector, list_connectors
+from app.services.connector_service import get_connector, list_connectors
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.camsnapshot.device_info import get_network_config, set_network_ip, set_channel_title
 
@@ -385,22 +385,20 @@ def _recorder_channel_grid(
     rows = _read_recorder_rows(source)
     used: Dict[int, Dict[str, Any]] = {}
     host_norm = _text(host)
-    saved_by_channel: Dict[int, Dict[str, Any]] = {}
-    for row in rows:
-        row_host = _text(row.get("host") or row.get("ip"))
-        if row_host != host_norm:
-            continue
-        try:
-            ch = int(row.get("channel") or 0)
-        except Exception:
-            ch = 0
-        if ch <= 0:
-            continue
-        saved_by_channel[ch] = row
     if not live_authoritative:
-        used.update(saved_by_channel)
+        for row in rows:
+            row_host = _text(row.get("host") or row.get("ip"))
+            if row_host != host_norm:
+                continue
+            try:
+                ch = int(row.get("channel") or 0)
+            except Exception:
+                ch = 0
+            if ch <= 0:
+                continue
+            used[ch] = row
     for ch, data in (live_used or {}).items():
-        used[ch] = {**saved_by_channel.get(ch, {}), **used.get(ch, {}), **data, "live": True}
+        used[ch] = {**used.get(ch, {}), **data, "live": True}
     try:
         total = int(total or 32)
     except Exception:
@@ -416,44 +414,9 @@ def _recorder_channel_grid(
             "camera_model": _text(used.get(ch, {}).get("camera_model") or used.get(ch, {}).get("modelo")),
             "camera_mac": _text(used.get(ch, {}).get("camera_mac") or used.get(ch, {}).get("mac")),
             "snapshot_url": _text(used.get(ch, {}).get("snapshot_url")),
-            "imgbb_url": _text(used.get(ch, {}).get("imgbb_url")),
-            "imgbb_thumb_url": _text(used.get(ch, {}).get("imgbb_thumb_url")),
         }
         for ch in range(1, total + 1)
     ]
-
-
-def _remove_recorder_channel_row(source: str, host: str, channel: int, http_port: Any = None) -> int:
-    rows = _read_recorder_rows(source)
-    host_norm = _text(host)
-    try:
-        ch_norm = int(channel)
-    except Exception:
-        ch_norm = 0
-    try:
-        port_norm = int(http_port or 0)
-    except Exception:
-        port_norm = 0
-    kept: List[Dict[str, Any]] = []
-    removed = 0
-    for row in rows:
-        row_host = _text(row.get("host") or row.get("ip"))
-        try:
-            row_ch = int(row.get("channel") or 0)
-        except Exception:
-            row_ch = 0
-        try:
-            row_port = int(row.get("http_port") or 80)
-        except Exception:
-            row_port = 80
-        same_port = not port_norm or row_port == port_norm
-        if row_host == host_norm and row_ch == ch_norm and same_port:
-            removed += 1
-            continue
-        kept.append(row)
-    if removed:
-        _write_recorder_rows(source, kept)
-    return removed
 
 
 def _connector_inventory(connector_id: str) -> Dict[str, Any]:
@@ -462,28 +425,6 @@ def _connector_inventory(connector_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="conector nao encontrado")
     inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
     return {"connector": row, "inventory": inventory}
-
-
-def _ensure_connector_targets_allowed(connector_id: str, targets: List[str], label: str = "alvo") -> None:
-    connector_id = _text(connector_id)
-    if not connector_id:
-        return
-    connector = get_connector(connector_id, include_token=False, enforce_tenant=True)
-    if not connector:
-        raise HTTPException(status_code=404, detail="conector nao encontrado")
-    scope = connector_target_scope(connector, [_text(target) for target in targets if _text(target)])
-    if not scope.get("enforced") or not scope.get("blocked"):
-        return
-    connector_name = _text(connector.get("name") or connector.get("site") or connector.get("client") or connector_id)
-    blocked = ", ".join((scope.get("blocked") or [])[:8])
-    allowed = ", ".join(scope.get("trusted_lans") or [])
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            f"{label} fora das redes do conector {connector_name}. "
-            f"Permitidas: {allowed or 'nenhuma detectada'}. Bloqueado: {blocked}."
-        ),
-    )
 
 
 def _inventory_sources(inv: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -675,11 +616,6 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
     if not user or not password:
         raise HTTPException(status_code=400, detail="usuario e senha do gravador obrigatorios")
-    _ensure_connector_targets_allowed(
-        _text(payload.get("connector_id") or payload.get("remote_connector_id")),
-        [host],
-        "gravador",
-    )
 
     base = _recorder_base_url(host, payload.get("recorder_http_port") or payload.get("http_port"))
     probes = [
@@ -756,11 +692,6 @@ def api_deployments_recorder_channels(payload: Dict[str, Any]) -> Dict[str, Any]
     host = _text(payload.get("recorder_host") or payload.get("host"))
     if not host:
         raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
-    _ensure_connector_targets_allowed(
-        _text(payload.get("connector_id") or payload.get("remote_connector_id")),
-        [host],
-        "gravador",
-    )
     try:
         total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 32)
     except Exception:
@@ -805,11 +736,6 @@ def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, An
         raise HTTPException(status_code=400, detail="selecione um canal livre")
     if not camera_ip:
         raise HTTPException(status_code=400, detail="ip da camera obrigatorio")
-    _ensure_connector_targets_allowed(
-        _text(payload.get("connector_id") or payload.get("remote_connector_id")),
-        [host, camera_ip],
-        "gravador/camera",
-    )
     if not camera_user or not camera_password:
         raise HTTPException(status_code=400, detail="usuario e senha da camera obrigatorios")
     if not title:
@@ -882,90 +808,6 @@ def api_deployments_recorder_add_camera(payload: Dict[str, Any]) -> Dict[str, An
     }
 
 
-@router.post("/recorder-remove-camera")
-def api_deployments_recorder_remove_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="payload invalido")
-    source = _text(payload.get("recorder_type")).lower()
-    if source not in ("nvr", "dvr"):
-        raise HTTPException(status_code=400, detail="tipo de gravador obrigatorio")
-    host = _text(payload.get("recorder_host") or payload.get("host"))
-    user = _text(payload.get("recorder_user") or payload.get("user") or "admin")
-    password = _text(payload.get("recorder_password") or payload.get("password"))
-    try:
-        channel = int(_text(payload.get("recorder_channel") or payload.get("channel")) or "0")
-    except Exception:
-        channel = 0
-    try:
-        total = int(payload.get("recorder_channel_total") or payload.get("channel_total") or 32)
-    except Exception:
-        total = 32
-    if not host or not user or not password:
-        raise HTTPException(status_code=400, detail="entre no gravador informando host, usuario e senha")
-    if channel <= 0:
-        raise HTTPException(status_code=400, detail="canal obrigatorio")
-    _ensure_connector_targets_allowed(
-        _text(payload.get("connector_id") or payload.get("remote_connector_id")),
-        [host],
-        "gravador",
-    )
-
-    base = _recorder_base_url(host, payload.get("recorder_http_port") or payload.get("http_port"))
-    live_used, live_authoritative = _fetch_recorder_live_channels(base, user, password, total)
-    if not live_authoritative:
-        raise HTTPException(status_code=400, detail="nao consegui confirmar os canais ao vivo do gravador")
-
-    idx = channel - 1
-    clear_title = f"Canal {channel:02d}"
-    clear_common = {
-        "Enable": "false",
-        "Address": "",
-        "Port": "",
-        "HttpPort": "",
-        "RtspPort": "",
-        "UserName": "",
-        "Password": "",
-        "ProtocolType": "",
-        "VideoInputs[0].Name": "",
-    }
-    attempts: List[Dict[str, Any]] = []
-    for prefix in (f"RemoteDevice[{idx}]", f"RemoteDevice.uuid:System_CONFIG_NETCAMERA_INFO_{idx}"):
-        attempts.append({f"{prefix}.{k}": v for k, v in clear_common.items()})
-    last_status = ""
-    sent = False
-    for params in attempts:
-        try:
-            resp = _recorder_set_config(base, user, password, params)
-            last_status = f"HTTP {resp.status_code}: {(resp.text or '').strip()[:160]}"
-            if _recorder_config_ok(resp):
-                sent = True
-        except Exception as exc:
-            last_status = str(exc)
-    if not sent:
-        raise HTTPException(status_code=400, detail=f"falha ao limpar canal no gravador: {last_status}")
-
-    try:
-        _recorder_set_config(base, user, password, {f"ChannelTitle[{idx}].Name": clear_title}, timeout=5.0)
-    except Exception:
-        pass
-
-    live_used_after, live_after_authoritative = _fetch_recorder_live_channels(base, user, password, total)
-    if live_after_authoritative and channel in live_used_after:
-        current = live_used_after.get(channel) or {}
-        current_label = _text(current.get("title") or current.get("camera_ip") or f"canal {channel:02d}")
-        raise HTTPException(status_code=409, detail=f"canal {channel:02d} ainda aparece ocupado: {current_label}")
-
-    removed_rows = _remove_recorder_channel_row(source, host, channel, payload.get("recorder_http_port") or payload.get("http_port"))
-    return {
-        "ok": True,
-        "source": source,
-        "host": host,
-        "channel": channel,
-        "removed_rows": removed_rows,
-        "channels": _recorder_channel_grid(source, host, total, live_used=live_used_after, live_authoritative=live_after_authoritative),
-    }
-
-
 @router.post("/commit-camera")
 def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(payload, dict):
@@ -980,7 +822,6 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     connector_id = _text(payload.get("connector_id"))
     site = _text(payload.get("site") or payload.get("local"))
-    _ensure_connector_targets_allowed(connector_id, [ip], "camera")
     mac = _norm_mac(payload.get("camera_mac"))
     location = _text(payload.get("location") or payload.get("camera_location"))
     lat, lon = _parse_lat_lon(location)
@@ -1021,11 +862,7 @@ def api_deployments_commit_camera(payload: Dict[str, Any]) -> Dict[str, Any]:
         existing_connector = _text(existing.get("remote_connector_id") or existing.get("connector_id"))
         existing_site = _text(existing.get("site") or existing.get("site_name") or existing.get("local"))
         same_plain_inventory = not connector_id and not existing_connector
-        same_remote_inventory = (
-            bool(connector_id)
-            and existing_connector == connector_id
-            and (not site or not existing_site or existing_site.lower() == site.lower())
-        )
+        same_remote_inventory = bool(connector_id) and existing_connector == connector_id
         same_site_remote_fallback = bool(connector_id) and not existing_connector and existing_site.lower() == site.lower()
         same = (
             inventory_row_key(existing) == key

@@ -6,7 +6,6 @@ function _camKey(camOrIp) {
   const ip = String(cam.ip || cam.IP || '').trim();
   const connector = String(cam.remote_connector_id || cam.connector_id || '').trim();
   const site = String(cam.site || cam.site_name || cam.local || '').trim().toLowerCase();
-  if (connector && site && ip) return `REMOTE:${connector}:SITE:${site}:IP:${ip}`;
   if (connector && ip) return `REMOTE:${connector}:IP:${ip}`;
   if ((cam.remote === true || cam.remote === 'true' || cam.remote === 1) && site && ip) return `REMOTE_SITE:${site}:IP:${ip}`;
   return `IP:${ip}`;
@@ -472,6 +471,100 @@ async function saveMapLayerRename() {
   await loadMapLayers();
 }
 
+// Uma camada so mostra o que foi desenhado no KMZ. Cameras que entraram no
+// inventario depois ficam sem ponto -- e a contagem da camada passa seguranca
+// falsa: no site RESERVA o mapa dizia "2 offline" enquanto 4 offline estavam
+// fora dele. Os pontos nao trazem o nome do site, entao descobrimos o site pelo
+// IP das cameras que a camada JA mostra.
+// Mostra QUAIS cameras ficaram de fora. Reaproveita a gaveta do dashboard e o
+// atalho que abre a camera no inventario -- e la que a correcao e feita (quase
+// sempre preencher o titulo, que e o que liga a camera ao ponto do KMZ).
+function abrirDrawerCamerasFora(site, cams) {
+  if (typeof _openDashDrawer !== 'function') return;
+  _openDashDrawer('Mapa', `Sem ponto no mapa${site ? ' - ' + site : ''}`);
+  const body = document.getElementById('dashDrawerBody');
+  if (!body) return;
+
+  const semTitulo = cams.filter(c => !c.titulo).length;
+  const nota = semTitulo
+    ? `<div style="padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border)">`
+      + `${semTitulo} dela(s) esta(o) <strong>sem titulo</strong> no inventario. O mapa liga o ponto do KMZ `
+      + `a camera pelo IP ou pelo titulo -- preenchendo o titulo, elas passam a aparecer no mapa.</div>`
+    : '';
+
+  const linhas = cams.map(c => `
+    <div data-cam-ip="${esc(c.ip)}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;
+         border-bottom:1px solid var(--border);cursor:pointer">
+      ${typeof _drawerStatusDot === 'function' ? _drawerStatusDot(c.status) : ''}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${esc(c.ip)}</div>
+        <div style="font-size:12px;color:${c.titulo ? 'var(--muted)' : '#b45309'}">
+          ${esc(c.titulo || 'sem titulo cadastrado')}</div>
+      </div>
+      <span style="font-size:11px;color:var(--muted);flex-shrink:0">${esc(c.status || '')}</span>
+    </div>`).join('');
+
+  body.innerHTML = nota + (linhas || '<div style="padding:24px;text-align:center;color:var(--muted)">Nada a listar.</div>');
+  body.querySelectorAll('[data-cam-ip]').forEach(el => {
+    el.addEventListener('click', () => {
+      const modo = typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt';
+      if (typeof _drawerGoToInventory === 'function') {
+        _drawerGoToInventory('inv-olt', el.dataset.camIp, modo);
+      }
+    });
+  });
+  if (window.lucide?.createIcons) lucide.createIcons();
+}
+
+function camerasForaDoMapa(layer) {
+  try {
+    const idx = _mapCameraIndex || { byName: {}, byIp: {} };
+    const inventario = Object.values(idx.byIp || {});
+    if (!inventario.length) return { total: 0, offline: 0, semInventario: true };
+
+    // Casar pelo MESMO criterio da camada (IP ou titulo). Procurar so o IP no
+    // texto do ponto contava como ausente toda camera que o KMZ identifica pelo
+    // nome -- foi assim que uma camada com 30 de 30 pontos casados acusou 12
+    // cameras "sem ponto no mapa".
+    const noMapa = new Set();
+    (layer.features || []).forEach(f => {
+      const cam = mapFindCamera(f, idx);
+      const ip = String(cam?.ip || '').trim();
+      if (ip) noMapa.add(ip);
+    });
+    if (!noMapa.size) return { total: 0, offline: 0 };
+    const siteDe = c => String(c.local || c.site || c.site_name || '').trim().toUpperCase();
+
+    // site da camada = o mais frequente entre as cameras que ela contem
+    const contagem = {};
+    inventario.forEach(c => {
+      const ip = String(c.ip || '').trim();
+      if (ip && noMapa.has(ip)) {
+        const s = siteDe(c);
+        if (s) contagem[s] = (contagem[s] || 0) + 1;
+      }
+    });
+    const site = Object.keys(contagem).sort((a, b) => contagem[b] - contagem[a])[0];
+    if (!site) return { total: 0, offline: 0 };
+
+    const doSite = inventario.filter(c => siteDe(c) === site && String(c.ip || '').trim());
+    const fora = doSite.filter(c => !noMapa.has(String(c.ip).trim()));
+    return {
+      total: fora.length,
+      offline: fora.filter(c => String(c.status || '').toLowerCase() !== 'online').length,
+      site,
+      // o numero sozinho nao conserta nada; a lista e o que permite agir
+      lista: fora.map(c => ({
+        ip: String(c.ip || '').trim(),
+        titulo: String(c.titulo || c.title || c.nome || '').trim(),
+        status: String(c.status || '').trim(),
+      })).sort((a, b) => a.ip.localeCompare(b.ip, 'pt', { numeric: true })),
+    };
+  } catch {
+    return { total: 0, offline: 0 };
+  }
+}
+
 async function loadMapLayers() {
   const listEl = document.getElementById('mapLayersList');
   if (!listEl) return;
@@ -592,6 +685,7 @@ async function loadMapLayers() {
 
     const statsEl = document.createElement('div');
     statsEl.className = 'map-layer-stats';
+
     const infraStats = [
       stats.fiber ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#0ea5e9"></span><strong>${stats.fiber}</strong> fibra</span>` : '',
       stats.boxes ? `<span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#f59e0b"></span><strong>${stats.boxes}</strong> caixas</span>` : '',
@@ -605,6 +699,46 @@ async function loadMapLayers() {
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#64748b"></span><strong>${stats.cameras}</strong> cameras</span>
       ${infraStats}
       <span class="map-layer-stat"><span class="map-layer-stat-dot" style="background:#d97706"></span><strong>${stats.outros}</strong> outros</span>`;
+
+    try {
+      const fora = camerasForaDoMapa(def);
+      if (fora.semInventario) {
+        // Sem inventario neste modo, os numeros acima vieram do texto do KMZ --
+        // uma foto do dia em que o mapa foi gerado, nao o estado de agora.
+        const alerta = document.createElement('div');
+        alerta.style.cssText = 'font-size:11px;margin-top:6px;padding:5px 8px;border-radius:6px;'
+          + 'background:rgba(220,38,38,.10);color:#dc2626;font-weight:600';
+        alerta.textContent = 'Sem inventario neste modo - os numeros acima vem do arquivo KMZ '
+          + 'e podem estar desatualizados. Troque o modo no seletor do topo.';
+        alerta.title = 'A camada compara cada ponto com o inventario do modo escolhido. '
+          + 'Nesse modo nao ha camera cadastrada, entao nada foi conferido.';
+        statsEl.appendChild(alerta);
+      }
+      if (fora.total) {
+        const aviso = document.createElement('div');
+        aviso.style.cssText = 'font-size:11px;margin-top:6px;padding:5px 8px;border-radius:6px;'
+          + (fora.offline
+              ? 'background:rgba(220,38,38,.10);color:#dc2626;font-weight:600'
+              : 'background:rgba(217,119,6,.10);color:#b45309');
+        aviso.textContent = fora.offline
+          ? `${fora.total} camera(s) do inventario sem ponto no mapa - ${fora.offline} delas offline`
+          : `${fora.total} camera(s) do inventario sem ponto no mapa`;
+        aviso.title = 'Clique para ver quais sao. Elas existem no inventario mas nao foram '
+          + 'desenhadas neste KMZ, entao nao entram na contagem acima.';
+        if (fora.lista?.length) {
+          aviso.style.cursor = 'pointer';
+          aviso.style.textDecoration = 'underline';
+          aviso.addEventListener('click', ev => {
+            ev.preventDefault();
+            ev.stopPropagation();   // nao ligar/desligar a camada ao clicar no aviso
+            abrirDrawerCamerasFora(fora.site, fora.lista);
+          });
+        }
+        statsEl.appendChild(aviso);
+      }
+    } catch (e) {
+      console.warn('aviso de cameras fora do mapa falhou:', e);
+    }
     row.appendChild(statsEl);
 
     const actions = document.createElement('div');
@@ -1106,6 +1240,41 @@ async function loadInvOlt() {
   updateCamTabs();
   populateCamSiteFilter();
   applyInvOltFilters();
+  startCamAutoRefresh();
+}
+
+// Enquanto a tela de Cameras IP estiver aberta, os dados envelhecem: a
+// telemetria da OLT (estado da ONU, sinal) atualiza a cada ~10 min no servidor
+// e a tela so buscava ao entrar. Quem deixa o painel aberto o dia todo ficava
+// vendo "ONU nao verificada" com o dado ja disponivel do outro lado.
+let _camAutoRefresh = null;
+
+async function _camRefreshSilencioso() {
+  const tela = document.getElementById('viewInvOlt');
+  if (!tela || tela.classList.contains('hidden') || document.hidden) return;
+  try {
+    const modo = _invOltView || 'olt';
+    await _loadCamForMode(modo);
+    applyInvOltFilters();
+    // se o painel lateral estiver aberto, atualiza o que ele mostra
+    const painel = document.getElementById('camPanel');
+    if (painel && !painel.classList.contains('hidden') && _invOltActive) {
+      const atual = _invOltAll_get().find(c => c.ip === _invOltActive.ip);
+      if (atual) openCamPanel(atual);
+    }
+  } catch {}
+}
+
+function startCamAutoRefresh(intervaloMs = 120000) {
+  stopCamAutoRefresh();
+  _camAutoRefresh = setInterval(_camRefreshSilencioso, intervaloMs);
+  // voltar pra aba tambem merece um dado fresco
+  document.addEventListener('visibilitychange', _camRefreshSilencioso);
+}
+
+function stopCamAutoRefresh() {
+  if (_camAutoRefresh) { clearInterval(_camAutoRefresh); _camAutoRefresh = null; }
+  document.removeEventListener('visibilitychange', _camRefreshSilencioso);
 }
 
 async function _loadCamForMode(mode) {
@@ -1983,7 +2152,7 @@ async function camAction(action) {
     return;
   }
   if (action === 'limpar') {
-    if (!await showConfirm({ title: `Remover camera`, msg: `Remover ${cam.ip}  ${cam.titulo || ''} do inventario? Nao volta sozinho mesmo se a OLT continuar vendo o mesmo IP na rede.`, label: 'Remover' })) return;
+    if (!await showConfirm({ title: `Remover camera`, msg: `Remover ${cam.ip}  ${cam.titulo || ''} do inventario?`, label: 'Remover' })) return;
     const key = _camKey(cam);
     const res = await api('/api/inventory/delete', {
       method: 'POST',
@@ -1993,7 +2162,6 @@ async function camAction(action) {
         mode: _invOltView || 'olt',
         site: cam.local || cam.site || cam.site_name || '',
         connector_id: cam.remote_connector_id || cam.connector_id || '',
-        permanent: true,
       }),
     });
     const data = await res?.json().catch(() => ({}));
@@ -2102,98 +2270,3 @@ async function runInvOltReport(button) {
 }
 
 //  Inventario DVR
-
-//  Allowlist de IPs por site (inventario declarativo)
-//  Com lista salva, a varredura para de mandar: so cadastra o que esta aqui.
-
-function _allowlistSites() {
-  const rows = _invCam[_invOltView] || [];
-  const doInventario = rows.map(c => c.local || c.site || c.site_name).filter(Boolean);
-  const atual = document.getElementById('filterSiteOlt')?.value || '';
-  return [...new Set([atual, ...doInventario].filter(Boolean))].sort();
-}
-
-function _allowlistStatus(msg, erro) {
-  const box = document.getElementById('allowlistStatus');
-  if (!box) return;
-  box.style.display = msg ? 'block' : 'none';
-  box.textContent = msg || '';
-  box.style.color = erro ? 'var(--danger)' : 'var(--muted)';
-}
-
-async function allowlistLoadSite(site) {
-  const entriesEl = document.getElementById('allowlistEntries');
-  const enforcedEl = document.getElementById('allowlistEnforced');
-  if (!site) { entriesEl.value = ''; enforcedEl.checked = false; _allowlistStatus(''); return; }
-  try {
-    const res = await api(`/api/inventory/allowlist?site=${encodeURIComponent(site)}`);
-    const data = await res.json();
-    const entries = (data?.entries || []).map(e => e.value).filter(Boolean);
-    entriesEl.value = entries.join('\n');
-    enforcedEl.checked = Boolean(data?.enforced && entries.length);
-    _allowlistStatus(entries.length
-      ? `${entries.length} IP(s) autorizado(s). ${enforcedEl.checked ? 'A varredura so cadastra estes.' : 'Modo estrito desligado: a varredura cadastra tudo.'}`
-      : 'Nenhum IP declarado. Enquanto a lista estiver vazia, a varredura cadastra tudo que achar neste site.');
-  } catch (err) {
-    _allowlistStatus(err?.message || 'Nao foi possivel carregar a lista.', true);
-  }
-}
-
-function openAllowlistModal() {
-  const sel = document.getElementById('allowlistSite');
-  if (!sel) return;
-  const sites = _allowlistSites();
-  const atual = document.getElementById('filterSiteOlt')?.value || sites[0] || '';
-  sel.innerHTML = sites.length
-    ? sites.map(s => `<option value="${esc(s)}"${s === atual ? ' selected' : ''}>${esc(s)}</option>`).join('')
-    : '<option value="">Nenhum site no inventario</option>';
-  document.getElementById('modalAllowlist')?.classList.remove('hidden');
-  lucide.createIcons();
-  allowlistLoadSite(sel.value);
-}
-
-async function allowlistSave() {
-  const site = document.getElementById('allowlistSite')?.value || '';
-  if (!site) { showToast('Selecione um site.', true); return; }
-  const raw = document.getElementById('allowlistEntries')?.value || '';
-  const entries = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
-  const enforced = Boolean(document.getElementById('allowlistEnforced')?.checked);
-  const btn = document.getElementById('btnAllowlistSave');
-  if (btn) btn.disabled = true;
-  try {
-    const res = await api('/api/inventory/allowlist', {
-      method: 'POST',
-      body: JSON.stringify({ site, entries, enforced, action: 'set' }),
-    });
-    const data = await res.json();
-    if (!res.ok || data?.ok === false) throw new Error(data?.detail || data?.error || 'Falha ao salvar.');
-    const invalidos = data?.invalid || [];
-    if (invalidos.length) {
-      _allowlistStatus(`Salvo, mas ignorei ${invalidos.length} entrada(s) invalida(s): ${invalidos.slice(0, 5).join(', ')}`, true);
-    } else {
-      _allowlistStatus(`Salvo: ${(data?.entries || []).length} IP(s) autorizado(s) em ${site}.`);
-    }
-    showToast('Lista de IPs permitidos salva.');
-  } catch (err) {
-    _allowlistStatus(err?.message || 'Nao foi possivel salvar.', true);
-    showToast(err?.message || 'Nao foi possivel salvar a lista.', true);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function allowlistImportFromInventory() {
-  const site = document.getElementById('allowlistSite')?.value || '';
-  if (!site) return;
-  const alvo = site.toLowerCase();
-  const ips = [...new Set(
-    (_invCam[_invOltView] || [])
-      .filter(c => String(c.local || c.site || c.site_name || '').toLowerCase() === alvo)
-      .map(c => String(c.ip || '').trim())
-      .filter(Boolean)
-  )].sort();
-  if (!ips.length) { _allowlistStatus('Esse site nao tem camera no inventario para importar.', true); return; }
-  document.getElementById('allowlistEntries').value = ips.join('\n');
-  document.getElementById('allowlistEnforced').checked = true;
-  _allowlistStatus(`${ips.length} IP(s) trazidos do inventario atual. Revise e clique em Salvar lista.`);
-}

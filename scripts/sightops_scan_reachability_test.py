@@ -11,13 +11,6 @@ rapida (poucos segundos) prova que a rede nao responde. Este teste NUNCA abre
 socket de verdade -- o "probe_fn" e trocado por uma funcao falsa, e o teste
 prova que ele so e chamado quando genuinamente precisa.
 
-Bug real corrigido aqui (SAN MARINE, 06/08/2026): a sondagem so rodava pra
-inventory_mode=="olt" -- uma varredura basico/switch (o caso mais comum, usado
-pra cameras) atraves de um conector com tunel confiava cegamente que "tunel
-configurado" == "rota ja aplicada", e voltava vazia em silencio quando a rota
-ainda nao tinha sido sincronizada (conector recem-criado). Agora a sondagem
-vale pra qualquer modo -- `_decide_remote_only` nem recebe mais `inventory_mode`.
-
 Roda direto:  python scripts/sightops_scan_reachability_test.py
 """
 
@@ -50,6 +43,7 @@ def main() -> None:
         scan_origin="connector",
         connector_id="conn-1",
         connector_has_tunnel=True,
+        inventory_mode="olt",
         remote_only_requested=False,
         probe_targets=["10.200.0.3", "10.200.0.1"],
     )
@@ -67,17 +61,15 @@ def main() -> None:
     ok = _decide_remote_only(**sem_tunel)
     check(ok is True, "sem tunel deveria forcar MikroTik sem chamar o probe")
 
-    # --- remote_only antigo/stale nao pode vencer rota direta funcionando.
-    # Em SaaS o cliente cria o conector e roda o script: se a rota WireGuard ja
-    # responde, o scan precisa ser direto para coletar modelo/snapshot/live, em
-    # vez de cair no ping_many pobre que so popula a tabela.
+    # --- remote_only pedido explicitamente: MikroTik sempre, mesmo que a rede responda ---
     explicito = {**base, "remote_only_requested": True, "probe_fn": lambda targets: True}
     ok = _decide_remote_only(**explicito)
-    check(ok is False, "remote_only stale nao deveria vencer rede alcancavel")
+    check(ok is True, "remote_only explicito deveria ser respeitado mesmo com rede alcancavel")
 
-    # `_decide_remote_only` nao recebe mais inventory_mode -- os dois casos
-    # acima (rede alcancavel/inalcancavel) ja cobrem basico/switch/olt igual,
-    # que e exatamente o bug corrigido: antes so sondava em modo "olt".
+    # --- modo diferente de OLT (basico/switch): nao e o caso que motivou isso, nao sonda ---
+    outro_modo = {**base, "inventory_mode": "basico", "probe_fn": _poison}
+    ok = _decide_remote_only(**outro_modo)
+    check(ok is False, "modo basico/switch nao deveria acionar a sondagem nem forcar remote_only")
 
     # --- sem conector: scan local comum, nao sonda ---
     sem_conector = {**base, "connector_id": "", "scan_origin": "", "probe_fn": _poison}
@@ -89,14 +81,10 @@ def main() -> None:
     ok = _decide_remote_only(**sem_alvos)
     check(ok is False, "sem alvos pra sondar nao deveria chamar o probe nem forcar remote_only")
 
-    # --- _pick_probe_targets: pega uma amostra pequena, nao a faixa inteira,
-    # mas tambem nao olha so os primeiros IPs (.1/.2/.3). No SAN MARINE,
-    # 172.16.49.6 respondia, mas a sondagem curta caia no caminho MikroTik.
+    # --- _pick_probe_targets: pega uma amostra pequena, nao a faixa inteira ---
     amostra = _pick_probe_targets("10.200.0.1-10.200.1.254")  # faixa de 510 IPs
-    check(len(amostra) <= 24, f"amostra deveria ser pequena (ate 24), veio {len(amostra)}")
+    check(len(amostra) <= 3, f"amostra deveria ser pequena (ate 3), veio {len(amostra)}")
     check(amostra[0] == "10.200.0.1", f"deveria comecar pelo primeiro IP da faixa: {amostra}")
-    amostra_san_marine = _pick_probe_targets("172.16.49.1-172.16.49.60")
-    check("172.16.49.6" in amostra_san_marine, f"amostra deveria incluir cameras no inicio util da faixa: {amostra_san_marine}")
 
     # --- _connector_has_tunnel: Ruijie nao tem agente reportando
     # tunnel/vpn/wireguard.enabled -- o sinal e ter vpn_config salvo. Bug

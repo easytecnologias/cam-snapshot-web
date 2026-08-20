@@ -62,7 +62,6 @@ from app.services.scan_service import _upload_imgbb_for_inventory
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
 from app.services.pdf_inventory_report import build_inventory_pdf_report, build_inventory_preview_image
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.olt_ignore_list import add_ignored_rows
 
 router = APIRouter(prefix="/api", tags=["tools"])
 
@@ -158,10 +157,6 @@ def _kmz_layer_download_name(label: str, fallback: str = "mapa.kmz") -> str:
     raw = str(label or "").strip() or fallback
     stem = Path(raw).stem or "mapa"
     return f"{_safe_name(stem, 'mapa')}.kmz"
-
-
-def _kmz_download_headers() -> dict[str, str]:
-    return {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
 
 
 def _list_kmz_import_layers(include_features: bool = True) -> list[dict[str, Any]]:
@@ -299,57 +294,6 @@ def _ensure_imported_layer_enriched(layer_id: str, source: str, mode: str = "") 
         raise HTTPException(500, f"Falha ao gerar KMZ enriquecido: {exc}")
 
     return generated_kmz_path, str(generated_meta.get("original_name") or generated_kmz_path.name)
-
-
-def _kmz_has_embedded_camera_icons(kmz_path: Path) -> bool:
-    try:
-        with zipfile.ZipFile(kmz_path) as archive:
-            names = set(archive.namelist())
-            if "cctv-green.png" not in names or "cctv-red.png" not in names:
-                return False
-            kml_name = next((name for name in names if name.lower().endswith(".kml")), "")
-            if not kml_name:
-                return False
-            text = archive.read(kml_name).decode("utf-8", errors="ignore")
-            return "<href>cctv-green.png</href>" in text and "<href>cctv-red.png</href>" in text
-    except Exception:
-        return False
-
-
-def _repair_generated_layer_kmz_if_needed(layer_id: str, kmz_path: Path, meta: dict[str, Any]) -> Path:
-    if _kmz_has_embedded_camera_icons(kmz_path):
-        return kmz_path
-
-    source_layer_id = str(meta.get("source_layer_id") or "").strip()
-    source = str(meta.get("source") or "ip").strip().lower()
-    mode = _normalize_inventory_mode(str(meta.get("mode") or "")) if source == "ip" else ""
-    if not source_layer_id:
-        return kmz_path
-
-    source_kmz_path, _, _ = _kmz_layer_paths(source_layer_id)
-    if not source_kmz_path.exists():
-        return kmz_path
-
-    rows_raw = _load_rows_by_source(source, mode=mode)
-    rows = _kmz_rows_for_source(source, rows_raw)
-    if not rows:
-        return kmz_path
-
-    kmz_output_dir = tenant_kmz_output_dir() if get_current_tenant_slug() else KMZ_OUTPUT_DIR
-    repaired = generate_enriched_kmz(source_kmz_path, rows, kmz_output_dir)
-    shutil.copyfile(repaired, kmz_path)
-
-    geojson_path = _kmz_generated_layer_paths(layer_id)[1]
-    try:
-        geojson = kmz_to_geojson(kmz_path)
-        geojson_path.write_text(json.dumps(geojson, ensure_ascii=False, indent=2), encoding="utf-8")
-        meta["features_count"] = len(geojson.get("features") or [])
-    except Exception:
-        pass
-    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    meta["kmz_repaired_icons"] = True
-    _write_kmz_layer_meta(_kmz_generated_layer_paths(layer_id)[2], meta)
-    return kmz_path
 
 
 def _cleanup_kmz_workspace(keep_imported: bool = False) -> None:
@@ -836,7 +780,6 @@ async def api_inventory_clear(payload: Dict[str, Any] | None = None) -> dict[str
     data = payload if isinstance(payload, dict) else {}
     site = str(data.get("site") or "").strip()
     mode = str(data.get("mode") or "olt").strip().lower()
-    permanent = bool(data.get("permanent"))
 
     def _row_matches_site(row: Dict[str, Any], wanted_site: str) -> bool:
         ws = str(wanted_site or "").strip().lower()
@@ -851,50 +794,23 @@ async def api_inventory_clear(payload: Dict[str, Any] | None = None) -> dict[str
 
     if site:
         rows = _load_inventory_rows(mode=mode)
-        removed_rows = [r for r in rows if isinstance(r, dict) and _row_matches_site(r, site)]
         kept = [r for r in rows if not (isinstance(r, dict) and _row_matches_site(r, site))]
         removed_count = max(0, len(rows) - len(kept))
         _save_inventory_rows(kept, mode=mode)
-        # Site declarativo: apagar tira o IP da lista de permitidos e acabou.
-        # Bloqueio so pros sites que ainda nao usam allowlist -- ali, sem
-        # registrar, a camera voltava na varredura seguinte (nos tres modos).
-        from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
-
-        allowlist_forget = allowlist_forget_rows(removed_rows, default_site=site)
-        rows_legado = allowlist_forget.get("rows_legado") or []
-        ignored_added = add_ignored_rows(rows_legado, reason="apagado manualmente no inventario") if permanent and rows_legado else 0
         return {
             "ok": True,
             "mode": mode,
             "site": site,
             "scope": "site",
             "removed_rows": removed_count,
-            "ignored_added": ignored_added,
-            "allowlist_removed": int(allowlist_forget.get("removed") or 0),
             "remaining": len(kept),
             "wiped": {},
             "removed": [],
         }
 
     try:
-        from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
-
-        rows_before_clear = _load_inventory_rows(mode=mode)
         _save_inventory_rows([], mode=mode)
-        allowlist_forget = allowlist_forget_rows(
-            [r for r in rows_before_clear if isinstance(r, dict)]
-        )
-        rows_legado = allowlist_forget.get("rows_legado") or []
-        ignored_added = add_ignored_rows(
-            rows_legado,
-            reason="apagado manualmente no inventario",
-        ) if permanent and rows_legado else 0
-        db_clear = {
-            "ok": True,
-            "mode": mode,
-            "ignored_added": ignored_added,
-            "allowlist_removed": int(allowlist_forget.get("removed") or 0),
-        }
+        db_clear = {"ok": True, "mode": mode}
     except Exception:
         db_clear = {"ok": False, "mode": mode}
 
@@ -1505,7 +1421,7 @@ async def api_kmz_import_layer_download(layer_id: str) -> FileResponse:
         raise HTTPException(404, "Camada KMZ nao encontrada.")
     meta = _read_kmz_layer_meta(meta_path)
     filename = str(meta.get("original_name") or kmz_path.name)
-    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename, headers=_kmz_download_headers())
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
 @router.get("/kmz/import/layers/{layer_id}/download-enriched")
@@ -1515,13 +1431,39 @@ async def api_kmz_import_layer_download_enriched(
     mode: str = "",
 ) -> FileResponse:
     kmz_path, filename = _ensure_imported_layer_enriched(layer_id, source=source, mode=mode)
-    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename, headers=_kmz_download_headers())
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
 @router.patch("/kmz/import/layers/{layer_id}")
 async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
+
+
+def _apagar_geradas_do_mapa(layer_id: str) -> list[str]:
+    """Remove as camadas geradas a partir do mapa importado `layer_id`.
+
+    Sem isso a copia enriquecida fica orfa no disco e reaparece na tela assim
+    que o importado que a escondia deixa de existir.
+    """
+    alvo = str(layer_id or "").strip()
+    if not alvo:
+        return []
+    removidas: list[str] = []
+    for meta_path in _kmz_generated_layers_dir().glob("*.meta.json"):
+        try:
+            meta = _read_kmz_layer_meta(meta_path)
+        except Exception:
+            continue
+        if str(meta.get("source_layer_id") or "").strip() != alvo:
+            continue
+        gid = str(meta.get("id") or meta_path.stem.replace(".meta", "")).strip()
+        k, g, m = _kmz_generated_layer_paths(gid)
+        _safe_unlink(k)
+        _safe_unlink(g)
+        _safe_unlink(m)
+        removidas.append(gid)
+    return removidas
 
 
 @router.delete("/kmz/import/layers/{layer_id}")
@@ -1531,7 +1473,15 @@ async def api_kmz_import_layer_delete(layer_id: str) -> Dict[str, Any]:
     _safe_unlink(kmz_path)
     _safe_unlink(geojson_path)
     _safe_unlink(meta_path)
-    return {"ok": True, "removed": bool(existed), "id": layer_id}
+    # a copia enriquecida vai junto: se ficar, reaparece na tela sem a origem
+    geradas = _apagar_geradas_do_mapa(layer_id)
+    return {
+        "ok": True,
+        "removed": bool(existed),
+        "id": layer_id,
+        "generated_removed": len(geradas),
+        "generated_ids": geradas,
+    }
 
 
 @router.get("/kmz/import/geojson")
@@ -1554,7 +1504,7 @@ async def api_kmz_import_download() -> FileResponse:
             filename = str(meta.get("original_name") or filename)
         except Exception:
             pass
-    return FileResponse(kmz_imported_path, media_type="application/vnd.google-earth.kmz", filename=filename, headers=_kmz_download_headers())
+    return FileResponse(kmz_imported_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
 @router.post("/kmz/import/locations/apply")
@@ -1705,9 +1655,8 @@ async def api_kmz_generated_layer_download(layer_id: str) -> FileResponse:
     if not kmz_path.exists():
         raise HTTPException(404, "Camada KMZ gerada nao encontrada.")
     meta = _read_kmz_layer_meta(meta_path)
-    kmz_path = _repair_generated_layer_kmz_if_needed(layer_id, kmz_path, meta)
     filename = str(meta.get("original_name") or kmz_path.name)
-    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename, headers=_kmz_download_headers())
+    return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
 @router.patch("/kmz/generated/layers/{layer_id}")
@@ -1741,17 +1690,7 @@ async def api_kmz_generated_download() -> FileResponse:
     if not kmzs:
         raise HTTPException(404, "Nenhum KMZ gerado.")
     latest = kmzs[0]
-    generated_layers = _list_kmz_generated_layers(include_features=False)
-    layer = next((item for item in generated_layers if str(item.get("filename") or "") == latest.name), None)
-    if layer:
-        layer_id = str(layer.get("id") or "").strip()
-        _, _, meta_path = _kmz_generated_layer_paths(layer_id)
-        meta = _read_kmz_layer_meta(meta_path)
-        latest = _repair_generated_layer_kmz_if_needed(layer_id, latest, meta)
-        filename = str(meta.get("original_name") or latest.name)
-    else:
-        filename = latest.name
-    return FileResponse(latest, media_type="application/vnd.google-earth.kmz", filename=filename, headers=_kmz_download_headers())
+    return FileResponse(latest, media_type="application/vnd.google-earth.kmz", filename=latest.name)
 
 @router.get("/geo/camera.kml")
 async def api_geo_camera_kml() -> FileResponse:
@@ -1759,7 +1698,7 @@ async def api_geo_camera_kml() -> FileResponse:
     kml = kmz_output_dir / "camera.kml"
     if not kml.exists():
         raise HTTPException(404, "KML nao encontrado.")
-    return FileResponse(kml, media_type="application/vnd.google-earth.kml+xml", filename="camera.kml", headers=_kmz_download_headers())
+    return FileResponse(kml, media_type="application/vnd.google-earth.kml+xml", filename="camera.kml")
 
 
 # -----------------
@@ -1927,47 +1866,3 @@ async def api_telegram_relay_send(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise
     except Exception:
         raise HTTPException(status_code=502, detail="download/sendPhoto exception")
-
-
-# ---------------------------------------------------------------
-# Allowlist de cameras por site (inventario declarativo)
-# ---------------------------------------------------------------
-
-@router.get("/inventory/allowlist")
-async def api_inventory_allowlist_get(site: str = "") -> dict[str, Any]:
-    from app.services import camera_allowlist
-
-    if str(site or "").strip():
-        return {"ok": True, **camera_allowlist.get_site(site)}
-    return {"ok": True, "sites": camera_allowlist.list_all()}
-
-
-@router.post("/inventory/allowlist")
-async def api_inventory_allowlist_set(payload: Dict[str, Any] | None = None) -> dict[str, Any]:
-    from app.services import camera_allowlist
-
-    data = payload if isinstance(payload, dict) else {}
-    site = str(data.get("site") or "").strip()
-    if not site:
-        raise HTTPException(400, "Informe o site.")
-
-    action = str(data.get("action") or "set").strip().lower()
-    raw_values = data.get("entries") if data.get("entries") is not None else data.get("ips")
-    if isinstance(raw_values, str):
-        values = [v for v in re.split(r"[,;\s]+", raw_values) if v.strip()]
-    elif isinstance(raw_values, list):
-        values = [str(v).strip() for v in raw_values if str(v or "").strip()]
-    else:
-        values = []
-
-    if action == "add":
-        return camera_allowlist.add_entries(site, values, note=str(data.get("note") or ""))
-    if action == "remove":
-        return camera_allowlist.remove_entries(site, values)
-    if action == "enforce":
-        return camera_allowlist.set_enforced(site, bool(data.get("enforced", True)))
-    return camera_allowlist.set_site(
-        site, values,
-        enforced=bool(data.get("enforced", True)),
-        note=str(data.get("note") or ""),
-    )

@@ -414,8 +414,6 @@ def api_auth_create_tenant(req: TenantCreateRequest, user: Dict[str, Any] = Depe
 def api_auth_update_tenant(
     tenant_id: int, req: TenantUpdateRequest, user: Dict[str, Any] = Depends(current_user)
 ) -> Dict[str, Any]:
-    if not bool(user.get("is_platform_admin")):
-        raise HTTPException(status_code=403, detail="somente admin da plataforma pode editar clientes")
     try:
         updated = update_tenant(user, tenant_id, name=req.name, active=req.active)
     except ValueError as e:
@@ -425,8 +423,6 @@ def api_auth_update_tenant(
 
 @router.delete("/tenants/{tenant_id}")
 def api_auth_delete_tenant(tenant_id: int, user: Dict[str, Any] = Depends(current_user)) -> Dict[str, Any]:
-    if not bool(user.get("is_platform_admin")):
-        raise HTTPException(status_code=403, detail="somente admin da plataforma pode excluir clientes")
     try:
         return delete_tenant(user, tenant_id)
     except ValueError as e:

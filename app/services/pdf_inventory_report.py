@@ -12,21 +12,7 @@ import shutil
 from PIL import Image, ImageDraw, ImageFont
 
 from app.core.paths import DATA_DIR, OUTPUT_DIR, SAIDA_DIR
-from app.core.tenant_context import get_current_tenant_slug, tenant_scoped_path, tenant_snapshot_dir
-
-
-def _snapshot_dirs(source: str) -> List[Path]:
-    """Diretorios candidatos pra achar snapshot de um source ('ip'/'dvr'/'nvr'),
-    tenant-scoped primeiro (onde photo_store.py grava de fato hoje), com
-    fallback pro caminho global antigo (pre-isolamento por tenant / tenant
-    vazio)."""
-    legacy_name = {"dvr": "dvr_snapshot", "nvr": "nvr_snapshot"}.get(source, "snapshot")
-    dirs = []
-    if get_current_tenant_slug():
-        dirs.append(tenant_snapshot_dir(source))
-    dirs.append(DATA_DIR / legacy_name)
-    dirs.append(SAIDA_DIR / legacy_name)
-    return dirs
+from app.core.tenant_context import tenant_snapshot_dir
 
 
 A4_W = 2480
@@ -35,17 +21,6 @@ MARGIN_X = 120
 MARGIN_Y = 90
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
-
-
-def _reports_dir() -> Path:
-    """Diretorio de saida dos PDFs -- tenant-scoped quando ha tenant ativo,
-    igual ao resto do sistema (tenant_scoped_path). Antes era sempre
-    OUTPUT_DIR/reports, global pra todo cliente; hoje nenhum endpoint lista
-    esse diretorio, mas manter fora do padrao vira risco assim que algum dia
-    alguem expuser listagem dele."""
-    if get_current_tenant_slug():
-        return tenant_scoped_path("reports")
-    return OUTPUT_DIR / "reports"
 
 # Teto de seguranca (nao um limite pratico): cada pagina e desenhada e
 # gravada em disco como JPEG temporario assim que fica pronta (ver
@@ -210,6 +185,44 @@ def _draw_pill(
     return w
 
 
+def _snapshot_dirs(source: str) -> list:
+    """Diretorios onde a foto pode estar, do mais provavel pro legado.
+
+    O photo_store grava em DATA_DIR/tenants/<slug>/<source>_snapshot; o codigo
+    antigo so olhava o global e por isso o relatorio saia sem imagem.
+    """
+    legado = {"dvr": "dvr_snapshot", "nvr": "nvr_snapshot"}.get(source, "snapshot")
+    dirs = []
+    try:
+        d = tenant_snapshot_dir(source)
+        if d:
+            dirs.append(d)
+    except Exception:
+        pass
+    dirs.append(DATA_DIR / legado)
+    dirs.append(SAIDA_DIR / legado)
+    vistos, saida = set(), []
+    for d in dirs:
+        chave = str(d)
+        if chave not in vistos:
+            vistos.add(chave)
+            saida.append(d)
+    return saida
+
+
+def _achar_em_dirs(source: str, nome: str):
+    if not nome:
+        return None
+    for d in _snapshot_dirs(source):
+        try:
+            p = d / nome
+            if p.exists():
+                return p
+        except Exception:
+            continue
+    return None
+
+
 def _ip_snapshot_name(ip: str) -> str:
     stem = _to_text(ip).replace(".", "_").replace(":", "__")
     return f"{stem}.jpg"
@@ -219,6 +232,13 @@ def _path_from_snapshot_url(url: str) -> Optional[Path]:
     raw = _to_text(url)
     if not raw:
         return None
+    # tenta primeiro nos diretorios do tenant (onde as fotos realmente estao)
+    _nome = raw.replace("\\", "/").rsplit("/", 1)[-1].split("?")[0]
+    if _nome:
+        _src = "dvr" if "dvr_snapshot" in raw else ("nvr" if "nvr_snapshot" in raw else "ip")
+        _p = _achar_em_dirs(_src, _nome)
+        if _p:
+            return _p
     try:
         p = Path(raw)
         if p.is_file():
@@ -230,23 +250,56 @@ def _path_from_snapshot_url(url: str) -> Optional[Path]:
         path = parsed.path or raw
     except Exception:
         path = raw
-    name = path.rsplit("/", 1)[-1]
-    if not name:
-        return None
-    if "dvr_snapshot" in path:
-        source = "dvr"
-    elif "nvr_snapshot" in path:
-        source = "nvr"
-    else:
-        source = "ip"
-    for d in _snapshot_dirs(source):
-        p = d / name
+    if "/data/snapshot/" in path:
+        name = path.rsplit("/", 1)[-1]
+        p = DATA_DIR / "snapshot" / name
+        if p.exists():
+            return p
+    if "/data/dvr_snapshot/" in path:
+        name = path.rsplit("/", 1)[-1]
+        p = DATA_DIR / "dvr_snapshot" / name
+        if p.exists():
+            return p
+    if "/data/nvr_snapshot/" in path:
+        name = path.rsplit("/", 1)[-1]
+        p = DATA_DIR / "nvr_snapshot" / name
+        if p.exists():
+            return p
+    if "/saida/snapshot/" in path:
+        name = path.rsplit("/", 1)[-1]
+        p = SAIDA_DIR / "snapshot" / name
         if p.exists():
             return p
     return None
 
 
 def _pick_image_path(row: Dict[str, Any]) -> Optional[Path]:
+    # --- tenant primeiro: e onde o photo_store grava hoje ---
+    _snap = _to_text(row.get("snapshot_file") or row.get("snapshot_path"))
+    if _snap:
+        _nome = _snap.replace("\\", "/").rsplit("/", 1)[-1]
+        for _src in ("ip", "dvr", "nvr"):
+            _p = _achar_em_dirs(_src, _nome)
+            if _p:
+                return _p
+    _ip = _to_text(row.get("ip") or row.get("IP"))
+    if _ip:
+        _p = _achar_em_dirs("ip", _ip_snapshot_name(_ip))
+        if _p:
+            return _p
+    _host = _to_text(row.get("host")).split(":", 1)[0].strip()
+    try:
+        _ch = int(row.get("channel") or 0)
+        _porta = int(row.get("http_port") or 80)
+    except Exception:
+        _ch, _porta = 0, 80
+    if _host and _ch > 0:
+        _nome = f"{_host.replace('.', '_')}_{_porta}_ch{_ch:02d}.jpg"
+        for _src in ("dvr", "nvr"):
+            _p = _achar_em_dirs(_src, _nome)
+            if _p:
+                return _p
+
     snap_file = _to_text(row.get("snapshot_file")).replace("\\", "/").strip()
     if snap_file.startswith("/"):
         snap_file = snap_file.lstrip("/")
@@ -255,28 +308,29 @@ def _pick_image_path(row: Dict[str, Any]) -> Optional[Path]:
     if snap_file.startswith("saida/"):
         snap_file = snap_file[6:]
     if snap_file:
-        # Caminho relativo direto -- tenant-scoped primeiro, senao cai pro
-        # global antigo (mesma ordem de _snapshot_dirs).
-        bases = ([tenant_scoped_path("")] if get_current_tenant_slug() else []) + [DATA_DIR, SAIDA_DIR]
-        for base in bases:
+        # Caminho relativo direto
+        for base in (DATA_DIR, SAIDA_DIR):
             p0 = base / snap_file
             if p0.exists():
                 return p0
         # Apenas nome do arquivo (fallback)
         fname_only = Path(snap_file).name
-        for source in ("ip", "dvr", "nvr"):
-            for d in _snapshot_dirs(source):
-                p1 = d / fname_only
-                if p1.exists():
-                    return p1
+        for d in ("snapshot", "dvr_snapshot", "nvr_snapshot"):
+            p1 = DATA_DIR / d / fname_only
+            if p1.exists():
+                return p1
+            p1b = SAIDA_DIR / d / fname_only
+            if p1b.exists():
+                return p1b
 
     ip = _to_text(row.get("ip") or row.get("IP"))
     if ip:
-        fname = _ip_snapshot_name(ip)
-        for d in _snapshot_dirs("ip"):
-            p = d / fname
-            if p.exists():
-                return p
+        p = DATA_DIR / "snapshot" / _ip_snapshot_name(ip)
+        if p.exists():
+            return p
+        p2 = SAIDA_DIR / "snapshot" / _ip_snapshot_name(ip)
+        if p2.exists():
+            return p2
     for key in ("snapshot_url", "imgbb_url"):
         p3 = _path_from_snapshot_url(_to_text(row.get(key)))
         if p3 and p3.exists():
@@ -290,11 +344,12 @@ def _pick_image_path(row: Dict[str, Any]) -> Optional[Path]:
     http_port = int(row.get("http_port") or 80)
     if host and channel > 0:
         fname = f"{host.replace('.', '_')}_{http_port}_ch{channel:02d}.jpg"
-        for source in ("dvr", "nvr"):
-            for d in _snapshot_dirs(source):
-                p = d / fname
-                if p.exists():
-                    return p
+        p4 = DATA_DIR / "dvr_snapshot" / fname
+        if p4.exists():
+            return p4
+        p5 = DATA_DIR / "nvr_snapshot" / fname
+        if p5.exists():
+            return p5
     return None
 
 
@@ -755,7 +810,7 @@ def build_inventory_pdf_report(
     rows_list = _sort_inventory_rows(rows_list)
     site_label = _to_text(site) or "Todos os sites"
 
-    reports_dir = _reports_dir()
+    reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     fname_site = site_label.replace(" ", "_").replace("/", "_")
@@ -1222,7 +1277,7 @@ def build_recorder_pdf_report(
     site_label = _to_text(site) or "Todos os sites"
     rec_label = (module_label or ("Gravadores NVR" if recorder_type == "nvr" else "Gravadores DVR")).strip()
 
-    reports_dir = _reports_dir()
+    reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     fname_site = site_label.replace(" ", "_").replace("/", "_")
@@ -1396,7 +1451,7 @@ def build_inventory_preview_image(
 
     # Reduz resolucao para carregar rapido no browser
     preview = page.resize((1240, 1754))
-    reports_dir = _reports_dir()
+    reports_dir = OUTPUT_DIR / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     out = reports_dir / "inventory-report-preview.jpg"
     preview.save(out, "JPEG", quality=78, optimize=True)

@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from app.core.paths import BASE_DIR, SAIDA_DIR, TOOLS_DIR, ensure_dirs
 from app.models.requests import RescanSingleIPRequest
 from app.services.inventory_json import load_inventory_json, save_inventory_json, normalize_row, dedup_cam_inventory
-from app.services.olt_ignore_list import remove_ignored_rows
 from app.services.camsnapshot.device_info import get_snapshot
 
 
@@ -102,7 +101,6 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
     if not updated:
         inventory.append(new_cam)
 
-    restored_ignored_count = remove_ignored_rows([new_cam])
     save_inventory_json(inventory, mode=inventory_mode)
 
     # dedup final
@@ -149,6 +147,5 @@ def rescan_single_ip(req: RescanSingleIPRequest) -> Dict[str, Any]:
         "cmd": " ".join(cmd),
         "stdout": proc.stdout,
         "stderr": (proc.stderr or "") + ("\n" + snap_err if snap_err else ""),
-        "restored_ignored_count": restored_ignored_count,
         "inventory": inventory2,
     }

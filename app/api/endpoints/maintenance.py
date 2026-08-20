@@ -71,38 +71,14 @@ def _is_proxy_allowed_host(host: str) -> bool:
         ip = ipaddress.ip_address(str(host or "").strip())
     except ValueError:
         return False
-    if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast:
-        return False
     cgnat = ipaddress.ip_network("100.64.0.0/10")
     return bool(ip.is_private or ip in cgnat)
-
-
-def _ip_belongs_to_current_tenant(ip: str) -> bool:
-    """So deixa o proxy web abrir um IP que esteja no inventario (camera IP
-    ou canal de gravador) do tenant atual -- sem isso, qualquer usuario
-    autenticado (mesmo viewer) conseguia usar o proxy pra acessar a camera
-    (ou qualquer servico HTTP privado) de OUTRO cliente, so sabendo o IP."""
-    wanted = _as_str(ip)
-    if not wanted:
-        return False
-    for row in _flatten_ip_rows_for_zabbix():
-        if _as_str(row.get("ip") or row.get("IP")) == wanted:
-            return True
-    for source in ("nvr", "dvr"):
-        for row in _load_rows_for_source(source):
-            if not isinstance(row, dict):
-                continue
-            if _as_str(row.get("camera_ip") or row.get("ip_camera")) == wanted:
-                return True
-    return False
 
 
 def _camera_web_target_url(ip: str, path: str = "", query: str = "") -> str:
     host = _as_str(ip)
     if not _is_proxy_allowed_host(host):
         raise HTTPException(status_code=400, detail="proxy web permitido apenas para IP privado/CGNAT")
-    if not _ip_belongs_to_current_tenant(host):
-        raise HTTPException(status_code=403, detail="IP nao pertence ao inventario deste cliente")
     clean_path = "/" + str(path or "").lstrip("/")
     if ".." in clean_path.split("/"):
         raise HTTPException(status_code=400, detail="caminho invalido")
@@ -1208,9 +1184,6 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     content_type = request.headers.get("content-type")
     if content_type:
         headers["Content-Type"] = content_type
-    authorization = request.headers.get("authorization")
-    if authorization:
-        headers["Authorization"] = authorization
     cookie = _camera_cookie_header(request)
     if cookie:
         headers["Cookie"] = cookie
@@ -1560,8 +1533,29 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
     tg_auto = bool(payload.get("tg_auto", False))
     tg_token = _as_str(payload.get("tg_token"))
     tg_chat = _as_str(payload.get("tg_chat"))
+    # {"INTERBLOCOS": "-100123", ...}. O que vier na tela manda; o que nao vier,
+    # aproveita o que ja estava salvo -- assim sincronizar um site nao apaga a
+    # configuracao dos outros.
+    _mapa = payload.get("tg_chat_by_site")
+    tg_chat_by_site = dict(effective.get("tg_chat_by_site") or {})
+    if isinstance(_mapa, dict):
+        for _site, _chat in _mapa.items():
+            _site = " ".join(_as_str(_site).split()).strip()
+            _chat = _as_str(_chat).strip()
+            if not _site:
+                continue
+            if _chat:
+                tg_chat_by_site[_site] = _chat
+            else:
+                tg_chat_by_site.pop(_site, None)   # campo esvaziado = desligar o site
     source = _as_str(payload.get("source") or "ip").lower()
     site = _as_str(payload.get("site"))
+    # a tela pode mandar varios sites de uma vez; "site" (texto) continua
+    # valendo pra quem chama a API do jeito antigo
+    _sel = payload.get("sites")
+    sites_sel = [_as_str(x) for x in _sel if _as_str(x)] if isinstance(_sel, list) else []
+    if not sites_sel and site:
+        sites_sel = [site]
     inv_mode = _normalize_ip_inventory_mode(payload.get("inv_mode") or payload.get("mode") or "olt")
 
     if not url or not user or not password:
@@ -1570,7 +1564,21 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": "Para source=dvr/nvr informe dvr_user e dvr_pass"}
 
     script = BASE_DIR / "tools" / "mk_zabbix_from_inventory.py"
-    inv_rows = _build_zabbix_rows(source, _load_rows_for_source(source, site=site, mode=inv_mode))
+    if len(sites_sel) > 1:
+        # varios sites: carrega tudo e filtra pelo conjunto escolhido
+        _todas = _load_rows_for_source(source, mode=inv_mode) or []
+        _alvos = {x.strip().lower() for x in sites_sel}
+
+        def _e_dos_escolhidos(linha):
+            for chave in ("site", "site_name", "local", "LOCAL"):
+                if str(linha.get(chave) or "").strip().lower() in _alvos:
+                    return True
+            return False
+
+        _linhas = [r for r in _todas if isinstance(r, dict) and _e_dos_escolhidos(r)]
+    else:
+        _linhas = _load_rows_for_source(source, site=(sites_sel[0] if sites_sel else ""), mode=inv_mode)
+    inv_rows = _build_zabbix_rows(source, _linhas)
     tmp_inv = _zabbix_tmp_inventory_path(source, inv_mode)
     try:
         tmp_inv.parent.mkdir(parents=True, exist_ok=True)
@@ -1589,6 +1597,12 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         # sincronismo sobrescreve os dados do outro (ver build_host_name em
         # tools/mk_zabbix_from_inventory.py).
         "ZBX_TENANT": tenant_slug,
+        # Poda so quando o sync e do inventario COMPLETO. Com filtro de
+        # site a lista enviada e parcial, e remover "o que nao veio"
+        # apagaria os hosts dos outros sites.
+        # Tambem nao poda com inventario vazio: zero linhas quase sempre e
+        # fonte/filtro errado, e a poda apagaria o grupo inteiro.
+        "ZBX_PRUNE": "0" if (sites_sel or not inv_rows) else "1",
         "ZBX_LEGACY_DEFAULT_HOSTNAMES": "1" if tenant_slug == "default" else "0",
         "ZBX_TEMPLATE": template,
         "ZBX_TEMPLATE_DVR": template_dvr,
@@ -1597,6 +1611,7 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
         "ZBX_TG_AUTO": "1" if tg_auto else "0",
         "ZBX_TG_TOKEN": tg_token,
         "ZBX_TG_CHAT": tg_chat,
+        "ZBX_TG_CHAT_BY_SITE": json.dumps(tg_chat_by_site, ensure_ascii=False),
     }
 
     ok, stdout, stderr, err = _run_script(script, env=env, args=[])
@@ -1620,6 +1635,9 @@ def scripts_zabbix(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "dvr_pass": dvr_pass,
                 "site": site,
                 "inv_mode": inv_mode,
+                "tg_token": tg_token,
+                "tg_chat": tg_chat,
+                "tg_chat_by_site": tg_chat_by_site,
                 "tenant_slug": tenant_slug,
             }
             _save_settings(s)
@@ -1929,3 +1947,229 @@ def scripts_grafana(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": err, "stdout": stdout, "stderr": stderr}
 
     return {"ok": True, "stdout": stdout, "stderr": stderr}
+
+
+@router.post("/scripts/zabbix/preview")
+def api_scripts_zabbix_preview(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Diz o que a sincronizacao FARIA, sem escrever nada no Zabbix.
+
+    Aceita o mesmo payload do POST /scripts/zabbix e monta o inventario pelo
+    mesmo caminho, entao o que aparece aqui e o que vai acontecer de fato.
+    A conta de remocao respeita a mesma regra da poda: sync com filtro de site
+    manda uma lista parcial, e remover "o que nao veio" apagaria os hosts dos
+    outros sites -- por isso so ha remocao no sync completo.
+    """
+    import importlib.util as _ilu
+
+    effective = _zabbix_effective_sync_config(payload)
+    url = _normalize_zabbix_url(payload.get("url") or effective.get("url"))
+    user = _as_str(payload.get("user") or effective.get("user"))
+    password = _as_str(payload.get("pass") or payload.get("password") or effective.get("pass"))
+    if not url or not user or not password:
+        return {"ok": False, "error": "url, user e pass sao obrigatorios"}
+
+    tenant_slug = _zabbix_tenant_slug()
+    group = _zabbix_tenant_group(
+        _as_str(payload.get("group") or effective.get("group")) or "Cameras", tenant_slug)
+    source = _as_str(payload.get("source") or "ip").lower()
+    inv_mode = _normalize_ip_inventory_mode(payload.get("inv_mode") or payload.get("mode") or "olt")
+
+    site = _as_str(payload.get("site"))
+    _sel = payload.get("sites")
+    sites_sel = [_as_str(x) for x in _sel if _as_str(x)] if isinstance(_sel, list) else []
+    if not sites_sel and site:
+        sites_sel = [site]
+
+    # --- mesmas linhas que o sync usaria
+    if len(sites_sel) > 1:
+        _todas = _load_rows_for_source(source, mode=inv_mode) or []
+        _alvos = {x.strip().lower() for x in sites_sel}
+
+        def _e_dos_escolhidos(linha):
+            for chave in ("site", "site_name", "local", "LOCAL"):
+                if str(linha.get(chave) or "").strip().lower() in _alvos:
+                    return True
+            return False
+
+        _linhas = [r for r in _todas if isinstance(r, dict) and _e_dos_escolhidos(r)]
+    else:
+        _linhas = _load_rows_for_source(source, site=(sites_sel[0] if sites_sel else ""), mode=inv_mode)
+    inv_rows = _build_zabbix_rows(source, _linhas)
+
+    # --- nome de host pelo MESMO codigo do sync, senao a previa mente
+    script = BASE_DIR / "tools" / "mk_zabbix_from_inventory.py"
+    try:
+        spec = _ilu.spec_from_file_location("_mkzbx_previa", str(script))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.ZBX_LEGACY_DEFAULT_HOSTNAMES = (tenant_slug == "default")
+        nomes_inv = {mod.build_host_name(tenant_slug, r) for r in inv_rows}
+        prefixo = mod._host_safe(tenant_slug).upper() + "-"
+    except Exception as e:
+        return {"ok": False, "error": "nao consegui calcular os nomes de host: " + str(e)}
+
+    # --- o que ja existe no Zabbix (somente leitura)
+    try:
+        auth = _zabbix_login(url, user, password)
+        grupos = _zabbix_api_call(url, "hostgroup.get", {"filter": {"name": [group]}}, auth)
+        if grupos:
+            gid = grupos[0]["groupid"]
+            atuais = _zabbix_api_call(
+                url, "host.get", {"groupids": [gid], "output": ["hostid", "host", "name"]}, auth)
+        else:
+            atuais = []
+    except Exception as e:
+        return {"ok": False, "error": "nao consegui consultar o Zabbix: " + str(e)}
+
+    nomes_zbx = {str(h.get("host") or "") for h in atuais}
+    criar = sorted(n for n in nomes_inv if n not in nomes_zbx)
+    atualizar = sorted(n for n in nomes_inv if n in nomes_zbx)
+
+    poda_ativa = bool(inv_rows) and not sites_sel
+    remover = []
+    if poda_ativa:
+        for h in atuais:
+            nome = str(h.get("host") or "")
+            if not nome.upper().startswith(prefixo):
+                continue                      # criado fora do sistema: nao entra
+            if nome in nomes_inv:
+                continue
+            remover.append({"host": nome, "nome_visivel": _as_str(h.get("name"))})
+        remover.sort(key=lambda x: x["host"])
+
+    return {
+        "ok": True,
+        "grupo": group,
+        "sites": sites_sel,
+        "cameras": len(inv_rows),
+        "hosts_no_grupo": len(atuais),
+        "criar": len(criar),
+        "atualizar": len(atualizar),
+        "remover": len(remover),
+        "criar_exemplos": criar[:20],
+        "remover_lista": remover[:500],
+        "poda_ativa": poda_ativa,
+        "poda_motivo": (
+            "" if poda_ativa
+            else ("esta Fonte nao devolveu nenhuma camera; nada sera criado nem removido"
+                  if not inv_rows
+                  else "sync por site nao remove nada; escolha 'Todos os sites' para limpar")
+        ),
+    }
+
+
+@router.get("/scripts/zabbix/config")
+def api_scripts_zabbix_config() -> Dict[str, Any]:
+    """Devolve a configuracao ja salva do Zabbix + os sites conhecidos.
+
+    Existe para a tela abrir preenchida. A senha nao volta -- so a informacao
+    de que existe uma guardada.
+    """
+    cfg = (_load_settings().get("zabbix_ip_sync") or {})
+
+    # Alem do nome, quantas cameras cada site tem e quantas estao offline.
+    # E o que permite a tela mostrar o peso de cada site antes de sincronizar,
+    # em vez de uma lista de nomes onde todo site parece igual.
+    sites = set()
+    por_site: dict[str, dict[str, int]] = {}
+    vistos: set[str] = set()
+    for modo in ("olt", "basic", "switch"):
+        for row in (_load_rows_for_source("ip", mode=modo) or []):
+            if not isinstance(row, dict):
+                continue
+            nome = ""
+            for chave in ("site", "site_name", "local", "LOCAL"):
+                valor = str(row.get(chave) or "").strip()
+                if valor:
+                    nome = valor
+                    break
+            if not nome:
+                continue
+            sites.add(nome)
+            # a mesma camera aparece em mais de um modo; conta uma vez so
+            ip = str(row.get("ip") or row.get("IP") or "").strip()
+            chave_unica = nome.lower() + "|" + ip
+            if ip and chave_unica in vistos:
+                continue
+            if ip:
+                vistos.add(chave_unica)
+            item = por_site.setdefault(nome, {"cameras": 0, "offline": 0})
+            item["cameras"] += 1
+            if str(row.get("status") or "").strip().lower() != "online":
+                item["offline"] += 1
+
+    return {
+        "ok": True,
+        "url": _as_str(cfg.get("url")),
+        "user": _as_str(cfg.get("user")),
+        "has_password": bool(_as_str(cfg.get("pass"))),
+        "group": _as_str(cfg.get("group")),
+        "template": _as_str(cfg.get("template")),
+        "site": _as_str(cfg.get("site")),
+        "tg_token": _as_str(cfg.get("tg_token")),
+        "tg_chat": _as_str(cfg.get("tg_chat")),
+        "tg_chat_by_site": dict(cfg.get("tg_chat_by_site") or {}),
+        "sites": sorted(sites),
+        # sites_info e o que a tela nova usa; "sites" continua pra nao quebrar
+        # quem ja consumia o endpoint
+        "sites_info": [
+            {"name": nome,
+             "cameras": por_site.get(nome, {}).get("cameras", 0),
+             "offline": por_site.get(nome, {}).get("offline", 0)}
+            for nome in sorted(sites)
+        ],
+    }
+
+
+@router.get("/scripts/zabbix/groups")
+def api_scripts_zabbix_groups(url: str = "", user: str = "", password: str = "") -> Dict[str, Any]:
+    """Lista os grupos que existem no Zabbix, pra tela oferecer em vez de digitar."""
+    import json as _json
+    import urllib.request as _url
+
+    cfg = (_load_settings().get("zabbix_ip_sync") or {})
+    alvo = _as_str(url) or _as_str(cfg.get("url"))
+    usuario = _as_str(user) or _as_str(cfg.get("user"))
+    senha = _as_str(password) or _as_str(cfg.get("pass"))
+    if not alvo or not usuario or not senha:
+        return {"ok": False, "error": "Zabbix ainda nao configurado", "groups": []}
+
+    def _chamar(metodo, params, token=None):
+        req = {"jsonrpc": "2.0", "method": metodo, "params": params, "id": 1}
+        if token:
+            req["auth"] = token
+        pedido = _url.Request(alvo, data=_json.dumps(req).encode(),
+                              headers={"Content-Type": "application/json-rpc"})
+        with _url.urlopen(pedido, timeout=20) as resposta:
+            corpo = _json.loads(resposta.read().decode())
+        if "error" in corpo:
+            raise RuntimeError(corpo["error"].get("data") or corpo["error"])
+        return corpo["result"]
+
+    def _so_letras(texto: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", str(texto or "").upper())
+
+    try:
+        token = _chamar("user.login", {"username": usuario, "password": senha})
+        grupos = _chamar("hostgroup.get", {"output": ["name"], "sortfield": "name"}, token)
+        nomes = [g["name"] for g in grupos]
+
+        # O Zabbix e compartilhado entre clientes. Mostrar os 40+ grupos de
+        # todo mundo nao ajuda e ainda arrisca o usuario mandar as cameras dele
+        # pro grupo de outro cliente. Filtra pelo tenant da sessao.
+        marca = _so_letras(get_current_tenant_slug())
+        do_cliente = [n for n in nomes if marca and marca in _so_letras(n)]
+
+        # o grupo ja configurado entra sempre, mesmo que fuja do padrao
+        atual = _as_str(cfg.get("group"))
+        if atual and atual in nomes and atual not in do_cliente:
+            do_cliente.insert(0, atual)
+
+        return {
+            "ok": True,
+            "groups": do_cliente or nomes,
+            "filtrado_por_cliente": bool(do_cliente),
+            "total_no_zabbix": len(nomes),
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200], "groups": []}

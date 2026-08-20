@@ -60,9 +60,6 @@ def main() -> int:
 
             probed = _canonicalize_brand_from_model({"modelo": "DS-2CD1021G0-I", "fabricante": "Hostone"})
             check(probed["fabricante"] == "Hikvision", f"probe nao corrigiu fabricante: {probed}")
-
-            ipc_b = _canonicalize_brand_from_model({"modelo": "IPC-B121H-C", "fabricante": ""})
-            check(not ipc_b.get("fabricante"), f"IPC-B generico nao deveria virar Dahua: {ipc_b}")
         finally:
             reset_current_tenant_slug(token)
     finally:

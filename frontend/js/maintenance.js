@@ -348,7 +348,7 @@ function _mntStreamToggleQuality() {
   _startWebRTC(_mntStreamIp, _mntStreamUser, _mntStreamPass, _mntStreamSubtype);
 }
 
-//  Modals de configuracao 
+//  Modals de configuracao
 function openMntMirrorModal() {
   const n = document.querySelectorAll('.chk-mnt-cam:checked').length;
   if (!n) { showToast('Selecione ao menos uma camera', true); return; }
@@ -453,7 +453,7 @@ async function runMntQuality() {
   await _mntCamRunAction('video_quality', { bitrate, fps, codec: codec || undefined });
 }
 
-//  Configuracao de rede em lote 
+//  Configuracao de rede em lote
 function openMntNetworkModal() {
   const ips = [...document.querySelectorAll('.chk-mnt-cam:checked')].map(c => c.value);
   if (!ips.length) { showToast('Selecione ao menos uma camera', true); return; }
@@ -507,7 +507,7 @@ async function runMntNetwork() {
   }
 }
 
-//  Deslocar IPs em lote 
+//  Deslocar IPs em lote
 function openMntShiftIpModal() {
   const firstIp = document.querySelector('.chk-mnt-cam:checked')?.value || '';
   if (firstIp) {
@@ -553,7 +553,11 @@ async function runMntShiftIp() {
   const delta   = parseInt(document.getElementById('mntShiftDelta')?.value || '0');
   const user    = document.getElementById('mntCamUser')?.value?.trim() || 'admin';
   const pass    = document.getElementById('mntCamPass')?.value || '';
-  const gateway = document.getElementById('mntShiftGateway')?.value?.trim() || '';
+  const gateway0 = document.getElementById('mntShiftGateway')?.value?.trim() || '';
+  const mask    = document.getElementById('mntShiftMask')?.value?.trim() || '255.255.255.0';
+  // o backend exige mascara E gateway; sem os dois ele recusa antes de falar com
+  // a camera. Gateway vazio vira prefixo + 1, que e o que o rotulo do campo diz.
+  const gateway = gateway0 || `${prefix}1`;
 
   if (!prefix || isNaN(start) || isNaN(end) || isNaN(delta) || delta === 0 || start > end) {
     showToast('Preencha todos os campos corretamente', true); return;
@@ -562,15 +566,18 @@ async function runMntShiftIp() {
   const consoleId = 'mntCamConsole', bodyId = 'mntCamConsoleBody';
   document.getElementById(consoleId)?.classList.remove('hidden');
   document.getElementById(bodyId).innerHTML = '';
-  _mntLog(consoleId, bodyId, null, `Deslocando ${prefix}${start}${prefix}${end} por ${delta > 0 ? '+' : ''}${delta}`, true);
+  _mntLog(consoleId, bodyId, null, `Deslocando ${prefix}${start} ate ${prefix}${end} por ${delta > 0 ? '+' : ''}${delta}`, true);
   try {
     const r = await api('/api/maintenance/batch/shift_ips', {
       method: 'POST',
-      body: JSON.stringify({ prefix, start_octet: start, end_octet: end, delta, user, pass, gateway })
+      body: JSON.stringify({ prefix, start_octet: start, end_octet: end, delta, user, pass, gateway, mask })
     });
     const data = await r.json();
     (data.results || []).forEach(res => {
-      _mntLog(consoleId, bodyId, res.ip, ` ${res.new_ip}  ${res.msg}`, res.ok);
+      // o backend devolve 'error' quando falha e nada quando da certo;
+      // ler 'msg' fazia toda linha (sucesso ou erro) sair como undefined
+      const detalhe = res.error || res.msg || (res.ok ? 'OK' : 'falha');
+      _mntLog(consoleId, bodyId, res.ip, `-> ${res.new_ip}  ${detalhe}`, res.ok);
     });
     _mntLog(consoleId, bodyId, null, 'Concluido. Aguarde as cameras reiniciarem (~30s).', true);
   } catch (e) {
@@ -583,7 +590,7 @@ function _mntLog(consoleId, bodyId, ip, msg, ok) {
   const body = document.getElementById(bodyId);
   if (body) {
     const line = document.createElement('div');
-    line.innerHTML = `<span style="color:${ok ? '#6ee7b7' : '#fca5a5'}">${ok ? '' : ''}</span> <span style="color:#8ab">${esc(ip || '')}</span>${ip ? '  ' : ''}${esc(msg)}`;
+    line.innerHTML = `<span style="color:${ok ? '#6ee7b7' : '#fca5a5'}">${ok ? '[ok]' : '[falha]'}</span> <span style="color:#8ab">${esc(ip || '')}</span>${ip ? '  ' : ''}${esc(msg)}`;
     body.appendChild(line);
     body.scrollTop = body.scrollHeight;
   }
@@ -733,6 +740,5 @@ async function _mntNvrRunAction(endpoint) {
   }
 }
 
-//  Reproducao DVR 
+//  Reproducao DVR
 let _playbackBound = false;
-

@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import os
 import re
 import subprocess
 import sys
@@ -55,10 +54,7 @@ from typing import Dict, List, Optional, Set
 WG_INTERFACE = "wg-sightops"
 WG_CONF_PATH = Path("/etc/wireguard/wg-sightops.conf")
 CONNECTORS_JSON_PATH = Path(
-    os.getenv(
-        "SIGHTOPS_CONNECTORS_JSON",
-        "/var/lib/docker/volumes/sightops-prod-release_sightops_prod_data/_data/connectors.json",
-    )
+    "/var/lib/docker/volumes/cam-snapshot-web_sightops_data/_data/connectors.json"
 )
 
 
@@ -156,7 +152,7 @@ def plan_updates(
         wanted = info["allowed"] - conflicted_cidrs
         current = current_state.get(pubkey)
         if current is None:
-            plan[pubkey] = {"name": info["name"], "missing": wanted, "full_set": wanted, "peer_exists": False}
+            plan[pubkey] = {"name": info["name"], "missing": set(), "full_set": set(), "peer_exists": False}
             continue
         missing = wanted - current
         plan[pubkey] = {
@@ -166,33 +162,6 @@ def plan_updates(
             "peer_exists": True,
         }
     return plan
-
-
-def plan_conflict_cleanup(
-    target_state: Dict[str, Dict],
-    current_state: Dict[str, Set[str]],
-    conflicts: Dict[str, List[str]],
-) -> Dict[str, Dict]:
-    """AllowedIPs conflitantes que precisam sair dos peers ja aplicados.
-
-    Se dois conectores anunciam a mesma LAN privada, manter essa LAN em qualquer
-    peer deixa o servidor decidir um caminho ambiguo. O unico AllowedIP sempre
-    seguro em conflito e o /32 do proprio tunel do conector.
-    """
-    conflicted_cidrs = set(conflicts.keys())
-    cleanup: Dict[str, Dict] = {}
-    for pubkey, info in target_state.items():
-        current = current_state.get(pubkey)
-        if current is None:
-            continue
-        remove = current & conflicted_cidrs
-        if remove:
-            cleanup[pubkey] = {
-                "name": info["name"],
-                "remove": remove,
-                "full_set": current - remove,
-            }
-    return cleanup
 
 
 _PEER_BLOCK_RE = re.compile(
@@ -229,17 +198,7 @@ def render_conf_with_updated_peer(conf_text: str, pubkey: str, new_allowed_ips: 
             else:
                 block = block.rstrip("\n") + f"\nAllowedIPs = {allowed_str}\n"
         out.append("[Peer]" + block)
-    if found:
-        return "".join(out)
-    suffix = "\n" if conf_text.endswith("\n") else "\n\n"
-    return (
-        conf_text
-        + suffix
-        + "[Peer]\n"
-        + f"PublicKey = {pubkey}\n"
-        + f"AllowedIPs = {allowed_str}\n"
-        + "PersistentKeepalive = 25\n"
-    )
+    return "".join(out) if found else conf_text
 
 
 # --- I/O real (nao coberto por teste automatico -- precisa de wg/ip/root) ----
@@ -277,49 +236,14 @@ def main() -> int:
         return 1
     current_state = parse_wg_dump(dump.stdout)
 
-    cleanup_plan = plan_conflict_cleanup(target_state, current_state, conflicts)
     plan = plan_updates(target_state, current_state, conflicts)
 
     applied_any = False
-    for pubkey, item in cleanup_plan.items():
-        name = item["name"]
-        remove = item["remove"]
-        full_set = item["full_set"]
-        allowed_str = ",".join(sorted(full_set, key=lambda s: (":" in s, s)))
-        _log(f"{name}: removendo AllowedIPs em conflito {sorted(remove)} (peer {pubkey[:16]}...)")
-        applied_any = True
-        if dry_run:
-            continue
-
-        r1 = _run(["wg", "set", WG_INTERFACE, "peer", pubkey, "allowed-ips", allowed_str])
-        if r1.returncode != 0:
-            _log(f"{name}: FALHOU wg set ao remover conflito: {r1.stderr.strip()}")
-            continue
-        for cidr in remove:
-            dev = _route_device_for(cidr)
-            if dev == WG_INTERFACE:
-                r2 = _run(["ip", "route", "del", cidr, "dev", WG_INTERFACE])
-                if r2.returncode != 0 and "No such process" not in (r2.stderr or ""):
-                    _log(f"{name}: FALHOU ip route del {cidr}: {r2.stderr.strip()}")
-
-        if WG_CONF_PATH.exists():
-            try:
-                original = WG_CONF_PATH.read_text(encoding="utf-8")
-                updated = render_conf_with_updated_peer(original, pubkey, full_set)
-                if updated != original:
-                    backup = WG_CONF_PATH.with_suffix(
-                        f".conf.bak-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-                    )
-                    backup.write_text(original, encoding="utf-8")
-                    WG_CONF_PATH.write_text(updated, encoding="utf-8")
-                    _log(f"{name}: {WG_CONF_PATH} limpo de conflitos (backup em {backup.name}).")
-            except Exception as exc:
-                _log(f"{name}: nao consegui persistir limpeza em {WG_CONF_PATH}: {exc}")
-
-        current_state[pubkey] = full_set
-
     for pubkey, item in plan.items():
         name = item["name"]
+        if not item["peer_exists"]:
+            _log(f"{name}: peer {pubkey[:16]}... nao existe ainda em {WG_INTERFACE} (VPN nao instalada). Pulando.")
+            continue
         if not item["missing"]:
             continue
 
@@ -336,8 +260,7 @@ def main() -> int:
 
         full_set = current_state.get(pubkey, set()) | safe_new
         allowed_str = ",".join(sorted(full_set, key=lambda s: (":" in s, s)))
-        action = "criando peer e aplicando" if not item["peer_exists"] else "aplicando"
-        _log(f"{name}: {action} {sorted(safe_new)} (peer {pubkey[:16]}...)")
+        _log(f"{name}: aplicando {sorted(safe_new)} (peer {pubkey[:16]}...)")
         applied_any = True
         if dry_run:
             continue

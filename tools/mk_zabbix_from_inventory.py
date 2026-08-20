@@ -9,6 +9,11 @@ INV_PATH = os.getenv("INV_PATH", "data/cam-inventory.json")
 # sincronismo sobrescrevia titulo/local/foto do outro cliente silenciosamente.
 # Bancos ja sao isolados por tenant; o Zabbix precisa da mesma garantia.
 ZBX_TENANT = os.getenv("ZBX_TENANT", "default").strip().lower() or "default"
+ZBX_PRUNE = os.getenv("ZBX_PRUNE", "0").strip() == "1"
+# Acima deste percentual do grupo, a poda para em vez de apagar.
+# 100 desliga a trava (limpeza em massa deliberada).
+ZBX_PRUNE_MAX_PCT = float(os.getenv("ZBX_PRUNE_MAX_PCT", "20") or 20)
+ZBX_PRUNE_MIN_ABS = int(os.getenv("ZBX_PRUNE_MIN_ABS", "5") or 5)
 ZBX_LEGACY_DEFAULT_HOSTNAMES = os.getenv("ZBX_LEGACY_DEFAULT_HOSTNAMES", "0").strip() == "1"
 ZBX_URL  = os.getenv("ZBX_URL","").strip()
 ZBX_USER = os.getenv("ZBX_USER","").strip()
@@ -22,6 +27,14 @@ ZBX_DVR_PASS = os.getenv("ZBX_DVR_PASS", "").strip()
 TG_AUTO = os.getenv("ZBX_TG_AUTO","0").strip() == "1"
 TG_TOKEN = os.getenv("ZBX_TG_TOKEN","").strip()
 TG_CHAT  = os.getenv("ZBX_TG_CHAT","").strip()
+# {"INTERBLOCOS": "-100123...", "JARDINS I": "-100456..."}
+# Site que nao estiver aqui nao ganha acao: nada dispara sem configuracao.
+try:
+    TG_CHAT_BY_SITE = json.loads(os.getenv("ZBX_TG_CHAT_BY_SITE", "") or "{}")
+    if not isinstance(TG_CHAT_BY_SITE, dict):
+        TG_CHAT_BY_SITE = {}
+except Exception:
+    TG_CHAT_BY_SITE = {}
 TG_RELAY_URL = os.getenv("ZBX_TG_RELAY_URL","").strip()
 TG_RELAY_KEY = os.getenv("ZBX_TG_RELAY_KEY","").strip()
 ZBX_TG_TIMEZONE = os.getenv("ZBX_TG_TIMEZONE", "America/Sao_Paulo").strip() or "America/Sao_Paulo"
@@ -210,6 +223,39 @@ def resolve_base_template_id(auth: str, requested_name: str) -> tuple[str, str]:
         pass
 
     return "", ""
+
+_SITE_GROUP_CACHE: Dict[str, str] = {}
+
+
+def ensure_site_group(auth: str, grupo_base: str, site: str) -> str:
+    """Devolve o groupid de "<grupo_base>/<SITE>", criando se preciso.
+
+    Procura sem diferenciar maiusculas para reaproveitar um grupo ja existente:
+    o Zabbix aceita "SANTANA" e "Santana" como grupos distintos, e foi assim que
+    nasceram os duplicados que existem hoje.
+    """
+    nome_site = " ".join(str(site or "").split()).strip()
+    if not nome_site or not grupo_base:
+        return ""
+    alvo = f"{grupo_base}/{nome_site}"
+    chave = alvo.lower()
+    if chave in _SITE_GROUP_CACHE:
+        return _SITE_GROUP_CACHE[chave]
+
+    existentes = api("hostgroup.get", {"output": ["groupid", "name"],
+                                       "search": {"name": grupo_base + "/"},
+                                       "startSearch": True}, auth) or []
+    for g in existentes:
+        if str(g.get("name") or "").strip().lower() == chave:
+            _SITE_GROUP_CACHE[chave] = str(g["groupid"])
+            return _SITE_GROUP_CACHE[chave]
+
+    novo = api("hostgroup.create", {"name": alvo}, auth)
+    gid = str((novo.get("groupids") or [""])[0])
+    _SITE_GROUP_CACHE[chave] = gid
+    print(f"grupo de site criado: {alvo}")
+    return gid
+
 
 def get_host(auth: str, host: str):
     res = api("host.get", {"filter":{"host":[host]}}, auth)
@@ -544,8 +590,14 @@ def ensure_telegram_mediatype(auth: str, token: str, chat_id: str) -> str:
     }, auth)
     return mtid
 
-def ensure_user_with_media(auth: str, mediatypeid: str, chatid: str) -> str:
-    res = api("user.get", {"filter":{"username":[USER_ALIAS]}}, auth)
+def ensure_user_with_media(auth: str, mediatypeid: str, chatid: str, alias: str = "") -> str:
+    """Usuario Zabbix cujo `sendto` e o chat do Telegram.
+
+    O alias e parametro porque agora ha um usuario por site: o chat vive no
+    usuario, entao cada destino precisa do seu.
+    """
+    alias = (alias or USER_ALIAS).strip() or USER_ALIAS
+    res = api("user.get", {"filter":{"username":[alias]}}, auth)
     roles = api("role.get", {"output": ["roleid", "name"]}, auth)
     roleid = "3"
     for r in (roles or []):
@@ -571,7 +623,7 @@ def ensure_user_with_media(auth: str, mediatypeid: str, chatid: str) -> str:
     }]
     if not res:
         created = api("user.create", [{
-            "username": USER_ALIAS,
+            "username": alias,
             "name": "Telegram",
             "surname": "cam-snapshot",
             "passwd": "ChangeMe_12345!",
@@ -725,6 +777,55 @@ def disable_legacy_actions(auth: str, extra_names: list[str] | None = None) -> N
         except Exception:
             pass
 
+def prune_hosts(auth: str, group_name: str, tenant: str, hosts_ativos: set) -> int:
+    """Remove do grupo do tenant os hosts que sairam do inventario."""
+    if not group_name or not tenant:
+        return 0
+    grupos = api("hostgroup.get", {"filter": {"name": [group_name]}}, auth)
+    if not grupos:
+        return 0
+    gid = grupos[0]["groupid"]
+    atuais = api("host.get", {"groupids": [gid], "output": ["hostid", "host"]}, auth)
+
+    prefixo = f"{_host_safe(tenant).upper()}-"
+    alvo = []
+    for h in atuais:
+        nome = str(h.get("host") or "")
+        if not nome.upper().startswith(prefixo):
+            continue                      # criado fora do sistema: nao tocar
+        if nome in hosts_ativos:
+            continue                      # segue no inventario
+        alvo.append(h["hostid"])
+
+    if not alvo:
+        return 0
+
+    # Remover quase tudo nunca e rotina. Nos dois incidentes de 19 e 20/08 a poda
+    # apagou ~88% do grupo porque a Fonte escolhida so enxergava parte do
+    # inventario -- e o inventario estava inteiro o tempo todo.
+    total_no_grupo = len(atuais)
+    limite = max(ZBX_PRUNE_MIN_ABS, int(total_no_grupo * ZBX_PRUNE_MAX_PCT / 100))
+    if ZBX_PRUNE_MAX_PCT < 100 and len(alvo) > limite:
+        pct = (len(alvo) * 100 // total_no_grupo) if total_no_grupo else 100
+        print(
+            f"PRUNE BLOQUEADO: removeria {len(alvo)} de {total_no_grupo} hosts ({pct}%) "
+            f"de '{group_name}' -- acima do limite de {ZBX_PRUNE_MAX_PCT:.0f}%.",
+            file=sys.stderr,
+        )
+        print(
+            "Isso costuma indicar Fonte ou filtro errado, e nao cameras que sairam do "
+            "inventario. Nada foi removido. Confira a Fonte selecionada; para limpar "
+            "mesmo assim, rode com ZBX_PRUNE_MAX_PCT=100.",
+            file=sys.stderr,
+        )
+        return 0
+
+    for i in range(0, len(alvo), 100):
+        api("host.delete", alvo[i:i + 100], auth)
+    print(f"PRUNE: {len(alvo)} host(s) removidos de '{group_name}' (fora do inventario)")
+    return len(alvo)
+
+
 def main():
     if not ZBX_URL or not ZBX_USER or not ZBX_PASS:
         print("Preencha ZBX_URL, ZBX_USER e ZBX_PASS.", file=sys.stderr)
@@ -778,7 +879,8 @@ def main():
             )
 
     n=0
-    site_group_ids: Dict[str, str] = {}
+
+    hosts_ativos = set()
     for c in rows:
         ip=(c.get("ip") or "").strip()
         if not ip: 
@@ -821,13 +923,15 @@ def main():
         except Exception:
             ch_num = "1"
 
+        # grupo principal + grupo do site (e o que permite filtrar por site
+        # no Zabbix; antes os subgrupos existiam vazios)
         host_groups = [groupid]
-        if local:
-            # Subgrupo por site (sintaxe "/" do proprio Zabbix -- vira arvore
-            # na UI). Mantem o grupo geral tambem, so organiza visualmente.
-            if local not in site_group_ids:
-                site_group_ids[local] = ensure_hostgroup(auth, f"{ZBX_GROUP}/{local}")
-            host_groups.append(site_group_ids[local])
+        try:
+            gid_site = ensure_site_group(auth, ZBX_GROUP, local)
+            if gid_site:
+                host_groups.append(gid_site)
+        except Exception as e:
+            print(f"AVISO: grupo do site '{local}' nao pode ser usado ({e})", file=sys.stderr)
         macros = {
             "{$CAM_IP}": ip,
             "{$CAM_TITLE}": title,
@@ -861,9 +965,50 @@ def main():
             macros["{$SERVICE.NAME.NOT_MATCHES}"] = WINDOWS_SERVICE_NAME_NOT_MATCHES
         visible_name = build_visible_name(ZBX_TENANT, c, title)
         st, hostid = host_upsert(auth, host, visible_name, ip, host_groups, templateids, macros)
+        hosts_ativos.add(host)
         n+=1
         print(f"{st}: {host} ({visible_name})")
     print(f"OK: {n} hosts processados")
+    # --- Telegram por site -------------------------------------------------
+    # Precisa rodar aqui: os grupos de site sao criados no laco acima, e a acao
+    # e filtrada pelo id do grupo.
+    if TG_AUTO and TG_TOKEN and TG_CHAT_BY_SITE:
+        print(f"Telegram por site: {len(TG_CHAT_BY_SITE)} site(s) configurado(s)")
+        try:
+            mtid_site = ensure_telegram_mediatype(auth, TG_TOKEN, TG_CHAT or "")
+        except Exception as e:
+            mtid_site = ""
+            print(f"AVISO: media type do Telegram nao configurado ({e})", file=sys.stderr)
+        for site_nome, chat in sorted(TG_CHAT_BY_SITE.items()):
+            site_nome = " ".join(str(site_nome or "").split()).strip()
+            chat = str(chat or "").strip()
+            if not site_nome or not chat or not mtid_site:
+                continue
+            try:
+                gid_site = ensure_site_group(auth, ZBX_GROUP, site_nome)
+                if not gid_site:
+                    print(f"AVISO: sem grupo para o site '{site_nome}'", file=sys.stderr)
+                    continue
+                alias_site = f"{USER_ALIAS}.{_slug_name(site_nome)}"[:100]
+                uid_site = ensure_user_with_media(auth, mtid_site, chat, alias=alias_site)
+                nome_acao = f"{ZBX_GROUP}/{site_nome} -> Telegram (cam-snapshot)"
+                aid_site = ensure_action(auth, nome_acao, gid_site, uid_site, mtid_site)
+                print(f"  {site_nome}: chat {chat} -> acao {aid_site}")
+            except Exception as e:
+                # um site com chat errado nao pode impedir os outros
+                print(f"AVISO: Telegram do site '{site_nome}' falhou ({e})", file=sys.stderr)
+
+    if ZBX_PRUNE and not hosts_ativos:
+        # Ninguem chegou aqui querendo esvaziar o grupo: inventario vazio e
+        # sintoma de fonte/filtro errado. Podar aqui apagaria todos os hosts.
+        print("PRUNE: desligado (inventario vazio -- nada foi removido)")
+    elif ZBX_PRUNE:
+        try:
+            prune_hosts(auth, ZBX_GROUP, ZBX_TENANT, hosts_ativos)
+        except Exception as e:
+            print(f"AVISO: poda nao concluida: {e}")
+    else:
+        print("PRUNE: desligado (sync parcial/por site nao remove nada)")
 
 if __name__=="__main__":
     main()

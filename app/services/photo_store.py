@@ -44,26 +44,15 @@ def attach_snapshot_fields(cam: dict[str, Any], ip: str, filename: str) -> None:
     cam["thumb_url"] = f"/data/snapshot/{name}"
 
 
-def _allow_legacy_snapshot_fallback() -> bool:
-    return get_current_tenant_slug() in ("", "default")
-
-
 def _candidate_snapshot_paths(name: str) -> list[Path]:
     candidates = []
     if get_current_tenant_slug():
         candidates.append(tenant_snapshot_dir("ip") / name)
-    # So cai nos diretorios globais/legados quando nao ha tenant (auth
-    # desligada) ou e o tenant "default" -- sem isso, dois clientes com
-    # camera no mesmo IP privado (comum, ex 192.168.1.10) podiam ver o
-    # snapshot um do outro assim que um dos dois ainda nao tivesse foto
-    # propria salva. Mesma regra ja aplicada em app/main.py
-    # (_allow_legacy_media_fallback) pras rotas /data/snapshot/*.
-    if _allow_legacy_snapshot_fallback():
-        candidates.extend([
-            DATA_DIR / "snapshot" / name,
-            SAIDA_DIR / "snapshot" / name,
-            SAIDA_DIR / "snapshot_manual" / name,
-        ])
+    candidates.extend([
+        DATA_DIR / "snapshot" / name,
+        SAIDA_DIR / "snapshot" / name,
+        SAIDA_DIR / "snapshot_manual" / name,
+    ])
     return candidates
 
 

@@ -146,49 +146,6 @@ def _observe_many(rows: Iterable[Dict[str, Any]], prune_entity_type: str = "") -
     return len(items)
 
 
-def _onu_entity_key_variants(row: Dict[str, Any]) -> set[str]:
-    connector = _text(row.get("connector_id") or row.get("remote_connector_id"))
-    olt_ip = _text(row.get("olt_ip") or row.get("OLT_IP"))
-    pon_raw = _text(row.get("pon") or row.get("PON"))
-    onu = _text(row.get("onu_id") or row.get("onu") or row.get("ONU") or row.get("onu_serial"))
-    serial = _text(row.get("onu_serial") or row.get("serial") or row.get("SERIAL"))
-    pons = {pon_raw}
-    match = re.fullmatch(r"\d+/(\d+)", pon_raw)
-    if match:
-        pons.add(match.group(1))
-    elif pon_raw.isdigit():
-        pons.add(f"0/{pon_raw}")
-    values = {onu}
-    if serial:
-        values.add(serial)
-    return {
-        "onu:" + "|".join((connector, olt_ip, pon, value))
-        for pon in pons
-        for value in values
-        if olt_ip and pon and value
-    }
-
-
-def disable_onu_monitoring_for_rows(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-    """Desativa alertas de ONUs removidas do inventario/OLT no tenant atual."""
-    keys: set[str] = set()
-    for row in rows:
-        if isinstance(row, dict):
-            keys.update(_onu_entity_key_variants(row))
-    if not keys:
-        return {"ok": True, "disabled": 0, "keys": []}
-    now = _now()
-    disabled = 0
-    with _conn() as c:
-        for key in sorted(keys):
-            cur = c.execute(
-                "UPDATE monitoring_entities SET monitoring_enabled=0,updated_at=? WHERE tenant_slug=? AND entity_type='onu' AND entity_key=? AND monitoring_enabled=1",
-                (now, _tenant(), key),
-            )
-            disabled += int(cur.rowcount or 0)
-    return {"ok": True, "disabled": disabled, "keys": sorted(keys)}
-
-
 def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.connector_service import list_connectors
     from app.services.inventory_json import load_inventory_json

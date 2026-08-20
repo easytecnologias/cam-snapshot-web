@@ -2246,7 +2246,7 @@ def api_nvr_save(req: RecorderSaveRequest) -> Dict[str, Any]:
         "camera_mac", "mac", "equip_serial", "pon", "onu_id", "onu_name",
         "onu_serial", "switch_ip", "switch_port", "switch_vlan", "video_loss",
         "snapshot_url", "imgbb_url", "imgbb_thumb_url", "site", "remote",
-        "remote_connector_id", "recorder_user", "recorder_password", "http_port", "name", "recorder_name", "inventory_mode",
+        "remote_connector_id", "recorder_user", "http_port", "name", "recorder_name", "inventory_mode",
         "hdd_status", "hdd_total", "hdd_free", "hdd_used_percent", "hdd_count",
         "network_status", "nvr_ip", "nvr_mask", "nvr_gateway", "nvr_dns",
         "platform_status", "cloud_status", "hik_connect_status", "p2p_status", "platform_online",

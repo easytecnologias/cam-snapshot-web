@@ -452,9 +452,12 @@ function filterOltTable() {
   const site = document.getElementById('oltFilterSite')?.value || '';
   const q    = (document.getElementById('oltSearch')?.value   || '').toLowerCase();
   const filtered = _oltRows.filter(r => {
-    if (site && r.site !== site) return false;
-    if (q) return [r.site, r.olt_ip, r.olt_name, r.onu_name, r.onu_serial, r.cpe_mac, r.vlan, String(r.pon), String(r.onu_id)]
-      .some(f => (f || '').toLowerCase().includes(q));
+    if (site && String(r.site ?? '').trim() !== String(site).trim()) return false;
+    // String() em todos: a API manda vlan como numero e (f || '').toLowerCase()
+    // estourava TypeError, matando o filtro no meio da lista
+    if (q) return [r.site, r.olt_ip, r.olt_name, r.onu, r.onu_name, r.onu_serial,
+                   r.cpe_mac, r.mac, r.vlan, r.pon, r.onu_id, r.port, r.ip]
+      .some(f => String(f ?? '').toLowerCase().includes(q));
     return true;
   });
   renderOltTable(sortOltRows(filtered));

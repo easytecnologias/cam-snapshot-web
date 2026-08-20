@@ -18,15 +18,6 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _clean_site(value: Any) -> str:
-    # Alguns registros de OLT tem o nome do site salvo como "OLT - <site>" em
-    # vez de so "<site>" -- normaliza pra bater com o nome usado nas cameras
-    # (cam-inventory.json), senao o mesmo site vira duas pastas diferentes no
-    # Zabbix (ex.: "BARRA DE SAO MIGUEL" e "OLT - BARRA DE SAO MIGUEL").
-    text = _text(value)
-    return re.sub(r"(?i)^olt\s*-\s*", "", text).strip()
-
-
 def _api_url(raw: Any) -> str:
     value = _text(raw)
     if not value:
@@ -54,12 +45,14 @@ def _default_zabbix_cfg(cfg: Dict[str, Any] | None = None) -> Dict[str, Any]:
         or _text(os.getenv("SIGHTOPS_ZABBIX_USER"))
         or _text(os.getenv("ZBX_USER"))
         or _text(os.getenv("ZABBIX_USER"))
+        or "Admin"
     )
     password = (
         _text(base.get("pass") or base.get("password"))
         or _text(os.getenv("SIGHTOPS_ZABBIX_PASS"))
         or _text(os.getenv("ZBX_PASS"))
         or _text(os.getenv("ZABBIX_PASS"))
+        or "zabbix"
     )
     return {**base, "url": _api_url(url), "user": user, "pass": password}
 
@@ -138,11 +131,7 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
     technical_names = {_host_key(tenant, row): row for row in entities}
     current_hosts = _call(
         url, "host.get",
-        {
-            "output": ["hostid", "host", "name"],
-            "selectGroups": ["groupid"],
-            "search": {"host": f"SIGHTOPS.{tenant}."}, "startSearch": True,
-        },
+        {"output": ["hostid", "host", "name"], "search": {"host": f"SIGHTOPS.{tenant}."}, "startSearch": True},
         auth, 30,
     ) or []
 
@@ -158,52 +147,26 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
             "pushed": 0, "removed_hosts": len(orphan_hostids),
         }
 
-    group_ids: Dict[str, str] = {}
-
-    def _group_id_for(entity_type: str, site: str = "") -> str:
-        # Subgrupo por site (sintaxe "/" do proprio Zabbix -- vira arvore na
-        # UI). O grupo geral (sem site) continua existindo tambem, so organiza
-        # visualmente quando ha mais de um site no tenant.
-        cache_key = f"{entity_type}|{site}"
-        if cache_key not in group_ids:
-            base = f"SIGHTOPS - {tenant.upper()} - {entity_type.upper()}"
-            name = f"{base}/{site}" if site else base
-            group_ids[cache_key] = _ensure_group(url, auth, name, 10 + len(group_ids) * 2)
-        return group_ids[cache_key]
-
-    for entity_type in entity_types:
-        _group_id_for(entity_type)
-
-    hosts_by_name = {_text(row.get("host")): row for row in current_hosts if _text(row.get("host")) in technical_names}
-    host_ids = {name: _text(row.get("hostid")) for name, row in hosts_by_name.items()}
+    group_ids = {
+        entity_type: _ensure_group(url, auth, f"SIGHTOPS - {tenant.upper()} - {entity_type.upper()}", 10 + idx * 4)
+        for idx, entity_type in enumerate(entity_types)
+    }
+    host_ids = {_text(row.get("host")): _text(row.get("hostid")) for row in current_hosts if _text(row.get("host")) in technical_names}
 
     create_hosts: List[Dict[str, Any]] = []
     missing_names: List[str] = []
-    update_group_hosts: List[Dict[str, Any]] = []
     for technical_name, row in technical_names.items():
-        entity_type = _text(row.get("entity_type"))
-        site = _clean_site(row.get("site"))
-        wanted_groupids = {_group_id_for(entity_type)}
-        if site:
-            wanted_groupids.add(_group_id_for(entity_type, site))
-
         if technical_name in host_ids:
-            current = hosts_by_name.get(technical_name) or {}
-            current_groupids = {_text(g.get("groupid")) for g in (current.get("groups") or [])}
-            if not wanted_groupids.issubset(current_groupids):
-                update_group_hosts.append({
-                    "hostid": host_ids[technical_name],
-                    "groups": [{"groupid": gid} for gid in (current_groupids | wanted_groupids)],
-                })
             continue
-
+        entity_type = _text(row.get("entity_type"))
         display_name = _text(row.get("display_name")) or technical_name
+        site = _text(row.get("site"))
         visible_name = f"{display_name} - {site} - {technical_name.rsplit('.', 1)[-1][:6]}"
         missing_names.append(technical_name)
         create_hosts.append({
             "host": technical_name,
             "name": visible_name,
-            "groups": [{"groupid": gid} for gid in wanted_groupids],
+            "groups": [{"groupid": group_ids[entity_type]}],
             "tags": [
                 {"tag": "sightops_tenant", "value": tenant},
                 {"tag": "sightops_type", "value": entity_type},
@@ -211,8 +174,6 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
                 {"tag": "site", "value": site},
             ],
         })
-    for host_update in update_group_hosts:
-        _call(url, "host.update", host_update, auth, 5)
     cursor = 0
     for batch in _chunks(create_hosts):
         created = _call(url, "host.create", batch, auth, 40 + cursor) or {}
@@ -291,85 +252,3 @@ def sync_monitoring_to_zabbix(entity_types: tuple[str, ...] = ("olt", "onu")) ->
         "created_hosts": len(create_hosts), "linked_hosts": len(host_ids),
         "created_items": len(create_items), "pushed": pushed, "removed_hosts": len(orphan_hostids),
     }
-
-
-_ICMP_TEMPLATE_CANDIDATES = (
-    "Template Module ICMP Ping",
-    "ICMP Ping",
-    "Template ICMP Ping",
-    "Template Net Network Generic Device by ICMP",
-)
-
-
-def _resolve_icmp_template_id(url: str, auth: str) -> str:
-    for name in _ICMP_TEMPLATE_CANDIDATES:
-        rows = _call(url, "template.get", {"output": ["templateid"], "filter": {"host": [name]}}, auth) or []
-        if rows:
-            return _text(rows[0].get("templateid"))
-    rows = _call(
-        url, "template.get",
-        {"output": ["templateid"], "search": {"host": "ICMP"}, "searchByAny": True, "limit": 1},
-        auth,
-    ) or []
-    return _text(rows[0].get("templateid")) if rows else ""
-
-
-def ensure_olt_icmp_host(olt: Dict[str, Any]) -> Dict[str, Any]:
-    """Garante host com ping ICMP ativo do proprio Zabbix pra OLT -- diferente
-    do host 'trapper' que sync_monitoring_to_zabbix ja cria (aquele so espelha
-    o status que o SightOps mesmo calculou; este aqui o Zabbix pinga de
-    verdade, com historico/alerta la, igual ja acontece com as cameras)."""
-    settings = load_app_settings()
-    raw_cfg = settings.get("zabbix_ip_sync") if isinstance(settings.get("zabbix_ip_sync"), dict) else {}
-    cfg = _default_zabbix_cfg(raw_cfg)
-    url = _api_url(cfg.get("url"))
-    user = _text(cfg.get("user"))
-    password = _text(cfg.get("pass") or cfg.get("password"))
-    if not (url and user and password):
-        return {"ok": False, "error": "Zabbix nao configurado automaticamente."}
-
-    host_ip = _text(olt.get("host") or olt.get("ip"))
-    if not host_ip:
-        return {"ok": False, "error": "OLT sem host/IP."}
-
-    tenant = _text(get_current_tenant_slug() or "default").lower()
-    auth = _text(_call(url, "user.login", {"username": user, "password": password}, req_id=1))
-    template_id = _resolve_icmp_template_id(url, auth)
-    if not template_id:
-        return {"ok": False, "error": "Template de ping ICMP nao encontrado no Zabbix."}
-
-    base_group_id = _ensure_group(url, auth, f"SIGHTOPS - {tenant.upper()} - OLT-ICMP", 2)
-    site = _clean_site(olt.get("site"))
-    group_ids = [base_group_id]
-    if site:
-        group_ids.append(_ensure_group(url, auth, f"SIGHTOPS - {tenant.upper()} - OLT-ICMP/{site}", 3))
-
-    olt_id = _text(olt.get("id"))
-    technical_name = f"SIGHTOPS.{tenant}.OLT_ICMP.{olt_id or hashlib.sha1(host_ip.encode('utf-8')).hexdigest()[:16]}"
-    display_name = _text(olt.get("name")) or f"OLT {host_ip}"
-    visible_name = f"{display_name} - {host_ip}"
-
-    existing = _call(url, "host.get", {"output": ["hostid"], "filter": {"host": [technical_name]}}, auth) or []
-    if existing:
-        hostid = _text(existing[0].get("hostid"))
-        _call(url, "host.update", {
-            "hostid": hostid,
-            "name": visible_name,
-            "groups": [{"groupid": gid} for gid in group_ids],
-            "templates": [{"templateid": template_id}],
-        }, auth, 10)
-        return {"ok": True, "hostid": hostid, "created": False}
-
-    created = _call(url, "host.create", {
-        "host": technical_name,
-        "name": visible_name,
-        "interfaces": [{"type": 1, "main": 1, "useip": 1, "ip": host_ip, "dns": "", "port": "10050"}],
-        "groups": [{"groupid": gid} for gid in group_ids],
-        "templates": [{"templateid": template_id}],
-        "tags": [
-            {"tag": "sightops_tenant", "value": tenant},
-            {"tag": "sightops_type", "value": "olt_icmp"},
-        ],
-    }, auth, 11) or {}
-    hostid = _text((created.get("hostids") or [""])[0])
-    return {"ok": True, "hostid": hostid, "created": True}

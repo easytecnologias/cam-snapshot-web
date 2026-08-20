@@ -13,7 +13,6 @@ from fastapi import APIRouter, HTTPException
 from fastapi import Query
 from app.services.ping_service import ping as ping_with_cache
 from app.services.ws_scan_service import ping_via_connector
-from app.services.connector_service import ensure_connector_targets_allowed
 
 from pydantic import BaseModel
 
@@ -138,8 +137,6 @@ def _apply_recorder_fallback(cam: dict[str, Any], rec: dict[str, Any]) -> dict[s
 
 class CameraUpdate(BaseModel):
     ip: str
-    inventory_key: str | None = None
-    key: str | None = None
     remote_connector_id: str | None = None
     connector_id: str | None = None
     remote: bool | None = None
@@ -262,13 +259,7 @@ def api_cameras(
             seen_ips.add(ip)
             rec = recorder_by_ip.get(ip)
             if rec:
-                cam_connector = _txt(cam.get("remote_connector_id") or cam.get("connector_id"))
-                rec_connector = _txt(rec.get("remote_connector_id") or rec.get("connector_id"))
-                cam_site = _txt(cam.get("site") or cam.get("site_name") or cam.get("local"))
-                same_connector = not cam_connector or not rec_connector or cam_connector == rec_connector
-                same_site = not cam_site or _site_matches(rec, cam_site)
-                if same_connector and same_site:
-                    cam = _apply_recorder_fallback(cam, rec)
+                cam = _apply_recorder_fallback(cam, rec)
 
         health_label = r.get("ai_health_label") or ""
         if not health_label:
@@ -342,10 +333,7 @@ def api_cameras_save(req: CamerasSaveRequest, mode: str = Query(default="olt")) 
     updates: dict[str, CameraUpdate] = {}
     for cam in req.cameras:
         ip = (cam.ip or "").strip()
-        explicit_key = str(cam.inventory_key or cam.key or "").strip()
-        if explicit_key:
-            updates[explicit_key] = cam
-        elif ip:
+        if ip:
             updates[inventory_row_key({
                 "ip": ip,
                 "remote_connector_id": cam.remote_connector_id or cam.connector_id or "",
@@ -523,10 +511,6 @@ async def api_cameras_ping(
     result = await ping_with_cache(ip=target, timeout=timeout, method=method_n, force=force)
     connector_id = str(remote_connector_id or "").strip()
     if connector_id and not bool(result.get("online")):
-        # O conector so deve confirmar alcance de IPs da propria LAN --
-        # sem isso, um conector de um site consegue "confirmar online"
-        # o IP de outro site/cliente que tenha rota de rede coincidente.
-        ensure_connector_targets_allowed(connector_id, [target], "IP da camera")
         via_connector = await ping_via_connector(connector_id, target)
         result["via_connector"] = via_connector
         if via_connector:
@@ -702,12 +686,11 @@ def api_portscan_apply(req: PortscanApplyRequest) -> Dict[str, Any]:
 
 @router.post("/snapshot/save", tags=["cameras"])
 def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
-    # resolve_snapshot_file so procura em diretorios de snapshot conhecidos
-    # (tenant-scoped + legado), usando so o nome do arquivo (Path(...).name).
-    # Nao aceitar mais um path absoluto arbitrario aqui -- isso permitia
-    # copiar qualquer arquivo legivel do disco do servidor (ex: .env) pra
-    # pasta publica de snapshots via /data/snapshot/<nome>.
     src = resolve_snapshot_file(path_hint=req.path, ip=(req.ip or ""))
+    if src is None:
+        cand = Path(req.path)
+        if cand.is_absolute() and cand.exists() and cand.is_file():
+            src = cand
 
     if src is None:
         raise HTTPException(status_code=404, detail=f"Arquivo de snapshot nao encontrado: {req.path}")

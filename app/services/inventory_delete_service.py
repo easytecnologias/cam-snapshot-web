@@ -5,8 +5,6 @@ from typing import Any, Dict, List
 from app.core.paths import ensure_dirs
 from app.models.requests import InventoryDeleteRequest
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.camera_allowlist import forget_rows as allowlist_forget_rows
-from app.services.olt_ignore_list import add_ignored_rows
 
 
 def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
@@ -46,12 +44,21 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
             rip = get_row_ip(row)
             row_key = inventory_row_key(row)
             row_connector = str(row.get("remote_connector_id") or row.get("connector_id") or "").strip()
+            # A linha pode ter site, site_name e local DIFERENTES entre si
+            # (ex.: site=BARRA DE SAO MIGUEL, site_name=TESTE, local=ESCOLA MEDEA).
+            # A tela mostra e filtra por 'local'; casar so com 'site' fazia o
+            # apagar nao encontrar nada e o usuario ficar horas sem conseguir.
+            row_sites = {
+                str(row.get(key) or "").strip().lower()
+                for key in ("site", "site_name", "local", "LOCAL")
+                if str(row.get(key) or "").strip()
+            }
             row_site = str(row.get("site") or row.get("site_name") or row.get("local") or "").strip()
             scoped_match = True
             if connector_id:
                 scoped_match = row_connector == connector_id
             elif site:
-                scoped_match = row_site.lower() == site.lower()
+                scoped_match = site.strip().lower() in row_sites
             key_match = row_key in keys_set and scoped_match
             ip_match = bool(rip and rip in ips_set and scoped_match)
             should_remove = bool(key_match or ip_match)
@@ -64,18 +71,6 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         save_inventory_json(rows_kept, mode=current_mode)
         inventories[current_mode] = rows_kept
 
-    # Em site declarativo, apagar e apagar: o IP sai da lista de permitidos e
-    # pronto -- nao precisa entrar tambem numa lista de bloqueados. Para voltar,
-    # basta o usuario recolocar o IP na lista.
-    allowlist_forget = allowlist_forget_rows(removed_rows, default_site=site)
-    allowlist_removed = int(allowlist_forget.get("removed") or 0)
-
-    ignored_added = 0
-    rows_legado = allowlist_forget.get("rows_legado") or []
-    if getattr(req, "permanent", False) and rows_legado:
-        # Só os sites que ainda nao usam allowlist dependem da lista de
-        # bloqueados pra varredura/sync nao recriarem a linha.
-        ignored_added = add_ignored_rows(rows_legado, reason="apagado manualmente no inventario")
 
     inventory = inventories.get("olt") or inventories.get(modes[0], [])
     return {
@@ -83,9 +78,6 @@ def inventory_delete(req: InventoryDeleteRequest) -> Dict[str, Any]:
         "removed": len(removed_ips),
         "ips_removed": sorted(list(removed_ips)),
         "keys_removed": sorted(list(removed_keys)),
-        "ignored_added": ignored_added,
-        "allowlist_removed": allowlist_removed,
-        "allowlist_sites": allowlist_forget.get("sites") or [],
         "inventory": inventory,
         "inventories": inventories,
     }

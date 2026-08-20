@@ -17,7 +17,6 @@ from typing import Any, Dict, List
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import x25519
-from fastapi import HTTPException
 
 from app.core.crypto import decrypt, encrypt
 from app.core.paths import DATA_DIR
@@ -124,8 +123,9 @@ def _trusted_lans_from_connector(row: Dict[str, Any], include_saved_tunnel: bool
     sample_cidrs = _cidrs_from_address_sample(address_sample)
     if sample_cidrs:
         candidates.extend(sample_cidrs)
-    for key in ("lan_networks", "networks", "routes"):
-        candidates.extend(_split_cidr_values(inventory.get(key)))
+    else:
+        for key in ("lan_networks", "networks", "routes"):
+            candidates.extend(_split_cidr_values(inventory.get(key)))
     candidates.extend(_split_cidr_values(host.get("lan_networks")))
     if include_saved_tunnel:
         candidates.extend(_split_cidr_values(tunnel.get("client_lans")))
@@ -633,86 +633,6 @@ def _extract_connector_lans(row: Dict[str, Any], include_saved_tunnel: bool = Tr
     for key in ("dhcp_sample", "arp_sample", "neighbor_sample"):
         candidates.extend(_sample_lans_from_text(inventory.get(key)))
     return _unique_cidrs(candidates)[:64]
-
-
-def connector_trusted_lans(row: Dict[str, Any], include_saved_tunnel: bool = True) -> List[str]:
-    return _extract_connector_lans(row or {}, include_saved_tunnel=include_saved_tunnel)
-
-
-def connector_target_scope(row: Dict[str, Any] | None, targets: List[str]) -> Dict[str, Any]:
-    trusted_lans = connector_trusted_lans(row or {})
-    networks = []
-    for cidr in trusted_lans:
-        try:
-            networks.append(ipaddress.ip_network(cidr, strict=False))
-        except Exception:
-            continue
-    allowed: List[str] = []
-    blocked: List[str] = []
-    for target in targets or []:
-        raw = _text(target)
-        if not raw:
-            continue
-        try:
-            ip = ipaddress.ip_address(raw)
-        except Exception:
-            allowed.append(raw)
-            continue
-        if networks and not any(ip in net for net in networks):
-            blocked.append(raw)
-        else:
-            allowed.append(raw)
-    return {
-        "trusted_lans": trusted_lans,
-        "allowed": allowed,
-        "blocked": blocked,
-        "enforced": bool(networks),
-    }
-
-
-def ensure_connector_targets_allowed(
-    connector_id: str,
-    targets: List[str],
-    label: str = "alvo",
-    connector: Dict[str, Any] | None = None,
-) -> Dict[str, Any] | None:
-    """Barra alvo (IP de OLT/camera/gravador) fora da LAN confiavel do conector.
-
-    Usada por toda acao que roteia por um conector remoto (OLT, camera,
-    gravador). Sem isso, o conector so prova que pertence ao tenant certo
-    (`get_connector(..., enforce_tenant=True)`) -- nao prova que o alvo
-    digitado realmente esta na rede daquele conector. Como varios clientes
-    tem faixa de IP privada/CGNAT parecida (ex.: 100.6x.x.x), sem essa
-    checagem um operador consegue apontar o conector A pra um IP que na
-    verdade e de outro site/cliente, e a acao roda do mesmo jeito se a rota
-    de rede existir.
-
-    `connector` aceita um dict ja resolvido pelo chamador (evita buscar de
-    novo quando quem chamou ja fez `get_connector(...)` -- inclusive em
-    testes que trocam `get_connector` por um fake dentro do proprio modulo
-    chamador, que este `ensure_connector_targets_allowed` nao enxergaria se
-    fosse buscar por conta propria).
-    """
-    connector_id = _text(connector_id)
-    if not connector_id:
-        return None
-    if connector is None:
-        connector = get_connector(connector_id, include_token=False, enforce_tenant=True)
-    if not connector:
-        raise HTTPException(status_code=404, detail="conector nao encontrado")
-    scope = connector_target_scope(connector, [_text(target) for target in targets if _text(target)])
-    if not scope.get("enforced") or not scope.get("blocked"):
-        return connector
-    connector_name = _text(connector.get("name") or connector.get("site") or connector.get("client") or connector_id)
-    blocked = ", ".join((scope.get("blocked") or [])[:8])
-    allowed = ", ".join(scope.get("trusted_lans") or [])
-    raise HTTPException(
-        status_code=400,
-        detail=(
-            f"{label} fora das redes do conector {connector_name}. "
-            f"Permitidas: {allowed or 'nenhuma detectada'}. Bloqueado: {blocked}."
-        ),
-    )
 
 
 def _refresh_auto_tunnel_lans(row: Dict[str, Any]) -> bool:

@@ -37,7 +37,6 @@ from app.services.olt_service import (
     onu_signal,
 )
 from app.cli.tools.olt_fiberhome import audit_offline_fiberhome
-from app.services.zabbix_monitoring_service import ensure_olt_icmp_host
 
 router = APIRouter(prefix="/api", tags=["olt"])
 _olt_sync_jobs: dict[str, dict[str, Any]] = {}
@@ -133,15 +132,6 @@ async def _run_olt_purge(
 async def _run_olt_registry_sync(job_key: str, job_id: str, olt_id: int, req: OltCollectMacsRequest) -> None:
     try:
         result = await asyncio.to_thread(collect_macs, req)
-        zabbix_icmp = None
-        try:
-            olt = olt_registry.get_olt(olt_id)
-            if olt:
-                zabbix_icmp = await asyncio.to_thread(ensure_olt_icmp_host, olt)
-        except Exception as exc:
-            # Nao deixa uma falha no Zabbix derrubar a sincronizacao da OLT em
-            # si -- e um efeito colateral, nao o objetivo principal do sync.
-            zabbix_icmp = {"ok": False, "error": str(exc)}
         _olt_sync_jobs[job_key] = {
             "ok": True,
             "job_id": job_id,
@@ -149,7 +139,6 @@ async def _run_olt_registry_sync(job_key: str, job_id: str, olt_id: int, req: Ol
             "status": "done",
             "count": int(result.get("count") or 0),
             "count_all": int(result.get("count_all") or 0),
-            "zabbix_icmp": zabbix_icmp,
             "finished_at": time.time(),
         }
     except Exception as exc:

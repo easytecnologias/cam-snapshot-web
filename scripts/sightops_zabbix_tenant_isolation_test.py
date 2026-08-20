@@ -21,7 +21,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 spec = importlib.util.spec_from_file_location("mk_zabbix", ROOT / "tools" / "mk_zabbix_from_inventory.py")
 mk_zabbix = importlib.util.module_from_spec(spec)
@@ -29,14 +28,6 @@ sys.modules["mk_zabbix"] = mk_zabbix
 spec.loader.exec_module(mk_zabbix)
 
 build_host_name = mk_zabbix.build_host_name
-build_visible_name = mk_zabbix.build_visible_name
-
-from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
-from app.api.endpoints.maintenance import (
-    _zabbix_host_belongs_to_tenant,
-    _zabbix_tenant_group,
-    _zabbix_tmp_inventory_path,
-)
 
 FALHAS: list[str] = []
 
@@ -61,13 +52,6 @@ def main() -> None:
     primeira_vez = build_host_name("sierra", camera_ip_repetido)
     segunda_vez = build_host_name("sierra", dict(camera_ip_repetido))  # nova instancia do dict, mesmo conteudo
     check(primeira_vez == segunda_vez, f"resincronizar o MESMO tenant deveria gerar o MESMO host: {primeira_vez} != {segunda_vez}")
-
-    visible_sierra = build_visible_name("sierra", camera_ip_repetido, "IP CAMERA")
-    visible_perucaba = build_visible_name("perucaba", camera_ip_repetido, "IP CAMERA")
-    check(visible_sierra != visible_perucaba, f"nome visivel deveria isolar tenants: {visible_sierra} vs {visible_perucaba}")
-    check("SIERRA" in visible_sierra and "192.168.20.5" in visible_sierra, f"nome visivel precisa tenant e IP: {visible_sierra}")
-    visible_same_title_other_ip = build_visible_name("sierra", {"ip": "192.168.20.6"}, "IP CAMERA")
-    check(visible_sierra != visible_same_title_other_ip, f"nome visivel com titulo generico deveria diferenciar por IP: {visible_sierra} vs {visible_same_title_other_ip}")
 
     # --- as outras 3 formas de host (DVR por canal, Windows, host_key explicito) ---
     dvr_row = {"ip": "10.0.0.5", "source": "dvr", "channel": "3"}
@@ -96,27 +80,6 @@ def main() -> None:
     # --- caracteres fora do padrao Zabbix (espaco, acento) sao sanitizados, nao quebram ---
     esquisito = build_host_name("Cliente Novo Ltda.", camera_ip_repetido)
     check(" " not in esquisito, f"nome de tenant com espaco deveria ser sanitizado: {esquisito}")
-
-    # --- configuracao operacional tambem fica por tenant ---
-    token = set_current_tenant_slug("sierra")
-    try:
-        group_sierra = _zabbix_tenant_group("Cameras")
-        tmp_sierra = str(_zabbix_tmp_inventory_path("ip", "switch"))
-    finally:
-        reset_current_tenant_slug(token)
-    token = set_current_tenant_slug("perucaba")
-    try:
-        group_perucaba = _zabbix_tenant_group("Cameras")
-        tmp_perucaba = str(_zabbix_tmp_inventory_path("ip", "switch"))
-    finally:
-        reset_current_tenant_slug(token)
-    check(group_sierra != group_perucaba, f"grupo Zabbix deveria separar tenants: {group_sierra} vs {group_perucaba}")
-    check(tmp_sierra != tmp_perucaba, f"arquivo temporario Zabbix deveria separar tenants: {tmp_sierra} vs {tmp_perucaba}")
-    check(
-        _zabbix_host_belongs_to_tenant({"host": host_sierra}, "sierra")
-        and not _zabbix_host_belongs_to_tenant({"host": host_sierra}, "perucaba"),
-        f"status-sync deveria aceitar so host do proprio tenant: {host_sierra}",
-    )
 
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")

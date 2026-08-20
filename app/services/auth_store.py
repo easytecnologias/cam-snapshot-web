@@ -14,10 +14,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from app.core.migrations import apply_migrations
-import shutil
-
 from app.core.paths import DATA_DIR
-from app.core.tenant_context import tenant_data_dir
 
 try:
     import psycopg
@@ -602,14 +599,6 @@ def delete_tenant(actor: Dict[str, Any], tenant_id: int) -> Dict[str, Any]:
         )
         _execute(c, "UPDATE auth_tokens SET acting_tenant_id=NULL WHERE acting_tenant_id=?", (target_id,))
         _execute(c, "DELETE FROM tenants WHERE id=?", (target_id,))
-
-    # Sem isso, os arquivos do cliente (snapshots, KMZ, relatorios, tokens
-    # do agente Windows) ficavam no disco pra sempre depois de "excluido" --
-    # problema de retencao/privacidade numa oferta SaaS.
-    try:
-        shutil.rmtree(tenant_data_dir(slug), ignore_errors=True)
-    except Exception:
-        pass
     return {"ok": True, "tenant_id": target_id, "tenant_slug": slug}
 
 
@@ -702,7 +691,6 @@ MODULE_CATALOG: List[Dict[str, str]] = [
     {"key": "net-operate", "label": "Operacoes", "section": "Manutencao"},
     {"key": "playback", "label": "Reproducao", "section": "Analise"},
     {"key": "ia-nvr", "label": "IA - NVR", "section": "Analise"},
-    {"key": "access-control", "label": "Controle de Acesso", "section": "Controle de Acesso"},
 ]
 _MODULE_KEYS = {m["key"] for m in MODULE_CATALOG}
 

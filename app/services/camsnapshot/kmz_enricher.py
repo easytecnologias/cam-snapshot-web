@@ -98,12 +98,6 @@ def _add_styles(root: ET.Element, href_online: str, href_offline: str):
     href2.text = href_offline
 
 
-def _remove_inline_styles(pm: ET.Element) -> None:
-    for child in list(pm):
-        if child.tag in (f"{{{KML_NS}}}Style", f"{{{KML_NS}}}StyleMap"):
-            pm.remove(child)
-
-
 def _build_maps(
     inv: Union[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
@@ -294,10 +288,9 @@ def enrich_single_kmz(
     kml_text = _load_kml_from_kmz(kmz_path)
     root = ET.fromstring(kml_text)
 
-    # Google Earth handles relative icon files more consistently when they
-    # live at the KMZ root. Keep nested copies for older packages/readers.
-    href_on = "cctv-green.png"
-    href_off = "cctv-red.png"
+    icons_base = "files/icons"
+    href_on = f"{icons_base}/cctv-green.png"
+    href_off = f"{icons_base}/cctv-red.png"
     _add_styles(root, href_on, href_off)
 
     pms = root.findall(f".//{{{KML_NS}}}Placemark")
@@ -314,7 +307,6 @@ def enrich_single_kmz(
 
         status = (reg.get("status") or "Online").strip().lower()
         style_url = "#cam-online" if status.startswith("on") else "#cam-offline"
-        _remove_inline_styles(pm)
         s = pm.find(f"{{{KML_NS}}}styleUrl")
         if s is None:
             s = ET.SubElement(pm, f"{{{KML_NS}}}styleUrl")
@@ -328,8 +320,6 @@ def enrich_single_kmz(
 
     here = os.path.dirname(__file__)
     extra = [
-        (os.path.join(here, "assets", "icons", "cctv-green.png"), "cctv-green.png"),
-        (os.path.join(here, "assets", "icons", "cctv-red.png"), "cctv-red.png"),
         (os.path.join(here, "assets", "icons", "cctv-green.png"), "files/icons/cctv-green.png"),
         (os.path.join(here, "assets", "icons", "cctv-red.png"), "files/icons/cctv-red.png"),
     ]

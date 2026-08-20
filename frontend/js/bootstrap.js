@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // tem 1.600 linhas de fiacao e foi o motivo de dividir o app.js.
   bindDeployOlt();
   bindMonitoring();
-  bindAccessControl();
 
   // Dashboard drawer
   document.getElementById('dashDrawerClose')?.addEventListener('click', closeDashDrawer);
@@ -667,10 +666,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     _camRemoveIpsLocally(keys);
-    const saiuDaLista = Number(data?.allowlist_removed || 0);
-    showToast(saiuDaLista
-      ? `${ips.length} camera(s) removida(s). ${saiuDaLista} IP(s) sairam da lista de permitidos e nao voltam na varredura.`
-      : `${ips.length} camera(s) removida(s).`);
+    showToast(
+      `${ips.length} camera(s) removida(s).`);
     closeCamPanel();
     updateCamTabs();
     populateCamSiteFilter();
@@ -687,8 +684,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!await showConfirm({ title: 'Apagar inventario', msg, label: 'Apagar' })) return;
     const res = await api('/api/inventory/clear', {
       method: 'POST',
-      // permanent nos tres modos: no basico/switch tambem precisa gravar o
-      // bloqueio, senao a proxima varredura recadastra tudo de novo.
       body: JSON.stringify({ mode, site, permanent: true }),
     });
     const data = await res?.json().catch(() => ({}));
@@ -1717,14 +1712,27 @@ document.addEventListener('DOMContentLoaded', () => {
                   : 'basic';
     const group    = document.getElementById('zbxGroup')?.value.trim() || 'Cameras';
     const template = document.getElementById('zbxTemplate')?.value.trim() || 'Template Module ICMP Ping';
-    const site     = document.getElementById('zbxSite')?.value.trim();
+    // o campo aceita varios: "" (ou nada marcado) = todos os sites
+    const seletorSite = document.getElementById('zbxSite');
+    const sites = seletorSite
+      ? [...seletorSite.selectedOptions].map(o => o.value).filter(Boolean)
+      : [];
+    const site = sites.length === 1 ? sites[0] : '';
+    // sem nenhum site marcado, a lista vazia seria lida como "todos" e
+    // sincronizaria o inventario inteiro sem o usuario ter pedido
+    if (!sites.length && window._zbxTodos === false) {
+      showToast('Marque ao menos um site, ou "Todos os sites"', true);
+      return;
+    }
     const dvrUser  = document.getElementById('zbxDvrUser')?.value.trim();
     const dvrPass  = document.getElementById('zbxDvrPass')?.value;
     const tgAuto   = document.getElementById('zbxTgAuto')?.checked;
     const tgToken  = document.getElementById('zbxTgToken')?.value.trim();
     const tgChat   = document.getElementById('zbxTgChat')?.value.trim();
 
-    if (!url || !user || !pass) {
+    // A senha fica salva no servidor e o campo aparece vazio e travado. Exigir
+    // senha digitada aqui impedia sincronizar mesmo com tudo configurado.
+    if (!url || !user || (!pass && !window._zbxTemSenhaSalva)) {
       showToast('Preencha URL, usuario e senha do Zabbix', true);
       return;
     }
@@ -1743,11 +1751,14 @@ document.addEventListener('DOMContentLoaded', () => {
       url, user, pass, source, group, template,
       inv_mode: invMode,
       ...(site && { site }),
+      ...(sites.length > 1 && { sites }),
       ...(dvrUser && { dvr_user: dvrUser }),
       ...(dvrPass && { dvr_pass: dvrPass }),
       tg_auto: tgAuto || false,
       ...(tgToken && { tg_token: tgToken }),
       ...(tgChat  && { tg_chat:  tgChat  }),
+      // mapa site -> chat; campo vazio desliga o alerta daquele site
+      ...(typeof zbxChatsPorSite === 'function' && { tg_chat_by_site: zbxChatsPorSite() }),
     };
 
     const res  = await api('/api/scripts/zabbix', { method: 'POST', body: JSON.stringify(payload) });
@@ -1776,11 +1787,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Varredura OLT (via inventario)
   document.getElementById('btnScanOlt')?.addEventListener('click', openScanModal);
-  document.getElementById('btnAllowlist')?.addEventListener('click', openAllowlistModal);
-  document.getElementById('closeAllowlistModal')?.addEventListener('click', () => document.getElementById('modalAllowlist')?.classList.add('hidden'));
-  document.getElementById('allowlistSite')?.addEventListener('change', (e) => allowlistLoadSite(e.target.value));
-  document.getElementById('btnAllowlistSave')?.addEventListener('click', allowlistSave);
-  document.getElementById('btnAllowlistImport')?.addEventListener('click', allowlistImportFromInventory);
 
   //  Manutencao Cameras 
   document.getElementById('btnMntCamRefresh')?.addEventListener('click', () => { _mntCamAll = []; loadMntCam(); });

@@ -68,16 +68,9 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
         label = "Intelbras 8820i"
         notes = "Provisionamento e consulta homologados para o fluxo Intelbras 8820i."
     elif driver == "intelbras_4840e":
-        caps.update({
-            "collect_macs": True,
-            "telemetry": True,
-            "discover_onus": True,
-            "find_onu": True,
-            "delete_onu": True,
-            "onu_signal": True,
-        })
+        caps.update({"collect_macs": True})
         label = "Intelbras 4840E"
-        notes = "Homologada para inventario, telemetria, localizar/consultar ONU, MACs e exclusao por whitelist. Autorizacao ainda bloqueada ate homologacao."
+        notes = "Homologada para sincronizar inventario/MACs. Provisionamento de ONU ainda nao homologado."
     elif driver == "fiberhome":
         caps.update({
             "collect_macs": True,

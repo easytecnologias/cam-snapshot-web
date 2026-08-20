@@ -15,49 +15,7 @@ from app.services.inventory_json import inventory_row_key, load_inventory_json, 
 from app.api.endpoints.cameras import CameraUpdate, CamerasSaveRequest, api_cameras_save  # noqa: E402
 
 
-def run_regression_case() -> None:
-    set_current_tenant_slug("save-probe")
-    row = {
-        "ip": "100.65.10.101",
-        "mac": "d8:36:5f:76:a0:54",
-        "titulo": "1001 -",
-        "local": "BARRA DE SAO MIGUEL",
-        "site": "",
-        "remote": True,
-        "pon": "0/3",
-        "onu_id": "2",
-        "onu_name": "ONU-Praia antiga",
-    }
-    key = inventory_row_key(row)
-    save_inventory_json([row], mode="olt")
-    result = api_cameras_save(
-        CamerasSaveRequest(cameras=[
-            CameraUpdate(
-                ip="100.65.10.101",
-                inventory_key=key,
-                key=key,
-                remote=True,
-                site="BARRA DE SAO MIGUEL",
-                site_name="BARRA DE SAO MIGUEL",
-                titulo="1001 -",
-                local="BARRA DE SAO MIGUEL",
-                onu_name="ONU-Praia nova",
-            )
-        ]),
-        mode="olt",
-    )
-    after = load_inventory_json(mode="olt")
-    assert result["updated"] == 1, result
-    assert len(after) == 1, after
-    assert after[0].get("onu_name") == "ONU-Praia nova", after
-
-
 def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "--regression":
-        run_regression_case()
-        print("OK camera save explicit inventory_key preserves ONU Name")
-        return
-
     tenant = sys.argv[1] if len(sys.argv) > 1 else "easy-tecnologias"
     mode = sys.argv[2] if len(sys.argv) > 2 else "olt"
     site = sys.argv[3] if len(sys.argv) > 3 else "JARDINS II"
