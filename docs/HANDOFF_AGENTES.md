@@ -7,6 +7,52 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-21 (madrugada) — fechamento da noite: producao alinhada e mapas de volta
+
+**Agente:** Claude. Tres pendencias que ficaram abertas na noite anterior foram
+fechadas, todas verificadas:
+
+**1. `.env.production` alinhado.** Apontava `20260819-podasegura` enquanto o
+container rodava `20260820-mapaseletor`: um `docker compose up` qualquer
+reverteria driver VSOL, correcao do mapa e tela nova de uma vez. Agora
+`docker compose config` resolve para a mesma imagem que esta no ar. Backup:
+`.env.production.bak-20260821`.
+
+**2. Coordenadas devolvidas aos tres sites** (as 147 que o bug havia carimbado
+com o mapa de Japaratinga e que tinham sido limpas):
+
+```
+SANTANA              -> 224 atualizadas | 0 sem ponto | 306 de outros sites intocadas
+BARRA DE SAO MIGUEL  -> 180 atualizadas | 0 sem ponto | 350 intocadas
+ESCOLA MEDEA         ->  24 atualizadas | 1 sem ponto | 505 intocadas
+```
+
+530 linhas antes, 530 depois. Conferencia final: nenhuma camera de outro site
+dentro da area de Japaratinga. Backup em
+`/app/output/backup-inventario-rads-20260821-011343.json`. PRAIA BONITA (40)
+segue sem coordenada -- nao existe KMZ dela importado.
+
+**3. Regra TEMP de NAT removida do Mikrotik.** So depois de provar que a camera
+nao dependia mais dela: ping com origem `179.97.32.6` (fora do /23) deu 0% de
+perda antes de remover, e `100.66.11.31` responde pelo tunel sem NAT nenhum.
+
+**Git:** dois commits, um por autoria -- `ed5c5ed` (VSOL + mapa + tela, meu) e
+`10210ea` (controle de acesso, Codex). O repo voltou a importar: faltava
+restaurar `camera_allowlist.py` e corrigir quatro nomes do 4840e que
+`olt_service` importava de `olt_vsol_epon`. 53 de 54 testes passam; a unica
+falha e `sightops_access_control_shell_test.py` (espera 4 KPIs, a tela ja tem
+8) -- do bloco do Codex.
+
+**O push nao pode ser feito por mim** (o classificador de permissoes bloqueia
+publicacao externa). Fica para o usuario: `git push origin main`.
+
+**Pendencia de seguranca, anterior a esta noite:** a senha do servidor esta em
+texto puro em `scripts/sightops_access_control_*_test.py` e no proprio HANDOFF,
+e **ja esta no historico do git**. Apagar dos arquivos nao resolve -- precisa
+trocar a senha e passar a le-la do ambiente.
+
+---
+
 ## 2026-08-20 (noite) — OLT VSOL homologada, faltando o MAC do CPE
 
 **Agente:** Claude — **PASSAGEM DE BASTAO, tarefa inacabada**
