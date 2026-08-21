@@ -500,6 +500,21 @@ async function loadAccessPeopleSiteOptions() {
   }
 }
 
+async function loadAccessWhatsappSiteOptions(force = false) {
+  const select = document.getElementById('accessWhatsappSite');
+  if (!select) return;
+  try {
+    const res = await apiJson('/api/access-control/people/sites', { forceRefresh: force, cacheTtl: 0 });
+    const sites = res?.sites || [];
+    const current = select.value;
+    select.innerHTML = '<option value="">Padrao do cliente</option>'
+      + sites.map(site => `<option value="${esc(site)}">${esc(site)}</option>`).join('');
+    if (sites.includes(current)) select.value = current;
+  } catch (err) {
+    if (!select.options.length) select.innerHTML = '<option value="">Padrao do cliente</option>';
+  }
+}
+
 function renderAccessControlSummary(summary) {
   setText('accessKpiStudents', summary.students || 0);
   setText('accessKpiPeopleSub', `${summary.people_active || 0} ativo(s) de ${summary.people_total || 0}`);
@@ -978,6 +993,16 @@ function bindAccessConnections() {
   document.getElementById('btnAccessWhatsappQr')?.addEventListener('click', refreshAccessWhatsappQr);
   document.getElementById('btnAccessWhatsappConnection')?.addEventListener('click', () => loadAccessWhatsappConnection(true));
   document.getElementById('btnAccessWhatsappDisconnect')?.addEventListener('click', disconnectAccessWhatsapp);
+  document.getElementById('accessWhatsappSite')?.addEventListener('change', () => loadAccessWhatsappConfig(true));
+}
+
+function accessWhatsappSiteValue() {
+  return document.getElementById('accessWhatsappSite')?.value || '';
+}
+
+function accessWhatsappSiteQuery() {
+  const site = accessWhatsappSiteValue();
+  return site ? `?site=${encodeURIComponent(site)}` : '';
 }
 
 function setAccessWhatsappStatus(config = null) {
@@ -985,13 +1010,15 @@ function setAccessWhatsappStatus(config = null) {
   if (!status) return;
   const configured = !!config?.configured;
   const enabled = !!config?.enabled;
-  status.textContent = configured ? (enabled ? 'Ativo' : 'Configurado') : 'Nao configurado';
+  const siteConfigured = !!config?.site_configured;
+  status.textContent = configured ? (enabled ? (config?.site ? (siteConfigured ? 'Ativo no site' : 'Ativo padrao') : 'Ativo') : 'Configurado') : 'Nao configurado';
   status.className = `badge ${configured && enabled ? 'badge-green' : 'badge-gray'}`;
 }
 
 async function loadAccessWhatsappConfig(force = false) {
   try {
-    const data = await apiJson('/api/access-control/whatsapp', { forceRefresh: force, cacheTtl: 0 });
+    await loadAccessWhatsappSiteOptions(force);
+    const data = await apiJson(`/api/access-control/whatsapp${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
     document.getElementById('accessWhatsappProvider').value = data.provider || 'evolution';
     document.getElementById('accessWhatsappBaseUrl').value = data.base_url || '';
     document.getElementById('accessWhatsappInstance').value = data.instance || 'sightops';
@@ -1010,6 +1037,7 @@ async function saveAccessWhatsappConfig() {
   const btn = document.getElementById('btnAccessWhatsappSave');
   const oldHtml = btn?.innerHTML;
   const payload = {
+    site: accessWhatsappSiteValue(),
     enabled: !!document.getElementById('accessWhatsappEnabled')?.checked,
     provider: document.getElementById('accessWhatsappProvider')?.value || 'evolution',
     base_url: document.getElementById('accessWhatsappBaseUrl')?.value.trim() || '',
@@ -1102,7 +1130,7 @@ function setAccessWhatsappConnection(data = null) {
 
 async function loadAccessWhatsappConnection(force = false) {
   try {
-    const data = await apiJson('/api/access-control/whatsapp/connection', { forceRefresh: force, cacheTtl: 0 });
+    const data = await apiJson(`/api/access-control/whatsapp/connection${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
     setAccessWhatsappConnection(data);
     return data;
   } catch (err) {
@@ -1122,7 +1150,7 @@ async function refreshAccessWhatsappQr() {
     lucide.createIcons();
   }
   try {
-    const res = await api('/api/access-control/whatsapp/qr', { method: 'POST' });
+    const res = await api(`/api/access-control/whatsapp/qr${accessWhatsappSiteQuery()}`, { method: 'POST' });
     const data = await jsonOrReadableError(res, 'Nao foi possivel atualizar o QR Code.');
     setAccessWhatsappConnection(data);
     showToast(data.connected ? 'WhatsApp ja esta conectado.' : 'QR Code atualizado.');
@@ -1147,7 +1175,7 @@ async function disconnectAccessWhatsapp() {
     lucide.createIcons();
   }
   try {
-    const res = await api('/api/access-control/whatsapp/disconnect', { method: 'POST' });
+    const res = await api(`/api/access-control/whatsapp/disconnect${accessWhatsappSiteQuery()}`, { method: 'POST' });
     const data = await jsonOrReadableError(res, 'Nao foi possivel desconectar o WhatsApp.');
     setAccessWhatsappConnection(data);
     showToast('WhatsApp desconectado.');
@@ -1184,7 +1212,7 @@ async function testAccessWhatsappConfig() {
     status.className = 'badge badge-gray';
   }
   try {
-    const res = await api('/api/access-control/whatsapp/test', { method: 'POST', body: JSON.stringify({ number }) });
+    const res = await api('/api/access-control/whatsapp/test', { method: 'POST', body: JSON.stringify({ number, site: accessWhatsappSiteValue() }) });
     const data = await jsonOrReadableError(res, 'Nao foi possivel enviar o teste.');
     if (status) {
       status.textContent = data.status === 'whatsapp_sent' ? 'Enviado' : 'Verifique';

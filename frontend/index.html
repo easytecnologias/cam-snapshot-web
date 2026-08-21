@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=214">
+  <link rel="stylesheet" href="styles.css?v=223">
 </head>
 <body>
 
@@ -1762,11 +1762,11 @@
               <span class="badge badge-gray" id="accessWhatsappStatus">Nao configurado</span>
             </div>
             <div class="access-connection-form">
-              <div class="form-row">
+              <div class="form-row access-provider-row">
                 <div class="form-group">
-                  <label for="accessWhatsappProvider">Provedor</label>
-                  <select id="accessWhatsappProvider">
-                    <option value="evolution">Evolution API</option>
+                  <label for="accessWhatsappSite">Escola/site</label>
+                  <select id="accessWhatsappSite">
+                    <option value="">Padrao do cliente</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -1774,22 +1774,32 @@
                   <input id="accessWhatsappInstance" placeholder="sightops">
                 </div>
               </div>
-              <details class="access-technical-details">
-                <summary>
-                  <span><i data-lucide="settings-2"></i> Configuracao tecnica</span>
-                  <small>Endpoint interno e chave da integracao</small>
-                </summary>
-                <div class="form-row">
-                  <div class="form-group">
-                    <label for="accessWhatsappBaseUrl">Endpoint interno</label>
-                    <input id="accessWhatsappBaseUrl" placeholder="http://10.10.12.7:8080">
-                  </div>
-                  <div class="form-group">
-                    <label for="accessWhatsappApiKey">API key</label>
-                    <input id="accessWhatsappApiKey" type="password" placeholder="Deixe vazio para manter a atual">
-                  </div>
+              <div class="form-row access-provider-row">
+                <div class="form-group">
+                  <label for="accessWhatsappProvider">Provedor</label>
+                  <select id="accessWhatsappProvider">
+                    <option value="evolution">Evolution API</option>
+                  </select>
                 </div>
-              </details>
+                <div class="form-group access-technical-group">
+                  <label>Avancado</label>
+                  <details class="access-technical-details">
+                    <summary>
+                      <span><i data-lucide="settings-2"></i> Configuracao tecnica</span>
+                    </summary>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="accessWhatsappBaseUrl">Endpoint interno</label>
+                        <input id="accessWhatsappBaseUrl" placeholder="http://10.10.12.7:8080">
+                      </div>
+                      <div class="form-group">
+                        <label for="accessWhatsappApiKey">API key</label>
+                        <input id="accessWhatsappApiKey" type="password" placeholder="Deixe vazio para manter a atual">
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
               <div class="access-connection-footer-row">
                 <div class="access-person-checks">
                   <label><input id="accessWhatsappEnabled" type="checkbox"> Enviar notificacoes por WhatsApp</label>
@@ -5680,7 +5690,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=49"></script>
+  <script src="js/accessControl.js?v=50"></script>
   <script src="js/bootstrap.js?v=189"></script>
 </body>
 </html>

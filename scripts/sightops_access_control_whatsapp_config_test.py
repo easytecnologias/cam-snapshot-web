@@ -97,6 +97,37 @@ def main() -> None:
             )
             assert saved_without_key["configured"] is True, saved_without_key
 
+            saved_site_a = save_access_whatsapp_config(
+                {
+                    "site": "ESCOLA A",
+                    "enabled": True,
+                    "provider": "evolution",
+                    "base_url": "http://localhost:8080",
+                    "api_key": "",
+                    "instance": "escola-a",
+                }
+            )
+            saved_site_b = save_access_whatsapp_config(
+                {
+                    "site": "ESCOLA B",
+                    "enabled": True,
+                    "provider": "evolution",
+                    "base_url": "http://localhost:8080",
+                    "api_key": "site-b-key",
+                    "instance": "escola-b",
+                }
+            )
+            loaded_site_a = get_access_whatsapp_config("ESCOLA A")
+            loaded_site_b = get_access_whatsapp_config("ESCOLA B")
+            assert saved_site_a["site"] == "ESCOLA A", saved_site_a
+            assert saved_site_a["site_configured"] is True, saved_site_a
+            assert saved_site_a["instance"] == "escola-a", saved_site_a
+            assert saved_site_a["configured"] is True, saved_site_a
+            assert "api_key" not in saved_site_a, saved_site_a
+            assert saved_site_b["instance"] == "escola-b", saved_site_b
+            assert loaded_site_a["instance"] == "escola-a", loaded_site_a
+            assert loaded_site_b["instance"] == "escola-b", loaded_site_b
+
             result = test_access_whatsapp({"number": "+55 (82) 98136-6839"})
             assert result["ok"] is True, result
             assert sent[0]["url"] == "http://localhost:8080/message/sendText/sightops"

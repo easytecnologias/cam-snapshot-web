@@ -195,6 +195,7 @@ class AccessManualExitRequest(BaseModel):
 
 
 class AccessWhatsappConfigRequest(BaseModel):
+    site: str = ""
     enabled: bool = False
     provider: str = "evolution"
     base_url: str = ""
@@ -204,6 +205,7 @@ class AccessWhatsappConfigRequest(BaseModel):
 
 class AccessWhatsappTestRequest(BaseModel):
     number: str
+    site: str = ""
 
 
 @router.get("/summary")
@@ -212,8 +214,8 @@ def api_access_control_summary() -> Dict[str, Any]:
 
 
 @router.get("/whatsapp")
-def api_access_control_whatsapp_get() -> Dict[str, Any]:
-    return {"ok": True, **get_access_whatsapp_config()}
+def api_access_control_whatsapp_get(site: str = Query("")) -> Dict[str, Any]:
+    return {"ok": True, **get_access_whatsapp_config(site)}
 
 
 @router.put("/whatsapp")
@@ -232,16 +234,16 @@ def api_access_control_whatsapp_test(req: AccessWhatsappTestRequest) -> Dict[str
 
 
 @router.get("/whatsapp/connection")
-def api_access_control_whatsapp_connection() -> Dict[str, Any]:
-    result = get_access_whatsapp_connection(refresh_qr=False)
+def api_access_control_whatsapp_connection(site: str = Query("")) -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=False, site=site)
     if not result.get("ok") and result.get("state") == "error":
         raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao consultar WhatsApp.")
     return result
 
 
 @router.post("/whatsapp/qr")
-def api_access_control_whatsapp_qr() -> Dict[str, Any]:
-    result = get_access_whatsapp_connection(refresh_qr=True)
+def api_access_control_whatsapp_qr(site: str = Query("")) -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=True, site=site)
     if not result.get("ok"):
         status_code = 400 if result.get("state") == "not_configured" else 502
         raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao gerar QR Code.")
@@ -249,8 +251,8 @@ def api_access_control_whatsapp_qr() -> Dict[str, Any]:
 
 
 @router.post("/whatsapp/disconnect")
-def api_access_control_whatsapp_disconnect() -> Dict[str, Any]:
-    result = disconnect_access_whatsapp()
+def api_access_control_whatsapp_disconnect(site: str = Query("")) -> Dict[str, Any]:
+    result = disconnect_access_whatsapp(site)
     if not result.get("ok"):
         status_code = 400 if result.get("state") == "not_configured" else 502
         raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
