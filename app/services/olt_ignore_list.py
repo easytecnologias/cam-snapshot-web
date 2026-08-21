@@ -111,38 +111,37 @@ def add_ignored_rows(rows: Iterable[Dict[str, Any]], reason: str = "") -> int:
 
 # site/conector dizem DE QUEM e o IP -- sao os campos que impedem bloquear
 # 100.65.10.57 de um cliente por causa do mesmo IP privado em outro.
-_SCOPE_IDENTIDADE = {"site", "connector_id"}
 # olt_ip/pon/onu descrevem por onde a camera estava pendurada. A mesma camera
 # aparece com esses campos vazios quando vem de varredura basica ou switch, e
 # exigir que batessem fazia o bloqueio nao valer -- a camera apagada voltava.
-_SCOPE_TOPOLOGIA = {"olt_ip", "pon", "onu_id", "onu_serial"}
 
 
 def _matches_scope(meta: Dict[str, Any], row: Dict[str, Any]) -> bool:
-    scope = _row_scope(row)
-    has_scope = False
-    for key, expected in (meta or {}).items():
-        if key not in scope:
-            continue
-        expected_text = str(expected or "").strip()
-        if not expected_text:
-            continue
-        actual = str(scope.get(key) or "").strip()
-        if key in _SCOPE_TOPOLOGIA:
-            if not actual:
-                continue
-            has_scope = True
-            if actual != expected_text:
-                return False
-            continue
-        has_scope = True
-        if key == "site":
-            if actual.lower() != expected_text.lower():
-                return False
-        elif actual != expected_text:
-            return False
-    return has_scope
+    """A entrada bloqueada e a linha nova sao a mesma camera?
 
+    Casa pelo que NAO muda com o uso: conector + IP (o IP ja e a chave do
+    registro). Site e topologia mudam na operacao normal -- renomear site,
+    remanejar a camera de ONU -- e exigir que continuassem iguais fazia o
+    bloqueio expirar sozinho e a camera voltar.
+    """
+    scope = _row_scope(row)
+    meta_conn = str((meta or {}).get("connector_id") or "").strip()
+    row_conn = str(scope.get("connector_id") or "").strip()
+
+    # Conector identifica o cliente: se os dois informam, ele decide sozinho.
+    if meta_conn and row_conn:
+        return meta_conn == row_conn
+
+    # Sem conector, o site serve de desempate -- mas so quando os dois lados
+    # informam. Se um nao informa, nao da pra concluir que sao diferentes.
+    meta_site = str((meta or {}).get("site") or "").strip().lower()
+    row_site = str(scope.get("site") or "").strip().lower()
+    if meta_site and row_site:
+        return meta_site == row_site
+
+    # Mesmo tenant (a lista e por tenant) e mesmo IP, sem nada que diferencie:
+    # tratar como a mesma camera e o que respeita o que o usuario pediu.
+    return True
 
 def is_ignored_olt_row(row: Dict[str, Any]) -> bool:
     ip = _row_ip(row)

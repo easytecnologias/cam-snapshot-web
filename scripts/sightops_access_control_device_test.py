@@ -58,23 +58,77 @@ def test_open_door_raises_on_device_error() -> None:
             assert "Invalid channel" in str(exc.detail)
 
 
-def test_poll_events_empty_response_is_confirmed_real_device_behavior() -> None:
-    """Texto real observado ao vivo em 10.10.13.33 (Task 4 Step 6):
-    GET /cgi-bin/eventManager.cgi?action=getEventIndexes&code=AccessControlCardRec
-    -> HTTP 200, corpo "Error: No Events"
-    (accessControl.cgi?action=getRecordList, usado antes, respondia HTTP 501
-    "Error\\nNot Implemented!" -- essa acao nao existe neste firmware).
-    """
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+def test_poll_events_reads_intelbras_access_history() -> None:
+    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
     fake_response = MagicMock()
     fake_response.status_code = 200
-    fake_response.text = "Error: No Events"
+    fake_response.text = (
+        "found=3\r\n"
+        "records[0].RecNo=100\r\n"
+        "records[0].CreateTime=2026-05-15 10:14:27\r\n"
+        "records[0].UserID=1021\r\n"
+        "records[0].CardName=RAYSSA FUNCIONARIA\r\n"
+        "records[0].Status=1\r\n"
+        "records[0].Type=Entry\r\n"
+        "records[0].Method=15\r\n"
+        "records[0].Door=0\r\n"
+        "records[0].ReaderID=1\r\n"
+        "records[1].RecNo=101\r\n"
+        "records[1].CreateTime=2026-05-15 10:15:27\r\n"
+        "records[1].UserID=1022\r\n"
+        "records[1].CardName=TENTATIVA NEGADA\r\n"
+        "records[1].Status=0\r\n"
+        "records[1].Type=Entry\r\n"
+        "records[2].RecNo=102\r\n"
+        "records[2].CreateTime=2026-05-15 10:16:27\r\n"
+        "records[2].UserID=1023\r\n"
+        "records[2].CardName=LUCIANA SAIDA\r\n"
+        "records[2].Status=1\r\n"
+        "records[2].Type=Exit\r\n"
+    )
     with patch("app.services.access_control_device.requests.get", return_value=fake_response) as mock_get:
-        events = poll_events(device)
-    assert events == []
+        events = poll_events(device, since_id="100")
+    assert len(events) == 1
+    assert events[0]["raw_id"] == "102"
+    assert events[0]["occurred_at"] == "2026-05-15 10:16:27"
+    assert events[0]["person_name_raw"] == "LUCIANA SAIDA"
+    assert events[0]["user_id"] == "1023"
+    assert events[0]["event_type"] == "saida"
     called_url = mock_get.call_args.args[0]
-    assert "eventManager.cgi" in called_url
-    assert "getEventIndexes" in called_url
+    assert "recordFinder.cgi" in called_url
+    assert "AccessControlCardRec" in called_url
+    assert "StartTime" in called_url
+
+
+def test_poll_events_uses_recent_window_after_cursor() -> None:
+    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
+    fake_response = MagicMock()
+    fake_response.status_code = 200
+    fake_response.text = (
+        "found=2\r\n"
+        "records[0].RecNo=1656\r\n"
+        "records[0].CreateTime=1787231797\r\n"
+        "records[0].UserID=1021\r\n"
+        "records[0].CardName=RAYSSA FUNCIONARIA\r\n"
+        "records[0].Status=1\r\n"
+        "records[0].Type=Entry\r\n"
+        "records[1].RecNo=1657\r\n"
+        "records[1].CreateTime=1787255104\r\n"
+        "records[1].UserID=1001\r\n"
+        "records[1].CardName=ELISHAFAN DE OLIVEIRA MACHADO\r\n"
+        "records[1].Status=1\r\n"
+        "records[1].Type=Entry\r\n"
+    )
+    with patch("app.services.access_control_device.requests.get", return_value=fake_response) as mock_get:
+        events = poll_events(device, since_id="1656")
+    assert len(events) == 1
+    assert events[0]["raw_id"] == "1657"
+    assert events[0]["user_id"] == "1001"
+    assert events[0]["person_name_raw"] == "ELISHAFAN DE OLIVEIRA MACHADO"
+    assert events[0]["occurred_at"] == "2026-08-20 16:45:04"
+    called_url = mock_get.call_args.args[0]
+    assert "StartTime" in called_url
+    assert "count=1024" in called_url
 
 
 def test_poll_events_raises_on_unexpected_error_body() -> None:
@@ -87,7 +141,7 @@ def test_poll_events_raises_on_unexpected_error_body() -> None:
     """
     from fastapi import HTTPException
 
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = "Error: Authentication Failed"
@@ -190,7 +244,8 @@ def main() -> None:
     test_get_system_info_parses_response()
     test_open_door_checks_ok_response()
     test_open_door_raises_on_device_error()
-    test_poll_events_empty_response_is_confirmed_real_device_behavior()
+    test_poll_events_reads_intelbras_access_history()
+    test_poll_events_uses_recent_window_after_cursor()
     test_poll_events_raises_on_unexpected_error_body()
     test_provision_person_sends_valid_json_not_python_repr()
     test_provision_intelbras_uses_legacy_card_and_face_endpoints()

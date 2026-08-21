@@ -3,6 +3,12 @@ name: sightops-audit
 description: Analisa o sistema SightOps (cam-snapshot-web-v2) inteiro — backend FastAPI, frontend, Docker/stack de produção, conectores (OLT, RouterOS/WireGuard, câmeras) — e revisa as mudanças recentes (diff não commitado + últimos commits) para achar bugs, riscos de arquitetura, segurança, performance e regressões introduzidas pelas mudanças. Cobre também prontidão para SaaS multi-cliente: isolamento entre tenants, filas/jobs, HTTPS, concorrência, rate limit por cliente. Use quando o usuário pedir para auditar, revisar mudanças, ou avaliar se o sistema está pronto pra vender/escalar pra vários clientes.
 ---
 
+
+> **Nao e esta skill se o usuario relatou UM sintoma concreto que ele esta vendo agora**
+> ("apaguei e voltou", "o filtro nao funciona", "ta lento"). Nesse caso use
+> `sightops-bug-producao`, que vai do sintoma ate a correcao publicada em producao.
+> Esta skill aqui e para varredura ampla: achar o que ainda ninguem reclamou.
+
 # SightOps Audit Skill
 
 Use esta skill quando o usuário pedir para auditar o SightOps, revisar o projeto inteiro, revisar as mudanças/diff atuais, investigar uma regressão recente, ou pedir um "raio-x" do sistema antes de fazer deploy/push.

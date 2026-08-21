@@ -7,6 +7,10 @@ description: Aplica as correcoes SEGURAS do plano da ultima auditoria do SightOp
 
 Use esta skill quando o usuario disser **"resolve"**, **"corrige"**, **"arruma"**, **"aplica as correcoes"** ou equivalente, se referindo aos problemas encontrados numa auditoria do SightOps (`C:\PROJETOS\cam-snapshot-web-v2`). E o par de execucao da skill `sightops-audit`: a auditoria acha e classifica; esta skill conserta o que e seguro.
 
+> Se nao existe auditoria previa e o usuario esta relatando um sintoma que ele
+> ve agora em producao, a skill certa e `sightops-bug-producao` (sintoma ->
+> causa -> correcao publicada e provada). Esta aqui executa um plano ja feito.
+
 O usuario ja definiu o comportamento uma vez e nao quer reexplicar. As regras abaixo SAO a decisao dele — siga sem pedir confirmacao para o que e verde, sempre pergunte para o que e amarelo/vermelho.
 
 ## Regra de trafego (a decisao ja tomada pelo usuario)

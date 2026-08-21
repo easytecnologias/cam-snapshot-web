@@ -34,6 +34,8 @@ def normalize_olt_driver(vendor: Any = "", model: Any = "") -> str:
     model_key = _norm(model)
     if vendor_key == "fiberhome" or model_key.startswith(("an5516", "an6000", "fiberhome")):
         return "fiberhome"
+    if vendor_key in ("vsol", "v-sol", "vsolution") or model_key.startswith(("vsol", "v1600", "epon-olt")):
+        return "vsol_epon"
     if vendor_key == "intelbras":
         if model_key in {"4840e", "4840", "intelbras-4840e", "intelbras-4840e-epon", "4840e-epon"}:
             return "intelbras_4840e"
@@ -68,9 +70,29 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
         label = "Intelbras 8820i"
         notes = "Provisionamento e consulta homologados para o fluxo Intelbras 8820i."
     elif driver == "intelbras_4840e":
-        caps.update({"collect_macs": True})
+        caps.update({
+            "collect_macs": True,
+            "telemetry": True,
+            "discover_onus": True,
+            "find_onu": True,
+            "delete_onu": True,
+            "onu_signal": True,
+        })
         label = "Intelbras 4840E"
-        notes = "Homologada para sincronizar inventario/MACs. Provisionamento de ONU ainda nao homologado."
+        notes = "Homologada para inventario, telemetria, localizar/consultar ONU, MACs e exclusao por whitelist. Autorizacao ainda bloqueada ate homologacao."
+    elif driver == "vsol_epon":
+        caps.update({
+            "collect_macs": True,
+            "telemetry": True,
+            "discover_onus": True,
+            "find_onu": True,
+            "onu_signal": True,
+        })
+        label = "VSOL EPON"
+        notes = (
+            "Homologada para inventario, telemetria, descoberta e consulta de ONU. "
+            "Autorizar e excluir ONU seguem bloqueados ate homologacao do provisionamento."
+        )
     elif driver == "fiberhome":
         caps.update({
             "collect_macs": True,

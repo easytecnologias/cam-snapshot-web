@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -9,17 +11,88 @@ from app.services.access_control_device import poll_events, provision_person
 from app.services.access_control_photos import load_person_face_photo
 from app.services.access_control_store import (
     get_device_with_password,
+    list_people,
     list_devices,
     list_door_group_members,
     list_group_members,
     list_groups,
     list_pending_provisions,
     list_rules,
+    normalize_access_direction,
+    normalize_access_event_type,
     record_event,
+    update_device_event_cursor,
     upsert_provision_status,
 )
 
 logger = logging.getLogger("cam-snapshot")
+
+
+def _digits(value: Any) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _match_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def _event_ref_values(event: Dict[str, Any]) -> List[str]:
+    values: List[str] = []
+    for key in (
+        "person_id",
+        "controller_user_id",
+        "user_id",
+        "UserID",
+        "userid",
+        "card_no",
+        "CardNo",
+        "enrollment_code",
+    ):
+        value = _digits(event.get(key))
+        if value:
+            values.append(value)
+    return values
+
+
+def _resolve_event_person(event: Dict[str, Any], people: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+    by_numeric_ref: Dict[str, Dict[str, Any]] = {}
+    names: Dict[str, List[Dict[str, Any]]] = {}
+    for person in people:
+        for key in ("controller_user_id", "enrollment_code", "document_id"):
+            value = _digits(person.get(key))
+            if value and value not in by_numeric_ref:
+                by_numeric_ref[value] = person
+        name = _match_text(person.get("full_name"))
+        if name:
+            names.setdefault(name, []).append(person)
+
+    for value in _event_ref_values(event):
+        person = by_numeric_ref.get(value)
+        if person:
+            return person
+
+    event_name = _match_text(
+        event.get("person_name_raw")
+        or event.get("person_name")
+        or event.get("UserName")
+        or event.get("name")
+    )
+    candidates = names.get(event_name, [])
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _resolve_event_type(event: Dict[str, Any], device_role: str) -> str:
+    raw_value = str(event.get("event_type") or "").strip()
+    if raw_value:
+        parsed = normalize_access_event_type(raw_value)
+        if parsed in {"saida", "saida_manual"}:
+            return parsed
+    if device_role in {"entrada", "saida"}:
+        return device_role
+    parsed = normalize_access_event_type(raw_value or "entrada")
+    return "entrada" if parsed == "entrada_saida" else parsed
 
 
 def resolve_target_devices_for_person(person_id: str) -> List[Dict[str, Any]]:
@@ -149,13 +222,9 @@ def retry_pending_provisions() -> Dict[str, Any]:
 def poll_device_events(device_id: str) -> int:
     """Busca eventos novos de um dispositivo e grava no historico.
 
-    Nota: poll_events (access_control_device.py) ainda nao filtra por
-    since_id no dispositivo -- sempre devolve o indice de eventos inteiro
-    que o firmware expoe, e documenta que quem chama precisa deduplicar por
-    raw_id. Este Task 5 grava os eventos retornados; a deduplicacao/cursor
-    incremental por device (guardar o maior raw_id ja visto) fica para a
-    Task 7, que e quem efetivamente chama esta funcao em loop continuo e
-    tem o estado de "ultimo evento processado" por dispositivo.
+    O cursor salvo em access_devices.last_event_id evita reler o historico
+    inteiro da controladora a cada ciclo. record_event ainda deduplica por
+    seguranca, caso algum firmware devolva uma janela sobreposta.
     """
     device = get_device_with_password(device_id)
     if not device:
@@ -165,13 +234,39 @@ def poll_device_events(device_id: str) -> int:
     except HTTPException as exc:
         logger.warning("Falha ao consultar eventos do dispositivo %s: %s", device_id, exc.detail)
         return 0
+    people = list_people(site=device.get("site", ""))
+    max_raw_event_id = 0
     for event in events:
+        device_role = normalize_access_direction(device.get("access_direction"))
+        event_type = _resolve_event_type(event, device_role)
+        person = _resolve_event_person(event, people)
+        person_name = (
+            event.get("person_name_raw")
+            or event.get("person_name")
+            or event.get("UserName")
+            or event.get("name")
+            or (person or {}).get("full_name")
+            or ""
+        )
         record_event({
-            "site": device.get("site", ""),
+            "site": device.get("site", "") or (person or {}).get("site", ""),
             "device_id": device_id,
-            "person_id": "",
-            "person_name_raw": event.get("person_name_raw", ""),
-            "event_type": event.get("event_type", "entrada"),
+            "device_name": device.get("name", ""),
+            "device_role": device_role,
+            "person_id": (person or {}).get("id", ""),
+            "person_name_raw": person_name,
+            "event_type": event_type,
+            "source": "device",
+            "raw_event_id": event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "",
+            "raw_payload": json.dumps(event, ensure_ascii=True, default=str)[:4000],
             "occurred_at": event.get("occurred_at", ""),
         })
+        raw_id = str(event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "").strip()
+        if raw_id.isdigit():
+            max_raw_event_id = max(max_raw_event_id, int(raw_id))
+    if max_raw_event_id:
+        try:
+            update_device_event_cursor(device_id, str(max_raw_event_id))
+        except ValueError:
+            logger.warning("Nao foi possivel atualizar cursor de eventos do dispositivo %s", device_id)
     return len(events)

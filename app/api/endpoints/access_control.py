@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.services.access_control_store import (
     access_control_summary,
+    access_report_summary,
     delete_device,
     delete_door_group,
     delete_group,
@@ -16,6 +17,7 @@ from app.services.access_control_store import (
     list_devices,
     list_door_groups,
     list_events,
+    list_access_report_events,
     list_group_members,
     list_groups,
     list_people,
@@ -27,15 +29,25 @@ from app.services.access_control_store import (
     save_group,
     save_person,
     save_rule,
+    record_manual_exit,
     set_door_group_members,
     set_group_members,
     update_device_health,
     upsert_provision_status,
 )
 from app.services.access_control_device import get_system_info as device_get_system_info
+from app.services.access_control_device import get_controller_person_photo as device_get_controller_person_photo
+from app.services.access_control_device import list_controller_people as device_list_controller_people
 from app.services.access_control_device import open_door as device_open_door
 from app.services.access_control_photos import load_person_face_photo, save_person_face_photo
 from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
+from app.services.access_control_notifications import (
+    disconnect_access_whatsapp,
+    get_access_whatsapp_connection,
+    get_access_whatsapp_config,
+    save_access_whatsapp_config,
+    test_access_whatsapp,
+)
 
 router = APIRouter(prefix="/api/access-control", tags=["access-control"])
 
@@ -145,6 +157,7 @@ class AccessDeviceRequest(BaseModel):
     connector_id: str = ""
     username: str = "admin"
     password: Optional[str] = ""
+    access_direction: str = "entrada"
     active: bool = True
 
 
@@ -175,9 +188,73 @@ class AccessRuleRequest(BaseModel):
     active: bool = True
 
 
+class AccessManualExitRequest(BaseModel):
+    person_id: str
+    site: str = ""
+    reason: str = ""
+
+
+class AccessWhatsappConfigRequest(BaseModel):
+    enabled: bool = False
+    provider: str = "evolution"
+    base_url: str = ""
+    api_key: str = ""
+    instance: str = "sightops"
+
+
+class AccessWhatsappTestRequest(BaseModel):
+    number: str
+
+
 @router.get("/summary")
 def api_access_control_summary() -> Dict[str, Any]:
     return {"ok": True, "summary": access_control_summary()}
+
+
+@router.get("/whatsapp")
+def api_access_control_whatsapp_get() -> Dict[str, Any]:
+    return {"ok": True, **get_access_whatsapp_config()}
+
+
+@router.put("/whatsapp")
+def api_access_control_whatsapp_put(req: AccessWhatsappConfigRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    return {"ok": True, **save_access_whatsapp_config(payload)}
+
+
+@router.post("/whatsapp/test")
+def api_access_control_whatsapp_test(req: AccessWhatsappTestRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    result = test_access_whatsapp(payload)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "Nao foi possivel enviar o teste.")
+    return result
+
+
+@router.get("/whatsapp/connection")
+def api_access_control_whatsapp_connection() -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=False)
+    if not result.get("ok") and result.get("state") == "error":
+        raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao consultar WhatsApp.")
+    return result
+
+
+@router.post("/whatsapp/qr")
+def api_access_control_whatsapp_qr() -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=True)
+    if not result.get("ok"):
+        status_code = 400 if result.get("state") == "not_configured" else 502
+        raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao gerar QR Code.")
+    return result
+
+
+@router.post("/whatsapp/disconnect")
+def api_access_control_whatsapp_disconnect() -> Dict[str, Any]:
+    result = disconnect_access_whatsapp()
+    if not result.get("ok"):
+        status_code = 400 if result.get("state") == "not_configured" else 502
+        raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
+    return result
 
 
 @router.get("/people")
@@ -319,6 +396,81 @@ def api_access_control_open_door(device_id: str, channel: int = 1) -> Dict[str, 
     return {"ok": True, **result}
 
 
+@router.post("/devices/{device_id}/import-people")
+def api_access_control_import_device_people(device_id: str) -> Dict[str, Any]:
+    from app.services.access_control_store import get_device_with_password
+
+    device = get_device_with_password(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Dispositivo nao encontrado neste cliente.")
+    controller_people = device_list_controller_people(device)
+    existing_by_controller_id = {
+        str(person.get("controller_user_id") or ""): person
+        for person in list_people()
+        if str(person.get("controller_user_id") or "")
+    }
+    imported: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
+    photos_imported = 0
+    photos_missing = 0
+    photo_errors: List[Dict[str, str]] = []
+    site = str(device.get("site") or "").strip()
+    device_prefix = "".join(ch for ch in str(device.get("id") or device_id) if ch.isalnum())[:16]
+    for controller_person in controller_people:
+        controller_user_id = str(controller_person.get("controller_user_id") or "").strip()
+        full_name = str(controller_person.get("full_name") or "").strip()
+        if not controller_user_id or not full_name:
+            skipped.append(controller_person)
+            continue
+        existing = existing_by_controller_id.get(controller_user_id)
+        person = save_person(
+            {
+                "id": existing["id"] if existing else f"ctl-{device_prefix}-{controller_user_id}",
+                "full_name": full_name,
+                "person_type": existing.get("person_type", "student") if existing else "student",
+                "document_id": controller_person.get("document_id", ""),
+                "enrollment_code": existing.get("enrollment_code", "") if existing else controller_user_id,
+                "class_name": existing.get("class_name", "") if existing else "",
+                "site": existing.get("site", "") or site if existing else site,
+                "controller_user_id": controller_user_id,
+                "guardian_name": existing.get("guardian_name", "") if existing else "",
+                "guardian_phone": existing.get("guardian_phone", "") if existing else "",
+                "whatsapp_enabled": existing.get("whatsapp_enabled", True) if existing else True,
+                "active": True,
+                "notes": existing.get("notes", "") if existing else f"Importado da controladora {device.get('name') or device_id}.",
+            }
+        )
+        if not str(person.get("face_photo_path") or "").strip():
+            try:
+                photo = device_get_controller_person_photo(device, controller_user_id)
+            except HTTPException as exc:
+                photo_errors.append({"controller_user_id": controller_user_id, "error": str(exc.detail)})
+                photo = None
+            if photo:
+                try:
+                    photo_result = save_person_face_photo(person["id"], photo)
+                    person = photo_result["person"]
+                    photos_imported += 1
+                except ValueError as exc:
+                    photo_errors.append({"controller_user_id": controller_user_id, "error": str(exc)})
+            else:
+                photos_missing += 1
+        existing_by_controller_id[controller_user_id] = person
+        imported.append(person)
+    return {
+        "ok": True,
+        "device_id": device_id,
+        "device_name": device.get("name", ""),
+        "read": len(controller_people),
+        "imported": len(imported),
+        "skipped": len(skipped),
+        "photos_imported": photos_imported,
+        "photos_missing": photos_missing,
+        "photo_errors": photo_errors,
+        "people": imported,
+    }
+
+
 @router.get("/groups")
 def api_access_control_groups() -> Dict[str, Any]:
     groups = list_groups()
@@ -424,3 +576,61 @@ def api_access_control_events(
 ) -> Dict[str, Any]:
     events = list_events(person_id=person_id, site=site, limit=limit)
     return {"ok": True, "count": len(events), "events": events}
+
+
+@router.get("/reports/summary")
+def api_access_control_report_summary(
+    period: str = Query("today"),
+    start: str = Query(""),
+    end: str = Query(""),
+    type: str = Query(""),
+    site: str = Query(""),
+    search: str = Query(""),
+    device_id: str = Query(""),
+) -> Dict[str, Any]:
+    filters = {
+        "period": period,
+        "start": start,
+        "end": end,
+        "type": type,
+        "site": site,
+        "search": search,
+        "device_id": device_id,
+    }
+    return {"ok": True, "summary": access_report_summary(filters)}
+
+
+@router.get("/reports/events")
+def api_access_control_report_events(
+    period: str = Query("today"),
+    start: str = Query(""),
+    end: str = Query(""),
+    type: str = Query(""),
+    site: str = Query(""),
+    search: str = Query(""),
+    device_id: str = Query(""),
+    limit: int = Query(300),
+) -> Dict[str, Any]:
+    filters = {
+        "period": period,
+        "start": start,
+        "end": end,
+        "type": type,
+        "site": site,
+        "search": search,
+        "device_id": device_id,
+        "limit": limit,
+    }
+    events = list_access_report_events(filters)
+    return {"ok": True, "count": len(events), "events": events}
+
+
+@router.post("/reports/manual-exit")
+def api_access_control_manual_exit(req: AccessManualExitRequest, request: Request) -> Dict[str, Any]:
+    try:
+        user = getattr(request.state, "user", {}) or {}
+        operator_user = str(user.get("username") or user.get("sub") or "")
+        event = record_manual_exit(req.person_id, site=req.site, reason=req.reason, operator_user=operator_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "event": event}

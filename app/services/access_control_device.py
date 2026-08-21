@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import base64
+import re
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from urllib.parse import urlencode
 
@@ -10,6 +12,8 @@ from fastapi import HTTPException
 from requests.auth import HTTPDigestAuth
 
 _TIMEOUT = 10.0
+_ACCESS_REC_LIMIT = 1024
+_ACCESS_REC_LOOKBACK_DAYS = 90
 
 
 def _base_url(device: Dict[str, Any]) -> str:
@@ -74,6 +78,163 @@ def _parse_kv_text(text: str) -> Dict[str, str]:
         key, _, value = line.partition("=")
         out[key.strip()] = value.strip()
     return out
+
+
+def _parse_record_table(text: str) -> List[Dict[str, str]]:
+    records: Dict[int, Dict[str, str]] = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        match = re.match(r"^records\[(\d+)\]\.(.+)$", key.strip())
+        if not match:
+            continue
+        index = int(match.group(1))
+        field = match.group(2).strip()
+        records.setdefault(index, {})[field] = value.strip()
+    return [records[index] for index in sorted(records)]
+
+
+def _timestamp_to_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        return text
+    if text.isdigit():
+        try:
+            return datetime.fromtimestamp(int(text)).strftime("%Y-%m-%d %H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            return text
+    return text
+
+
+def _timestamp_number(value: Any) -> int:
+    text = str(value or "").strip()
+    return int(text) if text.isdigit() else 0
+
+
+def _fetch_access_event_rows(device: Dict[str, Any], since_id: str = "") -> List[Dict[str, str]]:
+    """Le historico Intelbras sem ficar preso no primeiro bloco de 1024 eventos.
+
+    Algumas controladoras ASI retornam sempre os primeiros registros quando a
+    consulta nao informa StartTime, mesmo com `count` maior que 1024. Por isso,
+    quando fazemos polling incremental, buscamos tambem uma janela recente por
+    timestamp e filtramos por RecNo depois.
+    """
+    queries: List[Dict[str, Any]] = [
+        {"action": "find", "name": "AccessControlCardRec"},
+    ]
+    since_number = int(since_id) if str(since_id or "").isdigit() else 0
+    start_time = int((datetime.now() - timedelta(days=_ACCESS_REC_LOOKBACK_DAYS)).timestamp())
+    recent_query = {
+        "action": "find",
+        "name": "AccessControlCardRec",
+        "StartTime": str(start_time),
+        "count": str(_ACCESS_REC_LIMIT),
+    }
+    # Com cursor salvo, a janela recente e a parte que interessa. Sem cursor,
+    # mantemos tambem a leitura antiga para preservar importacao inicial.
+    if since_number:
+        queries = [recent_query]
+    else:
+        queries.append(recent_query)
+
+    rows_by_id: Dict[str, Dict[str, str]] = {}
+    for params in queries:
+        guard = 0
+        current_params = dict(params)
+        while guard < 8:
+            guard += 1
+            resp = _get(device, "/cgi-bin/recordFinder.cgi", current_params)
+            text = (resp.text or "").strip()
+            if not text:
+                break
+            if text.startswith("Error"):
+                raise HTTPException(status_code=502, detail=f"Dispositivo respondeu com erro ao listar eventos: {text}")
+            rows = _parse_record_table(text)
+            if not rows:
+                break
+            for row in rows:
+                raw_id = _first_text(row, "RecNo", "RecordNo", "ID")
+                if raw_id:
+                    rows_by_id[raw_id] = row
+            if len(rows) < _ACCESS_REC_LIMIT or "StartTime" not in current_params:
+                break
+            max_ts = max(_timestamp_number(_first_text(row, "CreateTime", "Time", "UTC")) for row in rows)
+            if max_ts <= int(current_params.get("StartTime") or 0):
+                break
+            current_params["StartTime"] = str(max_ts + 1)
+    return sorted(rows_by_id.values(), key=lambda row: int(_first_text(row, "RecNo", "RecordNo", "ID") or "0"))
+
+
+def _photo_data_from_access_face_text(text: str) -> bytes | None:
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if not key.strip().lower().endswith(".photodata[0]"):
+            continue
+        encoded = value.strip()
+        if not encoded:
+            continue
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except Exception:
+            continue
+        if data.startswith(b"\xff\xd8") or data.startswith(b"\x89PNG") or data.startswith(b"RIFF"):
+            return data
+    return None
+
+
+def _first_text(row: Dict[str, str], *keys: str) -> str:
+    for key in keys:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def list_controller_people(device: Dict[str, Any]) -> List[Dict[str, str]]:
+    if not _is_intelbras_device(device):
+        raise HTTPException(status_code=400, detail="Importacao de pessoas homologada apenas para Intelbras.")
+    resp = _get(device, "/cgi-bin/recordFinder.cgi", {"action": "find", "name": "AccessControlCard"})
+    people: List[Dict[str, str]] = []
+    for row in _parse_record_table(resp.text):
+        user_id = _first_text(row, "UserID", "RecNo")
+        name = _first_text(row, "CardName", "UserName", "Name")
+        if not user_id or not name:
+            continue
+        people.append(
+            {
+                "controller_user_id": "".join(ch for ch in user_id if ch.isdigit()),
+                "full_name": name,
+                "document_id": _first_text(row, "CitizenIDNo"),
+                "card_no": _first_text(row, "CardNo"),
+                "rec_no": _first_text(row, "RecNo"),
+                "valid_from": _first_text(row, "ValidDateStart"),
+                "valid_to": _first_text(row, "ValidDateEnd"),
+                "raw_active": _first_text(row, "CardStatus", "UserStatus"),
+            }
+        )
+    return people
+
+
+def get_controller_person_photo(device: Dict[str, Any], controller_user_id: str) -> bytes | None:
+    if not _is_intelbras_device(device):
+        raise HTTPException(status_code=400, detail="Importacao de fotos homologada apenas para Intelbras.")
+    user_id = "".join(ch for ch in str(controller_user_id or "") if ch.isdigit())
+    if not user_id:
+        return None
+    try:
+        resp = _get(device, "/cgi-bin/AccessFace.cgi", {"action": "list", "UserIDList[0]": user_id})
+    except HTTPException as exc:
+        if exc.status_code in {400, 404, 502}:
+            return None
+        raise
+    return _photo_data_from_access_face_text(resp.text)
 
 
 def get_system_info(device: Dict[str, Any]) -> Dict[str, str]:
@@ -196,60 +357,39 @@ def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
 
 
 def poll_events(device: Dict[str, Any], since_id: str = "") -> List[Dict[str, Any]]:
-    """Busca eventos de acesso recentes no dispositivo.
+    """Busca historico de acesso em controladoras Intelbras.
 
-    Ajustado na Task 4 Step 6 (smoke test ao vivo contra 10.10.13.33): a acao
-    original do plano (`accessControl.cgi?action=getRecordList`) NAO existe
-    neste firmware -- responde HTTP 501 "Error / Not Implemented!". A acao
-    real confirmada por sondagem ao vivo e `eventManager.cgi?action=getEventIndexes`
-    (HTTP 200; responde "Error: No Events" em texto quando a lista esta vazia,
-    e HTTP 400 "Error / Bad Request!" se o parametro `code` faltar).
-
-    O formato de um evento *populado* (pessoa passou/tentou passar) NAO foi
-    capturado ao vivo -- gerar um evento real exigiria abrir a porta ou
-    apresentar um rosto ao terminal fisico, e a abertura remota da porta foi
-    bloqueada pelo classificador de seguranca do ambiente de execucao deste
-    agente (acao com efeito fisico real, corretamente recusada). Confirmado
-    ao vivo: corpo exatamente "Error: No Events" == lista vazia de verdade.
-    Qualquer OUTRO corpo iniciado por "Error" (autenticacao, mau
-    funcionamento, condicao inesperada) e tratado como falha e levanta
-    HTTPException com o texto do dispositivo -- nao vira lista vazia
-    silenciosa, pra quem estiver fazendo polling em loop (Task 7) conseguir
-    distinguir "sem novidade" de "dispositivo parou de responder direito".
-    O mapeamento de campos de um evento real e melhor esforco e PRECISA ser
-    revalidado assim que houver um evento real no log do dispositivo (ex.:
-    proximo acesso legitimo no local). O valor de `code` (`AccessControlCardRec`)
-    tambem nao foi confirmado -- a sondagem ao vivo mostrou que o dispositivo
-    devolve o mesmo "Error: No Events" mesmo para um `code` propositalmente
-    invalido, entao isso so confirma que a lista esta vazia, nao que o nome
-    do `code` esteja certo.
-
-    `since_id` (parametro do contrato da interface, pra polling incremental):
-    ainda NAO e usado nesta implementacao -- nao ha confirmacao ao vivo de
-    qual parametro real o dispositivo aceita pra filtrar por evento/tempo
-    (a sondagem nao chegou a ter nenhum evento populado pra testar isso).
-    Ate isso ser confirmado ao vivo, `poll_events` sempre busca o estado
-    atual do indice de eventos e quem chama precisa deduplicar por `raw_id`
-    (ex.: guardando o maior `raw_id` ja processado e ignorando o que ja
-    foi visto) -- ele nao filtra no dispositivo.
+    Em controladoras ASI/Intelbras primeiro, `eventManager.cgi` pode responder
+    "No Events" mesmo com historico gravado. O historico real confirmado ao vivo
+    fica em `recordFinder.cgi?action=find&name=AccessControlCardRec`.
     """
-    resp = _get(device, "/cgi-bin/eventManager.cgi", {"action": "getEventIndexes", "code": "AccessControlCardRec"})
-    text = (resp.text or "").strip()
-    if "No Events" in text:
-        return []
-    if not text:
-        return []
-    if text.startswith("Error"):
-        raise HTTPException(status_code=502, detail=f"Dispositivo respondeu com erro ao listar eventos: {text}")
+    if not _is_intelbras_device(device):
+        raise HTTPException(status_code=400, detail="Coleta de eventos homologada apenas para Intelbras.")
     events: List[Dict[str, Any]] = []
-    for line in text.splitlines():
-        parts = line.split(",")
-        if len(parts) < 3:
+    since_number = int(since_id) if str(since_id or "").isdigit() else 0
+    for row in _fetch_access_event_rows(device, since_id=since_id):
+        raw_id = _first_text(row, "RecNo", "RecordNo", "ID")
+        if not raw_id:
             continue
-        events.append({
-            "raw_id": parts[0],
-            "occurred_at": parts[1],
-            "person_name_raw": parts[2],
-            "event_type": "entrada",
-        })
+        if since_number and raw_id.isdigit() and int(raw_id) <= since_number:
+            continue
+        status = _first_text(row, "Status")
+        if status and status not in {"1", "true", "True", "OK", "ok"}:
+            continue
+        raw_type = _first_text(row, "Type").lower()
+        event_type = "saida" if raw_type in {"exit", "out", "leave", "saida"} else "entrada"
+        events.append(
+            {
+                "raw_id": raw_id,
+                "occurred_at": _timestamp_to_text(_first_text(row, "CreateTime", "Time", "UTC")),
+                "person_name_raw": _first_text(row, "CardName", "UserName", "Name"),
+                "user_id": _first_text(row, "UserID"),
+                "card_no": _first_text(row, "CardNo"),
+                "event_type": event_type,
+                "status": status,
+                "method": _first_text(row, "Method"),
+                "door": _first_text(row, "Door"),
+                "reader_id": _first_text(row, "ReaderID"),
+            }
+        )
     return events

@@ -881,6 +881,7 @@ def main():
     n=0
 
     hosts_ativos = set()
+    site_group_ids: Dict[str, str] = {}
     for c in rows:
         ip=(c.get("ip") or "").strip()
         if not ip: 

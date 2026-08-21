@@ -6,6 +6,14 @@ let _accessPersonAccessLoadFailed = false;
 let _accessPersonHeroPhotoObjectUrl = '';
 let _accessGroupPeopleRows = [];
 let _accessGroupSelectedPeople = new Set();
+let _accessReportRows = [];
+let _accessReportSearchTimer = null;
+let _accessReportAutoRefreshTimer = null;
+let _accessReportAutoRefreshBusy = false;
+let _accessControlUiBound = false;
+let _accessControlBinding = false;
+let _accessPeopleImportDeviceRows = [];
+const ACCESS_REPORT_AUTO_REFRESH_MS = 8000;
 
 function accessPersonTypeLabel(type) {
   const key = String(type || '').toLowerCase();
@@ -27,6 +35,28 @@ function accessProvisionStatusBadge(summary) {
   if (status === 'pending') return '<span class="pill neutral">pendente</span>';
   if (status === 'failed') return `<span class="pill danger" title="${esc(data.last_error || '')}">falhou</span>`;
   return '<span class="pill neutral">sem regra</span>';
+}
+
+function accessDirectionLabel(value) {
+  const key = String(value || 'entrada').toLowerCase();
+  if (key === 'saida') return 'Saida';
+  if (key === 'entrada_saida') return 'Entrada e saida';
+  return 'Entrada';
+}
+
+function accessEventTypeLabel(value) {
+  const key = String(value || 'entrada').toLowerCase();
+  if (key === 'saida_manual') return 'Saida manual';
+  if (key === 'saida') return 'Saida';
+  return 'Entrada';
+}
+
+function accessEventTypeBadge(value) {
+  const key = String(value || 'entrada').toLowerCase();
+  if (key === 'entrada') return '<span class="pill success">entrada</span>';
+  if (key === 'saida') return '<span class="pill neutral">saida</span>';
+  if (key === 'saida_manual') return '<span class="pill amber">saida manual</span>';
+  return `<span class="pill neutral">${esc(value || 'evento')}</span>`;
 }
 
 const ACCESS_TYPE_ICONS = { student: 'graduation-cap', employee: 'briefcase', visitor: 'user' };
@@ -240,44 +270,108 @@ function formatDocument(doc) {
   return doc || '';
 }
 
-function bindAccessControl() {
-  document.getElementById('btnAccessPrimaryAction')?.addEventListener('click', handleAccessPrimaryAction);
-  const studentsCard = document.getElementById('accessKpiStudentsCard');
-  studentsCard?.addEventListener('click', () => openAccessStudentsDrawer());
-  studentsCard?.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openAccessStudentsDrawer();
-  });
-  const devicesCard = document.getElementById('accessKpiDevicesCard');
-  devicesCard?.addEventListener('click', () => openAccessDevicesDrawer());
-  devicesCard?.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    openAccessDevicesDrawer();
-  });
-  document.getElementById('btnAccessPeopleClearFilters')?.addEventListener('click', clearAccessPeopleFilters);
-  document.getElementById('btnAccessPersonFooterNew')?.addEventListener('click', () => openAccessPersonModal());
-  document.getElementById('btnAccessPeopleFooterRefresh')?.addEventListener('click', () => loadAccessControl(true));
-  document.getElementById('btnAccessPeopleFooterEdit')?.addEventListener('click', editSelectedAccessPerson);
-  document.getElementById('btnAccessPeopleFooterDeleteSelected')?.addEventListener('click', deleteSelectedAccessPeople);
-  document.getElementById('btnAccessPeopleFooterDeleteAll')?.addEventListener('click', deleteAllVisibleAccessPeople);
-  document.getElementById('accessPeopleSearch')?.addEventListener('input', debounceAccessPeopleSearch);
-  document.getElementById('accessPeopleStatus')?.addEventListener('change', () => loadAccessControl(true));
-  document.getElementById('accessPeopleType')?.addEventListener('change', () => loadAccessControl(true));
-  document.getElementById('accessPeopleSite')?.addEventListener('change', () => loadAccessControl(true));
-  document.getElementById('accessPeopleSelectAll')?.addEventListener('change', toggleAccessPeopleSelectAll);
-  document.getElementById('btnAccessPersonClose')?.addEventListener('click', closeAccessPersonModal);
-  document.getElementById('btnAccessPersonCancel')?.addEventListener('click', closeAccessPersonModal);
-  document.getElementById('accessPersonForm')?.addEventListener('submit', saveAccessPersonFromForm);
-  document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleBodyClick);
-  bindAccessPersonModal();
-  loadAccessPeopleSiteOptions();
-  bindAccessTabs();
-  bindAccessDevices();
-  bindAccessGroups();
-  updateAccessPrimaryAction('people');
+function isAccessControlViewVisible() {
+  return !document.getElementById('viewAccessControl')?.classList.contains('hidden');
 }
+
+function activeAccessControlTab() {
+  return document.querySelector('.access-control-tabs [data-access-tab].active')?.dataset.accessTab || 'people';
+}
+
+function stopAccessReportAutoRefresh() {
+  if (!_accessReportAutoRefreshTimer) return;
+  clearInterval(_accessReportAutoRefreshTimer);
+  _accessReportAutoRefreshTimer = null;
+}
+
+function startAccessReportAutoRefresh() {
+  stopAccessReportAutoRefresh();
+  _accessReportAutoRefreshTimer = setInterval(async () => {
+    if (document.hidden || !isAccessControlViewVisible() || activeAccessControlTab() !== 'reports') return;
+    if (_accessReportAutoRefreshBusy) return;
+    _accessReportAutoRefreshBusy = true;
+    try {
+      await Promise.all([
+        loadAccessControlSummary(true),
+        loadAccessReports(true, { silent: true }),
+      ]);
+    } catch (err) {
+      console.warn('SightOps Access Control auto refresh failed', err);
+    } finally {
+      _accessReportAutoRefreshBusy = false;
+    }
+  }, ACCESS_REPORT_AUTO_REFRESH_MS);
+}
+
+function bindAccessControl() {
+  if (_accessControlUiBound || _accessControlBinding) return;
+  _accessControlBinding = true;
+  try {
+    document.getElementById('btnAccessPrimaryAction')?.addEventListener('click', handleAccessPrimaryAction);
+    const studentsCard = document.getElementById('accessKpiStudentsCard');
+    studentsCard?.addEventListener('click', () => openAccessStudentsDrawer());
+    studentsCard?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openAccessStudentsDrawer();
+    });
+    const devicesCard = document.getElementById('accessKpiDevicesCard');
+    devicesCard?.addEventListener('click', () => openAccessDevicesDrawer());
+    devicesCard?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openAccessDevicesDrawer();
+    });
+    document.getElementById('btnAccessPeopleClearFilters')?.addEventListener('click', clearAccessPeopleFilters);
+    document.getElementById('btnAccessPersonFooterNew')?.addEventListener('click', () => openAccessPersonModal());
+    document.getElementById('btnAccessPeopleFooterRefresh')?.addEventListener('click', () => loadAccessControl(true));
+    document.getElementById('btnAccessPeopleFooterImport')?.addEventListener('click', openAccessPeopleImportModal);
+    document.getElementById('btnAccessPeopleFooterSync')?.addEventListener('click', syncSelectedAccessPeople);
+    document.getElementById('btnAccessPeopleFooterEdit')?.addEventListener('click', editSelectedAccessPerson);
+    document.getElementById('btnAccessPeopleFooterDeleteSelected')?.addEventListener('click', deleteSelectedAccessPeople);
+    document.getElementById('btnAccessPeopleFooterDeleteAll')?.addEventListener('click', deleteAllVisibleAccessPeople);
+    document.getElementById('accessPeopleSearch')?.addEventListener('input', debounceAccessPeopleSearch);
+    document.getElementById('accessPeopleStatus')?.addEventListener('change', () => loadAccessControl(true));
+    document.getElementById('accessPeopleType')?.addEventListener('change', () => loadAccessControl(true));
+    document.getElementById('accessPeopleSite')?.addEventListener('change', () => loadAccessControl(true));
+    document.getElementById('accessPeopleSelectAll')?.addEventListener('change', toggleAccessPeopleSelectAll);
+    document.getElementById('btnAccessPersonClose')?.addEventListener('click', closeAccessPersonModal);
+    document.getElementById('btnAccessPersonCancel')?.addEventListener('click', closeAccessPersonModal);
+    document.getElementById('btnAccessPeopleImportClose')?.addEventListener('click', closeAccessPeopleImportModal);
+    document.getElementById('btnAccessPeopleImportCancel')?.addEventListener('click', closeAccessPeopleImportModal);
+    document.getElementById('btnAccessPeopleImportRun')?.addEventListener('click', importAccessPeopleFromSelectedDevice);
+    document.getElementById('accessPersonForm')?.addEventListener('submit', saveAccessPersonFromForm);
+    document.getElementById('accessPeopleBody')?.addEventListener('click', handleAccessPeopleBodyClick);
+    bindAccessPersonModal();
+    loadAccessPeopleSiteOptions();
+    bindAccessTabs();
+    bindAccessDevices();
+    bindAccessGroups();
+    bindAccessReports();
+    bindAccessConnections();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && isAccessControlViewVisible() && activeAccessControlTab() === 'reports') {
+        loadAccessControlSummary(true);
+        loadAccessReports(true, { silent: true });
+      }
+    });
+    updateAccessPrimaryAction('people');
+    _accessControlUiBound = true;
+  } finally {
+    _accessControlBinding = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    try {
+      bindAccessControl();
+    } catch (err) {
+      _accessControlBinding = false;
+      console.error('SightOps Access Control bind failed', err);
+    }
+  }, 0);
+});
 
 function bindAccessPersonModal() {
   document.querySelectorAll('[data-access-person-tab]').forEach(btn => {
@@ -334,6 +428,8 @@ function updateAccessPrimaryAction(tab = 'people') {
     devices: 'Novo dispositivo',
     groups: 'Novo grupo',
     rules: 'Nova regra',
+    reports: 'Saida manual',
+    connections: 'Testar WhatsApp',
   };
   button.dataset.accessPrimaryAction = tab;
   label.textContent = actions[tab] || actions.people;
@@ -351,6 +447,14 @@ function handleAccessPrimaryAction() {
   }
   if (action === 'rules') {
     openAccessRuleModal();
+    return;
+  }
+  if (action === 'reports') {
+    document.getElementById('accessManualExitPerson')?.focus();
+    return;
+  }
+  if (action === 'connections') {
+    document.getElementById('accessWhatsappTestNumber')?.focus();
     return;
   }
   openAccessPersonModal();
@@ -752,6 +856,81 @@ async function syncAccessPersonAfterSave(person) {
   return syncedPerson;
 }
 
+async function openAccessPeopleImportModal() {
+  const modal = document.getElementById('modalAccessPeopleImport');
+  const select = document.getElementById('accessPeopleImportDevice');
+  const result = document.getElementById('accessPeopleImportResult');
+  if (!modal || !select) return;
+  modal.classList.remove('hidden');
+  if (result) result.textContent = 'Carregando controladoras cadastradas...';
+  select.innerHTML = '<option value="">Carregando controladoras...</option>';
+  try {
+    const res = await apiJson('/api/access-control/devices', { forceRefresh: true, cacheTtl: 0 });
+    _accessPeopleImportDeviceRows = Array.isArray(res?.devices) ? res.devices : [];
+    const devices = _accessPeopleImportDeviceRows
+      .filter(device => device?.id)
+      .sort((a, b) => String(a.site || '').localeCompare(String(b.site || ''), 'pt-BR')
+        || String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'));
+    select.innerHTML = devices.length
+      ? '<option value="">Escolha uma controladora</option>' + devices.map(device => {
+        const meta = [device.site, device.host, device.model].filter(Boolean).join(' - ');
+        const label = meta ? `${device.name || device.host} (${meta})` : (device.name || device.host || device.id);
+        return `<option value="${esc(device.id)}">${esc(label)}</option>`;
+      }).join('')
+      : '<option value="">Nenhuma controladora cadastrada</option>';
+    if (result) result.textContent = devices.length
+      ? 'Escolha uma controladora para importar pessoas e fotos.'
+      : 'Cadastre uma controladora antes de importar pessoas.';
+  } catch (err) {
+    select.innerHTML = '<option value="">Falha ao carregar</option>';
+    if (result) result.textContent = err?.message || 'Nao foi possivel carregar controladoras.';
+    showToast(err?.message || 'Nao foi possivel carregar controladoras.', true);
+  }
+  lucide.createIcons();
+}
+
+function closeAccessPeopleImportModal() {
+  document.getElementById('modalAccessPeopleImport')?.classList.add('hidden');
+}
+
+async function importAccessPeopleFromSelectedDevice() {
+  const select = document.getElementById('accessPeopleImportDevice');
+  const result = document.getElementById('accessPeopleImportResult');
+  const btn = document.getElementById('btnAccessPeopleImportRun');
+  const deviceId = select?.value || '';
+  if (!deviceId) {
+    showToast('Escolha uma controladora para importar.', true);
+    return;
+  }
+  const device = _accessPeopleImportDeviceRows.find(row => row.id === deviceId);
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-2"></i> Importando...';
+    lucide.createIcons();
+  }
+  if (result) result.textContent = `Lendo cadastros de ${device?.name || device?.host || 'controladora'}...`;
+  try {
+    const res = await api(`/api/access-control/devices/${encodeURIComponent(deviceId)}/import-people`, { method: 'POST' });
+    const payload = await jsonOrReadableError(res, 'Nao foi possivel importar pessoas da controladora.');
+    const msg = `${payload.imported || 0} pessoa(s) importada(s), ${payload.photos_imported || 0} foto(s), ${payload.photos_missing || 0} sem foto.`;
+    if (result) result.textContent = msg;
+    _accessPeopleSelected.clear();
+    await loadAccessControl(true);
+    loadAccessPeopleSiteOptions();
+    showToast(msg);
+  } catch (err) {
+    if (result) result.textContent = err?.message || 'Erro ao importar pessoas.';
+    showToast(err?.message || 'Erro ao importar pessoas.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="download"></i> Importar';
+      lucide.createIcons();
+    }
+  }
+}
+
 let _accessDeviceRows = [];
 let _accessConnectorRows = [];
 let _accessConnectorsLoaded = false;
@@ -760,6 +939,7 @@ let _accessDeviceSelectedId = '';
 
 function showAccessControlTab(tab) {
   const targetBtn = document.querySelector(`.access-control-tabs [data-access-tab="${tab}"]`);
+  if (!targetBtn) return;
   document.querySelectorAll('.access-control-tabs [data-access-tab]').forEach(btn => {
     const active = btn === targetBtn;
     btn.classList.toggle('active', active);
@@ -771,15 +951,266 @@ function showAccessControlTab(tab) {
   updateAccessPrimaryAction(tab);
 }
 
+function handleAccessTabClick(tab, event) {
+  if (event?.__accessTabHandled) return;
+  if (event) event.__accessTabHandled = true;
+  event?.preventDefault?.();
+  if (!tab) return;
+  showAccessControlTab(tab);
+  if (tab === 'people') loadAccessControl(true);
+  if (tab === 'devices') loadAccessDevices(true);
+  if (tab === 'groups') loadAccessGroups(true);
+  if (tab === 'rules') loadAccessRules(true);
+  if (tab === 'connections') loadAccessWhatsappConfig(true);
+  if (tab === 'reports') {
+    loadAccessControlSummary(true);
+    loadAccessReports(true);
+    startAccessReportAutoRefresh();
+  } else {
+    stopAccessReportAutoRefresh();
+  }
+}
+
+function bindAccessConnections() {
+  document.getElementById('btnAccessWhatsappReload')?.addEventListener('click', () => loadAccessWhatsappConfig(true));
+  document.getElementById('btnAccessWhatsappSave')?.addEventListener('click', saveAccessWhatsappConfig);
+  document.getElementById('btnAccessWhatsappTest')?.addEventListener('click', testAccessWhatsappConfig);
+  document.getElementById('btnAccessWhatsappQr')?.addEventListener('click', refreshAccessWhatsappQr);
+  document.getElementById('btnAccessWhatsappConnection')?.addEventListener('click', () => loadAccessWhatsappConnection(true));
+  document.getElementById('btnAccessWhatsappDisconnect')?.addEventListener('click', disconnectAccessWhatsapp);
+}
+
+function setAccessWhatsappStatus(config = null) {
+  const status = document.getElementById('accessWhatsappStatus');
+  if (!status) return;
+  const configured = !!config?.configured;
+  const enabled = !!config?.enabled;
+  status.textContent = configured ? (enabled ? 'Ativo' : 'Configurado') : 'Nao configurado';
+  status.className = `badge ${configured && enabled ? 'badge-green' : 'badge-gray'}`;
+}
+
+async function loadAccessWhatsappConfig(force = false) {
+  try {
+    const data = await apiJson('/api/access-control/whatsapp', { forceRefresh: force, cacheTtl: 0 });
+    document.getElementById('accessWhatsappProvider').value = data.provider || 'evolution';
+    document.getElementById('accessWhatsappBaseUrl').value = data.base_url || '';
+    document.getElementById('accessWhatsappInstance').value = data.instance || 'sightops';
+    document.getElementById('accessWhatsappEnabled').checked = !!data.enabled;
+    document.getElementById('accessWhatsappApiKey').value = '';
+    setAccessWhatsappStatus(data);
+    await loadAccessWhatsappConnection(force);
+  } catch (err) {
+    setAccessWhatsappStatus(null);
+    setAccessWhatsappConnection(null);
+    showToast(err?.message || 'Nao foi possivel carregar o WhatsApp.', true);
+  }
+}
+
+async function saveAccessWhatsappConfig() {
+  const btn = document.getElementById('btnAccessWhatsappSave');
+  const oldHtml = btn?.innerHTML;
+  const payload = {
+    enabled: !!document.getElementById('accessWhatsappEnabled')?.checked,
+    provider: document.getElementById('accessWhatsappProvider')?.value || 'evolution',
+    base_url: document.getElementById('accessWhatsappBaseUrl')?.value.trim() || '',
+    api_key: document.getElementById('accessWhatsappApiKey')?.value || '',
+    instance: document.getElementById('accessWhatsappInstance')?.value.trim() || 'sightops',
+  };
+  if (payload.enabled && (!payload.base_url || !payload.instance)) {
+    showToast('Informe URL da API e instancia para ativar o WhatsApp.', true);
+    return null;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Salvando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/whatsapp', { method: 'PUT', body: JSON.stringify(payload) });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel salvar o WhatsApp.');
+    document.getElementById('accessWhatsappApiKey').value = '';
+    setAccessWhatsappStatus(data);
+    await loadAccessWhatsappConnection(true);
+    showToast('WhatsApp salvo.');
+    return data;
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel salvar o WhatsApp.', true);
+    return null;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="save"></i> Salvar';
+      lucide.createIcons();
+    }
+  }
+}
+
+function setAccessWhatsappConnection(data = null) {
+  const status = document.getElementById('accessWhatsappConnectionStatus');
+  const img = document.getElementById('accessWhatsappQrImage');
+  const placeholder = document.getElementById('accessWhatsappQrPlaceholder');
+  const box = document.getElementById('accessWhatsappQrBox');
+  const title = document.getElementById('accessWhatsappQrTitle');
+  const hint = document.getElementById('accessWhatsappQrHint');
+  const disconnectBtn = document.getElementById('btnAccessWhatsappDisconnect');
+  const state = String(data?.state || '').toLowerCase();
+  const connected = !!data?.connected || state === 'connected';
+  const qrcode = data?.qrcode || '';
+
+  box?.classList.toggle('connected', connected);
+  if (disconnectBtn) disconnectBtn.disabled = !connected && state !== 'unknown';
+
+  if (status) {
+    if (connected) {
+      status.textContent = 'Conectado';
+      status.className = 'badge badge-green';
+    } else if (state === 'waiting_qr' || qrcode) {
+      status.textContent = 'Aguardando QR';
+      status.className = 'badge badge-amber';
+    } else if (state === 'not_configured') {
+      status.textContent = 'Nao configurado';
+      status.className = 'badge badge-gray';
+    } else if (state === 'error') {
+      status.textContent = 'Erro';
+      status.className = 'badge badge-red';
+    } else {
+      status.textContent = 'Desconectado';
+      status.className = 'badge badge-gray';
+    }
+  }
+
+  if (img && placeholder) {
+    if (qrcode && !connected) {
+      img.src = qrcode.startsWith('data:image/') ? qrcode : `data:image/png;base64,${qrcode}`;
+      img.hidden = false;
+      placeholder.hidden = true;
+    } else {
+      img.hidden = true;
+      img.removeAttribute('src');
+      placeholder.hidden = false;
+      placeholder.textContent = connected ? 'OK' : 'QR Code indisponivel';
+    }
+  }
+
+  if (title) title.textContent = connected ? 'WhatsApp conectado' : 'Escaneie o QR Code';
+  if (hint) {
+    hint.textContent = connected
+      ? 'A instancia esta pronta para enviar mensagens privadas.'
+      : (data?.qr_error || data?.error || 'Use WhatsApp > Aparelhos conectados para escanear.');
+  }
+}
+
+async function loadAccessWhatsappConnection(force = false) {
+  try {
+    const data = await apiJson('/api/access-control/whatsapp/connection', { forceRefresh: force, cacheTtl: 0 });
+    setAccessWhatsappConnection(data);
+    return data;
+  } catch (err) {
+    setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel consultar a conexao.' });
+    return null;
+  }
+}
+
+async function refreshAccessWhatsappQr() {
+  const saved = await saveAccessWhatsappConfig();
+  if (!saved) return;
+  const btn = document.getElementById('btnAccessWhatsappQr');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/whatsapp/qr', { method: 'POST' });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel atualizar o QR Code.');
+    setAccessWhatsappConnection(data);
+    showToast(data.connected ? 'WhatsApp ja esta conectado.' : 'QR Code atualizado.');
+  } catch (err) {
+    setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel atualizar o QR Code.' });
+    showToast(err?.message || 'Nao foi possivel atualizar o QR Code.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="qr-code"></i> Atualizar QR';
+      lucide.createIcons();
+    }
+  }
+}
+
+async function disconnectAccessWhatsapp() {
+  const btn = document.getElementById('btnAccessWhatsappDisconnect');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Desconectando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/whatsapp/disconnect', { method: 'POST' });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel desconectar o WhatsApp.');
+    setAccessWhatsappConnection(data);
+    showToast('WhatsApp desconectado.');
+  } catch (err) {
+    setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel desconectar o WhatsApp.' });
+    showToast(err?.message || 'Nao foi possivel desconectar o WhatsApp.', true);
+  } finally {
+    if (btn) {
+      btn.innerHTML = oldHtml || '<i data-lucide="log-out"></i> Desconectar';
+      lucide.createIcons();
+    }
+  }
+}
+
+async function testAccessWhatsappConfig() {
+  const saved = await saveAccessWhatsappConfig();
+  if (!saved) return;
+  const number = document.getElementById('accessWhatsappTestNumber')?.value.trim() || '';
+  const status = document.getElementById('accessWhatsappTestStatus');
+  const result = document.getElementById('accessWhatsappTestResult');
+  if (!number) {
+    showToast('Informe o numero de teste.', true);
+    return;
+  }
+  const btn = document.getElementById('btnAccessWhatsappTest');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Enviando';
+    lucide.createIcons();
+  }
+  if (status) {
+    status.textContent = 'Enviando';
+    status.className = 'badge badge-gray';
+  }
+  try {
+    const res = await api('/api/access-control/whatsapp/test', { method: 'POST', body: JSON.stringify({ number }) });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel enviar o teste.');
+    if (status) {
+      status.textContent = data.status === 'whatsapp_sent' ? 'Enviado' : 'Verifique';
+      status.className = `badge ${data.status === 'whatsapp_sent' ? 'badge-green' : 'badge-gray'}`;
+    }
+    if (result) result.textContent = 'Teste enviado. Confira o WhatsApp do numero informado.';
+    showToast('Teste de WhatsApp enviado.');
+  } catch (err) {
+    if (status) {
+      status.textContent = 'Erro';
+      status.className = 'badge badge-red';
+    }
+    if (result) result.textContent = err?.message || 'Nao foi possivel enviar o teste.';
+    showToast(err?.message || 'Nao foi possivel enviar o teste.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="send"></i> Enviar teste';
+      lucide.createIcons();
+    }
+  }
+}
+
 function bindAccessTabs() {
   document.querySelectorAll('.access-control-tabs [data-access-tab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.accessTab;
-      showAccessControlTab(tab);
-      if (tab === 'devices') loadAccessDevices();
-      if (tab === 'groups') loadAccessGroups();
-      if (tab === 'rules') loadAccessRules();
-    });
+    btn.addEventListener('click', event => handleAccessTabClick(btn.dataset.accessTab, event));
   });
 }
 
@@ -796,6 +1227,186 @@ function bindAccessDevices() {
   document.getElementById('btnAccessDevicesFooterOpenDoor')?.addEventListener('click', openSelectedAccessDeviceDoor);
   document.getElementById('btnAccessDevicesFooterEdit')?.addEventListener('click', editSelectedAccessDevice);
   document.getElementById('btnAccessDevicesFooterDelete')?.addEventListener('click', deleteSelectedAccessDevice);
+}
+
+function bindAccessReports() {
+  document.getElementById('btnAccessReportRefresh')?.addEventListener('click', () => loadAccessReports(true));
+  document.getElementById('btnAccessManualExit')?.addEventListener('click', recordAccessManualExit);
+  document.getElementById('accessReportPeriod')?.addEventListener('change', () => loadAccessReports(true));
+  document.getElementById('accessReportType')?.addEventListener('change', () => loadAccessReports(true));
+  document.getElementById('accessReportSite')?.addEventListener('change', () => loadAccessReports(true));
+  document.getElementById('accessReportSearch')?.addEventListener('input', () => {
+    clearTimeout(_accessReportSearchTimer);
+    _accessReportSearchTimer = setTimeout(() => loadAccessReports(true), 280);
+  });
+}
+
+function accessReportQuery() {
+  const query = new URLSearchParams();
+  const period = document.getElementById('accessReportPeriod')?.value || 'today';
+  const eventType = document.getElementById('accessReportType')?.value || '';
+  const site = document.getElementById('accessReportSite')?.value || '';
+  const search = document.getElementById('accessReportSearch')?.value?.trim() || '';
+  if (period) query.set('period', period);
+  if (eventType) query.set('type', eventType);
+  if (site) query.set('site', site);
+  if (search) query.set('search', search);
+  return query;
+}
+
+function populateAccessReportSiteOptions(selected = '') {
+  const select = document.getElementById('accessReportSite');
+  if (!select) return;
+  const current = selected || select.value || '';
+  const sites = new Set();
+  _accessPeopleRows.forEach(row => row.site && sites.add(row.site));
+  _accessDeviceRows.forEach(row => row.site && sites.add(row.site));
+  _accessReportRows.forEach(row => row.site && sites.add(row.site));
+  const html = ['<option value="">Todos os sites</option>']
+    .concat([...sites].sort((a, b) => a.localeCompare(b)).map(site => `<option value="${esc(site)}">${esc(site)}</option>`));
+  select.innerHTML = html.join('');
+  if (current && sites.has(current)) select.value = current;
+}
+
+function populateAccessManualExitPeople() {
+  const select = document.getElementById('accessManualExitPerson');
+  if (!select) return;
+  const current = select.value || '';
+  const people = _accessPeopleRows
+    .filter(row => row.id && row.active !== false)
+    .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')));
+  select.innerHTML = ['<option value="">Pessoa para saida manual</option>']
+    .concat(people.map(person => {
+      const meta = [person.site, person.class_name || person.enrollment].filter(Boolean).join(' - ');
+      const label = meta ? `${person.full_name} (${meta})` : person.full_name;
+      return `<option value="${esc(person.id)}">${esc(label)}</option>`;
+    }))
+    .join('');
+  if (current && people.some(person => person.id === current)) select.value = current;
+}
+
+async function ensureAccessReportBaseData(force = false) {
+  const jobs = [];
+  if (force || !_accessPeopleRows.length) {
+    jobs.push(apiJson('/api/access-control/people', { forceRefresh: force, cacheTtl: 0 })
+      .then(res => { _accessPeopleRows = res?.people || []; }));
+  }
+  if (force || !_accessDeviceRows.length) {
+    jobs.push(loadAccessDevices(force).catch(() => null));
+  }
+  if (jobs.length) await Promise.all(jobs);
+  populateAccessManualExitPeople();
+  populateAccessReportSiteOptions();
+}
+
+async function loadAccessControlSummary(force = false) {
+  const summaryRes = await apiJson('/api/access-control/summary', { forceRefresh: force, cacheTtl: 0 });
+  renderAccessControlSummary(summaryRes?.summary || {});
+}
+
+function renderAccessReportSummary(summary = {}) {
+  setText('accessReportEntries', summary.entries || 0);
+  setText('accessReportExits', summary.exits || 0);
+  setText('accessReportManualExits', summary.manual_exits || 0);
+  setText('accessReportInside', summary.inside_now || 0);
+}
+
+function renderAccessReportEvents(events = []) {
+  const body = document.getElementById('accessReportBody');
+  if (!body) return;
+  _accessReportRows = events;
+  setText('accessReportCount', `${events.length} evento${events.length === 1 ? '' : 's'}`);
+  populateAccessReportSiteOptions();
+  if (!events.length) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum evento encontrado.</td></tr>';
+    scheduleResponsiveHydration(body);
+    return;
+  }
+  body.innerHTML = events.map(event => {
+    const person = event.person_name || event.person_name_raw || '-';
+    const device = event.device_name || event.device_id || '-';
+    const source = event.source === 'manual' ? 'Manual' : 'Dispositivo';
+    return `
+      <tr>
+        <td class="mono">${esc(event.occurred_at || '-')}</td>
+        <td><strong title="${esc(person)}">${esc(person)}</strong><span class="muted-block">${esc(event.person_document || event.person_enrollment || '')}</span></td>
+        <td>${accessEventTypeBadge(event.event_type)}</td>
+        <td title="${esc(event.site || '')}">${esc(event.site || '-')}</td>
+        <td title="${esc(device)}">${esc(device)}</td>
+        <td>${esc(source)}</td>
+        <td>${esc(event.notification_status || '-')}</td>
+      </tr>
+    `;
+  }).join('');
+  scheduleResponsiveHydration(body);
+  lucide.createIcons();
+}
+
+async function loadAccessReports(force = false, options = {}) {
+  const silent = Boolean(options?.silent);
+  const btn = document.getElementById('btnAccessReportRefresh');
+  const oldHtml = btn?.innerHTML;
+  if (btn && !silent) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
+    lucide.createIcons();
+  }
+  try {
+    await ensureAccessReportBaseData(force);
+    const query = accessReportQuery();
+    const [summary, events] = await Promise.all([
+      apiJson(`/api/access-control/reports/summary?${query.toString()}`, { forceRefresh: force, cacheTtl: 0 }),
+      apiJson(`/api/access-control/reports/events?${query.toString()}`, { forceRefresh: force, cacheTtl: 0 }),
+    ]);
+    renderAccessReportSummary(summary?.summary || summary || {});
+    renderAccessReportEvents(events?.events || []);
+  } catch (err) {
+    if (!silent) showToast(err?.message || 'Nao foi possivel carregar relatorios.', true);
+    else console.warn('SightOps Access Control reports refresh failed', err);
+  } finally {
+    if (btn && !silent) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="refresh-cw"></i> Atualizar';
+      lucide.createIcons();
+    }
+  }
+}
+
+async function recordAccessManualExit() {
+  const btn = document.getElementById('btnAccessManualExit');
+  const personId = document.getElementById('accessManualExitPerson')?.value || '';
+  const person = _accessPeopleRows.find(row => row.id === personId);
+  if (!person) {
+    showToast('Escolha uma pessoa para registrar saida manual.', true);
+    return;
+  }
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Registrando';
+    lucide.createIcons();
+  }
+  try {
+    const payload = {
+      person_id: person.id,
+      site: person.site || document.getElementById('accessReportSite')?.value || '',
+      reason: document.getElementById('accessManualExitReason')?.value?.trim() || '',
+    };
+    const res = await api('/api/access-control/reports/manual-exit', { method: 'POST', body: JSON.stringify(payload) });
+    await jsonOrReadableError(res, 'Nao foi possivel registrar saida manual.');
+    if (document.getElementById('accessManualExitReason')) document.getElementById('accessManualExitReason').value = '';
+    showToast('Saida manual registrada.');
+    await loadAccessReports(true);
+    await loadAccessControl(true);
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel registrar saida manual.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="log-out"></i> Registrar saida manual';
+      lucide.createIcons();
+    }
+  }
 }
 
 async function focusAccessPersonFromDrawer(personId) {
@@ -913,7 +1524,7 @@ function renderAccessDevices(rows) {
   setText('accessDevicesCount', `${rows.length} dispositivo${rows.length === 1 ? '' : 's'}`);
   if (!rows.length) {
     _accessDeviceSelectedId = '';
-    body.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum dispositivo cadastrado.</td></tr>';
+    body.innerHTML = '<tr class="empty-row"><td colspan="8">Nenhum dispositivo cadastrado.</td></tr>';
     syncAccessDevicesFooterActions();
     scheduleResponsiveHydration(body);
     return;
@@ -926,6 +1537,7 @@ function renderAccessDevices(rows) {
       <td title="${esc(accessDeviceConnectorLabel(device))}">${esc(accessDeviceConnectorLabel(device))}</td>
       <td>${esc(device.host)}</td>
       <td>${esc(device.model || '-')}</td>
+      <td>${esc(accessDirectionLabel(device.access_direction))}</td>
       <td>${accessDeviceStatusBadge(device.status)}</td>
     </tr>
   `).join('');
@@ -955,6 +1567,7 @@ function openAccessDeviceModal(device = null) {
   // O backend nunca devolve a senha (get_device_with_password e uso interno) --
   // este campo fica sempre em branco, mesmo editando um dispositivo existente.
   document.getElementById('accessDevicePassword').value = '';
+  document.getElementById('accessDeviceDirection').value = item.access_direction || 'entrada';
   document.getElementById('accessDeviceActive').checked = item.active !== false;
   document.getElementById('modalAccessDevice')?.classList.remove('hidden');
   setTimeout(() => document.getElementById('accessDeviceName')?.focus(), 50);
@@ -979,6 +1592,7 @@ async function saveAccessDeviceFromForm(event) {
     host: document.getElementById('accessDeviceHost').value.trim(),
     username: document.getElementById('accessDeviceUsername').value.trim(),
     password: document.getElementById('accessDevicePassword').value,
+    access_direction: document.getElementById('accessDeviceDirection')?.value || 'entrada',
     active: document.getElementById('accessDeviceActive').checked,
   };
   if (!payload.name || !payload.host) {
@@ -1153,9 +1767,11 @@ function selectedAccessPeople() {
 function syncAccessPeopleFooterActions() {
   const selected = selectedAccessPeople();
   const editBtn = document.getElementById('btnAccessPeopleFooterEdit');
+  const syncBtn = document.getElementById('btnAccessPeopleFooterSync');
   const deleteSelectedBtn = document.getElementById('btnAccessPeopleFooterDeleteSelected');
   const deleteAllBtn = document.getElementById('btnAccessPeopleFooterDeleteAll');
   if (editBtn) editBtn.disabled = selected.length !== 1;
+  if (syncBtn) syncBtn.disabled = selected.length < 1;
   if (deleteSelectedBtn) deleteSelectedBtn.disabled = selected.length < 1;
   if (deleteAllBtn) deleteAllBtn.disabled = _accessPeopleRows.length < 1;
 }
@@ -1208,6 +1824,47 @@ async function deleteAllVisibleAccessPeople() {
     site ? 'Excluir pessoas do site' : 'Excluir todas as pessoas',
     `Excluir ${_accessPeopleRows.length} pessoa${_accessPeopleRows.length === 1 ? '' : 's'}${scope}? Isso remove cadastro e historico de sincronizacao.`,
   );
+}
+
+async function syncSelectedAccessPeople() {
+  const people = selectedAccessPeople();
+  if (!people.length) {
+    showToast('Selecione pelo menos uma pessoa para sincronizar.', true);
+    return;
+  }
+  const btn = document.getElementById('btnAccessPeopleFooterSync');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-2"></i>';
+    lucide.createIcons();
+  }
+  let ok = 0;
+  let failed = 0;
+  try {
+    for (const person of people) {
+      showToast(`Sincronizando ${ok + failed + 1}/${people.length}: ${person.full_name || 'pessoa'}...`);
+      const res = await api(`/api/access-control/people/${encodeURIComponent(person.id)}/sync`, { method: 'POST' });
+      try {
+        await jsonOrReadableError(res, `Nao foi possivel sincronizar ${person.full_name || 'a pessoa'}.`);
+        ok += 1;
+      } catch (err) {
+        failed += 1;
+        console.warn('Falha ao sincronizar pessoa', person.id, err);
+      }
+    }
+    await loadAccessControl(true);
+    const msg = failed
+      ? `${ok} sincronizada(s), ${failed} com erro.`
+      : `${ok} pessoa${ok === 1 ? '' : 's'} sincronizada${ok === 1 ? '' : 's'}.`;
+    showToast(msg, failed > 0);
+  } finally {
+    if (btn) {
+      btn.innerHTML = oldHtml || '<i data-lucide="upload-cloud"></i>';
+      lucide.createIcons();
+    }
+    syncAccessPeopleFooterActions();
+  }
 }
 
 function syncAccessPeopleSelectAll() {
