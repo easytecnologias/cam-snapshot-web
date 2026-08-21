@@ -288,12 +288,69 @@ def _best_number_hit(
     return best if best and best_ratio >= 0.74 else None
 
 
+def _row_site(row: dict[str, Any]) -> str:
+    return _norm_text(str(row.get("site") or row.get("local") or "").strip())
+
+
+def detect_kmz_site(inventory_rows: list[dict[str, Any]], geojson: dict[str, Any]) -> str:
+    """Descobre a que site pertence o KMZ, pelo nome dos pontos.
+
+    Um KMZ e sempre de um site so, mas o inventario tem todos juntos. Sem saber
+    o site, os criterios fracos de match (numero no inicio do nome) casam entre
+    sites diferentes: "1 - ESCOLA SANTANA" casa com "1 - SPEED ORLA" so porque
+    ambos comecam com 1 -- e a camera de um municipio vai parar no mapa de
+    outro. Aconteceu de verdade: 147 cameras de tres sites foram carimbadas com
+    as coordenadas de Japaratinga.
+
+    So o match FORTE (nome inteiro) vota, porque e o unico que nao vaza entre
+    sites: medido no cliente rads, o KMZ de Japaratinga deu 60 votos nela e
+    zero em qualquer outro site.
+    """
+    by_name, _ = _point_index_from_geojson(geojson)
+    if not by_name:
+        return ""
+    votos: dict[str, int] = {}
+    for row in (inventory_rows or []):
+        if not isinstance(row, dict):
+            continue
+        site = _row_site(row)
+        if not site:
+            continue
+        local = str(row.get("local") or "").strip()
+        titulo = str(row.get("titulo") or "").strip()
+        for chave in list(_name_variants(local)) + list(_name_variants(titulo)):
+            if chave in by_name:
+                votos[site] = votos.get(site, 0) + 1
+                break
+    if not votos:
+        return ""
+    return max(votos.items(), key=lambda item: item[1])[0]
+
+
 def apply_locations_to_inventory(
     inventory_rows: list[dict[str, Any]],
     geojson: dict[str, Any],
     dry_run: bool = True,
     overwrite: bool = False,
+    site: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
+    # Site do mapa: o informado por quem chamou, conferido contra o que os nomes
+    # dos pontos dizem. Linhas de outro site passam intactas -- ver
+    # detect_kmz_site(). Divergencia e erro, nao palpite: aplicar um mapa no site
+    # errado espalha coordenada de um municipio no outro, em silencio.
+    site_pedido = _norm_text(str(site or "").strip())
+    site_detectado = detect_kmz_site(inventory_rows, geojson)
+    if site_pedido and site_detectado and site_pedido != site_detectado:
+        raise ValueError(
+            f"Este mapa e do site '{site_detectado}', nao de '{site_pedido}'. "
+            "Importe o KMZ do site certo ou corrija o site selecionado."
+        )
+    site_alvo = site_pedido or site_detectado
+
+    # Sem saber o site, o criterio de casar so pelo numero do inicio do nome fica
+    # proibido: e justamente ele que casa "1 - ESCOLA SANTANA" com
+    # "1 - SPEED ORLA". Nome inteiro e IP continuam valendo, porque nao vazam.
+    permitir_numero = bool(site_alvo)
     by_name, points_total = _point_index_from_geojson(geojson)
     by_num = _point_number_index_from_geojson(geojson)
     by_ip: dict[str, tuple[float, float]] = {}
@@ -326,10 +383,16 @@ def apply_locations_to_inventory(
     no_match = 0
     no_match_rows: list[dict[str, Any]] = []
 
+    fora_do_site = 0
     for row in (inventory_rows or []):
         if not isinstance(row, dict):
             continue
         r = dict(row)
+        if site_alvo and _row_site(r) and _row_site(r) != site_alvo:
+            # Camera de outro site nao pode receber coordenada deste mapa.
+            fora_do_site += 1
+            out_rows.append(r)
+            continue
         local = str(r.get("local") or "").strip()
         titulo = str(r.get("titulo") or "").strip()
         ip = str(r.get("ip") or "").strip()
@@ -357,7 +420,7 @@ def apply_locations_to_inventory(
             hit = _best_fuzzy_hit(_norm_text(f"{num_hint} {titulo}"), by_name, num_hint=num_hint, min_ratio=0.84)
         if not hit and num_hint:
             hit = _best_fuzzy_hit(_norm_text(f"{num_hint} {local}"), by_name, num_hint=num_hint, min_ratio=0.84)
-        if not hit and num_hint:
+        if not hit and num_hint and permitir_numero:
             hit = _best_number_hit(num_hint, [local, titulo], by_num)
         if not hit and (local_variants or titulo_variants):
             # ultimo fallback: aceita sem numero, mas com limite mais alto para evitar falso positivo
@@ -400,6 +463,8 @@ def apply_locations_to_inventory(
         "updated": updated,
         "no_match": no_match,
         "skipped_has_loc": skipped_has_loc,
+        "fora_do_site": fora_do_site,
+        "site": site_alvo,
         "dry_run": bool(dry_run),
         "overwrite": bool(overwrite),
     }

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=203">
+  <link rel="stylesheet" href="styles.css?v=214">
 </head>
 <body>
 
@@ -1422,10 +1422,12 @@
         </div>
 
         <div class="tabs access-control-tabs" role="tablist">
-          <button type="button" class="tab-btn active" data-access-tab="people" role="tab" aria-selected="true">Pessoas</button>
-          <button type="button" class="tab-btn" id="accessTabDevices" data-access-tab="devices" role="tab" aria-selected="false">Dispositivos</button>
-          <button type="button" class="tab-btn" data-access-tab="groups" role="tab" aria-selected="false">Grupos</button>
-          <button type="button" class="tab-btn" data-access-tab="rules" role="tab" aria-selected="false">Regras</button>
+          <button type="button" class="tab-btn active" data-access-tab="people" onclick="handleAccessTabClick('people', event)" role="tab" aria-selected="true">Pessoas</button>
+          <button type="button" class="tab-btn" id="accessTabDevices" data-access-tab="devices" onclick="handleAccessTabClick('devices', event)" role="tab" aria-selected="false">Dispositivos</button>
+          <button type="button" class="tab-btn" data-access-tab="groups" onclick="handleAccessTabClick('groups', event)" role="tab" aria-selected="false">Grupos</button>
+          <button type="button" class="tab-btn" data-access-tab="rules" onclick="handleAccessTabClick('rules', event)" role="tab" aria-selected="false">Regras</button>
+          <button type="button" class="tab-btn" data-access-tab="reports" onclick="handleAccessTabClick('reports', event)" role="tab" aria-selected="false">Relatorios</button>
+          <button type="button" class="tab-btn" data-access-tab="connections" onclick="handleAccessTabClick('connections', event)" role="tab" aria-selected="false">Conexoes</button>
         </div>
 
         <div class="access-tab-panel" data-access-panel="people">
@@ -1497,6 +1499,8 @@
             <span id="accessPeopleCount">0 pessoas</span>
             <div class="access-people-footer-actions">
               <button class="icon-action" id="btnAccessPeopleFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-action" id="btnAccessPeopleFooterImport" type="button" data-tip="Importar da controladora"><i data-lucide="download"></i></button>
+              <button class="icon-action" id="btnAccessPeopleFooterSync" type="button" data-tip="Sincronizar selecionados" disabled><i data-lucide="upload-cloud"></i></button>
               <button class="icon-action primary" id="btnAccessPersonFooterNew" type="button" data-tip="Nova pessoa"><i data-lucide="plus"></i></button>
               <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
               <button class="icon-action primary" id="btnAccessPeopleFooterEdit" type="button" data-tip="Editar selecionado" disabled><i data-lucide="pencil"></i></button>
@@ -1526,11 +1530,12 @@
                   <th>Conector</th>
                   <th>Host</th>
                   <th>Modelo</th>
+                  <th>Funcao</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody id="accessDevicesBody">
-                <tr class="empty-row"><td colspan="7">Nenhum dispositivo cadastrado.</td></tr>
+                <tr class="empty-row"><td colspan="8">Nenhum dispositivo cadastrado.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1650,6 +1655,225 @@
             </div>
           </div>
         </div>
+        </div>
+
+        <div class="access-tab-panel" data-access-panel="reports" hidden>
+        <div class="access-report-kpis">
+          <article class="dash-kpi-card">
+            <div class="metric-icon green"><i data-lucide="log-in"></i></div>
+            <div><span>Entradas</span><strong id="accessReportEntries">0</strong><small>no periodo</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon amber"><i data-lucide="log-out"></i></div>
+            <div><span>Saidas</span><strong id="accessReportExits">0</strong><small>no periodo</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon blue"><i data-lucide="hand"></i></div>
+            <div><span>Saida manual</span><strong id="accessReportManualExits">0</strong><small>botao interno</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon cyan"><i data-lucide="users"></i></div>
+            <div><span>Presentes</span><strong id="accessReportInside">0</strong><small>ultima marcacao entrada</small></div>
+          </article>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Entradas e saidas</h2>
+              <p>Eventos por pessoa, site, controladora e origem.</p>
+            </div>
+            <button class="secondary-action" id="btnAccessReportRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+          <div class="filters access-report-filters">
+            <label class="search-box">
+              <i data-lucide="search"></i>
+              <input id="accessReportSearch" type="search" placeholder="Buscar pessoa, documento, site ou controladora">
+            </label>
+            <select id="accessReportPeriod">
+              <option value="today">Hoje</option>
+              <option value="7d">Ultimos 7 dias</option>
+              <option value="30d">Ultimos 30 dias</option>
+              <option value="all">Todo historico</option>
+            </select>
+            <select id="accessReportType">
+              <option value="">Todos os eventos</option>
+              <option value="entrada">Entradas</option>
+              <option value="saida">Saidas</option>
+              <option value="saida_manual">Saidas manuais</option>
+            </select>
+            <select id="accessReportSite">
+              <option value="">Todos os sites</option>
+            </select>
+          </div>
+          <div class="access-report-manual">
+            <select id="accessManualExitPerson">
+              <option value="">Pessoa para saida manual</option>
+            </select>
+            <input id="accessManualExitReason" placeholder="Motivo opcional">
+            <button class="secondary-action" id="btnAccessManualExit" type="button"><i data-lucide="log-out"></i> Registrar saida manual</button>
+          </div>
+          <div class="table-wrap access-report-table-wrap">
+            <table class="data-table responsive-data-table access-report-table" id="accessReportTable">
+              <thead>
+                <tr>
+                  <th>Data/hora</th>
+                  <th>Pessoa</th>
+                  <th>Tipo</th>
+                  <th>Site</th>
+                  <th>Controladora</th>
+                  <th>Origem</th>
+                  <th>Notificacao</th>
+                </tr>
+              </thead>
+              <tbody id="accessReportBody">
+                <tr class="empty-row"><td colspan="7">Nenhum evento encontrado.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-footer">
+            <span id="accessReportCount">0 eventos</span>
+          </div>
+        </div>
+        </div>
+
+        <div class="access-tab-panel" data-access-panel="connections" hidden>
+        <div class="access-connections-grid">
+          <div class="panel access-connection-panel access-connection-flow">
+            <div class="panel-header">
+              <div>
+                <h2>Fluxo de notificacao</h2>
+                <p>Quando um evento novo entra no historico, o SightOps envia para o telefone do responsavel.</p>
+              </div>
+            </div>
+            <div class="access-connection-steps">
+              <div><span>1</span><strong>Evento</strong><small>Entrada, saida ou saida manual</small></div>
+              <div><span>2</span><strong>Responsavel</strong><small>Telefone salvo no cadastro da pessoa</small></div>
+              <div><span>3</span><strong>Evolution API</strong><small>Instancia WhatsApp conectada</small></div>
+              <div><span>4</span><strong>Entrega</strong><small>Mensagem privada para o responsavel</small></div>
+            </div>
+          </div>
+
+          <div class="panel access-connection-panel">
+            <div class="panel-header">
+              <div>
+                <h2>WhatsApp para responsaveis</h2>
+                <p>Envio individual dos eventos de entrada e saida pelo modulo Controle de Acesso.</p>
+              </div>
+              <span class="badge badge-gray" id="accessWhatsappStatus">Nao configurado</span>
+            </div>
+            <div class="access-connection-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="accessWhatsappProvider">Provedor</label>
+                  <select id="accessWhatsappProvider">
+                    <option value="evolution">Evolution API</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="accessWhatsappInstance">Instancia</label>
+                  <input id="accessWhatsappInstance" placeholder="sightops">
+                </div>
+              </div>
+              <details class="access-technical-details">
+                <summary>
+                  <span><i data-lucide="settings-2"></i> Configuracao tecnica</span>
+                  <small>Endpoint interno e chave da integracao</small>
+                </summary>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="accessWhatsappBaseUrl">Endpoint interno</label>
+                    <input id="accessWhatsappBaseUrl" placeholder="http://10.10.12.7:8080">
+                  </div>
+                  <div class="form-group">
+                    <label for="accessWhatsappApiKey">API key</label>
+                    <input id="accessWhatsappApiKey" type="password" placeholder="Deixe vazio para manter a atual">
+                  </div>
+                </div>
+              </details>
+              <div class="access-connection-footer-row">
+                <div class="access-person-checks">
+                  <label><input id="accessWhatsappEnabled" type="checkbox"> Enviar notificacoes por WhatsApp</label>
+                </div>
+                <div class="access-connection-actions">
+                  <button class="primary-action" id="btnAccessWhatsappSave" type="button"><i data-lucide="save"></i> Salvar</button>
+                  <button class="secondary-action" id="btnAccessWhatsappReload" type="button"><i data-lucide="refresh-cw"></i> Recarregar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel access-connection-panel access-connection-status-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Conexao WhatsApp</h2>
+                <p>Conecte o aparelho que enviara as mensagens do Controle de Acesso.</p>
+              </div>
+              <span class="badge badge-gray" id="accessWhatsappConnectionStatus">Aguardando</span>
+            </div>
+            <div class="access-connection-form">
+              <div class="access-whatsapp-qr" id="accessWhatsappQrBox">
+                <div class="access-whatsapp-qr-frame">
+                  <img id="accessWhatsappQrImage" alt="QR Code do WhatsApp" hidden>
+                  <div id="accessWhatsappQrPlaceholder">QR Code indisponivel</div>
+                </div>
+                <div class="access-whatsapp-qr-copy">
+                  <strong id="accessWhatsappQrTitle">Aguardando conexao</strong>
+                  <span id="accessWhatsappQrHint">Use WhatsApp &gt; Aparelhos conectados para escanear.</span>
+                </div>
+              </div>
+              <div class="access-connection-actions">
+                <button class="primary-action" id="btnAccessWhatsappQr" type="button"><i data-lucide="qr-code"></i> Atualizar QR</button>
+                <button class="secondary-action" id="btnAccessWhatsappConnection" type="button"><i data-lucide="activity"></i> Verificar conexao</button>
+                <button class="secondary-action danger-action" id="btnAccessWhatsappDisconnect" type="button"><i data-lucide="log-out"></i> Desconectar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel access-connection-panel access-connection-test">
+            <div class="panel-header">
+              <div>
+                <h2>Teste de envio</h2>
+                <p>Use um numero liberado no WhatsApp conectado para validar a entrega.</p>
+              </div>
+              <span class="badge badge-gray" id="accessWhatsappTestStatus">Aguardando</span>
+            </div>
+            <div class="access-connection-form">
+              <div class="access-test-send-row">
+                <div class="form-group">
+                  <label for="accessWhatsappTestNumber">Numero de teste</label>
+                  <input id="accessWhatsappTestNumber" placeholder="Ex: +55 82 98136-6839">
+                </div>
+                <button class="secondary-action" id="btnAccessWhatsappTest" type="button"><i data-lucide="send"></i> Enviar teste</button>
+              </div>
+              <div class="inline-help" id="accessWhatsappTestResult">O teste envia uma mensagem simples pelo mesmo canal usado nos eventos de entrada e saida.</div>
+            </div>
+          </div>
+        </div>
+        </div>
+
+        <div id="modalAccessPeopleImport" class="modal-backdrop hidden">
+          <div class="modal access-import-modal">
+            <div class="modal-header">
+              <div>
+                <h2>Importar da controladora</h2>
+                <p>Leia as pessoas e fotos faciais direto do dispositivo cadastrado.</p>
+              </div>
+              <button class="icon-button" id="btnAccessPeopleImportClose" type="button" aria-label="Fechar importacao"><i data-lucide="x"></i></button>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="accessPeopleImportDevice">Controladora</label>
+                <select id="accessPeopleImportDevice">
+                  <option value="">Carregando controladoras...</option>
+                </select>
+              </div>
+            </div>
+            <div class="inline-help" id="accessPeopleImportResult">Escolha a controladora para importar os cadastros existentes.</div>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessPeopleImportCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="primary-action" id="btnAccessPeopleImportRun" type="button"><i data-lucide="download"></i> Importar</button>
+            </div>
+          </div>
         </div>
 
         <div id="modalAccessPerson" class="modal-backdrop hidden">
@@ -1847,6 +2071,16 @@
                 <div class="form-group">
                   <label for="accessDevicePassword">Senha</label>
                   <input id="accessDevicePassword" type="password" placeholder="Deixe em branco para manter">
+                </div>
+              </div>
+              <div class="form-row" style="grid-template-columns:1fr">
+                <div class="form-group">
+                  <label for="accessDeviceDirection">Funcao no acesso</label>
+                  <select id="accessDeviceDirection">
+                    <option value="entrada">Entrada</option>
+                    <option value="saida">Saida</option>
+                    <option value="entrada_saida">Entrada e saida</option>
+                  </select>
                 </div>
               </div>
               <div class="access-person-checks">
@@ -2133,23 +2367,23 @@
       <section class="hidden" id="viewKmz" style="display:flex;flex-direction:column;height:calc(100vh - 68px);padding:0">
 
         <!-- Topbar do mapa -->
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
-          <div style="flex:1;min-width:0">
-            <strong style="font-size:14px">Mapa de Cameras</strong>
-            <span style="font-size:11px;color:var(--muted);margin-left:8px" id="mapCounter">-</span>
+        <div style="display:flex;align-items:center;gap:10px 16px;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
+          <!-- O titulo nao encolhe: com flex:1 + min-width:0 ele espremia ate
+               quebrar letra a letra ("Mapa / de / Cameras") e o subtitulo
+               invadia a legenda. Quem cede espaco e a legenda, que ja quebra
+               entre itens. -->
+          <div style="display:flex;align-items:baseline;gap:8px;flex:0 0 auto">
+            <strong style="font-size:14px;white-space:nowrap">Mapa de Cameras</strong>
+            <span style="font-size:11px;color:var(--muted);white-space:nowrap" id="mapCounter">-</span>
           </div>
-          <!-- Legenda -->
-          <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#16a34a;border:1px solid white"></span>Camera online</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#dc2626;border:1px solid white"></span>Camera offline</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:11px;border-radius:2px;background:#1971c2;border:1px solid white"></span>CTO</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:16px;height:9px;border-radius:5px;background:#7950f2;border:1px solid white"></span>Emenda/CDO</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:18px;height:4px;border-radius:4px;background:#0ea5e9"></span>Fibra</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:12px;border-radius:3px;background:#f59e0b;border:1px solid white"></span>Caixa CFTV</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#64748b;border:1px solid white"></span>Poste</span>
-            <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:10px;height:12px;border-radius:50% 50% 50% 0;background:#d97706;border:1px solid white;transform:rotate(-45deg)"></span>Outros</span>
-          </div>
-          <!-- Filtros -->
+          <!-- Legenda retirada da barra: oito rotulos com bolinha ocupavam a
+               largura toda e empurravam os filtros para outra linha. As cores
+               continuam iguais no mapa; se fizer falta, o lugar dela e o painel
+               de camadas ou um popover no botao, nao a barra. -->
+          <div style="flex:1 1 auto;min-width:0"></div>
+          <!-- Filtros e acoes andam juntos e ficam colados a direita, em vez de
+               cada um flutuando entre a legenda e a borda. -->
+          <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;margin-left:auto">
           <select class="filter-select" id="mapFilterStatus" style="font-size:12px;padding:5px 8px">
             <option value="">Todos</option>
             <option value="online">Online</option>
@@ -2170,12 +2404,13 @@
             <option value="olt">OLT</option>
             <option value="switch">Switch</option>
           </select>
-          <select class="filter-select" id="mapFilterSite" style="font-size:12px;padding:5px 8px">
-            <option value="">Todos os sites</option>
-          </select>
+          <!-- O filtro "Todos os sites" saiu: o painel de CAMADAS ja e por site,
+               e ligar/desligar camada faz o mesmo com menos passo. Quem le o
+               valor usa `?.value || ''`, entao sem o campo o filtro fica neutro. -->
           <!-- A--es -->
-          <button class="secondary-action" id="btnMapReload" style="font-size:12px;padding:5px 12px"><i data-lucide="refresh-cw"></i> Atualizar</button>
-          <button class="primary-action" id="btnMapTools" style="font-size:12px;padding:5px 14px"><i data-lucide="settings-2"></i> Ferramentas KMZ</button>
+          <button class="secondary-action" id="btnMapReload" style="font-size:12px;padding:5px 12px;white-space:nowrap"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          <button class="primary-action" id="btnMapTools" style="font-size:12px;padding:5px 14px;white-space:nowrap"><i data-lucide="settings-2"></i> Ferramentas KMZ</button>
+          </div>
         </div>
 
         <div class="map-shell">
@@ -4626,44 +4861,55 @@
           <div style="display:flex;align-items:flex-start;gap:14px">
             <span style="width:28px;height:28px;border-radius:50%;background:var(--blue);color:white;font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0;margin-top:2px">2</span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;margin-bottom:2px">Aplicar coordenadas ao invent-rio</div>
-              <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Preenche lat/lon nas cameras com os pontos do KMZ</div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <select id="mapApplySource" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);outline:none">
+              <div style="font-size:13px;font-weight:600;margin-bottom:2px">Aplicar coordenadas ao inventario</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Preenche lat/lon nas cameras com os pontos do mapa escolhido</div>
+
+              <!-- Uma calha so: rotulo a esquerda, tudo o mais comecando na
+                   mesma coluna -- campos, opcao, botoes e mensagens. -->
+              <div style="display:grid;grid-template-columns:80px minmax(0,1fr);gap:10px 12px;align-items:center">
+                <label for="mapApplyLayer" style="font-size:11px;color:var(--muted);text-align:right">Mapa</label>
+                <select id="mapApplyLayer" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);outline:none">
+                  <option value="">carregando mapas...</option>
+                </select>
+
+                <span></span>
+                <div id="mapApplyLayerInfo" style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:-4px"></div>
+
+                <label for="mapApplySource" style="font-size:11px;color:var(--muted);text-align:right">Inventario</label>
+                <select id="mapApplySource" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);outline:none">
                   <option value="ip">Cameras IP</option>
-                  <option value="dvr">DVR - Anal-gico</option>
+                  <option value="dvr">DVR - Analogico</option>
                   <option value="nvr">NVR - IP</option>
                 </select>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap;flex:1">
-                  <input type="checkbox" id="mapApplyOverwrite" style="accent-color:var(--primary);width:14px;height:14px">
-                  Sobrescrever
+
+                <span></span>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;margin:2px 0">
+                  <input type="checkbox" id="mapApplyOverwrite" style="accent-color:var(--primary);width:14px;height:14px;flex-shrink:0">
+                  <span id="mapApplyOverwriteLabel">Sobrescrever coordenadas existentes</span>
                 </label>
-                <button class="secondary-action" id="btnMapApplyPreview" style="font-size:12px;padding:6px 12px;white-space:nowrap">Previa</button>
-                <button class="primary-action" id="btnMapApply" style="font-size:12px;padding:6px 14px;white-space:nowrap">Aplicar</button>
+
+                <span></span>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px">
+                  <button class="secondary-action" id="btnMapApplyPreview" style="font-size:12px;padding:6px 14px;white-space:nowrap">Previa</button>
+                  <button class="primary-action" id="btnMapApply" style="font-size:12px;padding:6px 16px;white-space:nowrap">Aplicar</button>
+                </div>
+
+                <span></span>
+                <div id="mapApplyStatus" style="font-size:11px;line-height:1.6"></div>
               </div>
-              <div id="mapApplyStatus" style="font-size:11px;margin-top:8px;line-height:1.5"></div>
+              <!-- Nomes, nao so contagem: e o que permite ir atras da camera. -->
+              <details id="mapApplySemPonto" class="hidden" style="margin-top:8px">
+                <summary style="font-size:11px;color:var(--warning, #d98600);cursor:pointer"></summary>
+                <div id="mapApplySemPontoLista" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:150px;overflow:auto;line-height:1.6"></div>
+              </details>
             </div>
           </div>
         </div>
 
-        <!-- Etapa 3 -->
-        <div style="padding:16px 20px">
-          <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px">
-            <span style="width:28px;height:28px;border-radius:50%;background:#7950f2;color:white;font-size:12px;font-weight:700;display:grid;place-items:center;flex-shrink:0">3</span>
-            <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;margin-bottom:2px">Gerar KMZ enriquecido</div>
-              <div style="font-size:11px;color:var(--muted)">KMZ com invent-rio + coordenadas importadas</div>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input id="mapGenerateName" type="text" placeholder="Nome do mapa (ex: RESERVA - Jun 2026)"
-              style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12px;outline:none;background:var(--surface);color:var(--text)">
-            <button class="primary-action" id="btnMapGenerate" style="font-size:12px;padding:6px 12px;white-space:nowrap"><i data-lucide="map-pin"></i> Gerar</button>
-            <button class="secondary-action" id="btnMapViewGenerated" style="font-size:12px;padding:6px 10px"><i data-lucide="eye"></i></button>
-            <button class="secondary-action" id="btnMapDownloadGenerated" style="font-size:12px;padding:6px 10px"><i data-lucide="download"></i></button>
-          </div>
-          <div id="mapGenerateStatus" style="font-size:11px;margin-top:6px"></div>
-        </div>
+        <!-- "Exportar KMZ enriquecido" saiu daqui: cada camada do painel ja tem
+             botao de download, e ele chama /download-enriched?source=ip&mode=...,
+             que devolve o MESMO arquivo (KMZ + inventario). Era duas portas para
+             a mesma coisa. O endpoint /kmz/generate continua existindo. -->
 
       </div>
       <div class="modal-actions">
@@ -5370,7 +5616,7 @@
       </div>
       <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:14px">
         <p style="color:var(--muted);font-size:13px">Define um intervalo de octetos e desloca todos os IPs por um valor fixo. -til para abrir espa-o ou reorganizar cameras em sequ-ncia.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Prefixo de rede</label>
             <input id="mntShiftPrefix" type="text" value="10.10.10." placeholder="10.10.10." style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)" oninput="_mntShiftPreview()">
@@ -5378,6 +5624,10 @@
           <div>
             <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Gateway (vazio = prefixo + .1)</label>
             <input id="mntShiftGateway" type="text" placeholder="auto" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Mascara</label>
+            <input id="mntShiftMask" type="text" value="255.255.255.0" placeholder="255.255.255.0" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 8px;font-size:13px;font-family:monospace;background:var(--surface)">
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
@@ -5430,7 +5680,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=40"></script>
+  <script src="js/accessControl.js?v=49"></script>
   <script src="js/bootstrap.js?v=189"></script>
 </body>
 </html>

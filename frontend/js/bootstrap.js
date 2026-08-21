@@ -1362,13 +1362,90 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') runRecAction();
   });
 
+  // O mapa que sera aplicado e ESCOLHIDO aqui. Antes o Aplicar usava sempre o
+  // ultimo KMZ importado, sem dizer -- e foi assim que o mapa de um site acabou
+  // aplicado achando que era de outro.
+  async function carregarMapasKMZ() {
+    const sel = document.getElementById('mapApplyLayer');
+    if (!sel) return;
+    const escolhido = sel.value;
+    const res = await api('/api/kmz/import/layers?include_features=false');
+    const data = await res?.json().catch(() => ({}));
+    const mapas = data?.layers || [];
+    if (!mapas.length) {
+      sel.innerHTML = '<option value="">nenhum mapa importado</option>';
+      document.getElementById('mapApplyLayerInfo').textContent = 'Importe um KMZ no passo 1 para comecar.';
+      return;
+    }
+    sel.innerHTML = mapas
+      .map(m => `<option value="${m.id}">${m.label} (${m.features_count} pontos)</option>`)
+      .join('');
+    // Mantem a escolha do usuario entre recargas; senao, o mais recente.
+    sel.value = mapas.some(m => m.id === escolhido) ? escolhido : mapas[0].id;
+  }
+
+  async function carregarResumoMapa() {
+    const info    = document.getElementById('mapApplyLayerInfo');
+    const elLabel = document.getElementById('mapApplyOverwriteLabel');
+    const detalhe = document.getElementById('mapApplySemPonto');
+    const layerId = document.getElementById('mapApplyLayer')?.value || '';
+    if (!info) return;
+
+    info.textContent = 'conferindo...';
+    if (elLabel) elLabel.textContent = 'Sobrescrever coordenadas existentes';
+    detalhe?.classList.add('hidden');
+
+    const source = document.getElementById('mapApplySource')?.value || 'ip';
+    const mode   = typeof mapInventoryMode === 'function' ? mapInventoryMode() : 'olt';
+    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, layer_id: layerId, overwrite: false, dry_run: true }) });
+    const data = await res?.json().catch(() => ({}));
+
+    if (!data || data.error || data.detail) {
+      info.textContent = data?.detail || data?.error || 'nao consegui ler esse mapa.';
+      return;
+    }
+
+    const site = (data.site || '').toUpperCase();
+    if (site) {
+      const casam = (data.updated || 0) + (data.skipped_has_loc || 0);
+      // Duas linhas: o que ESTE mapa faz, e o que ele nao encosta. Numa linha so
+      // virava um paragrafo e o dado importante se perdia no meio.
+      info.innerHTML = `Site: <strong>${site}</strong> &middot; casam <strong>${casam}</strong> de ${data.points_total} pontos`
+        + (data.fora_do_site ? `<div style="opacity:.75">${data.fora_do_site} camera(s) de outros sites nao serao tocadas</div>` : '');
+    } else {
+      // Sem site reconhecido o backend recusa os criterios fracos de match.
+      info.innerHTML = `<span style="color:var(--warning,#d98600)">Nao reconheci o site deste mapa. So casa por nome exato ou IP.</span>`;
+    }
+
+    if (elLabel) {
+      const jaTem = data.skipped_has_loc || 0;
+      elLabel.textContent = jaTem ? `Sobrescrever as ${jaTem} que ja tem coordenada` : 'Sobrescrever coordenadas existentes';
+    }
+    renderSemPonto(data.no_match_rows || []);
+  }
+
+  function renderSemPonto(linhas) {
+    const bloco = document.getElementById('mapApplySemPonto');
+    const lista = document.getElementById('mapApplySemPontoLista');
+    if (!bloco || !lista) return;
+    if (!linhas.length) { bloco.classList.add('hidden'); return; }
+    bloco.classList.remove('hidden');
+    bloco.querySelector('summary').textContent = `${linhas.length} camera(s) deste site sem ponto no mapa`;
+    lista.innerHTML = linhas
+      .map(r => `<div>${(r.titulo || r.local || '(sem titulo)')} <span style="opacity:.7">- ${r.ip || 's/ IP'}</span></div>`)
+      .join('');
+  }
+
   // Botao Ferramentas KMZ
   document.getElementById('btnMapTools')?.addEventListener('click', () => {
     const modeSel = document.getElementById('mapInventoryMode');
     if (modeSel && !modeSel.value) modeSel.value = _invOltView || 'olt';
     document.getElementById('modalMapTools').classList.remove('hidden');
     lucide.createIcons();
+    carregarMapasKMZ().then(carregarResumoMapa);
   });
+  document.getElementById('mapApplySource')?.addEventListener('change', carregarResumoMapa);
+  document.getElementById('mapApplyLayer')?.addEventListener('change', carregarResumoMapa);
   document.getElementById('closeMapTools')?.addEventListener('click',  () => document.getElementById('modalMapTools').classList.add('hidden'));
   document.getElementById('closeMapTools2')?.addEventListener('click', () => document.getElementById('modalMapTools').classList.add('hidden'));
 
@@ -1379,12 +1456,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const overwrite = document.getElementById('mapApplyOverwrite')?.checked || false;
     const status   = document.getElementById('mapApplyStatus');
     status.textContent = 'Calculando previa';
-    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, overwrite, dry_run: true }) });
+    const layerId = document.getElementById('mapApplyLayer')?.value || '';
+    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, layer_id: layerId, overwrite, dry_run: true }) });
     const data = await res?.json().catch(() => ({}));
     if (data?.error) { status.textContent = ' ' + data.error; status.style.color = 'var(--danger)'; return; }
     const src = document.getElementById('mapApplySource')?.options[document.getElementById('mapApplySource')?.selectedIndex]?.text || source;
     status.style.color = 'var(--muted)';
-    status.innerHTML = `<strong>${src}</strong> | Pontos: ${data.total_points ?? '?'} | Atualizariam: ${data.updated ?? '?'} | Sem match: ${data.no_match ?? '?'} | Ja tinham: ${data.already_had ?? '?'}`;
+    const alvo = (data.site || '').toUpperCase();
+    status.innerHTML = `<strong>${src}</strong>${alvo ? ` em <strong>${alvo}</strong>` : ''} | Pontos: ${data.points_total ?? '?'}`
+      + ` | Ganhariam coordenada: ${data.updated ?? '?'} | Sem ponto no mapa: ${data.no_match ?? '?'}`
+      + ` | Ja tinham: ${data.skipped_has_loc ?? '?'}`
+      + (data.fora_do_site ? ` | De outros sites (intocadas): ${data.fora_do_site}` : '');
+    renderSemPonto(data.no_match_rows || []);
   });
 
   document.getElementById('btnMapApply')?.addEventListener('click', async () => {
@@ -1393,13 +1476,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const overwrite = document.getElementById('mapApplyOverwrite')?.checked || false;
     const status    = document.getElementById('mapApplyStatus');
     status.textContent = 'Aplicando'; status.style.color = 'var(--muted)';
-    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, overwrite }) });
+    const layerId = document.getElementById('mapApplyLayer')?.value || '';
+    const res  = await api('/api/kmz/import/locations/apply', { method: 'POST', body: JSON.stringify({ source, mode, layer_id: layerId, overwrite }) });
     const data = await res?.json().catch(() => ({}));
     if (data?.error) { status.textContent = ' ' + data.error; status.style.color = 'var(--danger)'; return; }
     status.style.color = 'var(--primary)';
     const src = document.getElementById('mapApplySource')?.options[document.getElementById('mapApplySource')?.selectedIndex]?.text || source;
-    status.innerHTML = ` <strong>${src}</strong> | Atualizadas: ${data.updated ?? '?'} | Sem match: ${data.no_match ?? '?'}`;
-    showToast(`${data.updated ?? '?'} cameras atualizadas com GPS!`);
+    const alvo = (data.site || '').toUpperCase();
+    status.innerHTML = ` <strong>${src}</strong>${alvo ? ` em <strong>${alvo}</strong>` : ''} | Atualizadas: ${data.updated ?? '?'}`
+      + ` | Sem ponto no mapa: ${data.no_match ?? '?'}`
+      + (data.fora_do_site ? ` | De outros sites (intocadas): ${data.fora_do_site}` : '');
+    showToast(`${data.updated ?? '?'} cameras${alvo ? ' de ' + alvo : ''} atualizadas com GPS!`);
+    carregarResumoMapa();
   });
 
   // Etapa 3  Gerar KMZ
@@ -1481,6 +1569,11 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionStorage.setItem('so_kmz_imported_name', kmlName);
     if (importData?.id) sessionStorage.setItem('so_kmz_current_import_layer', importData.id);
     showToast(`KMZ importado  ${featCount} pontos encontrados`);
+    // Entrou mapa novo: ele tem que aparecer na lista, ja selecionado.
+    await carregarMapasKMZ();
+    const selNovo = document.getElementById('mapApplyLayer');
+    if (selNovo && importData?.id) selNovo.value = importData.id;
+    carregarResumoMapa();
 
     // Passo 2: perguntar se quer aplicar ao inventario
     const apply = await showConfirm({

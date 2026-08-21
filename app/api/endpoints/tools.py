@@ -1513,8 +1513,18 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
     overwrite = bool(payload.get("overwrite", False))
     source = str(payload.get("source") or "ip").strip().lower()
     mode = _normalize_inventory_mode(str(payload.get("mode") or ""))
-    kmz_geojson_path = tenant_kmz_imported_geojson_path() if get_current_tenant_slug() else KMZ_IMPORTED_GEOJSON_PATH
-    geojson = read_geojson_file(kmz_geojson_path)
+    # Mapa escolhido na tela; sem escolha, o ultimo importado (comportamento
+    # antigo). Herdar o ultimo import sem dizer nada foi o que deixou alguem
+    # aplicar um mapa achando que era outro.
+    layer_id = str(payload.get("layer_id") or "").strip()
+    if layer_id:
+        _, layer_geojson_path, _ = _kmz_layer_paths(layer_id)
+        geojson = read_geojson_file(layer_geojson_path)
+        if not geojson:
+            raise HTTPException(400, "Mapa nao encontrado. Recarregue a lista de mapas.")
+    else:
+        kmz_geojson_path = tenant_kmz_imported_geojson_path() if get_current_tenant_slug() else KMZ_IMPORTED_GEOJSON_PATH
+        geojson = read_geojson_file(kmz_geojson_path)
     if not geojson:
         raise HTTPException(400, "Nenhum KMZ importado/convertido para aplicar.")
 
@@ -1546,12 +1556,18 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
             dvr_idx_map[len(mapped) - 1] = i
         rows_for_apply = mapped
 
-    new_rows, summary, no_match_rows = apply_locations_to_inventory(
-        rows_for_apply,
-        geojson,
-        dry_run=dry_run,
-        overwrite=overwrite,
-    )
+    try:
+        new_rows, summary, no_match_rows = apply_locations_to_inventory(
+            rows_for_apply,
+            geojson,
+            dry_run=dry_run,
+            overwrite=overwrite,
+            site=str(payload.get("site") or "").strip(),
+        )
+    except ValueError as exc:
+        # Mapa de um site aplicado em outro: erro do usuario, com texto que
+        # explica o que fazer -- nao 500.
+        raise HTTPException(400, str(exc)) from exc
     if not dry_run:
         if source in ("dvr", "nvr"):
             rows_out = [dict(r) for r in rows]
@@ -1581,7 +1597,42 @@ async def api_kmz_import_locations_apply(payload: Dict[str, Any]) -> Dict[str, A
         ),
         encoding="utf-8",
     )
-    return {"ok": True, "source": source, "mode": mode if source == "ip" else "", **summary}
+    # A tela precisa saber DE QUE MAPA e DE QUE SITE ela esta falando antes de
+    # deixar alguem clicar em Aplicar -- foi a falta disso que deixou o KMZ de um
+    # site carimbar cameras de outro sem ninguem perceber. Na previa vao junto os
+    # nomes das cameras sem ponto no mapa: numero solto ("323 sem match") nao
+    # ajuda ninguem a agir.
+    resposta = {
+        "ok": True,
+        "source": source,
+        "mode": mode if source == "ip" else "",
+        "layer": _kmz_layer_ativa(layer_id),
+        **summary,
+    }
+    if dry_run:
+        resposta["no_match_rows"] = no_match_rows[:60]
+    return resposta
+
+
+def _kmz_layer_ativa(layer_id: str = "") -> Dict[str, Any]:
+    """Nome do KMZ que o Aplicar vai usar: o escolhido, ou o ultimo importado."""
+    if layer_id:
+        _, _, meta_path = _kmz_layer_paths(layer_id)
+    else:
+        kmz_imported_path = tenant_kmz_imported_path() if get_current_tenant_slug() else KMZ_IMPORTED_PATH
+        meta_path = kmz_imported_path.with_suffix(".meta.json")
+    if not meta_path.exists():
+        return {}
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8") or "{}")
+    except Exception:
+        return {}
+    nome = str(meta.get("original_name") or "").strip()
+    return {
+        "id": str(meta.get("layer_id") or ""),
+        "nome": Path(nome).stem if nome else "",
+        "arquivo": nome,
+    }
 
 
 @router.post("/kmz/generate")

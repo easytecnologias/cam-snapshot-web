@@ -68,10 +68,23 @@ saida/
 *_backup_*
 _server_backup_*
 _tmp_*
+.tmp_*
 *~
+
+# Ferramental do agente: skills instaladas de fora, permissoes locais e o
+# indice gerado por elas. As skills DESTE projeto (sightops-*) continuam
+# versionadas -- sao parte de como o sistema e operado.
+.agents/
+skills-lock.json
+SKILLS.md
+.claude/settings.local.json
+.claude/skills/*
+!.claude/skills/sightops-*
 
 # Dados de projeto de cliente (KML/KMZ ficam fora do repo)
 /TELHA/*.kml
 
-# Script de sondagem manual do FiberHome (scratch, ninguem importa)
-scripts/_fiberhome_offline_probe.py
+# Sondagens manuais em scripts/: por convencao comecam com "_" e nao sao
+# importadas por ninguem -- servem para investigar uma vez e morrer.
+scripts/_*.py
+scripts/_*.sh

@@ -382,8 +382,11 @@ async function loadKmz() {
   // Carrega e renderiza painel de camadas
   await loadMapLayers();
 
-  // Nada mais a fazer aqui  as camadas sao gerenciadas pelo painel
-  setText('mapCounter', 'Selecione camadas no painel');
+  // Nada mais a fazer aqui  as camadas sao gerenciadas pelo painel.
+  // Sem texto: o painel de camadas ja diz o que fazer, e a frase antiga
+  // ("Selecione camadas no painel") comia ~190px da barra e empurrava a legenda
+  // para uma segunda linha. Assim que uma camada acende, aqui vira "N pontos".
+  setText('mapCounter', '');
 
   // Popula filtro de sites (extraido das propriedades)
   const sites = [...new Set(_mapFeatures.map(f => {

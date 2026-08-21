@@ -7,6 +7,478 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-20 (noite) — OLT VSOL homologada, faltando o MAC do CPE
+
+**Agente:** Claude — **PASSAGEM DE BASTAO, tarefa inacabada**
+
+### Atualizacao (20/08, madrugada) — driver ja coleta o CPE, falta provar na OLT
+
+**Agente:** Claude. **Estado: escrito e testado no repo, NAO rodou na OLT e NAO
+foi para producao.** Nao ha nada em producao diferente do que ja estava.
+
+O que foi feito em `app/cli/tools/olt_vsol_epon.py`:
+
+- `parse_onu_mac_table()` — le `show onu <id> mac-address-table`.
+- `_le_macs_da_onu()` — roda o comando dentro do contexto da PON, como os
+  outros `show onu ...` deste driver.
+- `_linhas_por_cpe()` — explode cada ONU em **uma linha por CPE** (era uma linha
+  por ONU com `cpe_mac: ""`). ONU offline nao e consultada; ONU sem CPE
+  aprendido sai com o proprio MAC como chave (`cpe_source: onu-sem-trafego`),
+  para nao sumir do relatorio — mesmo criterio do driver 4840e.
+
+Teste sem OLT: `python scripts/sightops_olt_vsol_cpe_mac_test.py` (canal falso,
+6 verificacoes, passando). Cobre dois formatos plausiveis de tabela, tabela
+vazia, exclusao do MAC da propria ONU e ONU offline continuando visivel.
+
+**Formato real ja capturado na OLT** (probe read-only, PON 0/1, ONUs 1 e 2):
+
+```
+epon-olt(config-pon-0/1)# show onu 1 mac-address-table
+ Mac Address Table
+----------------------------------------------------------
+Index   VLAN   MAC  Address         PON       ONU    Aging(s)
+1       1000   54:6c:ac:25:e6:cf    EPON0/1   1      255
+2       1000   54:6c:ac:25:e8:1a    EPON0/1   1      255
+3       1000   98:2a:0a:4b:a5:71    EPON0/1   1      255
+4       1000   54:6c:ac:25:e8:1c    EPON0/1   1      255
+
+ Total Addresses Found in System :4
+```
+
+O comando funciona, roda dentro do contexto da PON e a PON 0/1 sozinha tem 8
+ONUs (6 online), 4 CPEs cada. A saida real virou fixture do teste. Detalhe que
+justifica nao contar colunas: a linha tem TRES inteiros (Index, VLAN, Aging) --
+`_vlan_da_linha` pega o token a esquerda do MAC, senao viria 1 ou 255.
+
+**O cruzamento foi PROVADO antes do deploy (nada gravado):** li as 4 PONs,
+juntei os CPEs de todas as ONUs online e cruzei com
+`_known_mac_ip_index(connector_id="bdd51284f07594d9", site="JAPARATINGA")`:
+
+```
+CPEs distintos lidos na OLT      : 57
+CPEs que casam com o indice      : 57   (100%)
+IPs resolvidos                   : 100.66.11.x
+```
+
+Ou seja a trava vai passar (`matched_connector_ips = 57`, nao 0). E como o
+inventario de OLT do tenant `rads` **nao tem nenhuma camera do site
+JAPARATINGA** hoje (so SANTANA 224, BARRA 180, PRAIA BONITA 40, ESCOLA MEDEA
+25), essas 57 linhas entram por `_sync_camera_inventory_from_olt_rows` como
+cameras **criadas** ja com PON/ONU preenchidos.
+
+Nao precisa rodar scan no site: os MACs ja sao conhecidos por outro caminho --
+`inventario-switch` (61 entradas) e `arp_sample`/`dhcp_sample` do proprio
+conector (36).
+
+**Alinhamento de campos, feito junto:** o cruzamento procura nomes fixos
+(`onu_model`, `oper_status`, `omci_status`) e este driver produzia `modelo` e
+`up`/`down`. A camera casaria pelo MAC e ficaria sem modelo e sem estado, em
+silencio. `_campos_de_topologia` traduz para o vocabulario do 4840e
+(`Active`/`Offline`, `OK`/`LOS`) e o teste trava esses nomes.
+
+**Base de producao conferida:** o `olt_vsol_epon.py` dentro de
+`sightops-prod-api:20260820-vsol` tem as mesmas 545 linhas e as mesmas funcoes
+do arquivo local (md5 `70cdeacd...`), entao o arquivo local e a base + as
+mudancas desta sessao. Copiar o arquivo inteiro na imagem nova e seguro; nao ha
+import novo.
+
+**DEPLOY FEITO** — imagem `sightops-prod-api:20260820-vsol-cpemac`, publicada
+com `deploy_api.py` (nao com `compose up`). Container `sightops-prod-api` no ar,
+healthy, `api=401` / `front=200`, driver novo confirmado dentro da imagem em uso.
+Validacao antes da troca: o teste do repo e um script de import da aplicacao
+inteira rodaram DENTRO da imagem nova, com producao intocada.
+
+**PENDENCIA que nao e desta mudanca, mas morde:** o `.env.production` aponta
+`CAM_SNAPSHOT_IMAGE=sightops-prod-api:20260819-podasegura`, enquanto o container
+roda a `-cpemac`. O `deploy_api.py` nao mexe nesse arquivo, entao eles vivem
+dessincronizados. Qualquer `docker compose up` devolve producao para a imagem de
+19/08 e o driver VSOL some junto. Deixado como esta por ser escrita em arquivo
+de producao -- decidir com o usuario.
+
+Resto: sobrou um container `sightops-prod-api-20260820-fonterede` em estado
+`Created` (deploy anterior, nao deste). Fora da rede, inofensivo, mas e lixo.
+
+### "Testar conexao" da VSOL falhava — corrigido no mesmo dia
+
+Sintoma na tela de OLT: `Falhou`. Detalhe salvo no registry:
+`500: Erro ao descobrir ONUs na OLT: Socket is closed`.
+
+Causa: o botao chama `discover_onus`, e o `olt_service.py` **de producao** so
+conhecia VSOL no `collect_macs` — os outros caminhos caiam no driver Intelbras,
+que fala comando que esta OLT nao entende e derruba a sessao. Pior: o
+`olt_capabilities.py` de producao **ja anunciava** `discover_onus`, `telemetry`,
+`find_onu` e `onu_signal` para `vsol_epon`. A capability prometia e o servico
+nao entregava.
+
+Corrigido na imagem `sightops-prod-api:20260820-vsol-rotas` (patch aplicado
+sobre os arquivos extraidos da imagem no ar, nao sobre o repo):
+
+- `_is_vsol()` no olt_service (o criterio era inline, agora quatro operacoes
+  usam o mesmo);
+- desvio VSOL em `discover_onus`, `collect_onu_telemetry`, `find_onu` e
+  `onu_signal`;
+- `_discover_vsol_por_pon()` — o driver devolve lista unica de ONUs, a tela
+  espera mapa por PON com a chave `discovered`;
+- `api/endpoints/olt.py`: o teste de conexao da VSOL passa a usar `collect_macs`
+  como a 4840e. Motivo: `show onu discover` lista so ONU NAO autorizada, entao
+  numa OLT ja provisionada volta vazio e o teste diria "0 PON(s)" com tudo
+  funcionando.
+
+**Consequencia que precisa estar clara:** "Testar conexao" na VSOL agora faz a
+coleta completa — demora minutos e ESCREVE inventario (deve criar as 57
+cameras). E o mesmo comportamento que a 4840e ja tinha (na tela ela mostra
+"Conexao OK - 258 M").
+
+Validado antes do deploy dentro da imagem: app carrega, os 4 caminhos existem,
+`_is_vsol` nao confunde 4840E com VSOL, e o formato da descoberta e o que o
+endpoint conta. Nao consegui exercitar o discover contra a OLT real por fora --
+`docker cp`/`exec` para dentro do container de producao esbarra no classificador
+de permissoes. O teste de verdade e clicar o botao.
+
+### Resultado final medido em producao
+
+A coleta rodou pela tela e o registry gravou `ok - 60 MAC(s) coletado(s)`:
+
+```
+linhas da VSOL no inventario : 60   (57 CPEs + 3 ONUs offline pelo fallback)
+linhas com IP resolvido      : 57
+cameras de JAPARATINGA       : 61
+cameras com PON + ONU        : 56
+```
+
+Exemplo de linha completa: `cpe_mac 54:6c:ac:25:e6:cf | ip 100.66.11.28 |
+pon 0/1 | onu_id 1 | onu_model R1v2 | oper_status Active | vlan 1000 |
+cpe_source mac-address-table`.
+
+**Correcao de uma previsao errada minha:** eu disse que nasceriam 57 cameras
+novas. Nao nasceram — as 61 cameras de JAPARATINGA **ja existiam** no inventario
+(vieram do inventario de switch, com nome de verdade: "38 - GCM 1", "40 -
+ENTRADA BASE"). O que a coleta fez foi **enriquecer** as existentes com a
+topologia. `created_cameras` foi zero.
+
+As 5 sem vinculo nao sao falha: 4 delas (GCM 1, GCM 2, ENTRADA BASE, INTERNA CCO
+BASE) tem MAC que **nenhuma ONU aprendeu** — sao da base/CCO, ligadas em switch,
+nao atras de ONU. A quinta (100.66.11.31) esta sem MAC no cadastro, e sem MAC
+nao ha o que cruzar.
+
+As 3 ONUs offline (0/1:7, 0/1:8, 0/2:2) entraram com o MAC da propria ONU, que e
+o comportamento desenhado -- ficar de fora do relatorio seria pior.
+
+### Mapa/KMZ carimbava coordenada de um site em camera de outro
+
+Relato do usuario: "cadastro camera nova, mando carregar o mapa e ele apaga o
+inventario". **Nao apaga** -- medido: 530 linhas antes, 530 depois, e o
+`apply_locations_to_inventory` devolve toda linha, inclusive sem match.
+
+O que acontecia de verdade e pior: o apply cruzava o KMZ contra o inventario
+**inteiro**, sem filtro de site, e um dos criterios de match e o numero no inicio
+do titulo. `"1 - ESCOLA NOSSA SENHORA SANTANA"` casava com `"1 - SPEED ORLA"` so
+porque ambos comecam com 1. Com "sobrescrever" marcado, o KMZ de um site
+espalhava coordenadas pelo resto.
+
+**Estrago ja gravado, medido em 20/08:** 147 cameras de outros sites estavam
+posicionadas dentro da area de Japaratinga:
+
+```
+JAPARATINGA          ->  60  (correto)
+BARRA DE SAO MIGUEL  ->  61  (errado)
+SANTANA              ->  61  (errado)
+ESCOLA MEDEA         ->  25  (errado -- fica em Barra de Sao Miguel)
+```
+
+**Correcao (imagem `sightops-prod-api:20260820-kmzsite`)**, em `kmz_ops.py` +
+`api/endpoints/tools.py`:
+
+- `detect_kmz_site()` descobre o site do mapa pelos nomes dos pontos. So o match
+  FORTE (nome inteiro) vota, porque e o unico que nao vaza: o KMZ de Japaratinga
+  deu 60 votos nela e **zero** em qualquer outro site.
+- linha de outro site passa intacta (contada em `fora_do_site`).
+- `site` no payload e conferido contra o detectado; divergencia vira **400 com
+  texto**, nao carimbo silencioso.
+- sem site reconhecido, o criterio fraco (numero) fica **proibido** -- nome
+  inteiro e IP continuam valendo.
+
+Antes/depois com o mesmo KMZ e os mesmos dados: Japaratinga seguia com 60, e
+Barra/Santana/Medea foram de 61/61/25 para **0/0/0**.
+
+Teste: `python scripts/sightops_kmz_site_isolado_test.py` (6 verificacoes, com os
+nomes reais que colidiram). A mesma correcao esta no repo e em producao.
+
+**Dados ainda por reparar:** as 147 coordenadas erradas continuam gravadas.
+Backup em `/app/output/backup-inventario-rads-20260820-212236.json` (530 linhas,
+489 com coordenada). O reparo pela tela e reimportar o KMZ de cada site e
+aplicar COM "sobrescrever" -- agora que o filtro existe, cada mapa so encosta no
+proprio site e as coordenadas erradas sao substituidas pelas certas.
+
+### Tela "Ferramentas KMZ" agora diz de que mapa e de que site esta falando
+
+A tela nao mostrava **nada** sobre o site -- e a operacao inteira e por site.
+Essa cegueira e a mesma causa do bug das 147 cameras. O que entrou:
+
+- cabecalho novo no modal: **mapa ativo** (nome do KMZ importado) + **site
+  detectado** + placar "casam N de M pontos";
+- o passo 2 vira "Aplicar coordenadas **em JAPARATINGA**";
+- o checkbox deixa de ser mudo: "Sobrescrever **as 60 que ja tem coordenada**";
+- a previa mostra **nomes** das cameras sem ponto no mapa (`<details>`), nao so
+  a contagem; antes era "Sem match: 323" e ninguem sabia quais;
+- "Gerar KMZ" deixou de ser "passo 3" (virou **Exportar**, sem numero):
+  importar+aplicar sao um fluxo, exportar e outra coisa.
+
+Backend: `/api/kmz/import/locations/apply` passou a devolver `layer` (qual KMZ
+esta ativo) e, no `dry_run`, `no_match_rows` (ate 60 nomes). Imagem
+`sightops-prod-api:20260820-mapatela`.
+
+Frontend: `index.html` + `js/bootstrap.js` em
+`/home/central/sightops-prod-release/frontend/`, com backup `.bak-20260820-221049`.
+**Versao do asset foi para `?v=321`** (era 320) -- numero inedito, senao o
+Cloudflare serve o JS velho com o HTML novo.
+
+**Segunda rodada (mesma noite), depois do usuario usar a tela:**
+
+O cabecalho anunciava um site que ninguem tinha escolhido -- era o ultimo KMZ
+importado, herdado em silencio. Reclamacao justa: "oq tem a ver japaratinga se
+nem to marcando nada". Virou escolha:
+
+- `/api/kmz/import/locations/apply` aceita **`layer_id`**; sem ele, o
+  comportamento antigo (ultimo importado);
+- a tela tem um **seletor de Mapa**, alimentado por `/api/kmz/import/layers`;
+  o site passou a ser consequencia da escolha, mostrado embaixo do campo;
+- KMZ recem-importado entra na lista **ja selecionado**;
+- layout numa calha so (rotulo a direita, campos/opcao/botoes/mensagens na mesma
+  coluna) -- antes o texto do checkbox quebrava em tres linhas;
+- **bloco "Exportar KMZ enriquecido" removido do modal**: cada camada do painel
+  ja tem download, e ele chama `/download-enriched?source=ip&mode=...`, o MESMO
+  arquivo. O endpoint `/kmz/generate` continua existindo, so nao tem mais botao.
+
+Medido nos 4 mapas reais do cliente rads, cada um pelo caminho do botao:
+
+```
+JAPARATINGA          |  61 pts | site japaratinga        | casam 61  | 469 intocadas
+ESCOLA MEDEA         |  24 pts | site escola medea       | casam 24  | 505 intocadas
+BARRA DE SAO MIGUEL  | 180 pts | site barra de sao miguel| casam 180 | 350 intocadas
+SANTANA              | 224 pts | site santana            | casam 224 | 306 intocadas
+```
+
+Cada mapa reconhece o proprio site e casa 100% das suas cameras. **E o caminho
+para devolver as 147 coordenadas limpas**: escolher o site no seletor, marcar
+Sobrescrever, Aplicar -- um site de cada vez, sem reimportar nada.
+
+Imagens: `20260820-mapatela` -> `20260820-mapaseletor`. Frontend em `?v=323`,
+backups `.bak-seletor` e `.bak-alinha` em
+`/home/central/sightops-prod-release/frontend/`.
+
+### "Consultar sinal / MACs" pendurava a tela — corrigido
+
+Sintoma: a tela de ONU ficava em "Consultando sinal e MACs na OLT..." sem voltar.
+No log dava para ver a sessao SSH abrindo na OLT e a requisicao nunca fechando.
+
+Causa (introduzida ao ligar `onu_signal` para VSOL): **a tela manda o NUMERO da
+PON** -- o seletor "PON 1" chega como `1` -- e esta OLT so entende
+`interface epon 0/1`. Com `interface epon 1` o CLI **ignora em silencio**
+(armadilha ja conhecida desta OLT), o prompt nao vira `config-pon`, e cada
+comando seguinte esperava o timeout inteiro. Somando os passos dava minutos de
+tela parada.
+
+Corrigido na imagem `sightops-prod-api:20260820-vsol-pon`:
+
+- `_rotulo_da_pon()` aceita `1`, `"1"`, `"0/1"`, `"EPON0/3"` e devolve sempre
+  `"0/N"`. Usado em `_entra_na_pon`, `_pons_existentes` e `onu_signal_vsol`.
+- `_entra_na_pon` agora **confere o prompt** (`_prompt_da_pon`) em vez de so
+  procurar mensagem de erro. PON inexistente falha na hora, com mensagem, em vez
+  de pendurar. Duas verificacoes novas no teste cobrem isso.
+
+Lembrete: o sinal optico desta OLT continua vazio (`show onu <id> ctc pon
+monitor_status` nao responde neste firmware). A consulta volta rapido e traz MAC
+da ONU, estado e distancia -- a potencia fica em branco, e isso e da OLT, nao do
+driver.
+
+Fora do escopo, achado de passagem: no working tree, `app/services/olt_service.py`
+linha 25 importa `app.services.camera_allowlist`, que esta **deletado** na copia
+local. Qualquer teste que importe `olt_service` quebra na hora. Trabalho em
+andamento do Codex — nao mexi.
+
+### Onde parou (leia isto primeiro)
+
+A OLT VSOL de Japaratinga (`192.168.200.2`) esta cadastrada, o driver esta em
+producao e **conversa com a OLT**. A coleta falha no ultimo passo, com esta
+mensagem na tela:
+
+> A OLT respondeu, mas os MACs coletados nao batem com o conector selecionado.
+> Verifique LANs duplicadas entre conectores (...)
+
+**Nao e falso positivo e nao e bug da trava.** A trava esta certa; o driver e que
+esta incompleto. Explicacao abaixo.
+
+### A causa, confirmada no codigo
+
+No `olt_service.py` de producao (~linha 701 do arquivo extraido do container):
+
+```python
+matched_connector_ips = sum(1 for item in new_cpes if item.get("ip") or item.get("camera_ip"))
+if connector_id and new_cpes and mac_ip_index and matched_connector_ips == 0:
+    raise RuntimeError("A OLT respondeu, mas os MACs coletados nao batem ...")
+```
+
+Essa protecao cruza os **MACs dos equipamentos do cliente (CPE)** lidos na OLT
+com os MACs que o conector conhece na rede. Serve para impedir que inventario de
+cliente A entre no cliente B quando duas LANs se repetem (ex.: 192.168.50.0/30).
+
+O `collect_macs_vsol` devolve o MAC **da ONU** e deixa `cpe_mac: ""` — ver
+`app/cli/tools/olt_vsol_epon.py`, dentro de `collect_macs_vsol`. Com zero CPEs,
+a soma da zero e a trava dispara. Nada a ver com o conector JAPARATINGA.
+
+### A correcao (proximo passo, ~1 comando novo no driver)
+
+O comando existe no CLI desta OLT e ainda nao e usado:
+
+```
+show onu <1-65535> mac-address-table
+```
+
+E o equivalente do que o driver do 4840e ja faz. Com ele o `cpe_mac` deixa de
+vir vazio, a trava passa a ter o que comparar, e de quebra nasce o vinculo
+**camera -> ONU** (saber qual ONU atende qual camera).
+
+Passos: rodar o comando em 1 ONU para ver o formato -> escrever o parser ->
+chamar dentro de `_le_pon` (ou logo apos) -> preencher `cpe_mac` -> uma linha
+por CPE, como fazem os outros drivers.
+
+Sao 21 ONUs, uma consulta cada. Pelo tempo ja medido, acrescenta poucos segundos.
+
+### O que JA esta pronto e funcionando (nao refazer)
+
+- `app/cli/tools/olt_vsol_epon.py` (467 linhas) — driver EPON. Le 21 ONUs em
+  3 PONs (das 4 existentes) com MAC, estado e distancia.
+- `olt_capabilities.py` — driver `vsol_epon`, libera collect_macs, telemetry,
+  discover_onus, find_onu, onu_signal.
+- `olt_service.py` — desvio de `collect_macs` para o driver VSOL.
+- Frontend: VSOL no seletor de fabricante (`#oltRegVendor`) + modelos em
+  `deployOlt.js`.
+- Imagem `sightops-prod-api:20260820-vsol` publicada via `deploy_api.py`, 6
+  passos OK, producao 401/200, 0 erros no log.
+- Cadastro salvo: `OLT - JAPARATINGA / 192.168.200.2 / VSOL / EPON 4 portas /
+  site=JAPARATINGA / ativa=True`.
+
+### Armadilhas desta OLT, custaram tempo
+
+1. **`end` no prompt `epon-olt#` ENCERRA a sessao** (age como `exit`). So e
+   seguro dentro de `(config...)`. Por isso existe `_volta_ao_topo()`.
+2. **Entrar numa PON inexistente nao da erro** — o CLI ignora e fica no contexto
+   anterior. Sem conferir o prompt, o driver le a mesma PON varias vezes e
+   duplica ONUs. Por isso `_prompt_da_pon()` / `_pons_existentes()`.
+3. **`_open_shell` do 4840e vai direto para `sshpass`**, que nao existe no
+   container. Usar `_abre_shell_vsol()` (paramiko 5.0 conecta direto).
+4. Enviar comando as cegas derruba a sessao — cada etapa espera o prompt
+   (`_espera_prompt` / `_manda`).
+
+### Ainda em aberto na VSOL
+
+- Sinal optico nao retorna (`show onu <id> ctc pon monitor_status` vem vazio).
+  Investigar depois; o usuario autorizou deixar para depois.
+- `find_onu` / `onu_signal` / `telemetry` / `discover` ainda **nao** ligados no
+  `olt_service.py` de producao — so `collect_macs` foi integrado.
+- **Provisionamento segue BLOQUEADO** (`add_onu` / `delete_onu`).
+  `build_delete_onu_vsol_command` esta escrito mas nao ligado. So homologar com
+  uma ONU descartavel escolhida pelo usuario — mexe em cliente ativo.
+
+### Regra que nao pode ser esquecida
+
+Producao **nao vem do git**. Copiar arquivo do `main` para dentro do container
+quebra a API — ja aconteceu nesta sessao (`olt_service.py` do repo importa
+`camera_allowlist`, que nao existe em producao). Extrair com `docker cp`,
+aplicar so o diff, conferir os arquivos **dentro da imagem** antes do deploy.
+
+## 2026-08-20 — Zabbix: grupos por site, Telegram por site, poda de ONU e o deploy que nao derruba
+
+**Agente:** Claude
+
+### PENDENCIA ABERTA: 1.110 itens orfaos recebendo dados no Zabbix
+
+Medido em 20/08 as 13:23, banco `zabbix_prod`:
+
+```
+itens orfaos distintos  : 1.110
+linhas orfas            : ~100.000  (history 50.562 | history_uint 18.807
+                                     trends 20.365 | trends_uint 9.774)
+linha orfa mais recente : 383 segundos atras
+```
+
+Orfao = `history.itemid` que nao existe mais em `items`. **Nao e residuo parado:
+ainda entram linhas novas.** 1.110 itens e muito mais do que os ~50 hosts
+removidos nesta sessao explicariam -- vem de exclusoes acumuladas ha tempo.
+
+O housekeeper (config padrao) apaga em lotes de 5.000 quando roda, mas nao vence
+o ritmo de entrada, entao o numero nao cai sozinho. Isso pesa no disco: durante a
+limpeza desta sessao a maquina foi a `load 17` com 65% de espera de I/O.
+
+**Para retomar:** descobrir QUEM ainda escreve para itens mortos (cache de
+configuracao do server preso, proxy, ou zabbix_sender). Nao foi investigado --
+o dia ja tinha tido duas quedas de producao e nao era hora de mexer no Zabbix.
+
+**Cuidado ao apagar host no Zabbix:** o historico dele NAO sai junto; fica orfao
+e o housekeeper limpa depois, em lotes. Foi isso que derrubou o desempenho da
+maquina por ~40 minutos apos remover 42 hosts + 8 ONUs. Se for apagar em volume,
+faca fora do horario.
+
+### O que mudou em producao
+
+**Deploy** — `deploy_api.py` no `sightops-prod-release`. Use **isto**, nao
+`docker compose up`: o recreate do compose desconecta o container antigo da rede
+antes de subir o novo e trava nesta maquina; derrubou producao duas vezes em
+19/08. O script sobe o novo, espera ficar healthy, so entao move o apelido de
+rede `cam-snapshot-api`, e confere pelo `curl` no nginx a cada passo.
+`docker ps` mente aqui: mostra "Up (healthy)" com o site fora, porque o
+healthcheck roda dentro do container e nao usa rede.
+
+**Zabbix / cameras**
+- host entra no grupo do cliente **e** no grupo do site (`Cameras - <T>/<SITE>`).
+  Nao e duplicacao: grupo no Zabbix e etiqueta, um host em dois grupos (medido:
+  382 hosts, 382 no grupo pai, os mesmos 382 somados nos grupos de site).
+- poda bloqueada com inventario vazio e acima de 20% do grupo
+  (`ZBX_PRUNE_MAX_PCT`). As duas travas nasceram de perdas reais: o grupo
+  `Cameras - RADS` caiu de 469 -> 61 e de 530 -> 61 em dois episodios, sempre por
+  sincronizar com uma Fonte que enxerga so parte do inventario.
+- **cada Fonte enxerga uma fatia diferente**: na easy, `basic`=0, `olt`=382,
+  `switch`=0; na rads, `olt`=469, `switch`=61, uniao=530. A tela agora mostra a
+  contagem em cada Fonte e abre na que tem dado.
+
+**Zabbix / OLT e ONU** (`zabbix_monitoring_service.py`)
+- hosts ganharam macros (`{$ONU_SERIAL}`, `{$ONU_PON}`, `{$SITE}`, ...); antes
+  tinham zero e por isso nenhuma mensagem podia ser personalizada.
+- host existente passou a ser atualizado (so havia `host.create`).
+- grupo por site voltou a ser preenchido (existia, congelado de versao antiga).
+- mensagens de OLT/ONU montadas **por host**: identificacao rotulada pelo formato
+  do dado (Intelbras entrega serial GPON; FiberHome guarda MAC no mesmo campo) e
+  linha de sinal que admite quando a OLT nao mede potencia. O molde e generico, o
+  conteudo variavel vai em macro.
+- acao de Telegram por site, so para site com chat configurado.
+
+**ONU apagada na OLT** (`olt_service.py`) — a telemetria so atualizava o que
+aparecia; ONU removida ficava congelada no cache e alertava para sempre. Agora e
+removida, com duas travas: nao poda se faltar PON na leitura, nem acima de 20%
+das linhas daquela OLT.
+
+**Site da ONU vem da OLT.** Nao ha site por ONU: 144 ONUs em JARDINS I e 203 em
+PERUCABA porque sao os sites das duas OLTs. Uma ONU que atende camera de outro
+site vai avisar no grupo da OLT.
+
+### Outras pendencias
+
+- **Botao Sincronizar com Fonte OLT/ONU**: backend pronto e testado, imagem
+  `sightops-prod-api:20260820-fonterede` construida, **nao publicada** (duas
+  tentativas abortaram no `docker create` >120s; limite ja corrigido para 420s).
+- **Cliente `default`**: tem as MESMAS 42 cameras do `inforbr` (conferido IP a
+  IP, zero diferenca). Sincronizar por ele recria os hosts `CAM-<ip>` duplicados,
+  que foram removidos nesta sessao. `zabbix_ip_sync.enabled` **nao serve** para
+  desligar: e gravado e nunca lido.
+- **`tracker-miner-fs-3`** rodando ha horas no host, disputando disco com o
+  Postgres. E indexador de desktop, inutil no servidor. Precisa de root.
+- **`?v=` dos assets**: o Cloudflare cacheia por 30 dias; reusar um numero ja
+  usado serve o arquivo velho. Sempre incrementar, e conferir por
+  `cf-cache-status: MISS`.
+
+---
+
 ## 2026-08-17 — Controle de Acesso Fase 1: achados "Importantes" da revisão final adiados (não são bugs cegos, são pendências reais)
 
 **Agente:** Claude
@@ -903,3 +1375,77 @@ contradizer. Apagar camera em site estrito gravava o IP nos bloqueados mas
 
 **Nao "simplificar" removendo a lista de bloqueados.** Ela continua sendo a
 unica protecao dos sites que ainda nao migraram pro modo declarativo.
+
+---
+
+## 2026-08-19 - Zabbix acumulava host fantasma (o sync nunca removia)
+
+**Agente:** Claude
+
+**Contexto:** o usuario apagou o inventario e as cameras continuaram no Zabbix.
+Medido em producao: **1462 hosts fantasma** -- 377 em `Cameras - EASY-TECNOLOGIAS`
+(116 no inventario, 493 no Zabbix) e 1085 em `Cameras - RADS` (469 x 1554). No
+sentido inverso, ZERO faltando: prova de que o sync so somava.
+
+**Causa:** `tools/mk_zabbix_from_inventory.py` so tinha `host.create`/`host.update`
+-- nenhum `host.delete`. E `api_inventory_clear` (apagar inventario) nao menciona
+Zabbix. Ou seja, apagar inventario NUNCA teve efeito la.
+
+O padrao certo ja existia no proprio sistema: `monitoring_service._observe_many()`
+poda o que sumiu (`prune_entity_type=...`), e por isso o monitoramento estava
+limpo (116/116 e 469/469, zero orfaos). O Zabbix so nao tinha sido ligado nisso.
+
+**Correcao:** `prune_hosts()` no script do Zabbix, com tres travas:
+1. age SO dentro do grupo do tenant (`Cameras - <TENANT>`);
+2. so mexe em host com o padrao criado pelo sistema (`<TENANT>-CAM-...`), entao
+   host cadastrado a mao nunca e tocado (medido: 0 fora do padrao hoje);
+3. so roda com `ZBX_PRUNE=1`, que `maintenance.py` liga **apenas no sync do
+   inventario completo** -- com filtro de site a lista e parcial e podar
+   apagaria os hosts dos outros sites.
+
+**Validacao:** rodado contra o Zabbix real com `host.delete` interceptado --
+identificou exatamente os 1085 orfaos de rads e nao apagou nada.
+
+**Passivo:** os 1462 fantasmas saem sozinhos no primeiro sync completo (sem
+filtro de site). Existe tambem `zbx_limpar.py` (simulacao por padrao,
+`--executar` para valer, backup em `/app/data/zabbix-backup/`).
+
+**Arquivos:** `tools/mk_zabbix_from_inventory.py`, `app/api/endpoints/maintenance.py`.
+Imagem publicada: `sightops-prod-api:20260819-zbx-prune`.
+
+---
+
+## 2026-08-19 - O bloqueio de camera expirava sozinho
+
+**Agente:** Claude
+
+**Contexto:** varredura de consistencia em producao achou IPs que estavam na
+lista de bloqueio E no inventario ao mesmo tempo: 4 em rads, 10 em
+easy-tecnologias. Era a peca que faltava do "apago e volta".
+
+**Causa:** `_matches_scope` exigia que **site** e **topologia**
+(`pon`/`onu_id`/`onu_serial`) continuassem iguais aos do momento da exclusao.
+Essas coisas mudam na operacao normal. Casos reais medidos:
+- `100.65.10.101/.102`: bloqueio guardou `site='BARRA DE SAO MIGUEL'`, a linha
+  ja estava como `'PRAIA BONITA'` (site renomeado) -> nao casava.
+- `100.65.10.138`: bloqueio guardou `onu_id='8'`, linha em `onu_id='9'`
+  (camera remanejada de ONU) -> nao casava.
+
+Resultado: o bloqueio deixava de valer silenciosamente e a camera voltava.
+
+**Correcao:** casar pelo que NAO muda -- **conector + IP**. O IP ja e a chave do
+registro e o conector identifica o cliente (mesma identidade de
+`inventory_row_key`). A lista tambem ja e por tenant
+(`tenants/<slug>/olt-ignored-ips.json`), entao nao ha risco entre clientes.
+Site so decide quando NAO existe conector dos dois lados; topologia virou
+informacao, nunca criterio.
+
+**Validacao:** 14/14 casos reais de producao reconhecidos (4 rads + 10 easy).
+Travas conferidas: mesmo IP com conector diferente NAO casa (False); mesmo
+conector com site renomeado casa (True). Os tres testes de regressao passam.
+
+**Nao endurecer de novo.** A tentacao e exigir mais campos "para ter certeza".
+Foi exatamente isso que quebrou: quanto mais campos no criterio, mais facil o
+bloqueio expirar sozinho quando o usuario reorganiza o inventario.
+
+Imagem: `sightops-prod-api:20260819-bloqueio`.

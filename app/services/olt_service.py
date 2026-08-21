@@ -22,7 +22,23 @@ from app.models.requests import (
     OltOnuSignalRequest,
 )
 from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu_telemetry_8820i
-from app.cli.tools.olt_4840e_collect_macs import collect_macs_4840e
+from app.services.camera_allowlist import is_allowed as allowlist_is_allowed
+from app.services.olt_ignore_list import is_ignored_olt_row
+from app.cli.tools.olt_4840e_collect_macs import (
+    collect_macs_4840e,
+    collect_onu_telemetry_4840e,
+    delete_onu_4840e,
+    discover_onus_4840e,
+    find_onu_4840e,
+    onu_signal_4840e,
+)
+from app.cli.tools.olt_vsol_epon import (
+    collect_macs_vsol,
+    collect_onu_telemetry_vsol,
+    discover_onus_vsol,
+    find_onu_vsol,
+    onu_signal_vsol,
+)
 from app.cli.tools.olt_fiberhome import (
     add_onu_fiberhome,
     collect_fiberhome,
@@ -41,7 +57,7 @@ from app.cli.tools.olt_8820i_add_onu import (
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
-from app.services.connector_service import get_connector, list_connectors
+from app.services.connector_service import ensure_connector_targets_allowed, get_connector, list_connectors
 from app.services.olt_capabilities import require_olt_capability
 
 logger = logging.getLogger("cam-snapshot")
@@ -51,6 +67,40 @@ def _is_fiberhome(req: Any) -> bool:
     vendor = _norm_text(getattr(req, "olt_vendor", "")).lower()
     model = _norm_text(getattr(req, "olt_model", "")).lower()
     return vendor == "fiberhome" or model.startswith(("an5516", "an6000", "fiberhome"))
+
+def _is_vsol(req: Any) -> bool:
+    """OLT VSOL EPON -- identificada pelo fabricante ou pelo modelo."""
+    vendor = str(getattr(req, "olt_vendor", "") or getattr(req, "vendor", "") or "").strip().lower()
+    model = str(getattr(req, "olt_model", "") or "").strip().lower()
+    return vendor in ("vsol", "v-sol", "vsolution") or model.startswith(("vsol", "v1600", "epon-olt"))
+
+
+def _is_intelbras_4840e(req: Any) -> bool:
+    model = _norm_text(getattr(req, "olt_model", "") or getattr(req, "model", "")).lower()
+    return model in {"4840e", "4840", "intelbras_4840e", "intelbras-4840e", "4840e_epon", "4840e-epon"}
+
+
+def _validate_olt_target_connector(req: Any) -> None:
+    """Confere que o IP da OLT desta acao esta na LAN do conector informado.
+
+    Ao contrario de `_validate_olt_network_context`, nao exige `scan_origin`
+    (discover/add/find/delete/onu_signal nao tem esse campo no request model)
+    -- dispara sempre que `remote_connector_id`/`connector_id` vier
+    preenchido. Sem isso, era possivel apontar o conector de um site pra IP de
+    outro e a acao seguia em frente sem checar se o alvo faz sentido ali.
+    """
+    connector_id = str(
+        getattr(req, "remote_connector_id", None) or getattr(req, "connector_id", None) or ""
+    ).strip()
+    if not connector_id:
+        return
+    olt_ip = str(getattr(req, "olt_ip", "") or "").strip()
+    if not olt_ip:
+        return
+    connector = get_connector(connector_id, include_token=False, enforce_tenant=True)
+    if not connector:
+        raise HTTPException(404, "Conector nao encontrado.")
+    ensure_connector_targets_allowed(connector_id, [olt_ip], "IP da OLT", connector=connector)
 
 
 def _validate_olt_network_context(req: OltCollectMacsRequest) -> dict[str, Any] | None:
@@ -613,6 +663,15 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                             timeout=12.0,
                             include_macs=True,
                         )
+                    elif _is_vsol(req):
+                        rows = collect_macs_vsol(
+                            olt_ip=req.olt_ip,
+                            user=req.user,
+                            password=req.password,
+                            pon=req.pon,
+                            olt_name=req.olt_name or "OLT-VSOL",
+                            port=22,
+                        )
                     elif model in ("4840e", "intelbras_4840e", "intelbras_4840e_epon", "4840e_epon", "4840"):
                         rows = collect_macs_4840e(
                             olt_ip=req.olt_ip,
@@ -787,6 +846,23 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
         except Exception as exc:
             logger.exception("Erro ao coletar telemetria FiberHome da OLT %s", req.olt_ip)
             raise HTTPException(500, f"Erro ao coletar telemetria FiberHome: {exc}") from exc
+    elif _is_vsol(req):
+        telemetry = collect_onu_telemetry_vsol(
+            olt_ip=req.olt_ip, user=req.user, password=req.password, pon=req.pon,
+        )
+    elif _is_intelbras_4840e(req):
+        try:
+            telemetry = collect_onu_telemetry_4840e(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon or "all",
+                port=22,
+                timeout=12.0,
+            )
+        except Exception as exc:
+            logger.exception("Erro ao coletar telemetria 4840E da OLT %s", req.olt_ip)
+            raise HTTPException(500, f"Erro ao coletar telemetria 4840E: {exc}") from exc
     elif model not in {"8820i", "intelbras_8820i"}:
         raise HTTPException(422, "Telemetria leve disponivel para Intelbras 8820i.")
     else:
@@ -984,16 +1060,25 @@ def list_macs(site: str = "") -> Dict[str, Any]:
 
 
 def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
-    """Descobre ONUs nao autorizadas + posicoes livres na OLT Intelbras 8820i.
-
-    So a 8820i tem esse fluxo mapeado por enquanto (a 4840e nao tem comando
-    de autorizacao confirmado ainda).
-    """
+    """Descobre ONUs nao autorizadas ou lista ocupacao por driver homologado."""
     require_olt_capability(req, "discover_onus", "descobrir ONUs")
+    _validate_olt_target_connector(req)
     with perf_step("OLT_discover_onus"):
         try:
             if _is_fiberhome(req):
                 return discover_unauthorized_fiberhome(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon,
+                    timeout=req.timeout,
+                )
+            if _is_vsol(req):
+                return discover_onus_vsol(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password, pon=req.pon,
+                )
+            if _is_intelbras_4840e(req):
+                return discover_onus_4840e(
                     olt_ip=req.olt_ip,
                     user=req.user,
                     password=req.password,

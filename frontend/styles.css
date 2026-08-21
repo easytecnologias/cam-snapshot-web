@@ -188,7 +188,9 @@ a { color: inherit; text-decoration: none; }
   height: 68px;
   align-items: center;
   justify-content: space-between;
-  padding: 0 28px;
+  /* 20px = mesmo recuo de .workspace e das barras internas. Com 28px o titulo
+     da tela ficava 8px a direita do proprio conteudo, em TODAS as telas. */
+  padding: 0 20px;
   border-bottom: 1px solid var(--border);
   background: rgba(255,255,255,.96);
   backdrop-filter: blur(10px);
@@ -402,6 +404,352 @@ a { color: inherit; text-decoration: none; }
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-bottom: 16px;
 }
+.access-report-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 0 18px;
+}
+.access-report-kpis .dash-kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 92px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: none;
+}
+.access-report-kpis .dash-kpi-card > div:last-child {
+  min-width: 0;
+}
+.access-report-kpis .dash-kpi-card span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.access-report-kpis .dash-kpi-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.05;
+}
+.access-report-kpis .dash-kpi-card small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+.access-report-filters {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) 150px 190px 190px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.access-report-filters .search-box {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+}
+.access-report-filters select,
+.access-report-manual select,
+.access-report-manual input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  min-width: 0;
+}
+.access-report-manual {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(220px, .7fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.access-report-table-wrap {
+  max-height: calc(100vh - 510px);
+  min-height: 260px;
+}
+.access-report-table th,
+.access-report-table td {
+  white-space: nowrap;
+}
+.access-report-table td:nth-child(2),
+.access-report-table td:nth-child(5) {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.access-connections-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+.access-connection-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+}
+.access-connection-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+.access-connections-grid > .access-connection-panel:not(.access-connection-test):not(.access-connection-flow) .access-connection-form {
+  flex: 1;
+  align-content: space-between;
+}
+.access-connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 38px;
+}
+.access-connection-actions .primary-action,
+.access-connection-actions .secondary-action {
+  justify-content: center;
+  min-width: 142px;
+  min-height: 38px;
+  height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+}
+.access-connection-actions .primary-action svg,
+.access-connection-actions .secondary-action svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  stroke-width: 2;
+}
+.access-connection-footer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 136px;
+  gap: 12px;
+  align-items: center;
+  margin-top: 2px;
+}
+.access-connection-footer-row .access-person-checks {
+  margin: 0;
+}
+.access-connection-footer-row .access-person-checks label {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.access-connection-footer-row .access-connection-actions {
+  display: contents;
+  justify-content: flex-end;
+}
+.access-connection-footer-row .access-connection-actions .primary-action,
+.access-connection-footer-row .access-connection-actions .secondary-action {
+  width: 100%;
+  min-width: 0;
+}
+.access-technical-details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafb;
+}
+.access-technical-details summary {
+  min-height: 42px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 650;
+  list-style: none;
+}
+.access-technical-details summary::-webkit-details-marker {
+  display: none;
+}
+.access-technical-details summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.access-technical-details summary svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+.access-technical-details summary small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: right;
+}
+.access-technical-details[open] {
+  background: var(--surface);
+}
+.access-technical-details[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+.access-technical-details .form-row {
+  padding: 14px;
+}
+.access-connection-status-panel .access-connection-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+.access-connection-status-panel .access-connection-actions .primary-action,
+.access-connection-status-panel .access-connection-actions .secondary-action {
+  width: 100%;
+  min-width: 0;
+}
+.access-connection-status-panel .access-connection-actions .secondary-action {
+  min-width: 0;
+}
+.access-connection-status-panel .access-connection-actions .danger-action {
+  min-width: 0;
+}
+.access-connection-status-panel .access-connection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.access-connection-status-panel .access-whatsapp-qr {
+  flex: 1;
+  min-height: 170px;
+}
+.access-whatsapp-qr {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.access-whatsapp-qr.connected {
+  grid-template-columns: 72px minmax(0, 1fr);
+  background: #f7fbf9;
+  border-color: #cfeee2;
+}
+.access-whatsapp-qr-frame {
+  display: grid;
+  place-items: center;
+  width: 176px;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.access-whatsapp-qr.connected .access-whatsapp-qr-frame {
+  width: 72px;
+  border-color: transparent;
+  background: #dff7ec;
+}
+.access-whatsapp-qr-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 8px;
+}
+.access-whatsapp-qr-frame div {
+  padding: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  text-align: center;
+}
+.access-whatsapp-qr.connected .access-whatsapp-qr-frame div {
+  padding: 0;
+  color: #007f5f;
+  font-size: 16px;
+}
+.access-whatsapp-qr-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.access-whatsapp-qr-copy strong {
+  color: var(--text);
+  font-size: 16px;
+}
+.access-whatsapp-qr-copy span {
+  color: var(--muted);
+  line-height: 1.35;
+}
+.access-connection-test {
+  grid-column: 1 / -1;
+}
+.access-test-send-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.access-test-send-row .secondary-action {
+  min-height: 46px;
+  white-space: nowrap;
+}
+.access-connection-flow {
+  grid-column: 1 / -1;
+}
+.access-connection-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+.access-connection-steps > div {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.access-connection-steps span {
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 800;
+}
+.access-connection-steps strong,
+.access-connection-steps small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.access-connection-steps small {
+  color: var(--muted);
+}
 .access-control-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -503,7 +851,10 @@ a { color: inherit; text-decoration: none; }
   min-height: 42px;
 }
 .access-people-panel {
+  display: flex;
+  flex-direction: column;
   margin-bottom: 0;
+  overflow: hidden;
 }
 .access-control-tabs {
   display: flex;
@@ -555,8 +906,55 @@ a { color: inherit; text-decoration: none; }
   align-items: start;
 }
 @media (max-width: 900px) {
-  .access-groups-grid {
+  .access-groups-grid,
+  .access-connections-grid,
+  .access-connection-steps {
     grid-template-columns: 1fr;
+  }
+  .access-whatsapp-qr {
+    grid-template-columns: 1fr;
+  }
+  .access-whatsapp-qr-frame {
+    width: min(220px, 100%);
+    justify-self: center;
+  }
+  .access-whatsapp-qr.connected {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .access-whatsapp-qr.connected .access-whatsapp-qr-frame {
+    justify-self: start;
+  }
+  .access-connection-footer-row {
+    grid-template-columns: 1fr;
+  }
+  .access-connection-footer-row .access-connection-actions,
+  .access-connection-status-panel .access-connection-actions {
+    grid-template-columns: 1fr;
+  }
+  .access-connection-footer-row .access-connection-actions {
+    display: grid;
+  }
+  .access-technical-details summary {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    padding: 10px 12px;
+  }
+  .access-technical-details summary small {
+    text-align: left;
+  }
+  .access-connection-footer-row .access-connection-actions .primary-action,
+  .access-connection-footer-row .access-connection-actions .secondary-action,
+  .access-connection-status-panel .access-connection-actions .primary-action,
+  .access-connection-status-panel .access-connection-actions .secondary-action {
+    width: 100%;
+  }
+  .access-test-send-row {
+    grid-template-columns: 1fr;
+  }
+  .access-test-send-row .secondary-action {
+    width: 100%;
+    justify-content: center;
   }
   .filters.access-people-filters {
     padding-left: 12px;
@@ -713,6 +1111,20 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 8px;
   padding-top: 10px;
 }
+.access-import-modal {
+  width: min(620px, 100%);
+}
+.access-import-modal > .form-row,
+.access-import-modal > .inline-help {
+  margin: 0 24px 16px;
+}
+.access-import-modal .form-row {
+  grid-template-columns: 1fr;
+}
+.access-import-modal select {
+  width: 100%;
+  min-height: 42px;
+}
 .access-people-count {
   margin: -4px 0 10px;
 }
@@ -867,8 +1279,17 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 .access-tab-panel[data-access-panel="people"] .table-wrap {
+  flex: 1 1 auto;
+  max-height: clamp(260px, calc(100vh - 610px), 430px);
+  min-height: 220px;
+  overflow-y: auto;
   overflow-x: auto;
   scrollbar-gutter: stable;
+}
+.access-tab-panel[data-access-panel="people"] .access-people-footer {
+  flex: 0 0 auto;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 .access-people-table {
   min-width: 1120px;
@@ -1696,11 +2117,20 @@ a { color: inherit; text-decoration: none; }
   background: #eef2f7;
   color: var(--muted);
 }
+.pill.amber {
+  background: #fff3d8;
+  color: #9a5b00;
+}
 .pill.danger {
   background: var(--danger-soft);
   color: var(--danger);
 }
 @media (max-width: 900px) {
+  .access-report-kpis,
+  .access-report-filters,
+  .access-report-manual {
+    grid-template-columns: 1fr;
+  }
   .access-control-toolbar {
     grid-template-columns: 1fr;
     min-width: 0;
@@ -3601,11 +4031,14 @@ body.cam-live-lock {
   max-height: 100%;
   overflow: hidden;
 }
+/* 20px e o recuo padrao do conteudo (.workspace) e da barra do mapa. O titulo
+   da sidebar usava 14px e a lista 8px, entao "Mapa de Cameras", "CAMADAS" e os
+   cards apareciam em tres recuos diferentes, um debaixo do outro -- escadinha. */
 .map-sidebar-title {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: 11px 14px;
+  padding: 11px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   font-size: 11px;
@@ -3616,7 +4049,7 @@ body.cam-live-lock {
 }
 .map-layers-list {
   flex: 1 1 auto;
-  padding: 8px;
+  padding: 10px 20px 14px;   /* mesmo recuo do titulo acima */
   display: flex;
   flex-direction: column;
   gap: 8px;
