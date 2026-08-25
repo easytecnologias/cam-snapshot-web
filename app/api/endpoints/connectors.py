@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from app.services.connector_service import (
     accept_heartbeat,
+    accept_access_control_event,
     accept_job_result,
     accept_routeros_job_result,
     accept_register,
@@ -195,6 +196,21 @@ async def api_connector_agent_heartbeat(request: Request) -> Dict[str, Any]:
         return accept_heartbeat(connector_id, token, payload if isinstance(payload, dict) else {}, remote_ip=remote_ip)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
+
+
+@router.post("/agent/access-control/events")
+async def api_connector_agent_access_control_event(request: Request) -> Dict[str, Any]:
+    connector_id, token = _agent_auth(request)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        return accept_access_control_event(connector_id, token, payload if isinstance(payload, dict) else {})
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/agent/jobs/poll")

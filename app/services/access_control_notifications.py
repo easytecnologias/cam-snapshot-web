@@ -195,6 +195,27 @@ def _send_whatsapp_evolution(cfg: Dict[str, Any], event: Dict[str, Any], message
     return "whatsapp_failed"
 
 
+def send_access_whatsapp_text(number: Any, message: str, *, site: Any = "") -> Dict[str, Any]:
+    """Envia uma resposta direta pelo mesmo canal usado nas notificacoes."""
+    target = _evolution_number(number)
+    text = _text(message, 4000)
+    cfg = _access_whatsapp_cfg(db_store.load_app_settings(), site)
+    if not target:
+        return {"ok": False, "status": "whatsapp_skipped", "error": "Numero invalido."}
+    if not text:
+        return {"ok": False, "status": "whatsapp_skipped", "error": "Mensagem vazia."}
+    if not cfg.get("enabled"):
+        return {"ok": False, "status": "whatsapp_skipped", "error": "WhatsApp desativado."}
+    if _text(cfg.get("provider"), 40).lower() != "evolution":
+        return {"ok": False, "status": "whatsapp_skipped", "error": "Provedor nao suportado para resposta."}
+    try:
+        status = _send_whatsapp_evolution(cfg, {"guardian_phone": target, "whatsapp_enabled": True}, text)
+    except Exception as exc:
+        logger.warning("Falha ao enviar resposta WhatsApp de acesso: %s", exc)
+        return {"ok": False, "status": "whatsapp_failed", "error": str(exc)}
+    return {"ok": status == "whatsapp_sent", "status": status}
+
+
 def _evolution_cfg(site: Any = "") -> Dict[str, str]:
     cfg = _access_whatsapp_cfg(db_store.load_app_settings(), site)
     if _text(cfg.get("provider"), 40).lower() != "evolution":

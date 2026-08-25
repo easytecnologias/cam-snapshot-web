@@ -15,6 +15,7 @@ let _moduleCatalogCache = null; // /api/auth/modules/catalog, buscado uma vez po
 let _shellMode = 'client'; // 'owner' (painel do dono) ou 'client' (painel operacional) -- so admin de plataforma pode estar em 'owner'
 
 const SIGHTOPS_CLIENT_BUILD = 'production-zabbix-access-20260811a';
+const DISABLED_VIEWS = new Set(['access-whatsapp-triage']);
 
 function resetStaleClientState() {
   const key = 'sightops.client.build';
@@ -197,7 +198,8 @@ function applyModuleVisibility() {
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     const key = btn.dataset.view;
     const restricted = Array.isArray(enabled);
-    const visible = !restricted || enabled.includes(key);
+    const accessAddon = restricted && key === 'access-live' && enabled.includes('access-control');
+    const visible = !DISABLED_VIEWS.has(key) && (!restricted || enabled.includes(key) || accessAddon);
     btn.classList.toggle('nav-item-hidden', !visible);
   });
   // Grupo "Snapshots": some por completo se as duas telas dele estiverem escondidas.
@@ -308,6 +310,8 @@ const VIEW_META = {
   'mnt-nvr':       { title: 'Manutencao - Gravadores',  sub: 'Operacoes em lote' },
   playback:        { title: 'Reproducao',       sub: 'Busca de gravacoes por DVR' },
   'ia-nvr':        { title: 'IA  NVR',          sub: 'Indexacao e busca inteligente' },
+  'access-live':    { title: 'Acesso ao Vivo', sub: 'Movimentacao em tempo real' },
+  'access-whatsapp-triage': { title: 'Triagem WhatsApp', sub: 'Fila de cadastros recebidos por grupos' },
   'access-control': { title: 'Controle de Acesso', sub: 'Reconhecimento facial e eventos de entrada e saida' },
   'net-operate':   { title: 'Manutencao - Operacoes', sub: 'Ferramentas de diagnostico de rede' },
   planning:        { title: 'Projetos de CFTV', sub: 'Planejamento antes da implantacao' },
@@ -344,6 +348,8 @@ const VIEW_ID_MAP = {
   'mnt-nvr':        'viewMntNvr',
   playback:         'viewPlayback',
   'ia-nvr':         'viewIaNvr',
+  'access-live':     'viewAccessLive',
+  'access-whatsapp-triage': 'viewAccessWhatsappTriage',
   'access-control':  'viewAccessControl',
   'net-operate':    'viewNetOperate',
   planning:         'viewPlanning',
@@ -368,6 +374,7 @@ function navigateTo(view) {
   // Painel do Dono e reservado a admin de plataforma -- se alguem tentar
   // (ex: digitando no console) sem ser, cai no Dashboard normal.
   if (String(view).startsWith('owner-') && !_currentUser?.is_platform_admin) view = 'dashboard';
+  if (DISABLED_VIEWS.has(view)) view = 'dashboard';
 
   // Esconde todas as views
   document.querySelectorAll('[id^="view"]').forEach(el => el.classList.add('hidden'));
@@ -413,6 +420,8 @@ function loadView(view) {
     case 'mnt-nvr':     loadMntNvr();       break;
     case 'playback':    loadPlayback();     break;
     case 'ia-nvr':      loadIaNvr();        break;
+    case 'access-live':    loadAccessLive();    break;
+    case 'access-whatsapp-triage': loadAccessWhatsappTriage(); break;
     case 'access-control': loadAccessControl(); break;
     case 'olt':         loadOlt();          break;
     case 'switch':      loadSwitch();       break;

@@ -8,7 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
-from app.services import db_store
+from app.services import connector_service, db_store
 from app.services.access_control_store import (
     access_presence_summary,
     access_report_summary,
@@ -39,7 +39,7 @@ def test_resolve_and_provision() -> None:
         person = save_person({"full_name": "Ana Teste", "site": "Sede"})
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         group = save_group({"name": "Alunos", "site": "Sede"})
         set_group_members(group["id"], [person["id"]])
@@ -69,7 +69,7 @@ def test_provision_failure_is_recorded_not_raised() -> None:
         person = save_person({"full_name": "Bruno Teste", "site": "Sede"})
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         group = save_group({"name": "Alunos", "site": "Sede"})
         set_group_members(group["id"], [person["id"]])
@@ -98,11 +98,11 @@ def test_resolve_ignores_inactive_rule_and_inactive_device() -> None:
         person = save_person({"full_name": "Carla Teste", "site": "Sede"})
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         inactive_device = save_device({
             "name": "Catraca Desligada", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.34", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.34", "username": "admin", "password": "SenhaTeste2011",
             "active": False,
         })
         group = save_group({"name": "Alunos", "site": "Sede"})
@@ -115,7 +115,7 @@ def test_resolve_ignores_inactive_rule_and_inactive_device() -> None:
         other_door_group = save_door_group({"name": "Outra Porta", "site": "Sede"})
         another_device = save_device({
             "name": "Catraca Outra", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.35", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.35", "username": "admin", "password": "SenhaTeste2011",
         })
         set_door_group_members(other_door_group["id"], [another_device["id"]])
         save_rule({
@@ -147,7 +147,7 @@ def test_retry_pending_provisions_marks_success() -> None:
         person = save_person({"full_name": "Elis Teste", "site": "Sede"})
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         from app.services.access_control_store import upsert_provision_status
 
@@ -230,7 +230,7 @@ def test_poll_device_events_records_events_and_returns_count() -> None:
     try:
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         fake_events = [
             {"raw_id": "1", "occurred_at": "2026-08-16 10:00:00", "person_name_raw": "Fulano", "event_type": "entrada"},
@@ -249,6 +249,8 @@ def test_poll_device_events_records_events_and_returns_count() -> None:
         assert all(e["device_id"] == device["id"] for e in recorded)
         stored_device = next(item for item in list_devices() if item["id"] == device["id"])
         assert stored_device["last_event_id"] == "2"
+        assert stored_device["status"] == "online"
+        assert stored_device["last_seen_at"]
     finally:
         reset_current_tenant_slug(token)
 
@@ -268,7 +270,7 @@ def test_poll_device_events_links_registered_people_and_uses_door_direction() ->
             "vendor": "intelbras",
             "host": "10.10.13.33",
             "username": "admin",
-            "password": "xzydsP2011",
+            "password": "SenhaTeste2011",
             "access_direction": "entrada",
         })
         exit_device = save_device({
@@ -277,7 +279,7 @@ def test_poll_device_events_links_registered_people_and_uses_door_direction() ->
             "vendor": "intelbras",
             "host": "10.10.13.34",
             "username": "admin",
-            "password": "xzydsP2011",
+            "password": "SenhaTeste2011",
             "access_direction": "saida",
         })
 
@@ -325,7 +327,7 @@ def test_poll_device_events_swallows_device_error_and_returns_zero() -> None:
     try:
         device = save_device({
             "name": "Catraca Portao", "site": "Sede", "vendor": "dahua",
-            "host": "10.10.13.33", "username": "admin", "password": "xzydsP2011",
+            "host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011",
         })
         with patch(
             "app.services.access_control_sync.poll_events",
@@ -340,9 +342,67 @@ def test_poll_device_events_swallows_device_error_and_returns_zero() -> None:
         reset_current_tenant_slug(token)
 
 
+def test_connector_push_event_records_immediately_in_connector_tenant() -> None:
+    from app.core.tenant_context import get_current_tenant_slug
+    from app.services.connector_service import accept_access_control_event, create_connector
+
+    token = set_current_tenant_slug("cliente-sync-push")
+    try:
+        connector = create_connector({
+            "id": "conn-push",
+            "name": "Conector Push",
+            "client": "Cliente Push",
+            "site": "ESCOLA",
+            "type": "routeros",
+        })["connector"]
+        person = save_person({
+            "full_name": "Aluno Push",
+            "site": "ESCOLA",
+            "controller_user_id": "77",
+            "enrollment_code": "2077",
+        })
+        device = save_device({
+            "name": "Entrada Push",
+            "site": "ESCOLA",
+            "vendor": "intelbras",
+            "host": "10.10.13.77",
+            "connector_id": "conn-push",
+            "username": "admin",
+            "password": "SenhaTeste2011",
+            "access_direction": "entrada",
+        })
+    finally:
+        reset_current_tenant_slug(token)
+
+    result = accept_access_control_event("conn-push", connector["token"], {
+        "device_id": device["id"],
+        "raw_id": "push-77",
+        "occurred_at": "2026-08-22 16:10:00",
+        "controller_user_id": "77",
+        "person_name_raw": "Aluno Push",
+    })
+
+    assert result["ok"] is True
+    assert result["event"]["person_id"] == person["id"]
+    assert result["event"]["event_type"] == "entrada"
+    assert result["event"]["source"] == "connector_push"
+    assert get_current_tenant_slug() == ""
+
+    token = set_current_tenant_slug("cliente-sync-push")
+    try:
+        report_events = list_access_report_events({"period": "all", "site": "ESCOLA"})
+        assert len(report_events) == 1
+        assert report_events[0]["person_name"] == "Aluno Push"
+        assert report_events[0]["device_name"] == "Entrada Push"
+    finally:
+        reset_current_tenant_slug(token)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sightops-access-sync-") as tmp:
         db_store.SIGHTOPS_DB_PATH = Path(tmp) / "access.db"
+        connector_service.CONNECTORS_PATH = Path(tmp) / "connectors.json"
+        connector_service.CONNECTOR_JOBS_PATH = Path(tmp) / "connector-jobs.json"
         db_store.init_db()
         test_resolve_and_provision()
         test_provision_failure_is_recorded_not_raised()
@@ -354,6 +414,7 @@ def main() -> None:
         test_poll_device_events_records_events_and_returns_count()
         test_poll_device_events_links_registered_people_and_uses_door_direction()
         test_poll_device_events_swallows_device_error_and_returns_zero()
+        test_connector_push_event_records_immediately_in_connector_tenant()
     print("OK access control sync: resolucao de regra e provisionamento nao bloqueante")
 
 

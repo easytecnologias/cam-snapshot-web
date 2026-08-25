@@ -26,6 +26,7 @@ services:
       IMGBB_API_KEY: ${IMGBB_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_VIDEO_MODEL: ${GEMINI_VIDEO_MODEL:-gemini-2.5-flash}
+      SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL: ${SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL:-15}
     volumes:
       - sightops_prod_data:/app/data
       - sightops_prod_output:/app/output

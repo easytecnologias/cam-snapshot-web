@@ -10,7 +10,13 @@ from fastapi import WebSocket
 
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 from app.models.requests import ScanRequest
-from app.services.connector_service import create_job, get_connector, list_connectors, list_jobs
+from app.services.connector_service import (
+    create_job,
+    get_connector,
+    list_connectors,
+    list_jobs,
+    register_connector_known_targets,
+)
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.scan_service import run_http_scan
 
@@ -59,6 +65,46 @@ def _expand_remote_targets(raw: str, limit: int = 1024) -> list[str]:
         if len(out) >= limit:
             return list(dict.fromkeys(out))
     return list(dict.fromkeys(out))
+
+
+def _targets_for_connector_scan(raw: str, connector: dict[str, Any] | None, limit: int = 1024) -> list[str]:
+    targets = _expand_remote_targets(raw, limit=limit)
+    if targets or not connector:
+        return targets
+
+    values: list[Any] = []
+    inventory = connector.get("inventory") if isinstance(connector.get("inventory"), dict) else {}
+    tunnel = connector.get("tunnel") if isinstance(connector.get("tunnel"), dict) else {}
+    host = connector.get("host") if isinstance(connector.get("host"), dict) else {}
+    values.extend(tunnel.get("client_lans") or [])
+    values.extend(str(inventory.get("lan_networks") or "").replace(";", ",").split(","))
+    values.extend(str(host.get("lan_networks") or "").replace(";", ",").split(","))
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        raw_cidr = str(value or "").strip()
+        if not raw_cidr:
+            continue
+        try:
+            net = ipaddress.ip_network(raw_cidr, strict=False)
+        except Exception:
+            continue
+        if net.version != 4 or net.prefixlen >= 32:
+            continue
+        if str(net) == "10.250.0.0/24":
+            continue
+        if not (net.is_private or net.subnet_of(ipaddress.ip_network("100.64.0.0/10"))):
+            continue
+        for ip in net.hosts():
+            text = str(ip)
+            if text in seen:
+                continue
+            out.append(text)
+            seen.add(text)
+            if len(out) >= limit:
+                return out
+    return out
 
 
 def _connector_for_site(site: str) -> dict[str, Any] | None:
@@ -438,6 +484,11 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     alvo = (payload.get("alvo") or "").strip()
     usuario = (payload.get("usuario") or "admin").strip() or "admin"
     senha = (payload.get("senha") or "admin").strip() or "admin"
+    scan_origin = str(payload.get("scan_origin") or "").strip().lower()
+    connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
+    connector = _connector_from_payload(payload) if connector_id or scan_origin == "connector" else None
+    auto_targets = _targets_for_connector_scan(alvo, connector)
+    effective_alvo = alvo or ",".join(auto_targets)
 
     # Compatibilidade de payload:
     # - Front atual usa: snapshot/imgbb/excel/olt_enrich/ia
@@ -450,7 +501,7 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     ia = bool(payload.get("ia", payload.get("run_image_health_ai", False)))
 
     req = ScanRequest(
-        alvo=alvo,
+        alvo=effective_alvo,
         usuario=usuario,
         senha=senha,
         capture_snapshot=snapshot,
@@ -471,14 +522,13 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
         remote_connector_id=str(payload.get("remote_connector_id") or payload.get("connector_id") or ""),
     )
 
-    scan_origin = str(payload.get("scan_origin") or "").strip().lower()
-    connector_id = str(payload.get("connector_id") or payload.get("remote_connector_id") or "").strip()
-    connector = _connector_from_payload(payload) if connector_id or scan_origin == "connector" else None
     connector_has_tunnel = _connector_has_tunnel(connector)
 
     if scan_origin == "connector" and not connector_id:
         await _ws_send(ws, {"type": "error", "message": "Selecione um conector MikroTik para executar esta varredura remota."})
         return
+    if scan_origin == "connector" and not alvo and auto_targets:
+        await _ws_send(ws, {"type": "status", "message": f"Usando a LAN detectada do conector: {len(auto_targets)} alvo(s)."})
 
     # "Ter VPN" so significa que o servidor alcanca o MikroTik, nao que alcanca
     # a LAN do cliente atras dele -- isso depende de client_lans estar de fato
@@ -487,7 +537,13 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
     # ambiguidade real: se responde, caminho local direto -- rapido, com
     # snapshot, igual funcionou pra Incoforte; se nao, caminho MikroTik --
     # mais lento, so descoberta, mas nunca marca tudo como offline por engano.
-    probe_targets = _pick_probe_targets(alvo)
+    probe_targets = _pick_probe_targets(effective_alvo)
+    expanded_targets = _expand_remote_targets(effective_alvo)
+    if connector_id and expanded_targets:
+        try:
+            register_connector_known_targets(connector_id, expanded_targets)
+        except ValueError:
+            pass
     if connector_id and connector_has_tunnel and probe_targets:
         await _ws_send(ws, {"type": "status", "message": "Testando se a rede do cliente responde direto..."})
     remote_only = await anyio.to_thread.run_sync(
@@ -511,10 +567,14 @@ async def run_ws_scan(ws: WebSocket, payload: Dict[str, Any], tenant_slug: str =
         # roda em thread para não bloquear o loop e não depender de subprocess async
         if remote_only:
             result: Dict[str, Any] = {"ok": True, "inventory": [], "inventory_count": 0}
-            result = await _remote_inventory_via_connector(ws, payload, result, str(tenant_slug or "").strip().lower())
+            remote_payload = dict(payload)
+            remote_payload["alvo"] = effective_alvo
+            result = await _remote_inventory_via_connector(ws, remote_payload, result, str(tenant_slug or "").strip().lower())
         else:
             result = await anyio.to_thread.run_sync(_run_scan_in_tenant, req, str(tenant_slug or "").strip().lower())
-            result = _tag_rows_for_connector(payload, result, str(tenant_slug or "").strip().lower())
+            tag_payload = dict(payload)
+            tag_payload["alvo"] = effective_alvo
+            result = _tag_rows_for_connector(tag_payload, result, str(tenant_slug or "").strip().lower())
     except Exception as e:
         msg = str(e) or repr(e) or "Erro interno no scan."
         await _ws_send(ws, {"type": "error", "message": msg})

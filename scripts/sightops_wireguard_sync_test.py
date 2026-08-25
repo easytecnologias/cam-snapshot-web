@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sightops_wireguard_sync import (
     canon_cidr,
     compute_target_state,
+    expand_conflicted_lans_with_known_hosts,
     find_exact_conflicts,
     parse_wg_dump,
     plan_updates,
@@ -37,6 +38,7 @@ def check(cond: bool, msg: str) -> None:
 
 SIERRA_PUBKEY = "O1uugP6g++XiIgMck4Jdolj5W8tXeDNVeHP5xiTVji8="
 PERUCABA_PUBKEY = "/8WFi42+54pUVZaIf7E02qcU++v5fzc1buuAu26YMh8="
+DUTRA_PUBKEY = "I2cRUAY2ZscNlHE8FqIFlGVO3iCHZg7jJH2ZaBuA8GA="
 
 CONNECTORS = [
     {
@@ -139,6 +141,58 @@ def main() -> None:
     }
     conf2 = find_exact_conflicts(fake_conflict)
     check(conf2 == {"10.5.5.0/24": ["A", "B"]}, f"mesmo CIDR exato em 2 conectores deveria ser flagrado: {conf2}")
+
+    duplicated_private_lan = [
+        {
+            "name": "PERUCABA",
+            "tunnel": {
+                "enabled": True,
+                "type": "wireguard",
+                "client_public_key": PERUCABA_PUBKEY,
+                "client_address": "10.250.0.2/32",
+                "client_lans": ["192.168.1.0/24"],
+            },
+            "inventory": {
+                "arp_sample": "192.168.1.1|AA;192.168.1.50|BB;",
+            },
+        },
+        {
+            "name": "DUTRA",
+            "tunnel": {
+                "enabled": True,
+                "type": "wireguard",
+                "client_public_key": DUTRA_PUBKEY,
+                "client_address": "10.250.0.8/32",
+                "client_lans": ["192.168.1.0/24"],
+            },
+            "inventory": {
+                "arp_sample": "192.168.1.1|AA;192.168.1.101|CC;",
+            },
+        },
+    ]
+    duplicated_target = compute_target_state(duplicated_private_lan)
+    duplicated_conflicts = find_exact_conflicts(duplicated_target)
+    duplicated_expanded = expand_conflicted_lans_with_known_hosts(
+        duplicated_target,
+        duplicated_private_lan,
+        duplicated_conflicts,
+    )
+    duplicated_final_conflicts = find_exact_conflicts(duplicated_expanded)
+    duplicated_plan = plan_updates(
+        duplicated_expanded,
+        {PERUCABA_PUBKEY: {"10.250.0.2/32"}, DUTRA_PUBKEY: {"10.250.0.8/32"}},
+        duplicated_final_conflicts,
+    )
+    check(
+        duplicated_plan[PERUCABA_PUBKEY]["missing"] == {"192.168.1.50/32"},
+        f"PERUCABA deveria receber so host unico, nao a LAN inteira nem gateway duplicado: {duplicated_plan[PERUCABA_PUBKEY]['missing']}",
+    )
+    check(
+        duplicated_plan[DUTRA_PUBKEY]["missing"] == {"192.168.1.101/32"},
+        f"DUTRA deveria receber so a camera unica no /32: {duplicated_plan[DUTRA_PUBKEY]['missing']}",
+    )
+    check("192.168.1.0/24" in duplicated_final_conflicts, "LAN duplicada deveria continuar bloqueada")
+    check("192.168.1.1/32" in duplicated_final_conflicts, "IP duplicado tambem deveria ficar bloqueado")
 
     # --- parse_wg_dump ---
     dump = parse_wg_dump(WG_DUMP_REAL)

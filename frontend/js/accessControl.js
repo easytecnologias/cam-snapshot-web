@@ -13,6 +13,8 @@ let _accessReportAutoRefreshBusy = false;
 let _accessControlUiBound = false;
 let _accessControlBinding = false;
 let _accessPeopleImportDeviceRows = [];
+let _accessWhatsappCurrentConfigured = false;
+let _accessWhatsappKpiLoading = false;
 const ACCESS_REPORT_AUTO_REFRESH_MS = 8000;
 
 function accessPersonTypeLabel(type) {
@@ -322,6 +324,20 @@ function bindAccessControl() {
       event.preventDefault();
       openAccessDevicesDrawer();
     });
+    const eventsCard = document.getElementById('accessKpiEventsCard');
+    eventsCard?.addEventListener('click', openAccessTodayEventsReport);
+    eventsCard?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openAccessTodayEventsReport();
+    });
+    const whatsappCard = document.getElementById('accessKpiWhatsappCard');
+    whatsappCard?.addEventListener('click', openAccessWhatsappConnections);
+    whatsappCard?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openAccessWhatsappConnections();
+    });
     document.getElementById('btnAccessPeopleClearFilters')?.addEventListener('click', clearAccessPeopleFilters);
     document.getElementById('btnAccessPersonFooterNew')?.addEventListener('click', () => openAccessPersonModal());
     document.getElementById('btnAccessPeopleFooterRefresh')?.addEventListener('click', () => loadAccessControl(true));
@@ -461,6 +477,7 @@ function handleAccessPrimaryAction() {
 }
 
 async function loadAccessControl(force = false) {
+  bindAccessControl();
   const query = new URLSearchParams();
   const search = document.getElementById('accessPeopleSearch')?.value?.trim() || '';
   const active = document.getElementById('accessPeopleStatus')?.value || '';
@@ -472,13 +489,14 @@ async function loadAccessControl(force = false) {
   if (site) query.set('site', site);
 
   try {
+    renderAccessPeopleLoading();
     const [summaryRes, peopleRes] = await Promise.all([
       apiJson('/api/access-control/summary', { forceRefresh: force, cacheTtl: 0 }),
       apiJson(`/api/access-control/people?${query.toString()}`, { forceRefresh: force, cacheTtl: 0 }),
     ]);
     const summary = summaryRes?.summary || {};
     _accessPeopleRows = peopleRes?.people || [];
-    renderAccessControlSummary(summary);
+    renderAccessControlSummary(summary, force);
     renderAccessPeople(_accessPeopleRows);
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel carregar controle de acesso.', true);
@@ -515,12 +533,59 @@ async function loadAccessWhatsappSiteOptions(force = false) {
   }
 }
 
-function renderAccessControlSummary(summary) {
+function renderAccessControlSummary(summary, force = false) {
   setText('accessKpiStudents', summary.students || 0);
   setText('accessKpiPeopleSub', `${summary.people_active || 0} ativo(s) de ${summary.people_total || 0}`);
   setText('accessKpiDevices', summary.devices_active || 0);
   setText('accessKpiEvents', summary.events_today || 0);
-  setText('accessKpiWhatsapp', summary.whatsapp_queue || 0);
+  renderAccessWhatsappKpiStatus({ state: 'checking' });
+  loadAccessWhatsappKpiStatus(force);
+}
+
+function renderAccessWhatsappKpiStatus(data = {}) {
+  const state = String(data?.state || '').toLowerCase();
+  const connected = !!data?.connected || state === 'connected';
+  const configured = data?.configured !== false && state !== 'not_configured';
+  if (connected) {
+    setText('accessKpiWhatsapp', 'Conectado');
+    setText('accessKpiWhatsappSub', 'mensagens privadas ativas');
+    return;
+  }
+  if (!configured || state === 'not_configured') {
+    setText('accessKpiWhatsapp', 'Nao configurado');
+    setText('accessKpiWhatsappSub', 'clique para conectar');
+    return;
+  }
+  if (state === 'waiting_qr') {
+    setText('accessKpiWhatsapp', 'QR pendente');
+    setText('accessKpiWhatsappSub', 'escaneie para ativar');
+    return;
+  }
+  if (state === 'disconnected') {
+    setText('accessKpiWhatsapp', 'Desconectado');
+    setText('accessKpiWhatsappSub', 'clique para reconectar');
+    return;
+  }
+  if (state === 'error') {
+    setText('accessKpiWhatsapp', 'Erro');
+    setText('accessKpiWhatsappSub', 'verifique a conexao');
+    return;
+  }
+  setText('accessKpiWhatsapp', 'Verificando');
+  setText('accessKpiWhatsappSub', 'status da conexao');
+}
+
+async function loadAccessWhatsappKpiStatus(force = false) {
+  if (_accessWhatsappKpiLoading) return;
+  _accessWhatsappKpiLoading = true;
+  try {
+    const data = await apiJson('/api/access-control/whatsapp/connection', { forceRefresh: force, cacheTtl: 0 });
+    renderAccessWhatsappKpiStatus(data);
+  } catch (err) {
+    renderAccessWhatsappKpiStatus({ state: 'error', error: err?.message || '' });
+  } finally {
+    _accessWhatsappKpiLoading = false;
+  }
 }
 
 function renderAccessPeople(rows) {
@@ -560,6 +625,14 @@ function renderAccessPeople(rows) {
   syncAccessPeopleFooterActions();
   scheduleResponsiveHydration(body);
   lucide.createIcons();
+}
+
+function renderAccessPeopleLoading() {
+  const body = document.getElementById('accessPeopleBody');
+  if (!body) return;
+  body.innerHTML = '<tr class="empty-row"><td colspan="11">Carregando pessoas...</td></tr>';
+  setText('accessPeopleCount', 'carregando');
+  scheduleResponsiveHydration(body);
 }
 
 async function openAccessStudentsDrawer(filterKey = 'all', activeSite = null) {
@@ -986,6 +1059,35 @@ function handleAccessTabClick(tab, event) {
   }
 }
 
+function openAccessTodayEventsReport() {
+  const period = document.getElementById('accessReportPeriod');
+  const eventType = document.getElementById('accessReportType');
+  const site = document.getElementById('accessReportSite');
+  const search = document.getElementById('accessReportSearch');
+  if (period) period.value = 'today';
+  if (eventType) eventType.value = '';
+  if (site) site.value = '';
+  if (search) search.value = '';
+  syncAccessReportCustomRange();
+  showAccessControlTab('reports');
+  loadAccessControlSummary(true);
+  loadAccessReports(true);
+  startAccessReportAutoRefresh();
+}
+
+function handleAccessKpiKeydown(target, event) {
+  if (event?.key !== 'Enter' && event?.key !== ' ') return;
+  event.preventDefault();
+  if (target === 'events') openAccessTodayEventsReport();
+  if (target === 'whatsapp') openAccessWhatsappConnections();
+}
+
+function openAccessWhatsappConnections() {
+  stopAccessReportAutoRefresh();
+  showAccessControlTab('connections');
+  loadAccessWhatsappConfig(true);
+}
+
 function bindAccessConnections() {
   document.getElementById('btnAccessWhatsappReload')?.addEventListener('click', () => loadAccessWhatsappConfig(true));
   document.getElementById('btnAccessWhatsappSave')?.addEventListener('click', saveAccessWhatsappConfig);
@@ -1019,6 +1121,7 @@ async function loadAccessWhatsappConfig(force = false) {
   try {
     await loadAccessWhatsappSiteOptions(force);
     const data = await apiJson(`/api/access-control/whatsapp${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
+    _accessWhatsappCurrentConfigured = !!data.configured;
     document.getElementById('accessWhatsappProvider').value = data.provider || 'evolution';
     document.getElementById('accessWhatsappBaseUrl').value = data.base_url || '';
     document.getElementById('accessWhatsappInstance').value = data.instance || 'sightops';
@@ -1027,6 +1130,7 @@ async function loadAccessWhatsappConfig(force = false) {
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(force);
   } catch (err) {
+    _accessWhatsappCurrentConfigured = false;
     setAccessWhatsappStatus(null);
     setAccessWhatsappConnection(null);
     showToast(err?.message || 'Nao foi possivel carregar o WhatsApp.', true);
@@ -1048,6 +1152,11 @@ async function saveAccessWhatsappConfig() {
     showToast('Informe URL da API e instancia para ativar o WhatsApp.', true);
     return null;
   }
+  if (payload.enabled && !payload.api_key && !_accessWhatsappCurrentConfigured) {
+    showToast('Informe a API key para ativar o WhatsApp.', true);
+    document.getElementById('accessWhatsappApiKey')?.focus();
+    return null;
+  }
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<i data-lucide="loader-circle"></i> Salvando';
@@ -1057,9 +1166,10 @@ async function saveAccessWhatsappConfig() {
     const res = await api('/api/access-control/whatsapp', { method: 'PUT', body: JSON.stringify(payload) });
     const data = await jsonOrReadableError(res, 'Nao foi possivel salvar o WhatsApp.');
     document.getElementById('accessWhatsappApiKey').value = '';
+    _accessWhatsappCurrentConfigured = !!data.configured;
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(true);
-    showToast('WhatsApp salvo.');
+    showToast(data.configured ? 'WhatsApp salvo.' : 'WhatsApp salvo, mas falta configurar URL/chave.');
     return data;
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel salvar o WhatsApp.', true);
@@ -1250,7 +1360,7 @@ function bindAccessDevices() {
   document.getElementById('accessDeviceForm')?.addEventListener('submit', saveAccessDeviceFromForm);
   document.getElementById('accessDevicesBody')?.addEventListener('click', handleAccessDeviceAction);
   document.getElementById('accessDevicesSelectAll')?.addEventListener('change', toggleAccessDeviceMasterCheck);
-  document.getElementById('btnAccessDevicesFooterRefresh')?.addEventListener('click', () => loadAccessDevices(true));
+  document.getElementById('btnAccessDevicesFooterRefresh')?.addEventListener('click', refreshAccessDevicesFromButton);
   document.getElementById('btnAccessDevicesFooterTest')?.addEventListener('click', testSelectedAccessDevice);
   document.getElementById('btnAccessDevicesFooterOpenDoor')?.addEventListener('click', openSelectedAccessDeviceDoor);
   document.getElementById('btnAccessDevicesFooterEdit')?.addEventListener('click', editSelectedAccessDevice);
@@ -1259,14 +1369,56 @@ function bindAccessDevices() {
 
 function bindAccessReports() {
   document.getElementById('btnAccessReportRefresh')?.addEventListener('click', () => loadAccessReports(true));
+  document.getElementById('btnAccessReportPdf')?.addEventListener('click', printAccessReportPdf);
+  document.getElementById('btnAccessReportCsv')?.addEventListener('click', exportAccessReportCsv);
+  document.getElementById('btnAccessReportToggleEvents')?.addEventListener('click', toggleAccessReportEvents);
   document.getElementById('btnAccessManualExit')?.addEventListener('click', recordAccessManualExit);
-  document.getElementById('accessReportPeriod')?.addEventListener('change', () => loadAccessReports(true));
+  document.getElementById('accessReportPeriod')?.addEventListener('change', () => {
+    syncAccessReportCustomRange();
+    loadAccessReports(true);
+  });
+  document.getElementById('accessReportStart')?.addEventListener('change', () => loadAccessReports(true));
+  document.getElementById('accessReportEnd')?.addEventListener('change', () => loadAccessReports(true));
   document.getElementById('accessReportType')?.addEventListener('change', () => loadAccessReports(true));
   document.getElementById('accessReportSite')?.addEventListener('change', () => loadAccessReports(true));
   document.getElementById('accessReportSearch')?.addEventListener('input', () => {
     clearTimeout(_accessReportSearchTimer);
     _accessReportSearchTimer = setTimeout(() => loadAccessReports(true), 280);
   });
+  syncAccessReportCustomRange();
+}
+
+function accessReportLocalDateTime(date) {
+  const pad = value => String(value).padStart(2, '0');
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join('-') + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function syncAccessReportCustomRange() {
+  const period = document.getElementById('accessReportPeriod')?.value || 'today';
+  const range = document.getElementById('accessReportCustomRange');
+  const startInput = document.getElementById('accessReportStart');
+  const endInput = document.getElementById('accessReportEnd');
+  if (!range || !startInput || !endInput) return;
+  const custom = period === 'custom';
+  range.hidden = !custom;
+  if (!custom) return;
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (!startInput.value) startInput.value = accessReportLocalDateTime(start);
+  if (!endInput.value) endInput.value = accessReportLocalDateTime(now);
+}
+
+function accessReportDateTimeParam(id, endOfMinute = false) {
+  const value = document.getElementById(id)?.value || '';
+  if (!value) return '';
+  const clean = value.replace('T', ' ');
+  if (clean.length === 16) return `${clean}:${endOfMinute ? '59' : '00'}`;
+  return clean;
 }
 
 function accessReportQuery() {
@@ -1276,6 +1428,12 @@ function accessReportQuery() {
   const site = document.getElementById('accessReportSite')?.value || '';
   const search = document.getElementById('accessReportSearch')?.value?.trim() || '';
   if (period) query.set('period', period);
+  if (period === 'custom') {
+    const start = accessReportDateTimeParam('accessReportStart');
+    const end = accessReportDateTimeParam('accessReportEnd', true);
+    if (start) query.set('start', start);
+    if (end) query.set('end', end);
+  }
   if (eventType) query.set('type', eventType);
   if (site) query.set('site', site);
   if (search) query.set('search', search);
@@ -1329,14 +1487,290 @@ async function ensureAccessReportBaseData(force = false) {
 
 async function loadAccessControlSummary(force = false) {
   const summaryRes = await apiJson('/api/access-control/summary', { forceRefresh: force, cacheTtl: 0 });
-  renderAccessControlSummary(summaryRes?.summary || {});
+  renderAccessControlSummary(summaryRes?.summary || {}, force);
 }
 
 function renderAccessReportSummary(summary = {}) {
-  setText('accessReportEntries', summary.entries || 0);
-  setText('accessReportExits', summary.exits || 0);
-  setText('accessReportManualExits', summary.manual_exits || 0);
-  setText('accessReportInside', summary.inside_now || 0);
+  return summary;
+}
+
+function accessReportDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const parsed = new Date(raw.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function accessReportTimeShort(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '-';
+  const normalized = raw.replace('T', ' ');
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+  if (match) return `${match[3]}/${match[2]} ${match[4]}:${match[5]}`;
+  const parts = normalized.split(' ');
+  if (parts.length >= 2) return `${parts[0]} ${parts[1].slice(0, 5)}`;
+  return raw;
+}
+
+function accessReportDuration(startValue, endValue) {
+  const start = accessReportDate(startValue);
+  const end = accessReportDate(endValue) || new Date();
+  if (!start || end < start) return '-';
+  const minutes = Math.max(0, Math.round((end - start) / 60000));
+  if (minutes < 60) return `${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}min` : `${hours}h`;
+}
+
+function accessReportNotificationKind(status) {
+  const text = String(status || '').toLowerCase();
+  if (!text || text === '-') return 'skipped';
+  if (text.includes('failed') || text.includes('erro')) return 'failed';
+  if (text.includes('sent') || text.includes('enviado')) return 'sent';
+  if (text.includes('skipped') || text.includes('sem')) return 'skipped';
+  return 'other';
+}
+
+function accessReportNotificationBadge(status) {
+  const kind = accessReportNotificationKind(status);
+  const label = status || (kind === 'sent' ? 'enviada' : kind === 'failed' ? 'falha' : 'sem envio');
+  if (kind === 'sent') return `<span class="pill success" title="${esc(status || '')}">enviada</span>`;
+  if (kind === 'failed') return `<span class="pill danger" title="${esc(status || '')}">falha</span>`;
+  if (kind === 'skipped') return `<span class="pill neutral" title="${esc(status || '')}">sem envio</span>`;
+  return `<span class="pill amber" title="${esc(status || '')}">${esc(label)}</span>`;
+}
+
+function accessReportPersonKey(event) {
+  return String(event.person_id || event.person_document || event.person_enrollment || event.person_name || event.person_name_raw || '').trim();
+}
+
+function buildAccessReportPeople(events = []) {
+  const map = new Map();
+  events.forEach(event => {
+    const person = event.person_name || event.person_name_raw || 'Pessoa nao identificada';
+    const key = accessReportPersonKey(event) || person;
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        person,
+        document: event.person_document || event.person_enrollment || '',
+        site: event.site || '',
+        latest: event,
+        firstEntry: '',
+        lastEntry: '',
+        lastExit: '',
+        entries: 0,
+        exits: 0,
+        manualExits: 0,
+        notification: event.notification_status || '',
+      });
+    }
+    const item = map.get(key);
+    const eventDate = accessReportDate(event.occurred_at);
+    const latestDate = accessReportDate(item.latest?.occurred_at);
+    if (!latestDate || (eventDate && eventDate > latestDate)) item.latest = event;
+    if (event.site && !item.site) item.site = event.site;
+    if (event.notification_status && !item.notification) item.notification = event.notification_status;
+    if (event.event_type === 'entrada') {
+      item.entries += 1;
+      item.lastEntry = item.lastEntry || event.occurred_at || '';
+      item.firstEntry = event.occurred_at || item.firstEntry;
+    } else if (event.event_type === 'saida' || event.event_type === 'saida_manual') {
+      item.exits += 1;
+      if (event.event_type === 'saida_manual') item.manualExits += 1;
+      item.lastExit = item.lastExit || event.occurred_at || '';
+    }
+  });
+  return [...map.values()].sort((a, b) => String(b.latest?.occurred_at || '').localeCompare(String(a.latest?.occurred_at || '')));
+}
+
+function accessReportPeriodLabel() {
+  const period = document.getElementById('accessReportPeriod')?.value || 'today';
+  if (period === 'custom') {
+    const start = document.getElementById('accessReportStart')?.value || '';
+    const end = document.getElementById('accessReportEnd')?.value || '';
+    return `Periodo: ${start ? start.replace('T', ' ') : 'inicio'} ate ${end ? end.replace('T', ' ') : 'fim'}`;
+  }
+  if (period === '7d') return 'Periodo: ultimos 7 dias';
+  if (period === '30d') return 'Periodo: ultimos 30 dias';
+  if (period === 'all') return 'Periodo: todo historico';
+  return 'Periodo: hoje';
+}
+
+function renderAccessReportDocumentSummary(people = [], events = []) {
+  const peopleWithEntries = people.filter(item => item.entries > 0).length;
+  const peopleWithExits = people.filter(item => item.exits > 0).length;
+  const presentPeople = people.filter(item => item.latest?.event_type === 'entrada').length;
+  const site = document.getElementById('accessReportSite')?.value || 'Todos';
+  setText('accessReportEntrantPeople', peopleWithEntries);
+  setText('accessReportExitPeople', peopleWithExits);
+  setText('accessReportPresentPeople', presentPeople);
+  setText('accessReportPeopleWithEntries', peopleWithEntries);
+  setText('accessReportPeopleWithExits', peopleWithExits);
+  setText('accessReportPeoplePresent', presentPeople);
+  setText('accessReportPrintPeriod', accessReportPeriodLabel());
+  setText('accessReportPrintSite', site);
+}
+
+function renderAccessReportPeople(events = []) {
+  const body = document.getElementById('accessReportPeopleBody');
+  const people = buildAccessReportPeople(events);
+  setText('accessReportPeopleCount', `${people.length} pessoa${people.length === 1 ? '' : 's'}`);
+  renderAccessReportDocumentSummary(people, events);
+  if (!body) return people;
+  if (!people.length) {
+    body.innerHTML = `
+      <div class="access-report-empty-state">
+        <i data-lucide="users"></i>
+        <strong>Nenhuma movimentacao encontrada</strong>
+        <span>Ajuste os filtros para visualizar entradas e saidas.</span>
+      </div>
+    `;
+    lucide.createIcons();
+    return people;
+  }
+  body.innerHTML = people.map(item => {
+    const latestType = item.latest?.event_type || '';
+    const statusBadge = latestType === 'entrada'
+      ? '<span class="pill success">presente</span>'
+      : latestType === 'saida_manual'
+        ? '<span class="pill amber">saida manual</span>'
+        : '<span class="pill neutral">saiu</span>';
+    const entry = accessReportTimeShort(item.lastEntry || item.firstEntry);
+    const exit = accessReportTimeShort(item.lastExit);
+    const identity = [item.document, item.site].filter(Boolean).join(' - ') || 'sem documento';
+    return `
+      <article class="access-report-person-card">
+        <div class="access-report-person-main">
+          <strong title="${esc(item.person)}">${esc(item.person)}</strong>
+          <span>${esc(identity)}</span>
+        </div>
+        <div class="access-report-person-status">${statusBadge}</div>
+        <div class="access-report-person-metrics">
+          <span><small>Entrada</small><b class="mono">${esc(entry)}</b></span>
+          <span><small>Saida</small><b class="mono">${esc(exit)}</b></span>
+          <span><small>Entradas</small><b>${esc(item.entries)}</b></span>
+          <span><small>Saidas</small><b>${esc(item.exits)}</b></span>
+        </div>
+        <div class="access-report-person-notification">${accessReportNotificationBadge(item.notification)}</div>
+      </article>
+    `;
+  }).join('');
+  return people;
+}
+
+function toggleAccessReportEvents() {
+  const wrap = document.getElementById('accessReportEventsWrap');
+  if (!wrap) return;
+  wrap.hidden = !wrap.hidden;
+}
+
+function accessReportCsvCell(value) {
+  return `"${String(value ?? '').replaceAll('"', '""')}"`;
+}
+
+function exportAccessReportCsv() {
+  const people = buildAccessReportPeople(_accessReportRows || []);
+  if (!people.length) {
+    showToast('Nao ha movimentacao para exportar.', true);
+    return;
+  }
+  const header = ['Pessoa', 'Documento/matricula', 'Status', 'Entrada', 'Saida', 'Entradas', 'Saidas', 'Site'];
+  const csvRows = [header].concat(people.map(item => [
+    item.person || '',
+    item.document || '',
+    item.latest?.event_type === 'entrada' ? 'presente' : item.latest?.event_type === 'saida_manual' ? 'saida manual' : 'saiu',
+    accessReportTimeShort(item.lastEntry || item.firstEntry),
+    accessReportTimeShort(item.lastExit),
+    item.entries || 0,
+    item.exits || 0,
+    item.site || '',
+  ]));
+  const content = csvRows.map(row => row.map(accessReportCsvCell).join(';')).join('\r\n');
+  const blob = new Blob([`\ufeff${content}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `sightops-entradas-saidas-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function printAccessReportPdf() {
+  document.body.classList.add('access-report-printing');
+  const cleanup = () => document.body.classList.remove('access-report-printing');
+  window.addEventListener('afterprint', cleanup, { once: true });
+  setTimeout(() => {
+    window.print();
+    setTimeout(cleanup, 1500);
+  }, 50);
+}
+
+function renderAccessReportIntelligence(summary = {}, events = []) {
+  const people = renderAccessReportPeople(events);
+  const insidePeople = people.filter(item => item.latest?.event_type === 'entrada');
+  const failedEvents = events.filter(event => accessReportNotificationKind(event.notification_status) === 'failed');
+  const sentEvents = events.filter(event => accessReportNotificationKind(event.notification_status) === 'sent');
+  const skippedEvents = events.filter(event => accessReportNotificationKind(event.notification_status) === 'skipped');
+  const manualEvents = events.filter(event => event.event_type === 'saida_manual');
+  const pending = insidePeople.length + failedEvents.length + manualEvents.length;
+  setText('accessReportPending', pending);
+  setText('accessReportNotificationsOk', sentEvents.length);
+  setText('accessReportNotificationsFail', failedEvents.length);
+  setText('accessReportNotificationsSkipped', skippedEvents.length);
+  setText('accessReportAttentionCount', `${pending} item${pending === 1 ? '' : 's'}`);
+
+  const list = document.getElementById('accessReportAttentionBody');
+  if (!list) return;
+  const items = [];
+  insidePeople.slice(0, 4).forEach(item => {
+    items.push({
+      icon: 'user-check',
+      tone: 'green',
+      title: `${item.person} esta presente`,
+      meta: `${item.site || 'Sem site'} · entrada ${accessReportTimeShort(item.lastEntry || item.firstEntry)} · ${accessReportDuration(item.lastEntry || item.firstEntry, '')}`,
+    });
+  });
+  failedEvents.slice(0, 3).forEach(event => {
+    items.push({
+      icon: 'bell-off',
+      tone: 'red',
+      title: `Falha de notificacao: ${event.person_name || event.person_name_raw || 'Pessoa'}`,
+      meta: `${event.site || 'Sem site'} · ${accessReportTimeShort(event.occurred_at)} · ${event.notification_status || 'falha'}`,
+    });
+  });
+  manualEvents.slice(0, 2).forEach(event => {
+    items.push({
+      icon: 'hand',
+      tone: 'amber',
+      title: `Saida manual: ${event.person_name || event.person_name_raw || 'Pessoa'}`,
+      meta: `${event.site || 'Sem site'} · ${accessReportTimeShort(event.occurred_at)} · operador interno`,
+    });
+  });
+  if (!items.length) {
+    list.innerHTML = `
+      <div class="access-report-empty-state">
+        <i data-lucide="check-circle-2"></i>
+        <strong>Nenhuma pendencia no periodo</strong>
+        <span>Os eventos carregados nao indicam falha de notificacao, saida manual ou pessoa ainda presente.</span>
+      </div>
+    `;
+    lucide.createIcons();
+    return;
+  }
+  list.innerHTML = items.slice(0, 7).map(item => `
+    <article class="access-report-attention-item ${item.tone}">
+      <span><i data-lucide="${item.icon}"></i></span>
+      <div>
+        <strong>${esc(item.title)}</strong>
+        <small>${esc(item.meta)}</small>
+      </div>
+    </article>
+  `).join('');
+  lucide.createIcons();
 }
 
 function renderAccessReportEvents(events = []) {
@@ -1345,6 +1779,7 @@ function renderAccessReportEvents(events = []) {
   _accessReportRows = events;
   setText('accessReportCount', `${events.length} evento${events.length === 1 ? '' : 's'}`);
   populateAccessReportSiteOptions();
+  renderAccessReportIntelligence({}, events);
   if (!events.length) {
     body.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhum evento encontrado.</td></tr>';
     scheduleResponsiveHydration(body);
@@ -1362,7 +1797,7 @@ function renderAccessReportEvents(events = []) {
         <td title="${esc(event.site || '')}">${esc(event.site || '-')}</td>
         <td title="${esc(device)}">${esc(device)}</td>
         <td>${esc(source)}</td>
-        <td>${esc(event.notification_status || '-')}</td>
+        <td>${accessReportNotificationBadge(event.notification_status)}</td>
       </tr>
     `;
   }).join('');
@@ -1386,8 +1821,11 @@ async function loadAccessReports(force = false, options = {}) {
       apiJson(`/api/access-control/reports/summary?${query.toString()}`, { forceRefresh: force, cacheTtl: 0 }),
       apiJson(`/api/access-control/reports/events?${query.toString()}`, { forceRefresh: force, cacheTtl: 0 }),
     ]);
-    renderAccessReportSummary(summary?.summary || summary || {});
-    renderAccessReportEvents(events?.events || []);
+    const reportSummary = summary?.summary || summary || {};
+    const reportEvents = events?.events || [];
+    renderAccessReportSummary(reportSummary);
+    renderAccessReportEvents(reportEvents);
+    renderAccessReportIntelligence(reportSummary, reportEvents);
   } catch (err) {
     if (!silent) showToast(err?.message || 'Nao foi possivel carregar relatorios.', true);
     else console.warn('SightOps Access Control reports refresh failed', err);
@@ -1662,6 +2100,31 @@ async function handleAccessDeviceAction(event) {
   renderAccessDevices(_accessDeviceRows);
 }
 
+async function refreshAccessDevicesFromButton() {
+  const btn = document.getElementById('btnAccessDevicesFooterRefresh');
+  const hint = document.getElementById('accessDevicesFooterHint');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i>';
+    lucide.createIcons();
+  }
+  if (hint) hint.textContent = 'Atualizando lista de controladoras...';
+  try {
+    await loadAccessDevices(true);
+    showToast('Lista de dispositivos atualizada.');
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel atualizar os dispositivos.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="refresh-cw"></i>';
+      lucide.createIcons();
+    }
+    syncAccessDevicesFooterActions();
+  }
+}
+
 function toggleAccessDeviceMasterCheck(event) {
   const firstDevice = _accessDeviceRows[0];
   _accessDeviceSelectedId = event.target.checked && firstDevice ? firstDevice.id : '';
@@ -1696,16 +2159,32 @@ async function testSelectedAccessDevice() {
   const device = selectedAccessDevice();
   const btn = document.getElementById('btnAccessDevicesFooterTest');
   if (!device) return;
-  if (btn) btn.disabled = true;
+  const hint = document.getElementById('accessDevicesFooterHint');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i>';
+    lucide.createIcons();
+  }
+  if (hint) {
+    const via = device.connector_id ? ` via conector ${accessDeviceConnectorLabel(device)}` : '';
+    hint.textContent = `Testando conexao com ${device.name || device.host || 'dispositivo'}${via}...`;
+  }
   try {
-    const res = await api(`/api/access-control/devices/${encodeURIComponent(device.id)}/test`, { method: 'POST' });
-    await jsonOrReadableError(res, 'Nao foi possivel testar o dispositivo.');
+    const res = await api(`/api/access-control/devices/${encodeURIComponent(device.id)}/test`, { method: 'POST', skipLogout: true });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel testar o dispositivo.');
     await loadAccessDevices(true);
-    showToast('Conexao testada.');
+    const model = data?.device?.model || data?.info?.updateSerial || data?.info?.deviceType || '';
+    showToast(model ? `Conexao OK. Modelo detectado: ${model}.` : 'Conexao OK com a controladora.');
   } catch (err) {
     await loadAccessDevices(true);
     showToast(err?.message || 'Nao foi possivel testar o dispositivo.', true);
   } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="plug-zap"></i>';
+      lucide.createIcons();
+    }
     syncAccessDevicesFooterActions();
   }
 }
@@ -1714,7 +2193,17 @@ async function openSelectedAccessDeviceDoor() {
   const device = selectedAccessDevice();
   const btn = document.getElementById('btnAccessDevicesFooterOpenDoor');
   if (!device) return;
-  if (btn) btn.disabled = true;
+  const hint = document.getElementById('accessDevicesFooterHint');
+  const oldHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i>';
+    lucide.createIcons();
+  }
+  if (hint) {
+    const via = device.connector_id ? ` via conector ${accessDeviceConnectorLabel(device)}` : '';
+    hint.textContent = `Enviando comando de abertura para ${device.name || device.host || 'dispositivo'}${via}...`;
+  }
   try {
     const res = await api(`/api/access-control/devices/${encodeURIComponent(device.id)}/open-door`, { method: 'POST' });
     await jsonOrReadableError(res, 'Nao foi possivel abrir a porta.');
@@ -1722,6 +2211,11 @@ async function openSelectedAccessDeviceDoor() {
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel abrir a porta.', true);
   } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml || '<i data-lucide="door-open"></i>';
+      lucide.createIcons();
+    }
     syncAccessDevicesFooterActions();
   }
 }
@@ -2001,6 +2495,7 @@ function bindAccessGroups() {
   document.getElementById('accessRulesBody')?.addEventListener('click', handleAccessRuleAction);
   document.getElementById('accessRulesSelectAll')?.addEventListener('change', toggleAccessRuleMasterCheck);
   document.getElementById('btnAccessRulesFooterRefresh')?.addEventListener('click', () => loadAccessRules(true));
+  document.getElementById('btnAccessRulesFooterReuse')?.addEventListener('click', reuseSelectedAccessRule);
   document.getElementById('btnAccessRulesFooterEdit')?.addEventListener('click', editSelectedAccessRule);
   document.getElementById('btnAccessRulesFooterDelete')?.addEventListener('click', deleteSelectedAccessRule);
   document.getElementById('btnAccessGroupClose')?.addEventListener('click', closeAccessGroupModal);
@@ -2165,7 +2660,7 @@ function syncAccessRuleFooterActions() {
     master.checked = hasSelection;
     master.disabled = !_accessRuleRows.length;
   }
-  ['btnAccessRulesFooterEdit', 'btnAccessRulesFooterDelete'].forEach(id => {
+  ['btnAccessRulesFooterReuse', 'btnAccessRulesFooterEdit', 'btnAccessRulesFooterDelete'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = !hasSelection;
   });
@@ -2184,6 +2679,15 @@ function editSelectedAccessRule() {
     return;
   }
   openAccessRuleModal(rule);
+}
+
+function reuseSelectedAccessRule() {
+  const rule = selectedAccessRule();
+  if (!rule) {
+    showToast('Selecione uma regra para reaproveitar.', true);
+    return;
+  }
+  openAccessRuleModal(rule, { reuse: true });
 }
 
 async function deleteSelectedAccessRule() {
@@ -2863,6 +3367,11 @@ function accessRuleSelectedWeekdays() {
   return String(raw).split('').filter(d => ACCESS_WEEKDAY_LABELS[d]);
 }
 
+function accessFirstPeopleGroupWithoutRule(currentPeopleGroupId = '') {
+  const usedGroupIds = new Set(_accessRuleRows.map(rule => rule.people_group_id).filter(Boolean));
+  return _accessGroupRows.find(group => group.id !== currentPeopleGroupId && !usedGroupIds.has(group.id)) || null;
+}
+
 function setAccessRuleWeekdays(digits) {
   const ordered = Object.keys(ACCESS_WEEKDAY_LABELS).filter(d => digits.includes(d));
   const input = document.getElementById('accessRuleWeekdays');
@@ -2935,23 +3444,30 @@ function bindAccessRuleModal() {
     .forEach(id => document.getElementById(id)?.addEventListener('change', updateAccessRuleSummary));
 }
 
-function openAccessRuleModal(rule = null) {
+function openAccessRuleModal(rule = null, options = {}) {
   const item = rule || {};
-  setText('accessRuleModalTitle', item.id ? 'Editar regra' : 'Nova regra');
-  document.getElementById('accessRuleId').value = item.id || '';
+  const isReuse = Boolean(options && options.reuse);
+  const suggestedGroup = isReuse ? accessFirstPeopleGroupWithoutRule(item.people_group_id) : null;
+  setText('accessRuleModalTitle', item.id && !isReuse ? 'Editar regra' : isReuse ? 'Reaproveitar regra' : 'Nova regra');
+  document.getElementById('accessRuleId').value = item.id && !isReuse ? item.id : '';
   const peopleSelect = document.getElementById('accessRulePeopleGroup');
   const doorSelect = document.getElementById('accessRuleDoorGroup');
   if (peopleSelect) {
-    peopleSelect.innerHTML = _accessGroupRows.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')
+    const usedGroupIds = new Set(_accessRuleRows.map(rule => rule.people_group_id).filter(Boolean));
+    peopleSelect.innerHTML = _accessGroupRows.map(g => {
+      const available = isReuse && g.id !== item.people_group_id && !usedGroupIds.has(g.id);
+      const suffix = available ? ' (sem regra)' : '';
+      return `<option value="${esc(g.id)}">${esc(g.name)}${suffix}</option>`;
+    }).join('')
       || '<option value="">Cadastre um grupo primeiro</option>';
-    peopleSelect.value = item.people_group_id || '';
+    peopleSelect.value = (suggestedGroup || {}).id || item.people_group_id || '';
   }
   if (doorSelect) {
     doorSelect.innerHTML = _accessDoorGroupRows.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')
       || '<option value="">Cadastre um grupo de porta primeiro</option>';
     doorSelect.value = item.door_group_id || '';
   }
-  document.getElementById('accessRuleName').value = item.name || '';
+  document.getElementById('accessRuleName').value = isReuse && item.name ? `${item.name} - copia` : item.name || '';
   document.getElementById('accessRuleWeekdays').value = item.weekdays || '1234567';
   // Regra sem horario vale o dia inteiro -- a tabela ja mostra 00:00-23:59 nesse
   // caso, entao o modal abre com os mesmos valores em vez de dois campos vazios.

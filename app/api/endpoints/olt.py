@@ -324,7 +324,12 @@ def api_olt_registry_test(olt_id: int) -> Dict[str, Any]:
         olt = olt_registry.get_olt(olt_id) or {}
         vendor = str(olt.get("vendor") or "").strip().lower()
         model = str(olt.get("model") or "").strip().lower()
-        if vendor == "intelbras" and model in {"4840e", "4840"}:
+        driver = str(olt.get("driver") or "").strip().lower()
+        # VSOL entra aqui junto com a 4840e: nela `show onu discover` lista so
+        # ONU NAO autorizada, entao numa OLT ja provisionada volta vazio e o
+        # teste diria "0 PON(s)" com tudo funcionando. Coletar MACs prova a
+        # conversa de ponta a ponta e da o mesmo retorno das outras OLTs.
+        if driver == "vsol_epon" or (vendor == "intelbras" and model in {"4840e", "4840"}):
             req = _registered_request(OltCollectMacsRequest(olt_id=olt_id, pon="all", reuse_json=False))
             result = collect_macs(req)
             rows = result.get("rows") if isinstance(result, dict) else []

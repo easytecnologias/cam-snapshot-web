@@ -22,7 +22,9 @@ def main() -> None:
             record_event,
             record_manual_exit,
             save_device,
+            save_door_group,
             save_person,
+            set_door_group_members,
         )
 
         token = set_current_tenant_slug("rads")
@@ -60,6 +62,9 @@ def main() -> None:
                 }
             )
             assert {row["access_direction"] for row in list_devices()} == {"entrada", "saida"}
+            entry_door_group = save_door_group({"name": "Portaria Entrada", "site": "ESCOLA"})
+            set_door_group_members(entry_door_group["id"], [entry_device["id"]])
+            empty_door_group = save_door_group({"name": "Grupo vazio", "site": "ESCOLA"})
 
             record_event(
                 {
@@ -103,6 +108,44 @@ def main() -> None:
             assert len(manual_events) == 1, manual_events
             assert manual_events[0]["id"] == manual["id"], manual_events
             assert manual_events[0]["source"] == "manual", manual_events
+
+            timed_events = list_access_report_events(
+                {
+                    "period": "custom",
+                    "start": "2026-08-20 07:00:00",
+                    "end": "2026-08-20 08:00:00",
+                    "site": "ESCOLA",
+                }
+            )
+            assert len(timed_events) == 1, timed_events
+            assert timed_events[0]["event_type"] == "entrada", timed_events
+
+            timed_summary = access_report_summary(
+                {
+                    "period": "custom",
+                    "start": "2026-08-20T11:00",
+                    "end": "2026-08-20T12:00",
+                    "site": "ESCOLA",
+                }
+            )
+            assert timed_summary["entries"] == 0, timed_summary
+            assert timed_summary["exits"] == 1, timed_summary
+            assert timed_summary["manual_exits"] == 0, timed_summary
+
+            door_group_events = list_access_report_events(
+                {"period": "all", "site": "ESCOLA", "door_group_id": entry_door_group["id"]}
+            )
+            assert len(door_group_events) == 1, door_group_events
+            assert door_group_events[0]["device_id"] == entry_device["id"], door_group_events
+            door_group_summary = access_report_summary(
+                {"period": "all", "site": "ESCOLA", "door_group_id": entry_door_group["id"]}
+            )
+            assert door_group_summary["entries"] == 1, door_group_summary
+            assert door_group_summary["exits"] == 0, door_group_summary
+
+            assert list_access_report_events(
+                {"period": "all", "site": "ESCOLA", "door_group_id": empty_door_group["id"]}
+            ) == []
         finally:
             reset_current_tenant_slug(token)
 

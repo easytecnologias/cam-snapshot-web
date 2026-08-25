@@ -52,11 +52,13 @@ def test_access_control_layout_uses_sightops_components() -> None:
     styles = _read(STYLES)
 
     assert 'class="metrics access-control-kpis"' in section
-    assert section.count('class="dash-kpi-card"') == 4
-    assert section.count('class="metric-icon') == 4
-    assert 'id="accessKpiStudentsCard"' in section
-    assert 'id="accessKpiDevicesCard"' in section
-    assert 'role="button"' in section
+    kpis = section.split('class="metrics access-control-kpis"', 1)[1].split('class="tabs access-control-tabs"', 1)[0]
+    assert kpis.count('dash-kpi-card') == 4
+    assert kpis.count('class="metric-icon') == 4
+    assert 'id="accessKpiStudentsCard"' in kpis
+    assert 'id="accessKpiDevicesCard"' in kpis
+    assert 'id="accessKpiEventsCard"' in kpis
+    assert 'role="button"' in kpis
     assert 'id="btnAccessPrimaryAction"' in section
     assert 'id="accessPrimaryActionLabel"' in section
     assert 'data-access-primary-action="people"' in section
@@ -150,6 +152,66 @@ def test_access_control_frontend_is_bound() -> None:
     assert "function syncAccessPeopleFooterActions" in access_js
     assert "function deleteSelectedAccessPeople" in access_js
     assert "function deleteAllVisibleAccessPeople" in access_js
+
+
+def test_access_events_kpi_opens_today_report() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+
+    assert 'id="accessKpiEventsCard"' in html
+    assert 'title="Ver eventos de hoje"' in html
+    assert 'onclick="openAccessTodayEventsReport()"' in html
+    assert "handleAccessKpiKeydown('events', event)" in html
+    assert "accessKpiEventsCard" in access_js
+    assert "function openAccessTodayEventsReport" in access_js
+    assert "function handleAccessKpiKeydown" in access_js
+
+    body = access_js.split("function openAccessTodayEventsReport", 1)[1].split("\nfunction ", 1)[0]
+    assert "accessReportPeriod" in body
+    assert "'today'" in body
+    assert "accessReportType" in body
+    assert "showAccessControlTab('reports')" in body
+    assert "loadAccessControlSummary(true)" in body
+    assert "loadAccessReports(true)" in body
+    assert "startAccessReportAutoRefresh()" in body
+
+
+def test_access_whatsapp_kpi_opens_connections() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+
+    assert 'id="accessKpiWhatsappCard"' in html
+    assert 'title="Configurar WhatsApp"' in html
+    assert 'onclick="openAccessWhatsappConnections()"' in html
+    assert "handleAccessKpiKeydown('whatsapp', event)" in html
+    assert "accessKpiWhatsappCard" in access_js
+    assert "function openAccessWhatsappConnections" in access_js
+    assert "function handleAccessKpiKeydown" in access_js
+
+    body = access_js.split("function openAccessWhatsappConnections", 1)[1].split("\nfunction ", 1)[0]
+    assert "showAccessControlTab('connections')" in body
+    assert "loadAccessWhatsappConfig(true)" in body
+    assert "stopAccessReportAutoRefresh()" in body
+
+
+def test_access_whatsapp_kpi_shows_connection_status_not_fake_queue() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+
+    assert 'id="accessKpiWhatsappSub"' in html
+    assert "fila aguardando homologacao" not in html
+    assert "summary.whatsapp_queue" not in access_js
+    assert "function renderAccessWhatsappKpiStatus" in access_js
+    assert "function loadAccessWhatsappKpiStatus" in access_js
+    assert "/api/access-control/whatsapp/connection" in access_js
+    assert "loadAccessWhatsappKpiStatus(force)" in access_js
+
+
+def test_access_control_load_rebinds_kpi_actions() -> None:
+    access_js = _read(ACCESS_JS)
+
+    body = access_js.split("async function loadAccessControl(", 1)[1].split("\nasync function loadAccessPeopleSiteOptions", 1)[0]
+    assert "bindAccessControl()" in body
 
 
 def test_access_control_module_can_be_enabled_per_tenant() -> None:
@@ -286,6 +348,15 @@ def test_access_people_table_shows_sync_status_and_save_syncs_person() -> None:
     assert "/api/access-control/people/${encodeURIComponent(person.id)}/sync" in access_js
     assert "Pessoa salva e sincronizada." in access_js
     assert "data-access-sync-person" not in access_js
+
+
+def test_access_people_table_has_loading_state() -> None:
+    access_js = _read(ACCESS_JS)
+    assert "function renderAccessPeopleLoading" in access_js
+    assert "Carregando pessoas..." in access_js
+    body = access_js.split("async function loadAccessControl(", 1)[1].split("\nasync function loadAccessPeopleSiteOptions", 1)[0]
+    assert "renderAccessPeopleLoading()" in body
+    assert "Promise.all" in body
 
 
 def test_access_person_modal_has_access_planning_inside_form() -> None:
@@ -485,6 +556,17 @@ def test_access_rules_table_resolves_group_names() -> None:
     assert "doorGroupName(rule.door_group_id)" in access_js
 
 
+def test_access_rules_can_be_reused_for_another_people_group() -> None:
+    html = _read(INDEX_HTML)
+    access_js = _read(ACCESS_JS)
+    assert 'id="btnAccessRulesFooterReuse"' in html
+    assert "function reuseSelectedAccessRule" in access_js
+    assert "btnAccessRulesFooterReuse" in access_js
+    assert "openAccessRuleModal(rule, { reuse: true })" in access_js
+    assert "item.id && !isReuse" in access_js
+    assert "accessFirstPeopleGroupWithoutRule" in access_js
+
+
 def test_access_group_modals_are_fully_implemented() -> None:
     # Task 9 left openAccess*Modal as `// TODO(Task 10): ...` placeholders.
     # Task 10 replaces them with the real implementation, so the marker must
@@ -559,6 +641,9 @@ if __name__ == "__main__":
     test_access_control_layout_uses_sightops_components()
     test_access_control_planned_flow_panel_is_removed()
     test_access_control_frontend_is_bound()
+    test_access_events_kpi_opens_today_report()
+    test_access_whatsapp_kpi_opens_connections()
+    test_access_control_load_rebinds_kpi_actions()
     test_access_control_module_can_be_enabled_per_tenant()
     test_access_control_backend_router_is_registered()
     test_access_devices_tab_exists()
@@ -575,6 +660,7 @@ if __name__ == "__main__":
     test_group_modal_disables_save_button_while_people_load()
     test_access_groups_and_rules_tabs_exist()
     test_access_rules_table_resolves_group_names()
+    test_access_rules_can_be_reused_for_another_people_group()
     test_access_group_modals_are_fully_implemented()
     test_load_access_groups_also_fetches_devices_for_door_group_checklist()
     test_access_group_and_rule_modals_are_functional()

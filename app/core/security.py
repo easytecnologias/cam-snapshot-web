@@ -105,6 +105,8 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             return True
         if path.startswith("/api/connectors/agent/"):
             return True
+        if path.startswith("/api/access-control/whatsapp/inbound/") and path != "/api/access-control/whatsapp/inbound/simulate":
+            return True
         return False
 
     def _match_role_rule(self, path: str, method: str) -> str:

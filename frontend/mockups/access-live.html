@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SightOps - Acesso ao Vivo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f3f5f7;
+      --surface: #ffffff;
+      --surface-soft: #f8fafb;
+      --border: #dfe4e8;
+      --text: #172026;
+      --muted: #66747e;
+      --sidebar: #13252d;
+      --sidebar-soft: #1d353f;
+      --primary: #087f5b;
+      --primary-soft: #dff5ec;
+      --danger: #c92a2a;
+      --danger-soft: #fff0f0;
+      --amber: #b86b00;
+      --amber-soft: #fff6df;
+      --blue: #1971c2;
+      --blue-soft: #e7f5ff;
+      --cyan: #0b7285;
+      --cyan-soft: #e3fafc;
+      --shadow: 0 16px 42px rgba(23,32,38,.10);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: Inter, Arial, sans-serif;
+      font-size: 14px;
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    svg { flex: 0 0 auto; }
+
+    .app-shell { min-height: 100vh; display: flex; }
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: 282px;
+      display: flex;
+      flex-direction: column;
+      color: #dce7eb;
+      background: var(--sidebar);
+    }
+    .brand {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 24px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: #0ca678;
+      color: white;
+      font-size: 22px;
+      font-weight: 800;
+    }
+    .brand strong, .brand span { display: block; }
+    .brand strong { color: white; font-size: 15px; }
+    .brand span { color: #91a7b2; font-size: 12px; margin-top: 2px; }
+    .nav-scroll { flex: 1; overflow-y: auto; padding: 12px; }
+    .nav-section-label {
+      padding: 14px 12px 5px;
+      color: #5f7782;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .nav-item {
+      width: 100%;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #dce7eb;
+      text-align: left;
+      font-weight: 600;
+    }
+    .nav-item svg { width: 19px; height: 19px; color: #b9cbd2; }
+    .nav-item.active {
+      color: white;
+      background: var(--sidebar-soft);
+      box-shadow: inset 3px 0 #20c997;
+    }
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+    .env-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #99b7c2;
+      font-size: 12px;
+    }
+    .env-dot::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #37b24d;
+      box-shadow: 0 0 0 3px rgba(55,178,77,.18);
+    }
+
+    .main {
+      min-width: 0;
+      flex: 1;
+      margin-left: 282px;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 28px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(10px);
+    }
+    .topbar-context strong { display: block; font-size: 16px; }
+    .topbar-context span { color: var(--muted); font-size: 13px; }
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface);
+    }
+    .avatar {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      font-weight: 800;
+    }
+    .profile strong, .profile span { display: block; }
+    .profile span { color: var(--muted); font-size: 12px; }
+
+    .workspace {
+      padding: 24px 30px 34px;
+    }
+    .page-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 6px; font-size: 30px; letter-spacing: 0; }
+    .page-heading p { margin: 0; color: var(--muted); font-size: 15px; }
+    .page-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .primary-action,
+    .secondary-action,
+    .danger-action {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 0 16px;
+      border-radius: 8px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .primary-action { border: 1px solid var(--primary); color: white; background: var(--primary); }
+    .secondary-action { border: 1px solid var(--border); color: var(--text); background: var(--surface); }
+    .danger-action { border: 1px solid #ffc9c9; color: var(--danger); background: var(--surface); }
+    .primary-action svg,
+    .secondary-action svg,
+    .danger-action svg { width: 18px; height: 18px; }
+
+    .live-kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .kpi {
+      min-height: 116px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 20px 22px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    .kpi-icon {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+    }
+    .kpi-icon.green { color: var(--primary); background: var(--primary-soft); }
+    .kpi-icon.amber { color: var(--amber); background: var(--amber-soft); }
+    .kpi-icon.cyan { color: var(--cyan); background: var(--cyan-soft); }
+    .kpi-icon.red { color: var(--danger); background: var(--danger-soft); }
+    .kpi span { display: block; color: var(--muted); font-weight: 600; }
+    .kpi strong { display: block; margin-top: 2px; font-size: 30px; line-height: 1; }
+    .kpi small { display: block; margin-top: 7px; color: var(--muted); }
+
+    .live-layout {
+      display: grid;
+      grid-template-columns: minmax(390px, .98fr) minmax(430px, 1.15fr) minmax(330px, .82fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .panel-header {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-header h2 { margin: 0 0 4px; font-size: 19px; }
+    .panel-header p { margin: 0; color: var(--muted); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 26px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .badge.green { color: var(--primary); background: var(--primary-soft); }
+    .badge.red { color: var(--danger); background: var(--danger-soft); }
+    .badge.amber { color: var(--amber); background: var(--amber-soft); }
+    .badge.gray { color: var(--muted); background: var(--surface-soft); }
+
+    .hero-event {
+      padding: 20px;
+    }
+    .face-card {
+      min-height: 460px;
+      display: grid;
+      grid-template-rows: 250px auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--surface-soft);
+    }
+    .face-photo {
+      position: relative;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 42% 22%, rgba(255,255,255,.62), transparent 23%),
+        linear-gradient(135deg, #145c4a, #0b3b46 54%, #20313a);
+    }
+    .face-photo::before {
+      content: "";
+      width: 128px;
+      height: 128px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #f3c7a6, #c48b68);
+      box-shadow: 0 88px 0 38px #214b56;
+    }
+    .face-photo::after {
+      content: "1021";
+      position: absolute;
+      left: 16px;
+      bottom: 14px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      color: white;
+      background: rgba(19,37,45,.76);
+      font-weight: 800;
+      letter-spacing: .04em;
+    }
+    .event-ribbon {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border-radius: 999px;
+      color: #dff5ec;
+      background: rgba(8,127,91,.95);
+      font-weight: 800;
+    }
+    .event-ribbon svg { width: 17px; height: 17px; }
+    .face-body {
+      padding: 18px;
+      background: var(--surface);
+    }
+    .face-body h2 { margin: 0 0 4px; font-size: 24px; }
+    .face-body p { margin: 0 0 16px; color: var(--muted); }
+    .event-fields {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .event-fields div {
+      min-height: 62px;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+    .event-fields span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .event-fields b {
+      display: block;
+      margin-top: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+
+    .timeline-tools {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 150px 130px;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .search {
+      position: relative;
+      min-width: 0;
+    }
+    .search svg {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      width: 17px;
+      height: 17px;
+      color: var(--muted);
+      transform: translateY(-50%);
+    }
+    input, select {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+    input { padding: 0 12px; }
+    .search input { padding-left: 39px; }
+    select { padding: 0 11px; }
+    input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(8,127,91,.10); }
+
+    .event-feed {
+      max-height: 617px;
+      overflow-y: auto;
+      padding: 8px 14px 14px;
+    }
+    .feed-item {
+      display: grid;
+      grid-template-columns: 68px minmax(0, 1fr) auto;
+      gap: 13px;
+      align-items: center;
+      padding: 12px 6px 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .feed-time {
+      color: var(--muted);
+      font-weight: 800;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .feed-person {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .mini-face {
+      width: 46px;
+      height: 46px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: white;
+      background: linear-gradient(135deg, #0b7285, #087f5b);
+      font-weight: 800;
+    }
+    .mini-face.amber { background: linear-gradient(135deg, #b86b00, #d9480f); }
+    .mini-face.gray { background: linear-gradient(135deg, #64748b, #334155); }
+    .feed-person strong,
+    .feed-person span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .feed-person span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .feed-meta {
+      display: grid;
+      justify-items: end;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .right-stack {
+      display: grid;
+      gap: 18px;
+    }
+    .inside-list,
+    .attention-list {
+      padding: 12px 14px 14px;
+    }
+    .inside-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 11px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .inside-row:last-child { border-bottom: 0; }
+    .inside-row strong,
+    .inside-row span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .inside-row span { margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .duration {
+      padding: 7px 9px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .duration.warn { color: var(--amber); background: var(--amber-soft); }
+    .attention-item {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 11px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+    .attention-item + .attention-item { margin-top: 10px; }
+    .attention-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--amber);
+      background: var(--amber-soft);
+    }
+    .attention-icon.red { color: var(--danger); background: var(--danger-soft); }
+    .attention-item strong, .attention-item span { display: block; }
+    .attention-item span { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+    .control-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-soft);
+    }
+    .control-strip button {
+      min-height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      font-weight: 800;
+    }
+
+    .mock-note {
+      margin-top: 18px;
+      padding: 13px 16px;
+      border: 1px dashed #b8c4cc;
+      border-radius: 8px;
+      color: var(--muted);
+      background: #fbfcfd;
+    }
+
+    @media (max-width: 1280px) {
+      .live-layout { grid-template-columns: 1fr 1fr; }
+      .right-stack { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 980px) {
+      .sidebar { transform: translateX(-100%); }
+      .main { margin-left: 0; }
+      .live-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .live-layout, .right-stack { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .workspace { padding: 18px 14px 28px; }
+      .page-heading { flex-direction: column; }
+      .page-actions, .page-actions > * { width: 100%; }
+      .live-kpis { grid-template-columns: 1fr; }
+      .timeline-tools { grid-template-columns: 1fr; }
+      .feed-item { grid-template-columns: 54px minmax(0, 1fr); }
+      .feed-meta { grid-column: 2; justify-items: start; }
+      .event-fields { grid-template-columns: 1fr; }
+      .control-strip { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">S</div>
+        <div>
+          <strong>SightOps</strong>
+          <span>Gestao de CFTV</span>
+        </div>
+      </div>
+      <nav class="nav-scroll">
+        <div class="nav-section-label">Integracoes</div>
+        <button class="nav-item"><i data-lucide="bar-chart-2"></i><span>Grafana</span></button>
+        <button class="nav-item"><i data-lucide="map"></i><span>Mapa</span></button>
+        <button class="nav-item"><i data-lucide="eye"></i><span>Zabbix</span></button>
+        <button class="nav-item"><i data-lucide="plug"></i><span>Conectores</span></button>
+
+        <div class="nav-section-label">Manutencao</div>
+        <button class="nav-item"><i data-lucide="camera"></i><span>Cameras IP</span></button>
+        <button class="nav-item"><i data-lucide="hard-drive-upload"></i><span>Gravadores</span></button>
+        <button class="nav-item"><i data-lucide="activity"></i><span>Monitoramento</span></button>
+        <button class="nav-item"><i data-lucide="zap"></i><span>Operacoes</span></button>
+
+        <div class="nav-section-label">Analise</div>
+        <button class="nav-item"><i data-lucide="film"></i><span>Reproducao</span></button>
+        <button class="nav-item"><i data-lucide="cpu"></i><span>IA - NVR</span></button>
+
+        <div class="nav-section-label">Controle de Acesso</div>
+        <button class="nav-item active"><i data-lucide="scan-face"></i><span>Acesso ao Vivo</span></button>
+        <button class="nav-item"><i data-lucide="users"></i><span>Cadastros</span></button>
+        <button class="nav-item"><i data-lucide="file-text"></i><span>Relatorios</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="env-dot">Producao</span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-context">
+          <strong>Acesso ao Vivo</strong>
+          <span>Eventos em tempo real, presenca atual e pendencias da portaria</span>
+        </div>
+        <div class="profile">
+          <div class="avatar">E</div>
+          <div>
+            <strong>Elishafan</strong>
+            <span>owner</span>
+          </div>
+          <i data-lucide="chevron-down"></i>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Controle de acesso</p>
+            <h1>Central ao vivo</h1>
+            <p>Acompanhe entradas, saidas e pessoas presentes sem abrir a tela de cadastro.</p>
+          </div>
+          <div class="page-actions">
+            <button class="secondary-action"><i data-lucide="filter"></i> Filtros</button>
+            <button class="secondary-action"><i data-lucide="volume-2"></i> Alertas sonoros</button>
+            <button class="primary-action"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+
+        <section class="live-kpis">
+          <article class="kpi">
+            <div class="kpi-icon green"><i data-lucide="log-in"></i></div>
+            <div><span>Entradas hoje</span><strong>42</strong><small>5 nos ultimos 10 min</small></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-icon amber"><i data-lucide="log-out"></i></div>
+            <div><span>Saidas hoje</span><strong>31</strong><small>2 saidas manuais</small></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-icon cyan"><i data-lucide="users"></i></div>
+            <div><span>Presentes agora</span><strong>11</strong><small>8 alunos e 3 funcionarios</small></div>
+          </article>
+          <article class="kpi">
+            <div class="kpi-icon red"><i data-lucide="triangle-alert"></i></div>
+            <div><span>Conferir</span><strong>3</strong><small>eventos sem vinculo</small></div>
+          </article>
+        </section>
+
+        <section class="live-layout">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Ultimo evento</h2>
+                <p>Leitura mais recente recebida da controladora.</p>
+              </div>
+              <span class="badge green">agora</span>
+            </div>
+            <div class="hero-event">
+              <div class="face-card">
+                <div class="face-photo">
+                  <span class="event-ribbon"><i data-lucide="log-in"></i> Entrada liberada</span>
+                </div>
+                <div class="face-body">
+                  <h2>Rayssa Funcionaria</h2>
+                  <p>Matricula 1021 - RESERVA</p>
+                  <div class="event-fields">
+                    <div><span>Horario</span><b>10:23:57</b></div>
+                    <div><span>Controladora</span><b>SAUNA</b></div>
+                    <div><span>Responsavel</span><b>WhatsApp enviado</b></div>
+                    <div><span>Origem</span><b>Reconhecimento facial</b></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Linha do tempo</h2>
+                <p>Feed vivo de entrada, saida, negado e saida manual.</p>
+              </div>
+              <span class="badge gray">tempo real</span>
+            </div>
+            <div class="timeline-tools">
+              <label class="search">
+                <i data-lucide="search"></i>
+                <input placeholder="Buscar pessoa, matricula ou controladora">
+              </label>
+              <select>
+                <option>Todos os sites</option>
+                <option>RESERVA</option>
+                <option>ESCOLA TESTE</option>
+              </select>
+              <select>
+                <option>Todos</option>
+                <option>Entradas</option>
+                <option>Saidas</option>
+                <option>Alertas</option>
+              </select>
+            </div>
+            <div class="event-feed">
+              <div class="feed-item">
+                <div class="feed-time">10:23</div>
+                <div class="feed-person"><div class="mini-face">RF</div><div><strong>Rayssa Funcionaria</strong><span>Entrada - RESERVA - SAUNA</span></div></div>
+                <div class="feed-meta"><span class="badge green">entrada</span><span>WhatsApp enviado</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">10:18</div>
+                <div class="feed-person"><div class="mini-face amber">EM</div><div><strong>Elishafan Machado</strong><span>Saida manual - ESCOLA TESTE</span></div></div>
+                <div class="feed-meta"><span class="badge amber">saida manual</span><span>Operador interno</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">09:53</div>
+                <div class="feed-person"><div class="mini-face">J</div><div><strong>Jefferson</strong><span>Entrada - RESERVA - SAUNA</span></div></div>
+                <div class="feed-meta"><span class="badge green">entrada</span><span>WhatsApp enviado</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">09:42</div>
+                <div class="feed-person"><div class="mini-face gray">?</div><div><strong>Pessoa nao identificada</strong><span>Face sem vinculo - RESERVA</span></div></div>
+                <div class="feed-meta"><span class="badge red">conferir</span><span>Sem cadastro</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">09:17</div>
+                <div class="feed-person"><div class="mini-face">CL</div><div><strong>Camile</strong><span>Entrada - RESERVA - SAUNA</span></div></div>
+                <div class="feed-meta"><span class="badge green">entrada</span><span>Notificacao pendente</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">08:58</div>
+                <div class="feed-person"><div class="mini-face amber">AL</div><div><strong>Arthur Levino</strong><span>Saida - RESERVA - Portaria 2</span></div></div>
+                <div class="feed-meta"><span class="badge gray">saida</span><span>WhatsApp enviado</span></div>
+              </div>
+              <div class="feed-item">
+                <div class="feed-time">08:41</div>
+                <div class="feed-person"><div class="mini-face">C</div><div><strong>Carol</strong><span>Entrada - RESERVA - SAUNA</span></div></div>
+                <div class="feed-meta"><span class="badge green">entrada</span><span>WhatsApp enviado</span></div>
+              </div>
+            </div>
+          </article>
+
+          <aside class="right-stack">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Dentro agora</h2>
+                  <p>Pessoas com entrada sem saida registrada.</p>
+                </div>
+                <span class="badge cyan">11</span>
+              </div>
+              <div class="inside-list">
+                <div class="inside-row"><div><strong>Jefferson</strong><span>RESERVA - entrada 09:53</span></div><span class="duration warn">5h 34m</span></div>
+                <div class="inside-row"><div><strong>Rayssa Funcionaria</strong><span>RESERVA - entrada 10:23</span></div><span class="duration">5h 03m</span></div>
+                <div class="inside-row"><div><strong>Camile</strong><span>RESERVA - entrada 09:17</span></div><span class="duration warn">6h 10m</span></div>
+                <div class="inside-row"><div><strong>Carol</strong><span>RESERVA - entrada 08:41</span></div><span class="duration warn">6h 46m</span></div>
+                <div class="inside-row"><div><strong>Adriano A38</strong><span>RESERVA - entrada 08:10</span></div><span class="duration warn">7h 17m</span></div>
+              </div>
+              <div class="control-strip">
+                <button>Ver todos</button>
+                <button>Registrar saida</button>
+                <button>Exportar</button>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Atencao</h2>
+                  <p>Itens que merecem decisao do operador.</p>
+                </div>
+                <span class="badge amber">3 itens</span>
+              </div>
+              <div class="attention-list">
+                <div class="attention-item">
+                  <div class="attention-icon"><i data-lucide="clock-alert"></i></div>
+                  <div><strong>Permanencia longa</strong><span>3 pessoas estao ha mais de 6 horas sem saida registrada.</span></div>
+                </div>
+                <div class="attention-item">
+                  <div class="attention-icon red"><i data-lucide="user-x"></i></div>
+                  <div><strong>Face sem cadastro</strong><span>Evento recebido da SAUNA sem pessoa vinculada. Conferir foto e cadastro.</span></div>
+                </div>
+                <div class="attention-item">
+                  <div class="attention-icon"><i data-lucide="bell-off"></i></div>
+                  <div><strong>Notificacao pendente</strong><span>Uma entrada ainda nao confirmou envio para o responsavel.</span></div>
+                </div>
+              </div>
+            </article>
+          </aside>
+        </section>
+
+        <div class="mock-note">
+          Mockup estatico para aprovacao visual. Na implementacao real, esta tela leria os eventos do Controle de Acesso a cada poucos segundos ou via canal em tempo real.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script>
+    window.lucide && lucide.createIcons();
+  </script>
+</body>
+</html>

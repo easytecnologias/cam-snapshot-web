@@ -7,11 +7,11 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.services.access_control_device import get_system_info, open_door, poll_events, provision_person
+from app.services.access_control_device import get_system_info, open_door, poll_events, provision_person, remove_person
 
 
 def test_get_system_info_parses_response() -> None:
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = (
@@ -32,7 +32,7 @@ def test_get_system_info_parses_response() -> None:
 
 
 def test_open_door_checks_ok_response() -> None:
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = "OK"
@@ -58,8 +58,79 @@ def test_open_door_raises_on_device_error() -> None:
             assert "Invalid channel" in str(exc.detail)
 
 
+def test_get_system_info_reports_invalid_credentials() -> None:
+    from fastapi import HTTPException
+
+    device = {"host": "10.10.13.33", "username": "admin", "password": "wrong"}
+    fake_response = MagicMock()
+    fake_response.status_code = 403
+    fake_response.text = "Authentication Failed"
+    with patch("app.services.access_control_device.requests.get", return_value=fake_response):
+        try:
+            get_system_info(device)
+            raise AssertionError("deveria informar senha invalida")
+        except HTTPException as exc:
+            assert "senha invalidos" in str(exc.detail)
+
+
+def test_get_system_info_uses_connector_job_when_configured() -> None:
+    device = {
+        "host": "10.10.10.175",
+        "username": "admin",
+        "password": "secret",
+        "connector_id": "perucaba",
+    }
+    job = {
+        "id": "job-access",
+        "connector_id": "perucaba",
+        "type": "access_http_get",
+        "status": "done",
+        "result": {
+            "access_http": "status=finished;data=deviceType=SS 3542 MF W\r\nupdateSerial=ASI6214S-W\r\n"
+        },
+    }
+    with patch("app.services.connector_service.create_job", return_value={"ok": True, "job": {"id": "job-access"}}) as create_job:
+        with patch("app.services.connector_service.list_jobs", return_value={"ok": True, "jobs": [job]}):
+            info = get_system_info(device)
+
+    assert info["deviceType"] == "SS 3542 MF W"
+    payload = create_job.call_args.args[0]
+    assert payload["connector_id"] == "perucaba"
+    assert payload["type"] == "access_http_get"
+    assert "magicBox.cgi" in payload["payload"]["url"]
+    assert payload["payload"]["password"] == "secret"
+
+
+def test_remove_intelbras_person_uses_connector_get_job_when_configured() -> None:
+    device = {
+        "host": "10.10.10.175",
+        "username": "admin",
+        "password": "secret",
+        "connector_id": "perucaba",
+    }
+    job = {
+        "id": "job-remove",
+        "connector_id": "perucaba",
+        "type": "access_http_get",
+        "status": "done",
+        "result": {"access_http": "status=finished;data=OK"},
+    }
+    with patch("app.services.connector_service.create_job", return_value={"ok": True, "job": {"id": "job-remove"}}) as create_job:
+        with patch("app.services.connector_service.list_jobs", return_value={"ok": True, "jobs": [job]}):
+            with patch("app.services.access_control_device.requests.post") as direct_post:
+                result = remove_person(device, "1001")
+
+    assert result["ok"] is True
+    assert not direct_post.called
+    payload = create_job.call_args.args[0]
+    assert payload["type"] == "access_http_get"
+    assert "/cgi-bin/AccessUser.cgi" in payload["payload"]["url"]
+    assert "action=removeMulti" in payload["payload"]["url"]
+    assert "UserIDList%5B0%5D=1001" in payload["payload"]["url"]
+
+
 def test_poll_events_reads_intelbras_access_history() -> None:
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011", "vendor": "Intelbras"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = (
@@ -101,7 +172,7 @@ def test_poll_events_reads_intelbras_access_history() -> None:
 
 
 def test_poll_events_uses_recent_window_after_cursor() -> None:
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011", "vendor": "Intelbras"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = (
@@ -141,7 +212,7 @@ def test_poll_events_raises_on_unexpected_error_body() -> None:
     """
     from fastapi import HTTPException
 
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011", "vendor": "Intelbras"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011", "vendor": "Intelbras"}
     fake_response = MagicMock()
     fake_response.status_code = 200
     fake_response.text = "Error: Authentication Failed"
@@ -150,7 +221,7 @@ def test_poll_events_raises_on_unexpected_error_body() -> None:
             poll_events(device)
             raise AssertionError("deveria ter levantado HTTPException")
         except HTTPException as exc:
-            assert "Authentication Failed" in str(exc.detail)
+            assert "senha invalidos" in str(exc.detail)
 
 
 def test_provision_person_sends_valid_json_not_python_repr() -> None:
@@ -159,7 +230,7 @@ def test_provision_person_sends_valid_json_not_python_repr() -> None:
     verdade. Trocado para json.dumps(). Este teste falha se alguem reverter
     pra str() -- json.loads() rejeitaria o repr do Python.
     """
-    device = {"host": "10.10.13.33", "username": "admin", "password": "xzydsP2011"}
+    device = {"host": "10.10.13.33", "username": "admin", "password": "SenhaTeste2011"}
     person = {"id": "p1", "full_name": "Fulano de Tal"}
     fake_response = MagicMock()
     fake_response.status_code = 200
@@ -244,6 +315,8 @@ def main() -> None:
     test_get_system_info_parses_response()
     test_open_door_checks_ok_response()
     test_open_door_raises_on_device_error()
+    test_get_system_info_reports_invalid_credentials()
+    test_get_system_info_uses_connector_job_when_configured()
     test_poll_events_reads_intelbras_access_history()
     test_poll_events_uses_recent_window_after_cursor()
     test_poll_events_raises_on_unexpected_error_body()

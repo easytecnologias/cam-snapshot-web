@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import base64
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 from urllib.parse import urlencode
@@ -14,6 +15,14 @@ from requests.auth import HTTPDigestAuth
 _TIMEOUT = 10.0
 _ACCESS_REC_LIMIT = 1024
 _ACCESS_REC_LOOKBACK_DAYS = 90
+_CONNECTOR_JOB_TIMEOUT = 75.0
+_ACCESS_REC_CURSOR_OVERLAP_SECONDS = 600
+
+
+class _AccessRemoteResponse:
+    def __init__(self, text: str, status_code: int = 200) -> None:
+        self.text = text
+        self.status_code = status_code
 
 
 def _base_url(device: Dict[str, Any]) -> str:
@@ -23,20 +32,158 @@ def _base_url(device: Dict[str, Any]) -> str:
     return f"http://{host}"
 
 
+def _connector_id(device: Dict[str, Any]) -> str:
+    return str(device.get("connector_id") or device.get("remote_connector_id") or "").strip()
+
+
 def _auth(device: Dict[str, Any]) -> HTTPDigestAuth:
     return HTTPDigestAuth(str(device.get("username") or "admin"), str(device.get("password") or ""))
 
 
+def _raise_device_auth_error() -> None:
+    raise HTTPException(status_code=502, detail="Usuario ou senha invalidos no dispositivo.")
+
+
+def _looks_like_auth_error(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "authentication failed",
+            "auth failed",
+            "unauthorized",
+            "invalid user",
+            "invalid password",
+            "usuario",
+            "senha",
+            "login error",
+        )
+    )
+
+
+def _parse_routeros_access_http_result(text: str) -> str:
+    raw = str(text or "").strip()
+    if raw.lower().startswith("fetch_error"):
+        if _looks_like_auth_error(raw):
+            _raise_device_auth_error()
+        raise HTTPException(status_code=502, detail="Conector nao conseguiu acessar o dispositivo.")
+    if raw.startswith("status="):
+        _, _, rest = raw.partition(";data=")
+        return rest if rest or ";data=" in raw else raw
+    return raw
+
+
+def _get_via_connector(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None) -> _AccessRemoteResponse:
+    connector_id = _connector_id(device)
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="Dispositivo sem conector configurado.")
+    url = f"{_base_url(device)}{path}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    try:
+        from app.services.connector_service import create_job, list_jobs
+
+        job = create_job(
+            {
+                "connector_id": connector_id,
+                "type": "access_http_get",
+                "payload": {
+                    "url": url,
+                    "username": str(device.get("username") or "admin"),
+                    "password": str(device.get("password") or ""),
+                },
+            }
+        ).get("job") or {}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        raise HTTPException(status_code=502, detail="Nao foi possivel criar job no conector.")
+
+    deadline = time.monotonic() + _CONNECTOR_JOB_TIMEOUT
+    final_job: Dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        jobs = list_jobs(connector_id, limit=100).get("jobs") or []
+        final_job = next((item for item in jobs if str(item.get("id") or "") == job_id), None)
+        if final_job and final_job.get("status") in {"done", "failed"}:
+            break
+        time.sleep(2.0)
+    if not final_job or final_job.get("status") not in {"done", "failed"}:
+        raise HTTPException(status_code=504, detail="Tempo esgotado aguardando o conector executar o teste.")
+    result = final_job.get("result") if isinstance(final_job.get("result"), dict) else {}
+    text = _parse_routeros_access_http_result(str(result.get("access_http") or final_job.get("error") or ""))
+    if final_job.get("status") == "failed":
+        if _looks_like_auth_error(text):
+            _raise_device_auth_error()
+        raise HTTPException(status_code=502, detail=text or "Conector nao conseguiu acessar o dispositivo.")
+    return _AccessRemoteResponse(text=text, status_code=200)
+
+
+def _post_json_via_connector(
+    device: Dict[str, Any], path_with_query: str, payload: Dict[str, Any], action_label: str
+) -> _AccessRemoteResponse:
+    connector_id = _connector_id(device)
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="Dispositivo sem conector configurado.")
+    try:
+        from app.services.connector_service import create_job, list_jobs
+
+        job = create_job(
+            {
+                "connector_id": connector_id,
+                "type": "access_http_post",
+                "payload": {
+                    "url": f"{_base_url(device)}{path_with_query}",
+                    "username": str(device.get("username") or "admin"),
+                    "password": str(device.get("password") or ""),
+                    "content_type": "application/json",
+                    "body": json.dumps(payload, ensure_ascii=False),
+                },
+            }
+        ).get("job") or {}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        raise HTTPException(status_code=502, detail="Nao foi possivel criar job no conector.")
+
+    deadline = time.monotonic() + _CONNECTOR_JOB_TIMEOUT
+    final_job: Dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        jobs = list_jobs(connector_id, limit=100).get("jobs") or []
+        final_job = next((item for item in jobs if str(item.get("id") or "") == job_id), None)
+        if final_job and final_job.get("status") in {"done", "failed"}:
+            break
+        time.sleep(2.0)
+    if not final_job or final_job.get("status") not in {"done", "failed"}:
+        raise HTTPException(status_code=504, detail=f"Tempo esgotado aguardando o conector executar {action_label}.")
+    result = final_job.get("result") if isinstance(final_job.get("result"), dict) else {}
+    text = _parse_routeros_access_http_result(str(result.get("access_http") or final_job.get("error") or ""))
+    if final_job.get("status") == "failed":
+        if _looks_like_auth_error(text):
+            _raise_device_auth_error()
+        raise HTTPException(status_code=502, detail=text or f"Conector nao conseguiu executar {action_label}.")
+    return _AccessRemoteResponse(text=text, status_code=200)
+
+
 def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None) -> requests.Response:
+    if _connector_id(device):
+        return _get_via_connector(device, path, params)  # type: ignore[return-value]
     url = f"{_base_url(device)}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
     try:
         resp = requests.get(url, auth=_auth(device), timeout=_TIMEOUT)
+    except requests.ConnectTimeout as exc:
+        raise HTTPException(status_code=502, detail="Tempo esgotado ao conectar no IP do dispositivo.") from exc
+    except requests.ConnectionError as exc:
+        raise HTTPException(status_code=502, detail="Nao foi possivel conectar no IP do dispositivo.") from exc
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel falar com o dispositivo: {exc}") from exc
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+    if resp.status_code in {401, 403}:
+        _raise_device_auth_error()
+    if _looks_like_auth_error(resp.text or ""):
+        _raise_device_auth_error()
     if resp.status_code >= 400:
         raise HTTPException(
             status_code=502,
@@ -52,18 +199,26 @@ def _is_intelbras_device(device: Dict[str, Any]) -> bool:
 
 
 def _check_device_response(resp: requests.Response, action: str) -> str:
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+    if resp.status_code in {401, 403}:
+        _raise_device_auth_error()
     text = (resp.text or "").strip()
+    if _looks_like_auth_error(text):
+        _raise_device_auth_error()
     if resp.status_code >= 400 or "Error" in text or "error" in text:
         raise HTTPException(status_code=502, detail=f"Dispositivo recusou {action}: {text}")
     return text
 
 
 def _post_json(device: Dict[str, Any], path_with_query: str, payload: Dict[str, Any], action_label: str) -> str:
+    if _connector_id(device):
+        return _check_device_response(_post_json_via_connector(device, path_with_query, payload, action_label), action_label)
     url = f"{_base_url(device)}{path_with_query}"
     try:
         resp = requests.post(url, auth=_auth(device), json=payload, timeout=_TIMEOUT)
+    except requests.ConnectTimeout as exc:
+        raise HTTPException(status_code=502, detail="Tempo esgotado ao conectar no IP do dispositivo.") from exc
+    except requests.ConnectionError as exc:
+        raise HTTPException(status_code=502, detail="Nao foi possivel conectar no IP do dispositivo.") from exc
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel {action_label} no dispositivo: {exc}") from exc
     return _check_device_response(resp, action_label)
@@ -115,6 +270,26 @@ def _timestamp_number(value: Any) -> int:
     return int(text) if text.isdigit() else 0
 
 
+def _event_start_timestamp(device: Dict[str, Any], since_number: int) -> int:
+    latest = str(device.get("last_event_start_time") or "").strip()
+    if since_number and latest:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                dt = datetime.strptime(latest[:19], fmt)
+                today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                if dt.date() < today_start.date():
+                    return max(0, int(today_start.timestamp()) - _ACCESS_REC_CURSOR_OVERLAP_SECONDS)
+                return max(0, int(dt.timestamp()) - _ACCESS_REC_CURSOR_OVERLAP_SECONDS)
+            except ValueError:
+                continue
+    return int((datetime.now() - timedelta(days=_ACCESS_REC_LOOKBACK_DAYS)).timestamp())
+
+
+def _record_finder_found_count(text: str) -> int:
+    match = re.search(r"(?:^|\n)found=(\d+)", text or "")
+    return int(match.group(1)) if match else 0
+
+
 def _fetch_access_event_rows(device: Dict[str, Any], since_id: str = "") -> List[Dict[str, str]]:
     """Le historico Intelbras sem ficar preso no primeiro bloco de 1024 eventos.
 
@@ -127,12 +302,13 @@ def _fetch_access_event_rows(device: Dict[str, Any], since_id: str = "") -> List
         {"action": "find", "name": "AccessControlCardRec"},
     ]
     since_number = int(since_id) if str(since_id or "").isdigit() else 0
-    start_time = int((datetime.now() - timedelta(days=_ACCESS_REC_LOOKBACK_DAYS)).timestamp())
+    start_time = _event_start_timestamp(device, since_number)
+    page_limit = 50 if _connector_id(device) else _ACCESS_REC_LIMIT
     recent_query = {
         "action": "find",
         "name": "AccessControlCardRec",
         "StartTime": str(start_time),
-        "count": str(_ACCESS_REC_LIMIT),
+        "count": str(page_limit),
     }
     # Com cursor salvo, a janela recente e a parte que interessa. Sem cursor,
     # mantemos tambem a leitura antiga para preservar importacao inicial.
@@ -153,6 +329,7 @@ def _fetch_access_event_rows(device: Dict[str, Any], since_id: str = "") -> List
                 break
             if text.startswith("Error"):
                 raise HTTPException(status_code=502, detail=f"Dispositivo respondeu com erro ao listar eventos: {text}")
+            found_count = _record_finder_found_count(text)
             rows = _parse_record_table(text)
             if not rows:
                 break
@@ -160,7 +337,7 @@ def _fetch_access_event_rows(device: Dict[str, Any], since_id: str = "") -> List
                 raw_id = _first_text(row, "RecNo", "RecordNo", "ID")
                 if raw_id:
                     rows_by_id[raw_id] = row
-            if len(rows) < _ACCESS_REC_LIMIT or "StartTime" not in current_params:
+            if (found_count < page_limit and len(rows) < page_limit) or "StartTime" not in current_params:
                 break
             max_ts = max(_timestamp_number(_first_text(row, "CreateTime", "Time", "UTC")) for row in rows)
             if max_ts <= int(current_params.get("StartTime") or 0):
@@ -334,7 +511,7 @@ def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes
     except requests.RequestException as exc:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel provisionar no dispositivo: {exc}") from exc
     if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+        _raise_device_auth_error()
     text = (resp.text or "").strip()
     if resp.status_code >= 400 or "Error" in text or "error" in text:
         raise HTTPException(status_code=502, detail=f"Dispositivo recusou o cadastro: {text}")
@@ -342,6 +519,22 @@ def provision_person(device: Dict[str, Any], person: Dict[str, Any], photo_bytes
 
 
 def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
+    if _is_intelbras_device(device):
+        resp = _get(
+            device,
+            "/cgi-bin/AccessUser.cgi",
+            {"action": "removeMulti", "UserIDList[0]": str(person_id)},
+        )
+        text = _check_device_response(resp, "a remocao")
+        return {"ok": True, "raw": text}
+    if _connector_id(device):
+        text = _post_json(
+            device,
+            "/cgi-bin/AccessUser.cgi?action=removeMulti",
+            {"UserIDList": [str(person_id)]},
+            "a remocao",
+        )
+        return {"ok": True, "raw": text}
     url = f"{_base_url(device)}/cgi-bin/AccessUser.cgi"
     files = {"json": (None, json.dumps({"action": "removeMulti", "UserIDList": [str(person_id)]}))}
     try:
@@ -350,7 +543,7 @@ def remove_person(device: Dict[str, Any], person_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Nao foi possivel remover no dispositivo: {exc}") from exc
     text = (resp.text or "").strip()
     if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Usuario/senha invalidos no dispositivo.")
+        _raise_device_auth_error()
     if resp.status_code >= 400 or "Error" in text or "error" in text:
         raise HTTPException(status_code=502, detail=f"Dispositivo recusou a remocao: {text}")
     return {"ok": True, "raw": text}

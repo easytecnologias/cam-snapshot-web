@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=223">
+  <link rel="stylesheet" href="styles.css?v=240">
 </head>
 <body>
 
@@ -103,7 +103,9 @@
 
         <!-- Controle de Acesso -->
         <div class="nav-section-label">Controle de Acesso</div>
+        <button class="nav-item" data-view="access-live"><i data-lucide="activity"></i><span>Acesso ao Vivo</span></button>
         <button class="nav-item" data-view="access-control"><i data-lucide="scan-face"></i><span>Controle de Acesso</span></button>
+        <button class="nav-item nav-item-hidden" data-view="access-whatsapp-triage"><i data-lucide="inbox"></i><span>Triagem WhatsApp</span></button>
 
         </div>
 
@@ -1391,6 +1393,183 @@
         </div>
       </section>
 
+      <!-- --- VIEW: ACESSO AO VIVO --- -->
+      <section class="workspace hidden access-live-view" id="viewAccessLive">
+        <div class="page-heading access-live-heading">
+          <div>
+            <p class="eyebrow">Controle de Acesso</p>
+            <h1>Acesso ao Vivo</h1>
+            <p>Acompanhamento em tempo real de entradas, saidas e pessoas presentes.</p>
+          </div>
+          <div class="page-heading-actions access-live-actions">
+            <select id="accessLiveSite" aria-label="Filtrar por site">
+              <option value="">Todos os sites</option>
+            </select>
+            <select id="accessLiveDoorGroup" aria-label="Filtrar por grupo de controladoras">
+              <option value="">Todos os grupos</option>
+            </select>
+            <select id="accessLiveDevice" aria-label="Filtrar por controladora">
+              <option value="">Todas as controladoras</option>
+            </select>
+            <select id="accessLiveType" aria-label="Filtrar tipo de evento">
+              <option value="">Todos os eventos</option>
+              <option value="entrada">Entradas</option>
+              <option value="saida">Saidas</option>
+              <option value="saida_manual">Saida manual</option>
+            </select>
+            <button class="secondary-action" id="btnAccessLiveRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+          </div>
+        </div>
+
+        <div class="metrics access-live-kpis">
+          <article class="dash-kpi-card">
+            <div class="metric-icon green"><i data-lucide="log-in"></i></div>
+            <div><span>Entradas hoje</span><strong id="accessLiveEntries">0</strong><small>marcacoes recebidas</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon amber"><i data-lucide="log-out"></i></div>
+            <div><span>Saidas hoje</span><strong id="accessLiveExits">0</strong><small>inclui saida manual</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon cyan"><i data-lucide="users"></i></div>
+            <div><span>Presentes agora</span><strong id="accessLiveInside">0</strong><small>ultima marcacao entrada</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon red"><i data-lucide="bell-ring"></i></div>
+            <div><span>A conferir</span><strong id="accessLiveAttention">0</strong><small>sem pessoa ou notificacao</small></div>
+          </article>
+        </div>
+
+        <div class="access-live-grid">
+          <section class="panel access-live-current-panel">
+            <div class="panel-header">
+              <div><h2>Ultima movimentacao</h2><p id="accessLiveLastSub">Aguardando evento.</p></div>
+              <span class="pill neutral" id="accessLiveState">aguardando</span>
+            </div>
+            <div class="access-live-current" id="accessLiveCurrent">
+              <div class="access-live-photo-placeholder">--</div>
+              <div class="access-live-current-copy">
+                <span class="access-live-kind">sem evento</span>
+                <h3>Nenhuma movimentacao carregada</h3>
+                <p>Quando uma pessoa passar pela controladora, o evento aparece aqui primeiro.</p>
+                <div class="access-live-facts">
+                  <span><small>Site</small><b>-</b></span>
+                  <span><small>Dispositivo</small><b>-</b></span>
+                  <span><small>Horario</small><b>-</b></span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel access-live-feed-panel">
+            <div class="panel-header">
+              <div><h2>Linha do tempo</h2><p>Eventos recentes ordenados pelo horario.</p></div>
+              <span class="pill neutral" id="accessLiveScope">Todos os setores</span>
+            </div>
+            <div class="access-live-feed" id="accessLiveFeed">
+              <div class="access-live-empty">Carregando eventos.</div>
+            </div>
+          </section>
+
+          <section class="panel access-live-inside-panel">
+            <div class="panel-header">
+              <div><h2>Dentro agora</h2><p>Pessoas cuja ultima marcacao foi entrada.</p></div>
+              <span class="pill neutral" id="accessLiveInsideCount">0 pessoas</span>
+            </div>
+            <div class="access-live-list" id="accessLiveInsideList">
+              <div class="access-live-empty">Sem pessoas presentes no filtro atual.</div>
+            </div>
+          </section>
+
+          <section class="panel access-live-attention-panel">
+            <div class="panel-header">
+              <div><h2>Atencao</h2><p>Itens que merecem conferencia rapida.</p></div>
+              <span class="pill neutral" id="accessLiveAttentionCount">0 itens</span>
+            </div>
+            <div class="access-live-list" id="accessLiveAttentionList">
+              <div class="access-live-empty">Nenhuma pendencia no momento.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- --- VIEW: TRIAGEM WHATSAPP --- -->
+      <section class="workspace hidden access-triage-view" id="viewAccessWhatsappTriage">
+        <div class="page-heading access-triage-heading">
+          <div>
+            <p class="eyebrow">Controle de Acesso</p>
+            <h1>Triagem WhatsApp</h1>
+            <p>Fila para organizar mensagens de grupos antes de cadastrar na controladora.</p>
+          </div>
+          <div class="page-heading-actions access-triage-actions">
+            <select id="accessTriageStatus" aria-label="Filtrar por status">
+              <option value="">Todos</option>
+              <option value="ready">Prontos</option>
+              <option value="review">Revisar</option>
+              <option value="duplicate">Duplicados</option>
+              <option value="approved">Aprovados</option>
+              <option value="rejected">Recusados</option>
+            </select>
+            <button class="secondary-action" id="btnAccessTriageRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            <button class="primary-action" id="btnAccessTriageApproveAll" type="button"><i data-lucide="check-check"></i> Aprovar prontos</button>
+          </div>
+        </div>
+
+        <div class="metrics access-triage-kpis">
+          <article class="dash-kpi-card">
+            <div class="metric-icon green"><i data-lucide="check-circle-2"></i></div>
+            <div><span>Prontos</span><strong id="accessTriageReady">0</strong><small>podem aprovar em lote</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon amber"><i data-lucide="alert-triangle"></i></div>
+            <div><span>Revisar</span><strong id="accessTriageReview">0</strong><small>faltam dados</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon red"><i data-lucide="copy-x"></i></div>
+            <div><span>Duplicados</span><strong id="accessTriageDuplicate">0</strong><small>conferir antes</small></div>
+          </article>
+          <article class="dash-kpi-card">
+            <div class="metric-icon cyan"><i data-lucide="send"></i></div>
+            <div><span>Aprovados</span><strong id="accessTriageApproved">0</strong><small>cadastros criados</small></div>
+          </article>
+        </div>
+
+        <div class="access-triage-shell">
+          <section class="panel access-triage-list-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Fila recebida</h2>
+                <p>Mensagens e fotos que chegaram pelos grupos.</p>
+              </div>
+              <span class="badge badge-gray" id="accessTriageCount">0 itens</span>
+            </div>
+            <div class="filters access-triage-filters">
+              <label class="search-box">
+                <i data-lucide="search"></i>
+                <input id="accessTriageSearch" type="search" placeholder="Buscar nome, grupo, quadra ou site">
+              </label>
+              <button class="secondary-action" id="btnAccessTriageMock" type="button"><i data-lucide="message-square-plus"></i> Simular mensagem</button>
+            </div>
+            <div class="access-triage-list" id="accessTriageList">
+              <div class="access-triage-empty">Carregando triagem.</div>
+            </div>
+          </section>
+
+          <section class="panel access-triage-detail-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Conferencia</h2>
+                <p>Corrija os campos antes de aprovar.</p>
+              </div>
+              <span class="badge badge-gray" id="accessTriageDetailStatus">Selecione</span>
+            </div>
+            <div class="access-triage-detail" id="accessTriageDetail">
+              <div class="access-triage-empty">Selecione um item da fila para revisar.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <!-- --- VIEW: CONTROLE DE ACESSO --- -->
       <section class="workspace hidden" id="viewAccessControl">
         <div class="page-heading">
@@ -1411,13 +1590,13 @@
             <div class="metric-icon blue"><i data-lucide="scan-face"></i></div>
             <div><span>Dispositivos</span><strong id="accessKpiDevices">0</strong><small>Intelbras primeiro</small></div>
           </article>
-          <article class="dash-kpi-card">
+          <article class="dash-kpi-card" id="accessKpiEventsCard" role="button" tabindex="0" title="Ver eventos de hoje" aria-label="Ver eventos de hoje" onclick="openAccessTodayEventsReport()" onkeydown="handleAccessKpiKeydown('events', event)">
             <div class="metric-icon cyan"><i data-lucide="door-open"></i></div>
             <div><span>Eventos hoje</span><strong id="accessKpiEvents">0</strong><small>entradas e saidas</small></div>
           </article>
-          <article class="dash-kpi-card">
+          <article class="dash-kpi-card" id="accessKpiWhatsappCard" role="button" tabindex="0" title="Configurar WhatsApp" aria-label="Configurar WhatsApp" onclick="openAccessWhatsappConnections()" onkeydown="handleAccessKpiKeydown('whatsapp', event)">
             <div class="metric-icon amber"><i data-lucide="message-circle"></i></div>
-            <div><span>WhatsApp</span><strong id="accessKpiWhatsapp">0</strong><small>fila aguardando homologacao</small></div>
+            <div><span>WhatsApp</span><strong id="accessKpiWhatsapp">Verificando</strong><small id="accessKpiWhatsappSub">status da conexao</small></div>
           </article>
         </div>
 
@@ -1650,6 +1829,7 @@
               <button class="icon-action" id="btnAccessRulesFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
               <button class="icon-action primary" id="btnAccessRuleNew" type="button" data-tip="Nova regra"><i data-lucide="plus"></i></button>
               <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
+              <button class="icon-action" id="btnAccessRulesFooterReuse" type="button" data-tip="Reaproveitar para outro grupo" disabled><i data-lucide="copy"></i></button>
               <button class="icon-action primary" id="btnAccessRulesFooterEdit" type="button" data-tip="Editar selecionada" disabled><i data-lucide="pencil"></i></button>
               <button class="icon-action danger" id="btnAccessRulesFooterDelete" type="button" data-tip="Excluir selecionada" disabled><i data-lucide="trash-2"></i></button>
             </div>
@@ -1658,31 +1838,17 @@
         </div>
 
         <div class="access-tab-panel" data-access-panel="reports" hidden>
-        <div class="access-report-kpis">
-          <article class="dash-kpi-card">
-            <div class="metric-icon green"><i data-lucide="log-in"></i></div>
-            <div><span>Entradas</span><strong id="accessReportEntries">0</strong><small>no periodo</small></div>
-          </article>
-          <article class="dash-kpi-card">
-            <div class="metric-icon amber"><i data-lucide="log-out"></i></div>
-            <div><span>Saidas</span><strong id="accessReportExits">0</strong><small>no periodo</small></div>
-          </article>
-          <article class="dash-kpi-card">
-            <div class="metric-icon blue"><i data-lucide="hand"></i></div>
-            <div><span>Saida manual</span><strong id="accessReportManualExits">0</strong><small>botao interno</small></div>
-          </article>
-          <article class="dash-kpi-card">
-            <div class="metric-icon cyan"><i data-lucide="users"></i></div>
-            <div><span>Presentes</span><strong id="accessReportInside">0</strong><small>ultima marcacao entrada</small></div>
-          </article>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
+        <div class="panel access-report-filters-panel">
+          <div class="panel-header access-report-filters-head">
             <div>
-              <h2>Entradas e saidas</h2>
-              <p>Eventos por pessoa, site, controladora e origem.</p>
+              <h2>Relatorios</h2>
+              <p>Filtre o periodo e gere o relatorio de entrada e saida.</p>
             </div>
-            <button class="secondary-action" id="btnAccessReportRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+            <div class="access-report-actions">
+              <button class="secondary-action" id="btnAccessReportRefresh" type="button"><i data-lucide="refresh-cw"></i> Atualizar</button>
+              <button class="secondary-action" id="btnAccessReportCsv" type="button"><i data-lucide="file-spreadsheet"></i> CSV</button>
+              <button class="primary-action" id="btnAccessReportPdf" type="button"><i data-lucide="file-text"></i> Gerar PDF</button>
+            </div>
           </div>
           <div class="filters access-report-filters">
             <label class="search-box">
@@ -1691,6 +1857,7 @@
             </label>
             <select id="accessReportPeriod">
               <option value="today">Hoje</option>
+              <option value="custom">Data e hora</option>
               <option value="7d">Ultimos 7 dias</option>
               <option value="30d">Ultimos 30 dias</option>
               <option value="all">Todo historico</option>
@@ -1704,15 +1871,119 @@
             <select id="accessReportSite">
               <option value="">Todos os sites</option>
             </select>
+            <div class="access-report-range" id="accessReportCustomRange" hidden>
+              <label>
+                Inicio
+                <input id="accessReportStart" type="datetime-local">
+              </label>
+              <label>
+                Fim
+                <input id="accessReportEnd" type="datetime-local">
+              </label>
+            </div>
           </div>
           <div class="access-report-manual">
+            <span class="access-report-manual-label"><i data-lucide="hand"></i> Saida manual</span>
             <select id="accessManualExitPerson">
-              <option value="">Pessoa para saida manual</option>
+              <option value="">Selecionar pessoa</option>
             </select>
             <input id="accessManualExitReason" placeholder="Motivo opcional">
-            <button class="secondary-action" id="btnAccessManualExit" type="button"><i data-lucide="log-out"></i> Registrar saida manual</button>
+            <button class="secondary-action" id="btnAccessManualExit" type="button"><i data-lucide="log-out"></i> Registrar</button>
           </div>
-          <div class="table-wrap access-report-table-wrap">
+        </div>
+
+        <div class="panel access-report-command">
+          <div class="panel-header access-report-command-head">
+            <div>
+              <h2>Entradas e saidas</h2>
+              <p>Quem entrou, quem saiu e quem ainda esta presente.</p>
+            </div>
+          </div>
+          <div class="access-report-document">
+            <div>
+              <p class="eyebrow">Relatorio de entrada e saida</p>
+              <h2>Movimentacao por pessoa</h2>
+              <span id="accessReportPrintPeriod">Periodo: Hoje</span>
+            </div>
+            <div class="access-report-document-metrics">
+              <span><small>Pessoas com entrada</small><strong id="accessReportEntrantPeople">0</strong></span>
+              <span><small>Pessoas com saida</small><strong id="accessReportExitPeople">0</strong></span>
+              <span><small>Ainda presentes</small><strong id="accessReportPresentPeople">0</strong></span>
+              <span><small>Site</small><strong id="accessReportPrintSite">Todos</strong></span>
+            </div>
+          </div>
+          <div class="access-report-kpis">
+            <article class="dash-kpi-card">
+              <div class="metric-icon green"><i data-lucide="log-in"></i></div>
+              <div><span>Pessoas com entrada</span><strong id="accessReportPeopleWithEntries">0</strong><small>no periodo</small></div>
+            </article>
+            <article class="dash-kpi-card">
+              <div class="metric-icon amber"><i data-lucide="log-out"></i></div>
+              <div><span>Pessoas com saida</span><strong id="accessReportPeopleWithExits">0</strong><small>no periodo</small></div>
+            </article>
+            <article class="dash-kpi-card">
+              <div class="metric-icon cyan"><i data-lucide="users"></i></div>
+              <div><span>Ainda presentes</span><strong id="accessReportPeoplePresent">0</strong><small>sem saida registrada</small></div>
+            </article>
+          </div>
+          <div class="access-report-intelligence">
+            <section class="access-report-attention">
+              <div class="access-report-section-head">
+                <div>
+                  <h3>Atencao agora</h3>
+                  <p>Pessoas e eventos que merecem conferencia.</p>
+                </div>
+                <span class="badge badge-gray" id="accessReportAttentionCount">0 itens</span>
+              </div>
+              <div class="access-report-attention-list" id="accessReportAttentionBody">
+                <p class="muted-block">Carregando analise do periodo...</p>
+              </div>
+            </section>
+            <section class="access-report-health">
+              <div class="access-report-section-head">
+                <div>
+                  <h3>Entrega de notificacoes</h3>
+                  <p>Leitura rapida do canal configurado.</p>
+                </div>
+              </div>
+              <div class="access-report-health-grid">
+                <div><span>Enviadas</span><strong id="accessReportNotificationsOk">0</strong></div>
+                <div><span>Falhas</span><strong id="accessReportNotificationsFail">0</strong></div>
+                <div><span>Sem envio</span><strong id="accessReportNotificationsSkipped">0</strong></div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="panel access-report-people-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Movimentacao por pessoa</h2>
+              <p>Entrada, saida, status e quantidade de marcacoes por pessoa.</p>
+            </div>
+            <span class="badge badge-gray" id="accessReportPeopleCount">0 pessoas</span>
+          </div>
+          <div class="access-report-people-list" id="accessReportPeopleBody">
+            <div class="access-report-empty-state">
+              <i data-lucide="users"></i>
+              <strong>Nenhuma movimentacao encontrada</strong>
+              <span>Ajuste os filtros para visualizar entradas e saidas.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel access-report-audit-panel">
+          <div class="panel-header access-report-audit-head">
+            <div>
+              <h2>Eventos detalhados</h2>
+              <p>Auditoria completa por data, origem, dispositivo e notificacao.</p>
+            </div>
+            <button class="secondary-action" id="btnAccessReportToggleEvents" type="button">
+              <i data-lucide="list"></i>
+              <span id="accessReportCount">0 eventos</span>
+            </button>
+          </div>
+          <div class="table-wrap access-report-table-wrap" id="accessReportEventsWrap" hidden>
             <table class="data-table responsive-data-table access-report-table" id="accessReportTable">
               <thead>
                 <tr>
@@ -1729,9 +2000,6 @@
                 <tr class="empty-row"><td colspan="7">Nenhum evento encontrado.</td></tr>
               </tbody>
             </table>
-          </div>
-          <div class="table-footer">
-            <span id="accessReportCount">0 eventos</span>
           </div>
         </div>
         </div>
@@ -2654,6 +2922,12 @@
                 <select id="connType" onchange="updateConnectorTypeFields()">
                   <option value="routeros">MikroTik / RouterOS</option>
                   <option value="ruijie">Ruijie / Reyee</option>
+                </select>
+              </label>
+              <label id="connFieldsRouterosAccess">Acesso
+                <select id="connAccessMode">
+                  <option value="cgnat">CGNAT / WireGuard</option>
+                  <option value="public">IP publico</option>
                 </select>
               </label>
               <label>Nome
@@ -5675,7 +5949,7 @@
        trechos do app.js original na sequencia em que estavam, entao carregar
        fora de ordem muda o comportamento. Ao adicionar um arquivo novo, entre
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
-  <script src="js/core.js?v=160"></script>
+  <script src="js/core.js?v=164"></script>
   <script src="js/dashboard.js?v=153"></script>
   <script src="js/cameras.js?v=172"></script>
   <script src="js/recorders.js?v=148"></script>
@@ -5690,7 +5964,9 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=50"></script>
+  <script src="js/accessControl.js?v=70"></script>
+  <script src="js/accessLive.js?v=4"></script>
+  <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=189"></script>
 </body>
 </html>

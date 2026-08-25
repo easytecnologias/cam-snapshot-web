@@ -20,7 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import x25519
 
 from app.core.crypto import decrypt, encrypt
 from app.core.paths import DATA_DIR
-from app.core.tenant_context import get_current_tenant_slug
+from app.core.tenant_context import get_current_tenant_slug, reset_current_tenant_slug, set_current_tenant_slug
 from app.cli.tools.ruijie_reyee import RuijieAuthError, lan_inventory as ruijie_lan_inventory_call
 
 CONNECTORS_PATH = DATA_DIR / "connectors.json"
@@ -316,6 +316,7 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
     connector_type = _text(payload.get("type")).lower() or "routeros"
     if connector_type not in {"routeros", "ruijie"}:
         raise ValueError("tipo de conector invalido")
+    access_mode = _normalize_access_mode(payload.get("access_mode") or payload.get("network_mode"), connector_type)
     connector_id = _text(payload.get("id")) or secrets.token_hex(8)
     token = secrets.token_urlsafe(32)
     row = {
@@ -323,6 +324,7 @@ def create_connector(payload: Dict[str, Any]) -> Dict[str, Any]:
         "token": token,
         "tenant_slug": get_current_tenant_slug(),
         "type": connector_type,
+        "access_mode": access_mode,
         "name": name,
         "client": client,
         "site": site,
@@ -514,13 +516,144 @@ def accept_heartbeat(connector_id: str, token: str, payload: Dict[str, Any], rem
     return accept_register(connector_id, token, payload, remote_ip=remote_ip)
 
 
+def _mark_connector_seen(connector_id: str) -> None:
+    with _lock:
+        rows = _load_connectors()
+        changed = False
+        for item in rows:
+            if _text(item.get("id")) == _text(connector_id):
+                item["last_seen"] = _now()
+                item["status"] = "online"
+                changed = True
+                break
+        if changed:
+            _save_connectors(rows)
+
+
+def _private_host_ip(value: Any) -> str:
+    raw = _text(value)
+    try:
+        ip = ipaddress.ip_address(raw)
+    except Exception:
+        return ""
+    if ip.version != 4:
+        return ""
+    if not (ip.is_private or ip in CGNAT_LAN_NETWORK):
+        return ""
+    return str(ip)
+
+
+def _normalize_access_mode(value: Any, connector_type: Any = "routeros") -> str:
+    if _text(connector_type).lower() != "routeros":
+        return "public"
+    mode = _text(value).lower()
+    if mode in {"public", "ip_publico", "ip-publico", "direct", "direto"}:
+        return "public"
+    return "cgnat"
+
+
+def register_connector_known_targets(connector_id: str, targets: List[Any]) -> Dict[str, Any]:
+    """Guarda IPs privados consultados por um conector para rotas CGNAT seguras.
+
+    Em SaaS, duas escolas podem usar a mesma LAN privada. O dado continua
+    isolado por tenant no SightOps, mas a rota do Linux e global. Por isso o
+    sincronizador so usa esses IPs como /32 e ainda bloqueia se o mesmo IP
+    aparecer em mais de um conector.
+    """
+    cid = _text(connector_id)
+    clean = []
+    seen: set[str] = set()
+    for target in targets or []:
+        ip = _private_host_ip(target)
+        if ip and ip not in seen:
+            clean.append(ip)
+            seen.add(ip)
+    if not cid or not clean:
+        return {"ok": True, "added": [], "known_targets": []}
+
+    with _lock:
+        rows = _load_connectors()
+        row = next((item for item in rows if _text(item.get("id")) == cid), None)
+        if row is None or not _visible_to_current_tenant(row):
+            raise ValueError("conector nao encontrado")
+        inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
+        current = []
+        current_seen: set[str] = set()
+        for item in inventory.get("known_targets") or []:
+            ip = _private_host_ip(item)
+            if ip and ip not in current_seen:
+                current.append(ip)
+                current_seen.add(ip)
+        added = [ip for ip in clean if ip not in current_seen]
+        if added:
+            inventory["known_targets"] = (current + added)[-1000:]
+            inventory["known_targets_updated_at"] = _now()
+            row["inventory"] = inventory
+            _save_connectors(rows)
+        return {"ok": True, "added": added, "known_targets": inventory.get("known_targets") or current}
+
+
+def _resolve_access_device_for_connector(connector_id: str, payload: Dict[str, Any]) -> str:
+    from app.services.access_control_store import list_devices
+
+    wanted_id = _text(payload.get("device_id") or payload.get("access_device_id"))
+    wanted_host = _text(payload.get("host") or payload.get("device_host"))
+    devices = list_devices()
+    selected = None
+    if wanted_id:
+        selected = next((item for item in devices if _text(item.get("id")) == wanted_id), None)
+    elif wanted_host:
+        selected = next(
+            (
+                item for item in devices
+                if _text(item.get("connector_id")) == _text(connector_id)
+                and _text(item.get("host")).lower() == wanted_host.lower()
+            ),
+            None,
+        )
+    if not selected:
+        raise ValueError("controladora nao encontrada para este cliente")
+    if _text(selected.get("connector_id")) != _text(connector_id):
+        raise ValueError("controladora nao pertence a este conector")
+    return _text(selected.get("id"))
+
+
+def accept_access_control_event(connector_id: str, token: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    row = _auth_connector(connector_id, token)
+    tenant = _text(row.get("tenant_slug"))
+    if not tenant:
+        raise PermissionError("conector sem cliente vinculado")
+    ctx_token = set_current_tenant_slug(tenant)
+    try:
+        from app.services.access_control_store import list_access_report_events
+        from app.services.access_control_sync import record_device_event
+
+        data = payload if isinstance(payload, dict) else {}
+        device_id = _resolve_access_device_for_connector(connector_id, data)
+        event_id = record_device_event(device_id, data, source="connector_push")
+        events = list_access_report_events({"period": "all", "device_id": device_id, "limit": 50})
+        event = next((item for item in events if _text(item.get("id")) == event_id), None)
+    finally:
+        reset_current_tenant_slug(ctx_token)
+    _mark_connector_seen(connector_id)
+    return {"ok": True, "event_id": event_id, "event": event or {"id": event_id, "device_id": device_id}}
+
+
 def create_job(payload: Dict[str, Any]) -> Dict[str, Any]:
     connector_id = _text(payload.get("connector_id"))
     job_type = _text(payload.get("type")) or "ping_many"
     job_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
     if not connector_id:
         raise ValueError("connector_id obrigatorio")
-    if job_type not in {"ping_many", "lan_inventory", "wireguard_install", "wireguard_probe", "wireguard_diagnose"}:
+    if job_type not in {
+        "ping_many",
+        "lan_inventory",
+        "wireguard_install",
+        "wireguard_probe",
+        "wireguard_diagnose",
+        "access_http_get",
+        "access_http_post",
+    }:
         raise ValueError("tipo de job nao suportado neste MVP")
     with _lock:
         if not get_connector(connector_id, include_token=False, enforce_tenant=True):
@@ -691,6 +824,12 @@ def accept_routeros_job_result(connector_id: str, token: str, job_id: str, resul
     }
     if _text((job_before or {}).get("type")) == "lan_inventory":
         payload["result"] = {"routeros_inventory": _text(result), "inventory": _parse_routeros_lan_inventory(result)}
+    elif _text((job_before or {}).get("type")) in {"access_http_get", "access_http_post"}:
+        result_text = _text(result)
+        failed = result_text.lower().startswith("fetch_error")
+        payload["ok"] = bool(ok) and not failed
+        payload["result"] = {"access_http": result_text}
+        payload["error"] = _text(error) or (result_text if failed else "")
     response = accept_job_result(connector_id, token, job_id, payload)
     if ok and job_before:
         _update_connector_inventory_from_job(connector_id, job_before, result)
@@ -704,6 +843,20 @@ def _routeros_safe_target(value: Any) -> str:
     return text if re.fullmatch(r"[A-Za-z0-9_.:-]+", text) else ""
 
 
+def _routeros_string(value: Any, limit: int = 1200) -> str:
+    text = _text(value)[:limit]
+    return text.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _routeros_safe_access_url(value: Any) -> str:
+    text = _text(value)
+    if not text or len(text) > 1200:
+        return ""
+    if not text.startswith("http://"):
+        return ""
+    return text if re.fullmatch(r"[A-Za-z0-9_./:;?&=%+~#-]+", text) else ""
+
+
 def _wireguard_routeros_address(client_address: str) -> str:
     ip = _text(client_address).split("/", 1)[0]
     return f"{ip}/24" if ip else f"{DEFAULT_WG_NETWORK_PREFIX}.2/24"
@@ -712,7 +865,9 @@ def _wireguard_routeros_address(client_address: str) -> str:
 def _routeros_job_script_template(base_url: str, connector_id: str, token: str, job: Dict[str, Any] | None) -> str:
     base_url = base_url.rstrip("/")
     if not job:
-        return ':put "SightOps: nenhum job pendente";\n'
+        return """:do {/system scheduler set [find name="sightops-connector"] interval=10s} on-error={};
+:put "SightOps: nenhum job pendente";
+"""
     job_id = _text(job.get("id"))
     job_type = _text(job.get("type"))
     if job_type == "wireguard_install":
@@ -794,6 +949,48 @@ def _routeros_job_script_template(base_url: str, connector_id: str, token: str, 
 :foreach i in=[/ip neighbor find] do={{:local ip [/ip neighbor get $i address]; :local mac [/ip neighbor get $i mac-address]; :local ident [/ip neighbor get $i identity]; :local platform [/ip neighbor get $i platform]; :set result ($result . "neighbor|" . $ip . "|" . $mac . "|" . $ident . "|" . $platform . ";")}};
 /tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
 :put ("SightOps inventario LAN {job_id} executado");
+"""
+    if job_type == "access_http_get":
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        url = _routeros_safe_access_url(payload.get("url"))
+        username = _routeros_string(payload.get("username"), 120)
+        password = _routeros_string(payload.get("password"), 240)
+        if not url:
+            return f""":local result "fetch_error:url_invalida";
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+"""
+        return f""":local result "";
+:local ok "1";
+:do {{
+  :local response [/tool fetch url="{url}" user="{username}" password="{password}" http-auth-scheme=digest output=user as-value];
+  :local status ($response->"status");
+  :local data ($response->"data");
+  :set result ("status=" . $status . ";data=" . $data);
+}} on-error={{:set ok "0"; :set result "fetch_error"}};
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+:put ("SightOps access_http_get {job_id}: " . $result);
+"""
+    if job_type == "access_http_post":
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        url = _routeros_safe_access_url(payload.get("url"))
+        username = _routeros_string(payload.get("username"), 120)
+        password = _routeros_string(payload.get("password"), 240)
+        content_type = _routeros_string(payload.get("content_type") or "application/json", 80)
+        body = _routeros_string(payload.get("body"), 200000)
+        if not url:
+            return f""":local result "fetch_error:url_invalida";
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+"""
+        return f""":local result "";
+:local ok "1";
+:do {{
+  :local response [/tool fetch url="{url}" user="{username}" password="{password}" http-auth-scheme=digest http-method=post http-header-field="Content-Type:{content_type}" http-data="{body}" output=user as-value];
+  :local status ($response->"status");
+  :local data ($response->"data");
+  :set result ("status=" . $status . ";data=" . $data);
+}} on-error={{:set ok "0"; :set result "fetch_error"}};
+/tool fetch url="{base_url}/api/connectors/agent/routeros/jobs/{job_id}/result-text" http-method=post http-header-field="x-sightops-connector-id:{connector_id},x-sightops-connector-token:{token},Content-Type:text/plain" http-data=$result dst-path=sightops-job-result.json;
+:put ("SightOps access_http_post {job_id}: " . $result);
 """
     if job_type != "ping_many":
         return f""":local result "unsupported:0,";
@@ -1092,17 +1289,20 @@ def build_routeros_script(base_url: str, connector_id: str) -> str:
     row = get_connector(connector_id, include_token=True, enforce_tenant=True)
     if not row:
         raise ValueError("conector nao encontrado")
+    heartbeat_script = _routeros_script_template(
+        base_url=base_url,
+        connector_id=_text(row.get("id")),
+        token=_text(row.get("token")),
+    )
+    if _normalize_access_mode(row.get("access_mode"), row.get("type")) == "public":
+        return heartbeat_script
+
     ensure_wireguard_tunnel(
         connector_id,
         {"lan_mode": "auto", "client_lans": "__auto__", "allow_empty_lans": True},
         enforce_tenant=True,
     )
     wireguard_script = build_routeros_wireguard_script(connector_id)
-    heartbeat_script = _routeros_script_template(
-        base_url=base_url,
-        connector_id=_text(row.get("id")),
-        token=_text(row.get("token")),
-    )
     return f"""{wireguard_script}
 
 # SightOps RouterOS Connector - heartbeat e jobs

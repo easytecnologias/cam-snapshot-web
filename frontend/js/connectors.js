@@ -178,6 +178,7 @@ function updateConnectorTypeFields() {
   const type = document.getElementById('connType')?.value || 'routeros';
   const isRuijie = type === 'ruijie';
   document.getElementById('connFieldsRouteros')?.classList.toggle('hidden', isRuijie);
+  document.getElementById('connFieldsRouterosAccess')?.classList.toggle('hidden', isRuijie);
   document.getElementById('connFieldsRuijieHost')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijieUser')?.classList.toggle('hidden', !isRuijie);
   document.getElementById('connFieldsRuijiePass')?.classList.toggle('hidden', !isRuijie);
@@ -195,6 +196,8 @@ function resetConnectorCreateForm() {
   if (vpnFileLabel) vpnFileLabel.textContent = 'Nenhum arquivo escolhido';
   const type = document.getElementById('connType');
   if (type) type.value = 'routeros';
+  const accessMode = document.getElementById('connAccessMode');
+  if (accessMode) accessMode.value = 'cgnat';
   const gwUser = document.getElementById('connGatewayUser');
   if (gwUser) gwUser.value = 'admin';
   updateConnectorTypeFields();
@@ -385,6 +388,7 @@ async function createConnectorFromForm() {
     }
   } else {
     payload.public_base_url = document.getElementById('connPublicUrl')?.value.trim() || '';
+    payload.access_mode = document.getElementById('connAccessMode')?.value || 'cgnat';
   }
   const btn = document.getElementById('btnCreateConnector');
   if (btn) { btn.disabled = true; btn.textContent = 'Criando'; }
@@ -406,7 +410,9 @@ async function createConnectorFromForm() {
   const txt = document.getElementById('connCreatedText');
   const typeText = type === 'ruijie'
     ? 'O SightOps ja fala direto com o gateway -- use "Coletar LAN" na lista de conectores.'
-    : 'Baixe o script e cole no terminal do MikroTik do cliente.';
+    : (payload.access_mode === 'public'
+      ? 'Baixe o script e cole no MikroTik com IP publico.'
+      : 'Baixe o script e cole no MikroTik; ele abre a ponte CGNAT automaticamente.');
   if (txt) txt.textContent = `${conn.name || conn.id} criado. ${typeText}`;
   document.getElementById('btnDownloadCreatedAgent')?.classList.toggle('hidden', type === 'ruijie');
   ['connName', 'connClient', 'connSite', 'connGatewayHost', 'connGatewayPassword', 'connVpnUsername', 'connVpnPassword', 'connVpnConfig'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });

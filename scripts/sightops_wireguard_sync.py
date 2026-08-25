@@ -28,7 +28,10 @@ Seguranca
 ---------
 - Nunca REMOVE uma rede que um peer ja tem -- so soma.
 - Se a mesma rede exata aparecer no cadastro de dois conectores diferentes,
-  nao aplica em nenhum dos dois (conflito exige correcao manual no cadastro).
+  nao aplica a rede inteira em nenhum dos dois. Para CGNAT com LAN repetida
+  (ex: dois clientes usando 192.168.1.0/24), aplica somente /32 dos IPs
+  conhecidos no inventario daquele conector. Assim uma escola nao enxerga a
+  outra por acidente.
 - Se a rede ja estiver roteada por OUTRA interface (nao wg-sightops), pula e
   avisa -- nunca reatribui uma rota que ja existe por outro motivo.
 
@@ -45,17 +48,30 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 WG_INTERFACE = "wg-sightops"
 WG_CONF_PATH = Path("/etc/wireguard/wg-sightops.conf")
-CONNECTORS_JSON_PATH = Path(
-    "/var/lib/docker/volumes/cam-snapshot-web_sightops_data/_data/connectors.json"
-)
+CONNECTORS_JSON_CANDIDATES = [
+    Path("/var/lib/docker/volumes/sightops-prod-release_sightops_prod_data/_data/connectors.json"),
+    Path("/var/lib/docker/volumes/sightops-v3-release_sightops_v3_data/_data/connectors.json"),
+    Path("/var/lib/docker/volumes/cam-snapshot-web_sightops_data/_data/connectors.json"),
+]
+IPTABLES_CANDIDATES = [
+    "iptables",
+    "iptables-nft",
+    "/usr/sbin/iptables",
+    "/usr/sbin/iptables-nft",
+    "/sbin/iptables",
+    "/sbin/iptables-nft",
+]
+_IPTABLES_BIN: Optional[str] = None
+_IPTABLES_MISSING_WARNED = False
 
 
 def _log(msg: str) -> None:
@@ -99,6 +115,89 @@ def compute_target_state(connectors: List[Dict]) -> Dict[str, Dict]:
             continue
         out[pubkey] = {"name": str(row.get("name") or row.get("id") or pubkey[:12]), "allowed": allowed}
     return out
+
+
+def _connector_pubkey(row: Dict[str, Any]) -> str:
+    tunnel = row.get("tunnel") if isinstance(row.get("tunnel"), dict) else {}
+    if not tunnel.get("enabled") or str(tunnel.get("type") or "").lower() != "wireguard":
+        return ""
+    return str(tunnel.get("client_public_key") or "").strip()
+
+
+def _iter_private_ips_from_value(value: Any) -> Iterable[str]:
+    """Extrai IPs privados/CGNAT de textos ou listas vindos do inventario."""
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_private_ips_from_value(item)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _iter_private_ips_from_value(item)
+        return
+    text = str(value or "")
+    for raw in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text):
+        try:
+            ip = ipaddress.ip_address(raw)
+        except ValueError:
+            continue
+        if ip.version == 4 and (ip.is_private or ip in ipaddress.ip_network("100.64.0.0/10")):
+            yield str(ip)
+
+
+def _known_host_routes_for_connector(row: Dict[str, Any], conflicted_cidrs: Set[str]) -> Set[str]:
+    """Retorna IPs /32 conhecidos que pertencem a redes em conflito.
+
+    Quando dois clientes usam a mesma LAN privada, nao podemos anunciar a LAN
+    inteira no mesmo roteador Linux. Mas podemos anunciar hosts unicos ja
+    vistos naquele conector, como cameras descobertas por ARP/DHCP ou por
+    inventario remoto.
+    """
+    if not conflicted_cidrs:
+        return set()
+    networks = []
+    for cidr in conflicted_cidrs:
+        try:
+            networks.append(ipaddress.ip_network(cidr, strict=False))
+        except ValueError:
+            continue
+    if not networks:
+        return set()
+
+    inventory = row.get("inventory") if isinstance(row.get("inventory"), dict) else {}
+    host = row.get("host") if isinstance(row.get("host"), dict) else {}
+    candidates: list[Any] = [inventory, host]
+    routes: Set[str] = set()
+    for raw in _iter_private_ips_from_value(candidates):
+        try:
+            ip = ipaddress.ip_address(raw)
+        except ValueError:
+            continue
+        if any(ip in net and ip not in (net.network_address, net.broadcast_address) for net in networks):
+            routes.add(f"{ip}/32")
+    return routes
+
+
+def expand_conflicted_lans_with_known_hosts(
+    target_state: Dict[str, Dict],
+    connectors: List[Dict],
+    conflicts: Dict[str, List[str]],
+) -> Dict[str, Dict]:
+    """Adiciona /32 conhecidos para LANs privadas duplicadas entre conectores."""
+    conflicted_cidrs = set(conflicts.keys())
+    if not conflicted_cidrs:
+        return target_state
+    expanded = {
+        pubkey: {"name": info["name"], "allowed": set(info["allowed"])}
+        for pubkey, info in target_state.items()
+    }
+    for row in connectors or []:
+        pubkey = _connector_pubkey(row)
+        if not pubkey or pubkey not in expanded:
+            continue
+        host_routes = _known_host_routes_for_connector(row, conflicted_cidrs)
+        if host_routes:
+            expanded[pubkey]["allowed"].update(host_routes)
+    return expanded
 
 
 def find_exact_conflicts(target_state: Dict[str, Dict]) -> Dict[str, List[str]]:
@@ -208,6 +307,13 @@ def _run(cmd: List[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def _connectors_json_path() -> Path:
+    for path in CONNECTORS_JSON_CANDIDATES:
+        if path.exists():
+            return path
+    return CONNECTORS_JSON_CANDIDATES[0]
+
+
 def _route_device_for(cidr: str) -> Optional[str]:
     proc = _run(["ip", "route", "show", cidr])
     out = (proc.stdout or "").strip()
@@ -217,18 +323,109 @@ def _route_device_for(cidr: str) -> Optional[str]:
     return m.group(1) if m else "?"
 
 
+def _docker_bridge_subnets() -> Set[str]:
+    """Retorna sub-redes dos bridges Docker que precisam de NAT ate a WG."""
+    proc = _run(["docker", "network", "ls", "--format", "{{.Name}}"])
+    if proc.returncode != 0:
+        return set()
+
+    subnets: Set[str] = set()
+    for name in [line.strip() for line in proc.stdout.splitlines() if line.strip()]:
+        inspect = _run(["docker", "network", "inspect", name, "--format", "{{json .IPAM.Config}}"])
+        if inspect.returncode != 0:
+            continue
+        for cidr in re.findall(r'"Subnet"\s*:\s*"([^"]+)"', inspect.stdout or ""):
+            canon = canon_cidr(cidr)
+            if canon:
+                subnets.add(canon)
+    return subnets
+
+
+def _iptables_check_or_add(args: List[str], dry_run: bool) -> None:
+    global _IPTABLES_BIN, _IPTABLES_MISSING_WARNED
+    iptables_bin = _IPTABLES_BIN
+    if not iptables_bin:
+        for candidate in IPTABLES_CANDIDATES:
+            resolved = shutil.which(candidate) if "/" not in candidate else candidate
+            if resolved and Path(resolved).exists():
+                iptables_bin = resolved
+                _IPTABLES_BIN = resolved
+                break
+    if not iptables_bin:
+        if not _IPTABLES_MISSING_WARNED:
+            _log("AVISO: iptables nao encontrado; NAT Docker->WireGuard nao gerenciado por este script.")
+            _IPTABLES_MISSING_WARNED = True
+        return
+
+    if args[:2] == ["-t", "nat"]:
+        chain = args[2]
+        rule = args[3:]
+        check_args = ["-t", "nat", "-C", chain] + rule
+        add_args = ["-t", "nat", "-A", chain] + rule
+    else:
+        chain = args[0]
+        rule = args[1:]
+        check_args = ["-C", chain] + rule
+        add_args = ["-A", chain] + rule
+
+    check = _run([iptables_bin] + check_args)
+    if check.returncode == 0:
+        return
+    if dry_run:
+        _log("DRY-RUN iptables " + " ".join(add_args))
+        return
+    proc = _run([iptables_bin] + add_args)
+    if proc.returncode != 0:
+        _log(f"AVISO: falhou iptables {' '.join(add_args)}: {proc.stderr.strip()}")
+
+
+def ensure_docker_nat_to_wg(client_cidr: str, dry_run: bool) -> None:
+    """Permite containers Docker acessarem a LAN remota pelo WireGuard.
+
+    O host pode rotear a LAN do cliente corretamente e mesmo assim o container
+    falhar, porque a resposta da camera volta para o IP do servidor WG
+    (10.250.0.1), nao para a sub-rede Docker. O MASQUERADE corrige isso.
+    """
+    docker_subnets = _docker_bridge_subnets()
+    for source in sorted(docker_subnets, key=lambda s: tuple(map(int, s.split("/")[0].split("."))) if "." in s else (999,)):
+        _iptables_check_or_add(
+            ["-t", "nat", "POSTROUTING", "-s", source, "-d", client_cidr, "-o", WG_INTERFACE, "-j", "MASQUERADE"],
+            dry_run,
+        )
+        _iptables_check_or_add(
+            ["FORWARD", "-s", source, "-d", client_cidr, "-o", WG_INTERFACE, "-j", "ACCEPT"],
+            dry_run,
+        )
+        _iptables_check_or_add(
+            ["FORWARD", "-i", WG_INTERFACE, "-d", source, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"],
+            dry_run,
+        )
+
+
 def main() -> int:
     dry_run = "--check" in sys.argv or "--dry-run" in sys.argv
 
-    if not CONNECTORS_JSON_PATH.exists():
-        _log(f"ERRO: {CONNECTORS_JSON_PATH} nao encontrado. Nada a fazer.")
+    connectors_path = _connectors_json_path()
+    if not connectors_path.exists():
+        _log(f"ERRO: nenhum connectors.json encontrado em: {', '.join(str(p) for p in CONNECTORS_JSON_CANDIDATES)}")
         return 1
-    connectors = json.loads(CONNECTORS_JSON_PATH.read_text(encoding="utf-8"))
+    _log(f"Lendo conectores de {connectors_path}")
+    connectors = json.loads(connectors_path.read_text(encoding="utf-8"))
     target_state = compute_target_state(connectors)
+
+    lan_conflicts = find_exact_conflicts(target_state)
+    if lan_conflicts:
+        target_state = expand_conflicted_lans_with_known_hosts(target_state, connectors, lan_conflicts)
 
     conflicts = find_exact_conflicts(target_state)
     for cidr, names in conflicts.items():
-        _log(f"AVISO: {cidr} esta cadastrado em mais de um conector ({', '.join(names)}). Ignorando esta rede ate corrigir o cadastro.")
+        if cidr in lan_conflicts:
+            _log(
+                f"AVISO: {cidr} esta cadastrado em mais de um conector ({', '.join(names)}). "
+                "Ignorando a rede inteira e usando apenas IPs conhecidos unicos."
+            )
+        else:
+            _log(f"AVISO: {cidr} esta cadastrado em mais de um conector ({', '.join(names)}). Ignorando este IP/rede.")
 
     dump = _run(["wg", "show", WG_INTERFACE, "dump"])
     if dump.returncode != 0:
@@ -270,9 +467,10 @@ def main() -> int:
             _log(f"{name}: FALHOU wg set: {r1.stderr.strip()}")
             continue
         for cidr in safe_new:
-            r2 = _run(["ip", "route", "add", cidr, "dev", WG_INTERFACE])
+            r2 = _run(["ip", "route", "replace", cidr, "dev", WG_INTERFACE])
             if r2.returncode != 0 and "File exists" not in (r2.stderr or ""):
-                _log(f"{name}: FALHOU ip route add {cidr}: {r2.stderr.strip()}")
+                _log(f"{name}: FALHOU ip route replace {cidr}: {r2.stderr.strip()}")
+            ensure_docker_nat_to_wg(cidr, dry_run)
 
         if WG_CONF_PATH.exists():
             try:

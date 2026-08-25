@@ -1016,6 +1016,26 @@ def record_event(event: Dict[str, Any]) -> str:
     return event_id
 
 
+def latest_device_event_occurred_at(device_id: str) -> str:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    did = _clean_text(device_id, 80)
+    if not did:
+        return ""
+    with db_store._conn() as c:
+        row = c.execute(
+            """
+            SELECT occurred_at
+            FROM access_events
+            WHERE tenant_slug = ? AND device_id = ?
+            ORDER BY occurred_at DESC
+            LIMIT 1
+            """,
+            (tenant, did),
+        ).fetchone()
+    return _clean_text((row or {}).get("occurred_at") if row else "", 40)
+
+
 def _event_row_dict(row: Any) -> Dict[str, Any]:
     data = dict(row)
     data["event_type"] = normalize_access_event_type(data.get("event_type"))
@@ -1051,6 +1071,17 @@ def list_events(person_id: str = "", site: str = "", limit: int = 200) -> List[D
     return [_event_row_dict(r) for r in rows]
 
 
+def _normalize_report_bound(value: str = "", *, end: bool = False) -> str:
+    clean = _clean_text(value, 19).replace("T", " ").strip()
+    if not clean:
+        return ""
+    if len(clean) == 16:
+        return f"{clean}:59" if end else f"{clean}:00"
+    if len(clean) >= 19:
+        return clean[:19]
+    return _clean_text(clean, 10)
+
+
 def _period_bounds(period: str = "", start: str = "", end: str = "") -> tuple[str, str]:
     today = datetime.now().date()
     clean_period = _clean_text(period, 32).lower()
@@ -1066,7 +1097,7 @@ def _period_bounds(period: str = "", start: str = "", end: str = "") -> tuple[st
         day = today.fromordinal(today.toordinal() - 29)
         return day.isoformat(), today.isoformat()
     if clean_period == "custom":
-        return _clean_text(start, 10), _clean_text(end, 10)
+        return _normalize_report_bound(start), _normalize_report_bound(end, end=True)
     return today.isoformat(), today.isoformat()
 
 
@@ -1079,16 +1110,17 @@ def list_access_report_events(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     event_type = _clean_text(filters.get("type"), 32).lower()
     search = _clean_text(filters.get("search"), 160).lower()
     device_id = _clean_text(filters.get("device_id"), 80)
+    door_group_id = _clean_text(filters.get("door_group_id"), 80)
     start, end = _period_bounds(
         _clean_text(filters.get("period"), 32),
-        _clean_text(filters.get("start"), 10),
-        _clean_text(filters.get("end"), 10),
+        _clean_text(filters.get("start"), 19),
+        _clean_text(filters.get("end"), 19),
     )
     if start:
-        where.append("substr(e.occurred_at, 1, 10) >= ?")
+        where.append("e.occurred_at >= ?" if len(start) > 10 else "substr(e.occurred_at, 1, 10) >= ?")
         params.append(start)
     if end:
-        where.append("substr(e.occurred_at, 1, 10) <= ?")
+        where.append("e.occurred_at <= ?" if len(end) > 10 else "substr(e.occurred_at, 1, 10) <= ?")
         params.append(end)
     if site:
         where.append("COALESCE(NULLIF(e.site, ''), p.site, d.site, '') = ?")
@@ -1099,6 +1131,13 @@ def list_access_report_events(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     if device_id:
         where.append("e.device_id = ?")
         params.append(device_id)
+    elif door_group_id:
+        device_ids = list_door_group_members(door_group_id)
+        if not device_ids:
+            return []
+        placeholders = ",".join("?" for _ in device_ids)
+        where.append(f"e.device_id IN ({placeholders})")
+        params.extend(device_ids)
     if search:
         like = f"%{search}%"
         where.append(
@@ -1136,15 +1175,27 @@ def list_access_report_events(filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [_event_row_dict(r) for r in rows]
 
 
-def access_presence_summary(site: str = "") -> Dict[str, int]:
+def access_presence_summary(site: str = "", device_id: str = "", door_group_id: str = "") -> Dict[str, int]:
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     where = ["e.tenant_slug = ?", "e.person_id <> ''"]
     params: list[Any] = [tenant]
     clean_site = _clean_text(site, 120)
+    clean_device_id = _clean_text(device_id, 80)
+    clean_door_group_id = _clean_text(door_group_id, 80)
     if clean_site:
         where.append("COALESCE(NULLIF(e.site, ''), p.site, d.site, '') = ?")
         params.append(clean_site)
+    if clean_device_id:
+        where.append("e.device_id = ?")
+        params.append(clean_device_id)
+    elif clean_door_group_id:
+        device_ids = list_door_group_members(clean_door_group_id)
+        if not device_ids:
+            return {"people_with_events": 0, "inside_now": 0, "outside_now": 0}
+        placeholders = ",".join("?" for _ in device_ids)
+        where.append(f"e.device_id IN ({placeholders})")
+        params.extend(device_ids)
     with db_store._conn() as c:
         rows = c.execute(
             f"""
@@ -1173,7 +1224,11 @@ def access_report_summary(filters: Dict[str, Any]) -> Dict[str, int]:
     exits = sum(1 for event in events if event.get("event_type") == "saida")
     manual_exits = sum(1 for event in events if event.get("event_type") == "saida_manual")
     without_person = sum(1 for event in events if not str(event.get("person_id") or "").strip())
-    presence = access_presence_summary(site=_clean_text(filters.get("site"), 120))
+    presence = access_presence_summary(
+        site=_clean_text(filters.get("site"), 120),
+        device_id=_clean_text(filters.get("device_id"), 80),
+        door_group_id=_clean_text(filters.get("door_group_id"), 80),
+    )
     return {
         "total": len(events),
         "entries": entries,
@@ -1255,3 +1310,34 @@ def list_provision_status_for_person(person_id: str) -> List[Dict[str, Any]]:
             "SELECT * FROM access_provision_status WHERE tenant_slug=? AND person_id=?", (tenant, pid)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_provision_status_for_people(person_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    ensure_access_control_schema()
+    tenant = db_store._current_tenant_slug()
+    clean_ids = []
+    seen = set()
+    for person_id in person_ids:
+        pid = _clean_text(person_id, 80)
+        if pid and pid not in seen:
+            seen.add(pid)
+            clean_ids.append(pid)
+    grouped: Dict[str, List[Dict[str, Any]]] = {pid: [] for pid in clean_ids}
+    if not clean_ids:
+        return grouped
+
+    with db_store._conn() as c:
+        for start in range(0, len(clean_ids), 500):
+            batch = clean_ids[start:start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows = c.execute(
+                f"""
+                SELECT * FROM access_provision_status
+                WHERE tenant_slug=? AND person_id IN ({placeholders})
+                """,
+                (tenant, *batch),
+            ).fetchall()
+            for row in rows:
+                data = dict(row)
+                grouped.setdefault(str(data.get("person_id") or ""), []).append(data)
+    return grouped

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
+from starlette.responses import StreamingResponse
 
 from app.services.access_control_store import (
     access_control_summary,
@@ -22,6 +25,7 @@ from app.services.access_control_store import (
     list_groups,
     list_people,
     list_people_sites,
+    list_provision_status_for_people,
     list_provision_status_for_person,
     list_rules,
     save_device,
@@ -41,13 +45,28 @@ from app.services.access_control_device import list_controller_people as device_
 from app.services.access_control_device import open_door as device_open_door
 from app.services.access_control_photos import load_person_face_photo, save_person_face_photo
 from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
+from app.services.access_control_sync import enqueue_person_provisioning
 from app.services.access_control_notifications import (
     disconnect_access_whatsapp,
     get_access_whatsapp_connection,
     get_access_whatsapp_config,
     save_access_whatsapp_config,
+    send_access_whatsapp_text,
     test_access_whatsapp,
 )
+from app.services.access_control_whatsapp_inbound import (
+    approve_access_whatsapp_triage_item,
+    approve_ready_access_whatsapp_triage_items,
+    create_access_whatsapp_triage_item,
+    ensure_access_whatsapp_inbound_token,
+    list_access_whatsapp_triage,
+    process_access_whatsapp_inbound,
+    process_access_whatsapp_text,
+    reject_access_whatsapp_triage_item,
+    update_access_whatsapp_triage_item,
+    verify_access_whatsapp_inbound_token,
+)
+from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
 
 router = APIRouter(prefix="/api/access-control", tags=["access-control"])
 
@@ -66,26 +85,7 @@ def _enqueue_provisioning(person_ids: Iterable[str], *, force: bool = False) -> 
     `force=True` (salvar pessoa): reenfileira mesmo se ja estava 'ok', porque os
     dados que vao pra credencial (nome, ativo) acabaram de mudar.
     """
-    queued = 0
-    seen: set[str] = set()
-    for raw_id in person_ids:
-        person_id = str(raw_id or "").strip()
-        if not person_id or person_id in seen:
-            continue
-        seen.add(person_id)
-        already_ok: set[str] = set()
-        if not force:
-            already_ok = {
-                str(row.get("device_id") or "")
-                for row in list_provision_status_for_person(person_id)
-                if str(row.get("status") or "") == "ok"
-            }
-        for device in resolve_target_devices_for_person(person_id):
-            if device["id"] in already_ok:
-                continue
-            upsert_provision_status(person_id, device["id"], "pending")
-            queued += 1
-    return queued
+    return enqueue_person_provisioning(list(person_ids), force=force)
 
 
 def _people_of_door_group(door_group_id: str) -> List[str]:
@@ -100,8 +100,7 @@ def _people_of_door_group(door_group_id: str) -> List[str]:
     return person_ids
 
 
-def _provision_summary_for_person(person_id: str) -> Dict[str, Any]:
-    rows = list_provision_status_for_person(person_id)
+def _provision_summary_from_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(rows)
     ok_count = sum(1 for row in rows if str(row.get("status") or "") == "ok")
     failed_count = sum(1 for row in rows if str(row.get("status") or "") == "failed")
@@ -125,9 +124,14 @@ def _provision_summary_for_person(person_id: str) -> Dict[str, Any]:
     }
 
 
+def _provision_summary_for_person(person_id: str) -> Dict[str, Any]:
+    return _provision_summary_from_rows(list_provision_status_for_person(person_id))
+
+
 def _attach_people_provision_summary(people: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped = list_provision_status_for_people([str(person.get("id") or "") for person in people])
     for person in people:
-        person["provision_summary"] = _provision_summary_for_person(str(person.get("id") or ""))
+        person["provision_summary"] = _provision_summary_from_rows(grouped.get(str(person.get("id") or ""), []))
     return people
 
 
@@ -208,6 +212,28 @@ class AccessWhatsappTestRequest(BaseModel):
     site: str = ""
 
 
+class AccessWhatsappInboundSimulateRequest(BaseModel):
+    from_number: str
+    text: str = ""
+    site: str = ""
+    photo_base64: str = ""
+
+
+class AccessWhatsappTriageRequest(BaseModel):
+    text: str = ""
+    raw_text: str = ""
+    site: str = ""
+    source_group: str = ""
+    source_group_jid: str = ""
+    from_number: str = ""
+    from_name: str = ""
+    photo_url: str = ""
+    photo_base64: str = ""
+    suggested: Dict[str, Any] = {}
+    status: str = ""
+    reason: str = ""
+
+
 @router.get("/summary")
 def api_access_control_summary() -> Dict[str, Any]:
     return {"ok": True, "summary": access_control_summary()}
@@ -257,6 +283,119 @@ def api_access_control_whatsapp_disconnect(site: str = Query("")) -> Dict[str, A
         status_code = 400 if result.get("state") == "not_configured" else 502
         raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
     return result
+
+
+@router.get("/whatsapp/inbound-info")
+def api_access_control_whatsapp_inbound_info(request: Request) -> Dict[str, Any]:
+    token = ensure_access_whatsapp_inbound_token()
+    base_url = str(request.base_url).rstrip("/")
+    tenant = str(getattr(request.state, "current_tenant_slug", "") or "").strip().lower()
+    webhook_path = f"/api/access-control/whatsapp/inbound/{tenant or 'default'}"
+    return {
+        "ok": True,
+        "webhook_url": f"{base_url}{webhook_path}?token={token}",
+        "token_preview": f"{token[:6]}...{token[-4:]}",
+        "commands": [
+            "cadastro",
+            "nome: Maria Silva matricula: 1234 site: RESERVA grupo: GERAL",
+            "resumo",
+            "confirmar",
+            "cancelar",
+        ],
+    }
+
+
+@router.post("/whatsapp/inbound/simulate")
+def api_access_control_whatsapp_inbound_simulate(req: AccessWhatsappInboundSimulateRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    result = process_access_whatsapp_text(
+        payload.get("from_number"),
+        payload.get("text"),
+        site=payload.get("site"),
+        photo_base64=payload.get("photo_base64"),
+    )
+    return {"ok": bool(result.get("ok")), **result}
+
+
+@router.get("/whatsapp/triage")
+def api_access_control_whatsapp_triage(status: str = Query("")) -> Dict[str, Any]:
+    return {"ok": True, **list_access_whatsapp_triage(status)}
+
+
+@router.post("/whatsapp/triage")
+def api_access_control_whatsapp_triage_create(req: AccessWhatsappTriageRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    item = create_access_whatsapp_triage_item(payload)
+    return {"ok": True, "item": item, **list_access_whatsapp_triage()}
+
+
+@router.put("/whatsapp/triage/{item_id}")
+def api_access_control_whatsapp_triage_update(item_id: str, req: AccessWhatsappTriageRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    try:
+        item = update_access_whatsapp_triage_item(item_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True, "item": item, **list_access_whatsapp_triage()}
+
+
+@router.post("/whatsapp/triage/{item_id}/approve")
+def api_access_control_whatsapp_triage_approve(item_id: str) -> Dict[str, Any]:
+    try:
+        result = approve_access_whatsapp_triage_item(item_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, **result, **list_access_whatsapp_triage()}
+
+
+@router.post("/whatsapp/triage/{item_id}/reject")
+def api_access_control_whatsapp_triage_reject(item_id: str, req: AccessWhatsappTriageRequest) -> Dict[str, Any]:
+    payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    try:
+        item = reject_access_whatsapp_triage_item(item_id, payload.get("reason"))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True, "item": item, **list_access_whatsapp_triage()}
+
+
+@router.post("/whatsapp/triage/approve-ready")
+def api_access_control_whatsapp_triage_approve_ready() -> Dict[str, Any]:
+    return {"ok": True, **approve_ready_access_whatsapp_triage_items(), **list_access_whatsapp_triage()}
+
+
+@router.post("/whatsapp/inbound/{tenant_slug}")
+async def api_access_control_whatsapp_inbound_webhook(
+    tenant_slug: str,
+    request: Request,
+    token: str = Query(""),
+    x_sightops_whatsapp_token: str = Header(""),
+) -> Dict[str, Any]:
+    ctx_token = set_current_tenant_slug(tenant_slug)
+    try:
+        if not verify_access_whatsapp_inbound_token(token or x_sightops_whatsapp_token):
+            raise HTTPException(status_code=403, detail="Token de webhook invalido.")
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        result = process_access_whatsapp_inbound(payload if isinstance(payload, dict) else {})
+        reply = str(result.get("reply") or "")
+        reply_status: Dict[str, Any] = {"ok": False, "status": "not_sent"}
+        from_number = str((result.get("draft") or {}).get("from_number") or "")
+        if not from_number:
+            extracted = payload if isinstance(payload, dict) else {}
+            from_number = str(
+                extracted.get("from")
+                or extracted.get("sender")
+                or extracted.get("number")
+                or ((extracted.get("data") or {}).get("sender") if isinstance(extracted.get("data"), dict) else "")
+                or ""
+            )
+        if reply and not result.get("ignored") and not result.get("triage") and from_number:
+            reply_status = send_access_whatsapp_text(from_number, reply, site=(result.get("draft") or {}).get("site", ""))
+        return {"ok": bool(result.get("ok")), "reply": reply, "reply_status": reply_status}
+    finally:
+        reset_current_tenant_slug(ctx_token)
 
 
 @router.get("/people")
@@ -589,6 +728,7 @@ def api_access_control_report_summary(
     site: str = Query(""),
     search: str = Query(""),
     device_id: str = Query(""),
+    door_group_id: str = Query(""),
 ) -> Dict[str, Any]:
     filters = {
         "period": period,
@@ -598,6 +738,7 @@ def api_access_control_report_summary(
         "site": site,
         "search": search,
         "device_id": device_id,
+        "door_group_id": door_group_id,
     }
     return {"ok": True, "summary": access_report_summary(filters)}
 
@@ -611,6 +752,7 @@ def api_access_control_report_events(
     site: str = Query(""),
     search: str = Query(""),
     device_id: str = Query(""),
+    door_group_id: str = Query(""),
     limit: int = Query(300),
 ) -> Dict[str, Any]:
     filters = {
@@ -621,10 +763,61 @@ def api_access_control_report_events(
         "site": site,
         "search": search,
         "device_id": device_id,
+        "door_group_id": door_group_id,
         "limit": limit,
     }
     events = list_access_report_events(filters)
     return {"ok": True, "count": len(events), "events": events}
+
+
+@router.get("/live/stream")
+async def api_access_control_live_stream(
+    request: Request,
+    type: str = Query(""),
+    site: str = Query(""),
+    device_id: str = Query(""),
+    door_group_id: str = Query(""),
+) -> StreamingResponse:
+    filters = {
+        "period": "today",
+        "type": type,
+        "site": site,
+        "device_id": device_id,
+        "door_group_id": door_group_id,
+        "limit": 1,
+    }
+
+    async def stream():
+        last_event_id = ""
+        last_ping = datetime.now(timezone.utc)
+        initial = await asyncio.to_thread(list_access_report_events, filters)
+        if initial:
+            last_event_id = str(initial[0].get("id") or "")
+        yield "event: ready\ndata: {}\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+            events = await asyncio.to_thread(list_access_report_events, filters)
+            latest = events[0] if events else None
+            latest_id = str((latest or {}).get("id") or "")
+            if latest and latest_id and latest_id != last_event_id:
+                last_event_id = latest_id
+                payload = json.dumps({"event": latest}, ensure_ascii=False, default=str)
+                yield f"event: access-event\ndata: {payload}\n\n"
+            now = datetime.now(timezone.utc)
+            if (now - last_ping).total_seconds() >= 20:
+                last_ping = now
+                yield f"event: ping\ndata: {json.dumps({'ts': now.isoformat(timespec='seconds')})}\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/reports/manual-exit")

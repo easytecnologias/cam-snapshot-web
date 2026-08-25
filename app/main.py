@@ -264,10 +264,10 @@ async def _olt_telemetry_loop() -> None:
 
 async def _access_control_sync_loop() -> None:
     try:
-        interval = max(60, min(int(os.getenv("SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL", "120")), 900))
+        interval = max(5, min(int(os.getenv("SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL", "15")), 900))
     except Exception:
-        interval = 120
-    await asyncio.sleep(30)
+        interval = 15
+    await asyncio.sleep(5)
     while True:
         results: dict[str, object] = {}
         try:

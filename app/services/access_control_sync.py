@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -18,11 +19,14 @@ from app.services.access_control_store import (
     list_groups,
     list_pending_provisions,
     list_rules,
+    latest_device_event_occurred_at,
     normalize_access_direction,
     normalize_access_event_type,
     record_event,
+    update_device_health,
     update_device_event_cursor,
     upsert_provision_status,
+    list_provision_status_for_person,
 )
 
 logger = logging.getLogger("cam-snapshot")
@@ -95,6 +99,58 @@ def _resolve_event_type(event: Dict[str, Any], device_role: str) -> str:
     return "entrada" if parsed == "entrada_saida" else parsed
 
 
+def _record_device_event(device: Dict[str, Any], event: Dict[str, Any], *, source: str = "device") -> str:
+    device_id = str(device.get("id") or "").strip()
+    device_role = normalize_access_direction(device.get("access_direction"))
+    people = list_people(site=device.get("site", ""))
+    event_type = _resolve_event_type(event, device_role)
+    person = _resolve_event_person(event, people)
+    person_name = (
+        event.get("person_name_raw")
+        or event.get("person_name")
+        or event.get("UserName")
+        or event.get("name")
+        or (person or {}).get("full_name")
+        or ""
+    )
+    event_id = record_event({
+        "site": device.get("site", "") or (person or {}).get("site", ""),
+        "device_id": device_id,
+        "device_name": device.get("name", ""),
+        "device_role": device_role,
+        "person_id": (person or {}).get("id", ""),
+        "person_name_raw": person_name,
+        "event_type": event_type,
+        "source": source,
+        "raw_event_id": event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "",
+        "raw_payload": json.dumps(event, ensure_ascii=True, default=str)[:4000],
+        "occurred_at": event.get("occurred_at", ""),
+    })
+    raw_id = str(event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "").strip()
+    if raw_id.isdigit():
+        try:
+            update_device_event_cursor(device_id, raw_id)
+        except ValueError:
+            logger.warning("Nao foi possivel atualizar cursor de eventos do dispositivo %s", device_id)
+    return event_id
+
+
+def record_device_event(device_id: str, event: Dict[str, Any], *, source: str = "connector_push") -> str:
+    device = get_device_with_password(device_id)
+    if not device:
+        raise ValueError("Dispositivo nao encontrado neste cliente.")
+    try:
+        update_device_health(
+            device_id,
+            status="online",
+            model=str(device.get("model") or ""),
+            last_seen_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    except ValueError:
+        logger.warning("Nao foi possivel atualizar status do dispositivo %s", device_id)
+    return _record_device_event(device, event, source=source)
+
+
 def resolve_target_devices_for_person(person_id: str) -> List[Dict[str, Any]]:
     """Pessoa -> grupos que ela participa -> regras ativas -> grupos de porta -> dispositivos (unico por id)."""
     person_groups = {
@@ -116,6 +172,34 @@ def resolve_target_devices_for_person(person_id: str) -> List[Dict[str, Any]]:
         device_ids.update(list_door_group_members(door_group_id))
     devices_by_id = {d["id"]: d for d in list_devices() if d.get("active")}
     return [devices_by_id[did] for did in device_ids if did in devices_by_id]
+
+
+def enqueue_person_provisioning(person_ids: List[str], *, force: bool = False) -> int:
+    """Marca provisionamento pendente sem chamar a controladora.
+
+    Salvar uma pessoa ou confirmar cadastro pelo WhatsApp deve responder rapido.
+    O envio real para cada controladora fica com retry_pending_provisions().
+    """
+    queued = 0
+    seen: set[str] = set()
+    for raw_id in person_ids:
+        person_id = str(raw_id or "").strip()
+        if not person_id or person_id in seen:
+            continue
+        seen.add(person_id)
+        already_ok: set[str] = set()
+        if not force:
+            already_ok = {
+                str(row.get("device_id") or "")
+                for row in list_provision_status_for_person(person_id)
+                if str(row.get("status") or "") == "ok"
+            }
+        for device in resolve_target_devices_for_person(person_id):
+            if device["id"] in already_ok:
+                continue
+            upsert_provision_status(person_id, device["id"], "pending")
+            queued += 1
+    return queued
 
 
 def provision_person_everywhere(person: Dict[str, Any]) -> Dict[str, Any]:
@@ -229,38 +313,24 @@ def poll_device_events(device_id: str) -> int:
     device = get_device_with_password(device_id)
     if not device:
         return 0
+    device["last_event_start_time"] = latest_device_event_occurred_at(device_id)
     try:
         events = poll_events(device, since_id=device.get("last_event_id") or "")
     except HTTPException as exc:
         logger.warning("Falha ao consultar eventos do dispositivo %s: %s", device_id, exc.detail)
         return 0
-    people = list_people(site=device.get("site", ""))
+    try:
+        update_device_health(
+            device_id,
+            status="online",
+            model=str(device.get("model") or ""),
+            last_seen_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    except ValueError:
+        logger.warning("Nao foi possivel atualizar status do dispositivo %s", device_id)
     max_raw_event_id = 0
     for event in events:
-        device_role = normalize_access_direction(device.get("access_direction"))
-        event_type = _resolve_event_type(event, device_role)
-        person = _resolve_event_person(event, people)
-        person_name = (
-            event.get("person_name_raw")
-            or event.get("person_name")
-            or event.get("UserName")
-            or event.get("name")
-            or (person or {}).get("full_name")
-            or ""
-        )
-        record_event({
-            "site": device.get("site", "") or (person or {}).get("site", ""),
-            "device_id": device_id,
-            "device_name": device.get("name", ""),
-            "device_role": device_role,
-            "person_id": (person or {}).get("id", ""),
-            "person_name_raw": person_name,
-            "event_type": event_type,
-            "source": "device",
-            "raw_event_id": event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "",
-            "raw_payload": json.dumps(event, ensure_ascii=True, default=str)[:4000],
-            "occurred_at": event.get("occurred_at", ""),
-        })
+        _record_device_event(device, event, source="device")
         raw_id = str(event.get("raw_event_id") or event.get("raw_id") or event.get("id") or "").strip()
         if raw_id.isdigit():
             max_raw_event_id = max(max_raw_event_id, int(raw_id))

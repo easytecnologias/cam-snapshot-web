@@ -75,6 +75,23 @@ def _is_vsol(req: Any) -> bool:
     return vendor in ("vsol", "v-sol", "vsolution") or model.startswith(("vsol", "v1600", "epon-olt"))
 
 
+def _discover_vsol_por_pon(req: Any) -> Dict[str, Any]:
+    """Descoberta da VSOL no formato que a tela le.
+
+    O driver devolve uma lista unica de ONUs nao autorizadas; a tela (e o teste
+    de conexao) esperam um mapa por PON com a chave `discovered`, como a 8820i
+    entrega. Sem adaptar, a tela mostraria zero mesmo com a OLT respondendo.
+    """
+    bruto = discover_onus_vsol(
+        olt_ip=req.olt_ip, user=req.user, password=req.password, pon=req.pon,
+    )
+    pons: dict[str, Any] = {}
+    for onu in (bruto.get("onus") or []):
+        alvo = _norm_text(onu.get("pon")) or _norm_text(getattr(req, "pon", "")) or "all"
+        pons.setdefault(alvo, {"discovered": []})["discovered"].append(onu)
+    return {"ok": True, "pons": pons, "total": bruto.get("total", 0)}
+
+
 def _is_intelbras_4840e(req: Any) -> bool:
     model = _norm_text(getattr(req, "olt_model", "") or getattr(req, "model", "")).lower()
     return model in {"4840e", "4840", "intelbras_4840e", "intelbras-4840e", "4840e_epon", "4840e-epon"}
@@ -1074,9 +1091,7 @@ def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
                     timeout=req.timeout,
                 )
             if _is_vsol(req):
-                return discover_onus_vsol(
-                    olt_ip=req.olt_ip, user=req.user, password=req.password, pon=req.pon,
-                )
+                return _discover_vsol_por_pon(req)
             if _is_intelbras_4840e(req):
                 return discover_onus_4840e(
                     olt_ip=req.olt_ip,
