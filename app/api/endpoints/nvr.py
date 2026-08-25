@@ -34,6 +34,7 @@ from app.services.ws_scan_service import (
     _decide_remote_only,
     _pick_probe_targets,
 )
+from app.services.connector_service import register_connector_known_targets
 
 router = APIRouter(tags=["nvr"], prefix="/api/nvr")
 _imgbb_progress_lock = threading.Lock()
@@ -222,6 +223,11 @@ def _recorder_scan_connector(req: DVRScanRequest) -> Dict[str, Any] | None:
         "scan_origin": scan_origin or "connector",
     }
     connector = _connector_from_payload(payload)
+    if connector_id and str(req.ip or "").strip():
+        try:
+            register_connector_known_targets(connector_id, [req.ip])
+        except Exception:
+            pass
     has_tunnel = _connector_has_tunnel(connector)
     remote_only = _decide_remote_only(
         scan_origin="connector",
@@ -3172,4 +3178,3 @@ def api_dvr_snapshot_update(req: DVRSnapshotUpdateRequest) -> Dict[str, Any]:
         "zabbix_sync_ok": bool(zbx_ok),
         "zabbix_sync_error": zbx_err,
     }
-

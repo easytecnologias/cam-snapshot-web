@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
 from app.core.tenant_context import tenant_recorder_inventory_path, tenant_scoped_path, tenant_snapshot_dir
-from app.services.connector_service import get_connector, list_connectors
+from app.services.connector_service import get_connector, list_connectors, register_connector_known_targets
 from app.services.inventory_json import inventory_row_key, load_inventory_json, save_inventory_json
 from app.services.camsnapshot.device_info import get_network_config, set_network_ip, set_channel_title
 
@@ -616,6 +616,13 @@ def api_deployments_recorder_login(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="host do gravador obrigatorio")
     if not user or not password:
         raise HTTPException(status_code=400, detail="usuario e senha do gravador obrigatorios")
+
+    connector_id = _text(payload.get("connector_id") or payload.get("remote_connector_id"))
+    if connector_id:
+        try:
+            register_connector_known_targets(connector_id, [host])
+        except Exception:
+            pass
 
     base = _recorder_base_url(host, payload.get("recorder_http_port") or payload.get("http_port"))
     probes = [

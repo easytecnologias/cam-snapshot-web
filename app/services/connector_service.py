@@ -502,7 +502,12 @@ def accept_register(connector_id: str, token: str, payload: Dict[str, Any], remo
                 item["version"] = _text(payload.get("version")) or item.get("version") or ""
                 item["host"] = payload.get("host") if isinstance(payload.get("host"), dict) else item.get("host", {})
                 if isinstance(payload.get("inventory"), dict):
-                    item["inventory"] = payload.get("inventory")
+                    current_inventory = item.get("inventory") if isinstance(item.get("inventory"), dict) else {}
+                    next_inventory = dict(payload.get("inventory") or {})
+                    for key in ("known_targets", "known_targets_updated_at"):
+                        if key in current_inventory and key not in next_inventory:
+                            next_inventory[key] = current_inventory[key]
+                    item["inventory"] = next_inventory
                 item["remote_ip"] = _text(remote_ip)
                 item["status"] = "online"
                 _refresh_auto_tunnel_lans(item)
