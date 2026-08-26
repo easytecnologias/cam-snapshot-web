@@ -9212,3 +9212,43 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   #viewAccessWhatsappTriage .access-triage-preview,
   #viewAccessWhatsappTriage .access-triage-filters { grid-template-columns: 1fr; }
 }
+
+/* --- previa da importacao de planilha --- */
+.access-sheet-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.access-sheet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.access-sheet-card strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.access-sheet-card span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.access-sheet-erros {
+  margin-top: 12px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.access-sheet-erros table { margin: 0; font-size: 12px; }

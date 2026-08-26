@@ -496,6 +496,16 @@ def api_access_control_people_sites() -> Dict[str, Any]:
 def api_access_control_save_person(req: AccessPersonRequest) -> Dict[str, Any]:
     try:
         payload = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+        # Aluno cadastrado pela tela precisa de matricula: e ela que identifica
+        # o aluno, evita duplicata e vira o ID dele na controladora. Importacao
+        # e rotinas internas nao passam por aqui.
+        tipo = str(payload.get("person_type") or "student").lower()
+        if tipo == "student" and not str(payload.get("enrollment_code") or "").strip():
+            raise HTTPException(status_code=400, detail="Informe a matricula do aluno.")
+        # Sem site, o evento nao casa com nenhuma configuracao de notificacao e
+        # o aviso ao responsavel some sem erro nenhum.
+        if not str(payload.get("site") or "").strip():
+            raise HTTPException(status_code=400, detail="Escolha a escola/site da pessoa.")
         person = save_person(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -508,6 +518,40 @@ def api_access_control_save_person(req: AccessPersonRequest) -> Dict[str, Any]:
     # bloquear a resposta HTTP de salvar uma pessoa/regra").
     _enqueue_provisioning([person["id"]], force=True)
     return {"ok": True, "person": person}
+
+
+@router.post("/people/import")
+async def api_access_control_import_people(
+    arquivo: UploadFile = File(...),
+    site: str = Query(""),
+    aplicar: bool = Query(False),
+) -> Dict[str, Any]:
+    """Importa alunos de planilha (XLSX ou CSV).
+
+    Sem `aplicar=true` faz apenas a analise: devolve o que seria criado,
+    atualizado e recusado, sem gravar nada. Gravar so depois que o usuario viu o
+    que vai acontecer -- planilha de escola vem com surpresa, e meia importacao
+    e pior do que nenhuma.
+    """
+    from app.services.access_control_import import analisar_planilha, aplicar_planilha
+
+    conteudo = await arquivo.read()
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="Arquivo vazio.")
+    if len(conteudo) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 10 MB.")
+
+    nome = arquivo.filename or ""
+    try:
+        if aplicar:
+            resultado = aplicar_planilha(conteudo, site=site, nome_arquivo=nome)
+            criados = [p["id"] for p in list_people()
+                       if str(p.get("enrollment_code") or "").strip()]
+            _enqueue_provisioning(criados, force=False)
+            return resultado
+        return analisar_planilha(conteudo, site=site, nome_arquivo=nome)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.delete("/people/{person_id}")

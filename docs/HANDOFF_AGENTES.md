@@ -1561,3 +1561,54 @@ Foi exatamente isso que quebrou: quanto mais campos no criterio, mais facil o
 bloqueio expirar sozinho quando o usuario reorganiza o inventario.
 
 Imagem: `sightops-prod-api:20260819-bloqueio`.
+
+---
+
+## 2026-08-26 tarde — Cadastro de aluno: matricula como chave, importacao e site
+
+**Contexto:** a escola cadastrou 91 pessoas e nada garantia unicidade. O mesmo
+aluno gravado duas vezes criava dois registros (UUID diferente), e o ID na
+controladora era digitado a mao -- foi assim que a ELISHAFAN acabou com
+matricula `2` e usuario `1033` no equipamento, duplicada na catraca.
+
+**O que mudou:**
+
+**Matricula virou a chave de negocio.** Indice unico `(tenant_slug,
+enrollment_code)` com matricula vazia fora do indice (visitante segue sem).
+`save_person` casa por matricula: regravar atualiza em vez de criar outro UUID.
+Dar a matricula de um aluno a outro e recusado com mensagem clara.
+
+**ID da controladora deriva da matricula.** O aluno 1577 e o usuario 1577 no
+equipamento -- uma identidade so, do cadastro a catraca. Matricula nao numerica
+cai no proximo numero livre. **Nunca sorteia**: numero sorteado pode colidir com
+quem ja existe no dispositivo, e ai o reconhecimento aponta para o aluno errado.
+
+**Importacao por planilha** (`app/services/access_control_import.py` +
+`POST /people/import`). Le XLSX e CSV, reconhece a coluna pelo nome (nao pela
+posicao), e tem pre-visualizacao obrigatoria: sem `aplicar=true` nada e gravado.
+Trata matricula que o Excel devolve como float, telefone em varios formatos,
+matricula repetida no arquivo, e CSV do Excel brasileiro (`;` + latin-1).
+
+**Site virou seletor, alimentado pelas CONTROLADORAS.** E o site do dispositivo
+que vai no evento e decide por qual canal a notificacao sai; digitar a mao abria
+divergencia de uma letra que quebrava o roteamento **em silencio**.
+
+**Obrigatorio onde deve ser.** Matricula (aluno) e site sao exigidos no
+**endpoint** do cadastro, nao no `save_person`. Primeira tentativa colocou a
+exigencia no store e quebrou 8 testes que passavam -- aquele caminho tambem
+serve importacao e rotinas internas.
+
+**Atencao ao mexer:** `import_device_people` ainda grava
+`enrollment_code = controller_user_id` para pessoa nova. Com a matricula virando
+o ID da controladora isso deixou de conflitar na pratica, mas se um dia a escola
+cadastrar no equipamento com numeracao propria, os dois mundos voltam a divergir.
+
+**Dados corrigidos em producao (rads):** ELISHAFAN matricula `2` -> `1033`
+(igual ao ID da controladora); 89 pessoas sem site receberam
+`ESCOLA PRESIDENTE DUTRA`. Nenhuma pessoa tem mais matricula != ID da
+controladora.
+
+**Testes:** `sightops_access_control_matricula_test.py` e
+`sightops_access_control_import_test.py`. As 4 falhas restantes da bateria
+(`controller_import`, `route`, `routes`, `shell`) sao anteriores e nao foram
+introduzidas aqui.

@@ -152,6 +152,14 @@ def ensure_access_control_schema() -> None:
               ON access_people(tenant_slug, active, person_type);
             CREATE INDEX IF NOT EXISTS idx_access_people_tenant_site
               ON access_people(tenant_slug, site);
+            -- A matricula e a chave de negocio do aluno: e o que a escola usa e
+            -- o que permite reimportar a lista sem duplicar ninguem. O id
+            -- interno continua sendo UUID, mas nao e mais o criterio de
+            -- duplicidade. Matricula vazia fica fora do indice (WHERE), porque
+            -- cadastro sem matricula ainda e permitido.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_access_people_tenant_enrollment
+              ON access_people(tenant_slug, enrollment_code)
+              WHERE enrollment_code <> '';
 
             CREATE TABLE IF NOT EXISTS access_devices (
               id TEXT PRIMARY KEY,
@@ -321,33 +329,96 @@ def list_people(search: str = "", active: str = "", person_type: str = "", site:
 
 
 def list_people_sites() -> List[str]:
+    """Sites disponiveis para escolher no cadastro.
+
+    A fonte principal sao as CONTROLADORAS: e o site do dispositivo que vai no
+    evento e decide por qual canal a notificacao sai. Se a pessoa ficar num site
+    que nenhuma controladora usa, o aviso nunca casa.
+
+    Os sites ja gravados em pessoas entram junto para nao sumirem da lista
+    enquanto o cadastro nao for ajustado.
+    """
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
     with db_store._conn() as c:
-        rows = c.execute(
-            """
-            SELECT DISTINCT site FROM access_people
-            WHERE tenant_slug = ? AND site != ''
-            ORDER BY site COLLATE NOCASE
-            """,
+        dos_dispositivos = c.execute(
+            "SELECT DISTINCT site FROM access_devices WHERE tenant_slug = ? AND site != ''",
             (tenant,),
         ).fetchall()
-    return [r["site"] for r in rows]
+        das_pessoas = c.execute(
+            "SELECT DISTINCT site FROM access_people WHERE tenant_slug = ? AND site != ''",
+            (tenant,),
+        ).fetchall()
+    sites = {dict(r)["site"] for r in dos_dispositivos} | {dict(r)["site"] for r in das_pessoas}
+    return sorted(sites, key=lambda s: s.casefold())
+
+
+def _proximo_id_controladora(tenant: str, enrollment_code: str) -> str:
+    """Numero do usuario no equipamento, derivado da matricula.
+
+    A matricula e numerica e unica, entao serve direto. Quando nao for (ou ja
+    estiver em uso por outra pessoa), pega o proximo numero livre -- nunca
+    sorteia, porque numero sorteado pode cair em cima de alguem ja cadastrado
+    na controladora, e ai o reconhecimento aponta para o aluno errado.
+    """
+    if enrollment_code.isdigit() and enrollment_code.lstrip("0"):
+        with db_store._conn() as conn:
+            usado = conn.execute(
+                "SELECT 1 FROM access_people WHERE tenant_slug=? AND controller_user_id=?",
+                (tenant, enrollment_code),
+            ).fetchone()
+        if not usado:
+            return enrollment_code[:32]
+
+    with db_store._conn() as conn:
+        linhas = conn.execute(
+            "SELECT controller_user_id FROM access_people WHERE tenant_slug=? AND controller_user_id<>''",
+            (tenant,),
+        ).fetchall()
+    usados = {int(dict(r)["controller_user_id"]) for r in linhas
+              if str(dict(r)["controller_user_id"]).isdigit()}
+    proximo = max(usados) + 1 if usados else 1
+    return str(proximo)
 
 
 def save_person(payload: Dict[str, Any]) -> Dict[str, Any]:
     ensure_access_control_schema()
     tenant = db_store._current_tenant_slug()
-    person_id = _clean_text(payload.get("id"), 80) or uuid.uuid4().hex
+    person_id = _clean_text(payload.get("id"), 80)
     full_name = _clean_text(payload.get("full_name") or payload.get("name"), 160)
     if not full_name:
         raise ValueError("Informe o nome da pessoa.")
     person_type = _clean_text(payload.get("person_type") or "student", 32).lower() or "student"
     document_id = _clean_text(payload.get("document_id"), 64)
     enrollment_code = _clean_text(payload.get("enrollment_code"), 64)
+
+
+    # A matricula identifica o aluno para a escola. Sem casar por ela, gravar o
+    # mesmo aluno de novo criaria outro UUID e outra pessoa -- que e o que
+    # acontecia antes. Assim, reimportar a lista atualiza em vez de duplicar.
+    if enrollment_code:
+        with db_store._conn() as conn:
+            achado = conn.execute(
+                "SELECT id FROM access_people WHERE tenant_slug=? AND enrollment_code=?",
+                (tenant, enrollment_code),
+            ).fetchone()
+        if achado:
+            existente = dict(achado)["id"]
+            if person_id and person_id != existente:
+                raise ValueError(
+                    f"A matricula {enrollment_code} ja pertence a outra pessoa neste cliente."
+                )
+            person_id = existente
+
+    person_id = person_id or uuid.uuid4().hex
     class_name = _clean_text(payload.get("class_name"), 80)
     site = _clean_text(payload.get("site"), 120)
     controller_user_id = re.sub(r"\D", "", str(payload.get("controller_user_id") or ""))[:32]
+    if not controller_user_id:
+        # Uma identidade so, do cadastro a catraca: o aluno de matricula 1577 e
+        # o usuario 1577 no equipamento. Sorteie um numero e voce perde a
+        # rastreabilidade e arrisca colidir com quem ja existe no dispositivo.
+        controller_user_id = _proximo_id_controladora(tenant, enrollment_code)
     guardian_name = _clean_text(payload.get("guardian_name"), 160)
     guardian_phone = _clean_phone(payload.get("guardian_phone"))
     whatsapp_enabled = _bool_int(payload.get("whatsapp_enabled"), True)

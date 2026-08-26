@@ -84,7 +84,7 @@ function updateAccessPersonHero() {
   const type = document.getElementById('accessPersonType')?.value || _accessPersonModalCurrent?.person_type || 'student';
   const enrollment = document.getElementById('accessPersonEnrollment')?.value?.trim() || '';
   const className = document.getElementById('accessPersonClass')?.value?.trim() || '';
-  const site = document.getElementById('accessPersonSite')?.value?.trim() || '';
+  const site = valorSitePessoa();
   const active = document.getElementById('accessPersonActive')?.checked !== false;
   setText('accessPersonHeroName', name);
   setText('accessPersonHeroMeta', [accessPersonTypeLabel(type), enrollment, className, site].filter(Boolean).join(' | '));
@@ -342,6 +342,18 @@ function bindAccessControl() {
     document.getElementById('btnAccessPersonFooterNew')?.addEventListener('click', () => openAccessPersonModal());
     document.getElementById('btnAccessPeopleFooterRefresh')?.addEventListener('click', () => loadAccessControl(true));
     document.getElementById('btnAccessPeopleFooterImport')?.addEventListener('click', openAccessPeopleImportModal);
+  document.getElementById('btnAccessPeopleFooterSheet')?.addEventListener('click', abrirImportacaoPlanilha);
+  document.getElementById('btnAccessSheetClose')?.addEventListener('click', fecharImportacaoPlanilha);
+  document.getElementById('btnAccessSheetCancel')?.addEventListener('click', fecharImportacaoPlanilha);
+  document.getElementById('btnAccessSheetAnalyze')?.addEventListener('click', () => enviarPlanilha(false));
+  document.getElementById('btnAccessSheetApply')?.addEventListener('click', () => enviarPlanilha(true));
+  document.getElementById('accessSheetFile')?.addEventListener('change', () => {
+    // arquivo trocado invalida a conferencia anterior
+    const aplicar = document.getElementById('btnAccessSheetApply');
+    if (aplicar) aplicar.disabled = true;
+    const previa = document.getElementById('accessSheetPreview');
+    if (previa) previa.hidden = true;
+  });
     document.getElementById('btnAccessPeopleFooterSync')?.addEventListener('click', syncSelectedAccessPeople);
     document.getElementById('btnAccessPeopleFooterEdit')?.addEventListener('click', editSelectedAccessPerson);
     document.getElementById('btnAccessPeopleFooterDeleteSelected')?.addEventListener('click', deleteSelectedAccessPeople);
@@ -772,6 +784,48 @@ async function openAccessDevicesDrawer(filterKey = 'all', activeSite = null) {
   });
 }
 
+function valorSitePessoa() {
+  const select = document.getElementById('accessPersonSite');
+  if (select?.value === '__novo__') {
+    return document.getElementById('accessPersonSiteNovo')?.value.trim() || '';
+  }
+  return select?.value?.trim() || '';
+}
+
+async function preencherSitesPessoa(atual = '') {
+  // A fonte dos sites e a controladora: e o site dela que vai no evento e
+  // decide por qual canal a notificacao sai. Digitar a mao abria espaco para
+  // divergencia de uma letra, que quebra o roteamento em silencio.
+  const select = document.getElementById('accessPersonSite');
+  const novo = document.getElementById('accessPersonSiteNovo');
+  if (!select) return;
+  let sites = [];
+  try {
+    const res = await apiJson('/api/access-control/people/sites', { forceRefresh: true, cacheTtl: 0 });
+    sites = res?.sites || [];
+  } catch (err) {
+    /* sem lista: sobra a opcao de digitar */
+  }
+  if (atual && !sites.includes(atual)) sites = sites.concat([atual]);
+  select.innerHTML = '<option value="">Sem site</option>'
+    + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')
+    + '<option value="__novo__">+ Outro site...</option>';
+  select.value = atual && sites.includes(atual) ? atual : '';
+  if (novo) {
+    novo.hidden = true;
+    novo.value = '';
+  }
+  if (!select.dataset.ligado) {
+    select.dataset.ligado = '1';
+    select.addEventListener('change', () => {
+      const campo = document.getElementById('accessPersonSiteNovo');
+      if (!campo) return;
+      campo.hidden = select.value !== '__novo__';
+      if (!campo.hidden) campo.focus();
+    });
+  }
+}
+
 function openAccessPersonModal(person = null) {
   const item = person || {};
   _accessPersonModalCurrent = item.id ? { ...item } : null;
@@ -786,7 +840,7 @@ function openAccessPersonModal(person = null) {
   // save_person() no backend faz UPDATE completo (ON CONFLICT DO UPDATE SET
   // site=excluded.site), entao o formulario precisa carregar e reenviar o site
   // atual -- sem este campo, qualquer edicao pela UI apagava o site da pessoa.
-  document.getElementById('accessPersonSite').value = item.site || '';
+  preencherSitesPessoa(item.site || '');
   document.getElementById('accessPersonControllerId').value = item.controller_user_id || '';
   const faceInput = document.getElementById('accessPersonFacePhoto');
   if (faceInput) faceInput.value = '';
@@ -847,6 +901,13 @@ async function saveAccessPersonFromForm(event) {
   event.preventDefault();
   const btn = document.getElementById('btnAccessPersonSave');
   const oldHtml = btn?.innerHTML;
+  const siteEscolhido = valorSitePessoa();
+  if (!siteEscolhido) {
+    showToast('Escolha a escola/site da pessoa.', true);
+    document.getElementById('accessPersonSite')?.focus();
+    return;
+  }
+
   const payload = {
     id: document.getElementById('accessPersonId').value.trim(),
     full_name: document.getElementById('accessPersonName').value.trim(),
@@ -854,7 +915,7 @@ async function saveAccessPersonFromForm(event) {
     enrollment_code: document.getElementById('accessPersonEnrollment').value.trim(),
     document_id: document.getElementById('accessPersonDocument').value.trim(),
     class_name: document.getElementById('accessPersonClass').value.trim(),
-    site: document.getElementById('accessPersonSite').value.trim(),
+    site: valorSitePessoa(),
     controller_user_id: document.getElementById('accessPersonControllerId').value.trim(),
     guardian_name: document.getElementById('accessPersonGuardian').value.trim(),
     guardian_phone: document.getElementById('accessPersonPhone').value.trim(),
@@ -930,6 +991,116 @@ async function syncAccessPersonAfterSave(person) {
   const syncedPerson = { ...person, provision_summary: payload?.provision_summary };
   _accessPersonModalCurrent = syncedPerson;
   return syncedPerson;
+}
+
+async function abrirImportacaoPlanilha() {
+  const modal = document.getElementById('modalAccessSheetImport');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  const previa = document.getElementById('accessSheetPreview');
+  if (previa) previa.hidden = true;
+  const aplicar = document.getElementById('btnAccessSheetApply');
+  if (aplicar) aplicar.disabled = true;
+  const arquivo = document.getElementById('accessSheetFile');
+  if (arquivo) arquivo.value = '';
+
+  const select = document.getElementById('accessSheetSite');
+  if (!select) return;
+  try {
+    const res = await apiJson('/api/access-control/people/sites', { forceRefresh: true, cacheTtl: 0 });
+    const sites = res?.sites || [];
+    select.innerHTML = '<option value="">Manter o site atual de cada aluno</option>'
+      + sites.map(site => `<option value="${esc(site)}">${esc(site)}</option>`).join('');
+  } catch (err) {
+    /* sem sites cadastrados ainda: a opcao padrao ja serve */
+  }
+}
+
+function fecharImportacaoPlanilha() {
+  document.getElementById('modalAccessSheetImport')?.classList.add('hidden');
+}
+
+function mostrarPreviaPlanilha(dados, aplicado) {
+  const previa = document.getElementById('accessSheetPreview');
+  if (!previa) return;
+  previa.hidden = false;
+
+  const criar = aplicado ? (dados.criados || 0) : (dados.criar || []).length;
+  const atualizar = aplicado ? (dados.atualizados || 0) : (dados.atualizar || []).length;
+  const recusados = dados.recusados || [];
+  const falhas = dados.falhas || [];
+  const semTelefone = dados.sem_telefone || 0;
+
+  const cartao = (rotulo, valor, cor) =>
+    `<div class="access-sheet-card"><strong style="color:${cor}">${valor}</strong><span>${rotulo}</span></div>`;
+
+  let html = '<div class="access-sheet-cards">'
+    + cartao(aplicado ? 'criados' : 'serao criados', criar, 'var(--ok, #0f7b5f)')
+    + cartao(aplicado ? 'atualizados' : 'serao atualizados', atualizar, 'var(--text)')
+    + cartao('recusados', recusados.length + falhas.length, recusados.length + falhas.length ? '#b42318' : 'var(--muted)')
+    + '</div>';
+
+  if (semTelefone) {
+    html += `<div class="inline-help" style="margin-top:10px">${semTelefone} aluno(s) sem telefone do responsavel.
+      Entram no cadastro, mas <strong>nao recebem notificacao</strong> ate o telefone ser preenchido.</div>`;
+  }
+
+  const problemas = recusados.concat(falhas);
+  if (problemas.length) {
+    html += '<div class="access-sheet-erros"><table class="data-table"><thead><tr>'
+      + '<th>Linha</th><th>Matricula</th><th>Nome</th><th>Motivo</th></tr></thead><tbody>'
+      + problemas.slice(0, 40).map(r => `<tr><td>${esc(r.linha ?? '-')}</td><td>${esc(r.matricula || '-')}</td>`
+        + `<td>${esc(r.nome || '-')}</td><td>${esc(r.motivo || '-')}</td></tr>`).join('')
+      + '</tbody></table>';
+    if (problemas.length > 40) html += `<div class="inline-help">e mais ${problemas.length - 40} linha(s).</div>`;
+    html += '</div>';
+  }
+
+  previa.innerHTML = html;
+}
+
+async function enviarPlanilha(aplicar) {
+  const entrada = document.getElementById('accessSheetFile');
+  const arquivo = entrada?.files?.[0];
+  if (!arquivo) {
+    showToast('Escolha a planilha primeiro.', true);
+    return;
+  }
+  const site = document.getElementById('accessSheetSite')?.value || '';
+  const btn = document.getElementById(aplicar ? 'btnAccessSheetApply' : 'btnAccessSheetAnalyze');
+  const htmlAntigo = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i data-lucide="loader-circle"></i> ${aplicar ? 'Importando' : 'Conferindo'}`;
+    lucide.createIcons();
+  }
+  try {
+    const corpo = new FormData();
+    corpo.append('arquivo', arquivo);
+    const url = `/api/access-control/people/import?site=${encodeURIComponent(site)}&aplicar=${aplicar ? 'true' : 'false'}`;
+    const res = await api(url, { method: 'POST', body: corpo });
+    const dados = await jsonOrReadableError(res, 'Nao foi possivel ler a planilha.');
+    mostrarPreviaPlanilha(dados, aplicar);
+    if (aplicar) {
+      showToast(`Importado: ${dados.criados} criado(s), ${dados.atualizados} atualizado(s).`);
+      await loadAccessControl(true);   // recarrega tabela e KPIs, como o botao Atualizar
+      const botao = document.getElementById('btnAccessSheetApply');
+      if (botao) botao.disabled = true;
+    } else {
+      const total = (dados.criar || []).length + (dados.atualizar || []).length;
+      const botao = document.getElementById('btnAccessSheetApply');
+      if (botao) botao.disabled = total === 0;
+      if (!total) showToast('Nenhuma linha aproveitavel na planilha.', true);
+    }
+  } catch (err) {
+    showToast(err?.message || 'Falha ao processar a planilha.', true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = htmlAntigo;
+      lucide.createIcons();
+    }
+  }
 }
 
 async function openAccessPeopleImportModal() {

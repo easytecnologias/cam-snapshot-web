@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=245">
+  <link rel="stylesheet" href="styles.css?v=246">
 </head>
 <body>
 
@@ -1679,6 +1679,7 @@
             <div class="access-people-footer-actions">
               <button class="icon-action" id="btnAccessPeopleFooterRefresh" type="button" data-tip="Atualizar"><i data-lucide="refresh-cw"></i></button>
               <button class="icon-action" id="btnAccessPeopleFooterImport" type="button" data-tip="Importar da controladora"><i data-lucide="download"></i></button>
+              <button class="icon-action" id="btnAccessPeopleFooterSheet" type="button" data-tip="Importar planilha"><i data-lucide="file-spreadsheet"></i></button>
               <button class="icon-action" id="btnAccessPeopleFooterSync" type="button" data-tip="Sincronizar selecionados" disabled><i data-lucide="upload-cloud"></i></button>
               <button class="icon-action primary" id="btnAccessPersonFooterNew" type="button" data-tip="Nova pessoa"><i data-lucide="plus"></i></button>
               <div style="width:1px;height:20px;background:var(--border);margin:0 2px"></div>
@@ -2161,6 +2162,41 @@
           </div>
         </div>
 
+        <div id="modalAccessSheetImport" class="modal-backdrop hidden">
+          <div class="modal access-import-modal">
+            <div class="modal-header">
+              <div>
+                <h2>Importar planilha de alunos</h2>
+                <p>Aceita XLSX e CSV. Nada e gravado antes de voce conferir.</p>
+              </div>
+              <button class="icon-button" id="btnAccessSheetClose" type="button" aria-label="Fechar importacao"><i data-lucide="x"></i></button>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="accessSheetFile">Arquivo</label>
+                <input id="accessSheetFile" type="file" accept=".xlsx,.csv">
+              </div>
+              <div class="form-group">
+                <label for="accessSheetSite">Escola/site</label>
+                <select id="accessSheetSite">
+                  <option value="">Manter o site atual de cada aluno</option>
+                </select>
+              </div>
+            </div>
+            <div class="inline-help" id="accessSheetHelp">
+              A planilha precisa ter as colunas <strong>matricula</strong> e <strong>nome</strong>.
+              Sao reconhecidas tambem: telefone do responsavel, responsavel, turma, CPF e ID da controladora.
+              A matricula identifica o aluno &mdash; reimportar a lista corrigida atualiza, nao duplica.
+            </div>
+            <div id="accessSheetPreview" hidden></div>
+            <div class="modal-actions">
+              <button class="secondary-action" id="btnAccessSheetCancel" type="button"><i data-lucide="x"></i> Cancelar</button>
+              <button class="secondary-action" id="btnAccessSheetAnalyze" type="button"><i data-lucide="search"></i> Conferir</button>
+              <button class="primary-action" id="btnAccessSheetApply" type="button" disabled><i data-lucide="upload"></i> Importar</button>
+            </div>
+          </div>
+        </div>
+
         <div id="modalAccessPerson" class="modal-backdrop hidden">
           <div class="modal access-person-modal">
             <div class="modal-header">
@@ -2221,7 +2257,10 @@
                   </div>
                   <div class="form-group">
                     <label for="accessPersonSite">Site</label>
-                    <input id="accessPersonSite" placeholder="Ex: Sede">
+                    <select id="accessPersonSite">
+                      <option value="">Sem site</option>
+                    </select>
+                    <input id="accessPersonSiteNovo" placeholder="Nome da nova escola/site" hidden>
                   </div>
                 </div>
                 <h3 class="form-section-title">Reconhecimento facial</h3>
@@ -5971,7 +6010,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=78"></script>
+  <script src="js/accessControl.js?v=81"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=189"></script>
