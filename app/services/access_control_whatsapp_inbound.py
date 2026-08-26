@@ -803,8 +803,90 @@ def extract_evolution_inbound(payload: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def extract_meta_inbound(payload: Dict[str, Any]) -> Dict[str, str]:
+    """Le o formato de webhook da Cloud API oficial.
+
+    A Meta entrega tudo aninhado em entry[].changes[].value, e separa mensagens
+    recebidas (`messages`) de confirmacoes de entrega (`statuses`). Aqui so as
+    mensagens interessam -- os status sao tratados no endpoint.
+
+    Grupo nao existe neste canal: a Cloud API atende apenas conversa individual.
+    """
+    vazio = {
+        "from_number": "", "text": "", "site": "", "is_group": False,
+        "source_group_jid": "", "source_group": "", "from_name": "",
+        "photo_url": "", "photo_base64": "",
+    }
+    entradas = payload.get("entry") if isinstance(payload.get("entry"), list) else []
+    for entrada in entradas:
+        mudancas = (entrada or {}).get("changes") if isinstance(entrada, dict) else []
+        for mudanca in mudancas if isinstance(mudancas, list) else []:
+            valor = (mudanca or {}).get("value") if isinstance(mudanca, dict) else {}
+            if not isinstance(valor, dict):
+                continue
+            mensagens = valor.get("messages") if isinstance(valor.get("messages"), list) else []
+            if not mensagens:
+                continue
+            msg = mensagens[0] if isinstance(mensagens[0], dict) else {}
+            tipo = _text(msg.get("type"), 32)
+            texto = ""
+            if tipo == "text":
+                texto = (msg.get("text") or {}).get("body") or ""
+            elif tipo in {"image", "document", "video"}:
+                texto = (msg.get(tipo) or {}).get("caption") or ""
+            elif tipo == "button":
+                texto = (msg.get("button") or {}).get("text") or ""
+            elif tipo == "interactive":
+                interativo = msg.get("interactive") or {}
+                texto = ((interativo.get("button_reply") or {}).get("title")
+                         or (interativo.get("list_reply") or {}).get("title") or "")
+
+            contatos = valor.get("contacts") if isinstance(valor.get("contacts"), list) else []
+            nome = ""
+            if contatos and isinstance(contatos[0], dict):
+                nome = ((contatos[0].get("profile") or {}).get("name")) or ""
+
+            return {
+                **vazio,
+                "from_number": _digits(msg.get("from")),
+                "text": _text(texto, 2000),
+                "from_name": _text(nome, 160),
+            }
+    return vazio
+
+
+def extract_meta_statuses(payload: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Confirmacoes de entrega que a Meta manda pelo mesmo webhook.
+
+    E o que faltava nos provedores nao oficiais: aqui a plataforma avisa quando
+    a mensagem foi entregue, lida ou falhou -- e por que falhou.
+    """
+    saida: List[Dict[str, str]] = []
+    for entrada in payload.get("entry") if isinstance(payload.get("entry"), list) else []:
+        for mudanca in (entrada or {}).get("changes") or [] if isinstance(entrada, dict) else []:
+            valor = (mudanca or {}).get("value") if isinstance(mudanca, dict) else {}
+            for st in (valor.get("statuses") or []) if isinstance(valor, dict) else []:
+                if not isinstance(st, dict):
+                    continue
+                erros = st.get("errors") if isinstance(st.get("errors"), list) else []
+                motivo = ""
+                if erros and isinstance(erros[0], dict):
+                    motivo = _text(erros[0].get("title") or erros[0].get("message"), 200)
+                saida.append({
+                    "message_id": _text(st.get("id"), 120),
+                    "status": _text(st.get("status"), 40),
+                    "recipient": _digits(st.get("recipient_id")),
+                    "error": motivo,
+                })
+    return saida
+
+
 def process_access_whatsapp_inbound(payload: Dict[str, Any]) -> Dict[str, Any]:
-    extracted = extract_evolution_inbound(payload if isinstance(payload, dict) else {})
+    payload = payload if isinstance(payload, dict) else {}
+    if payload.get("object") == "whatsapp_business_account" or isinstance(payload.get("entry"), list):
+        extracted = extract_meta_inbound(payload)
+    else:
+        extracted = extract_evolution_inbound(payload)
     if extracted["is_group"]:
         group_rule = _triage_group_rule(extracted.get("source_group_jid"))
         if not group_rule:

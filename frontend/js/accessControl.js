@@ -543,43 +543,31 @@ function renderAccessControlSummary(summary, force = false) {
 }
 
 function renderAccessWhatsappKpiStatus(data = {}) {
-  const state = String(data?.state || '').toLowerCase();
-  const connected = !!data?.connected || state === 'connected';
-  const configured = data?.configured !== false && state !== 'not_configured';
-  if (connected) {
-    setText('accessKpiWhatsapp', 'Conectado');
-    setText('accessKpiWhatsappSub', 'mensagens privadas ativas');
-    return;
-  }
-  if (!configured || state === 'not_configured') {
+  const configurado = !!data?.configured;
+  if (!configurado) {
     setText('accessKpiWhatsapp', 'Nao configurado');
-    setText('accessKpiWhatsappSub', 'clique para conectar');
+    setText('accessKpiWhatsappSub', 'configure na aba Conexoes');
     return;
   }
-  if (state === 'waiting_qr') {
-    setText('accessKpiWhatsapp', 'QR pendente');
-    setText('accessKpiWhatsappSub', 'escaneie para ativar');
-    return;
+  setText('accessKpiWhatsapp', 'Conectado');
+  // Com mais de uma escola, citar so a primeira daria a impressao de que as
+  // demais estao fora do ar.
+  const escolas = Array.isArray(data?.configured_sites) ? data.configured_sites : [];
+  const site = String(data?.site || '').trim();
+  if (escolas.length > 1) {
+    setText('accessKpiWhatsappSub', `${escolas.length} escolas conectadas`);
+  } else if (escolas.length === 1 || site) {
+    setText('accessKpiWhatsappSub', `via ${escolas[0] || site}`);
+  } else {
+    setText('accessKpiWhatsappSub', 'canal oficial da Meta');
   }
-  if (state === 'disconnected') {
-    setText('accessKpiWhatsapp', 'Desconectado');
-    setText('accessKpiWhatsappSub', 'clique para reconectar');
-    return;
-  }
-  if (state === 'error') {
-    setText('accessKpiWhatsapp', 'Erro');
-    setText('accessKpiWhatsappSub', 'verifique a conexao');
-    return;
-  }
-  setText('accessKpiWhatsapp', 'Verificando');
-  setText('accessKpiWhatsappSub', 'status da conexao');
 }
 
 async function loadAccessWhatsappKpiStatus(force = false) {
   if (_accessWhatsappKpiLoading) return;
   _accessWhatsappKpiLoading = true;
   try {
-    const data = await apiJson('/api/access-control/whatsapp/connection', { forceRefresh: force, cacheTtl: 0 });
+    const data = await apiJson('/api/access-control/whatsapp/connection?summary=1', { forceRefresh: force, cacheTtl: 0 });
     renderAccessWhatsappKpiStatus(data);
   } catch (err) {
     renderAccessWhatsappKpiStatus({ state: 'error', error: err?.message || '' });
@@ -1092,10 +1080,9 @@ function bindAccessConnections() {
   document.getElementById('btnAccessWhatsappReload')?.addEventListener('click', () => loadAccessWhatsappConfig(true));
   document.getElementById('btnAccessWhatsappSave')?.addEventListener('click', saveAccessWhatsappConfig);
   document.getElementById('btnAccessWhatsappTest')?.addEventListener('click', testAccessWhatsappConfig);
-  document.getElementById('btnAccessWhatsappQr')?.addEventListener('click', refreshAccessWhatsappQr);
-  document.getElementById('btnAccessWhatsappConnection')?.addEventListener('click', () => loadAccessWhatsappConnection(true));
-  document.getElementById('btnAccessWhatsappDisconnect')?.addEventListener('click', disconnectAccessWhatsapp);
+  document.getElementById('btnAccessWhatsappConnection')?.addEventListener('click', verificarCanalWhatsapp);
   document.getElementById('accessWhatsappSite')?.addEventListener('change', () => loadAccessWhatsappConfig(true));
+  document.getElementById('accessWhatsappProvider')?.addEventListener('change', updateAccessWhatsappProviderUi);
 }
 
 function accessWhatsappSiteValue() {
@@ -1105,6 +1092,21 @@ function accessWhatsappSiteValue() {
 function accessWhatsappSiteQuery() {
   const site = accessWhatsappSiteValue();
   return site ? `?site=${encodeURIComponent(site)}` : '';
+}
+
+function accessWhatsappProviderValue() {
+  return (document.getElementById('accessWhatsappProvider')?.value || 'evolution').toLowerCase();
+}
+
+// A API oficial nao tem sessao nem QR: a autenticacao e um token permanente,
+// entao a metade da tela pensada para parear aparelho nao se aplica.
+function isAccessWhatsappCloudProvider(provider = accessWhatsappProviderValue()) {
+  return provider === 'cloud_api' || provider === 'cloud' || provider === 'oficial';
+}
+
+function updateAccessWhatsappProviderUi() {
+  // So existe o canal oficial: nada a alternar. Os dados do painel vem do
+  // endpoint de conexao, que consulta a propria Meta.
 }
 
 function setAccessWhatsappStatus(config = null) {
@@ -1123,10 +1125,17 @@ async function loadAccessWhatsappConfig(force = false) {
     const data = await apiJson(`/api/access-control/whatsapp${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
     _accessWhatsappCurrentConfigured = !!data.configured;
     document.getElementById('accessWhatsappProvider').value = data.provider || 'evolution';
-    document.getElementById('accessWhatsappBaseUrl').value = data.base_url || '';
-    document.getElementById('accessWhatsappInstance').value = data.instance || 'sightops';
     document.getElementById('accessWhatsappEnabled').checked = !!data.enabled;
-    document.getElementById('accessWhatsappApiKey').value = '';
+    const porId = (id, valor) => {
+      const el = document.getElementById(id);
+      if (el) el.value = valor || '';
+    };
+    porId('accessWhatsappPhoneId', data.phone_number_id);
+    porId('accessWhatsappWabaId', data.waba_id);
+    porId('accessWhatsappTemplate', data.template_name);
+    porId('accessWhatsappTemplateLang', data.template_language || 'pt_BR');
+    porId('accessWhatsappToken', '');   // o token nunca volta do servidor
+    updateAccessWhatsappProviderUi();
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(force);
   } catch (err) {
@@ -1144,18 +1153,23 @@ async function saveAccessWhatsappConfig() {
     site: accessWhatsappSiteValue(),
     enabled: !!document.getElementById('accessWhatsappEnabled')?.checked,
     provider: document.getElementById('accessWhatsappProvider')?.value || 'evolution',
-    base_url: document.getElementById('accessWhatsappBaseUrl')?.value.trim() || '',
-    api_key: document.getElementById('accessWhatsappApiKey')?.value || '',
-    instance: document.getElementById('accessWhatsappInstance')?.value.trim() || 'sightops',
   };
-  if (payload.enabled && (!payload.base_url || !payload.instance)) {
-    showToast('Informe URL da API e instancia para ativar o WhatsApp.', true);
-    return null;
-  }
-  if (payload.enabled && !payload.api_key && !_accessWhatsappCurrentConfigured) {
-    showToast('Informe a API key para ativar o WhatsApp.', true);
-    document.getElementById('accessWhatsappApiKey')?.focus();
-    return null;
+  if (isAccessWhatsappCloudProvider(payload.provider)) {
+    payload.phone_number_id = document.getElementById('accessWhatsappPhoneId')?.value.trim() || '';
+    payload.waba_id = document.getElementById('accessWhatsappWabaId')?.value.trim() || '';
+    payload.access_token = document.getElementById('accessWhatsappToken')?.value || '';
+    payload.template_name = document.getElementById('accessWhatsappTemplate')?.value.trim() || '';
+    payload.template_language = document.getElementById('accessWhatsappTemplateLang')?.value.trim() || 'pt_BR';
+    if (payload.enabled && !payload.phone_number_id) {
+      showToast('Informe o Phone Number ID para ativar a API oficial.', true);
+      document.getElementById('accessWhatsappPhoneId')?.focus();
+      return null;
+    }
+    if (payload.enabled && !payload.access_token && !_accessWhatsappCurrentConfigured) {
+      showToast('Informe o token de acesso para ativar a API oficial.', true);
+      document.getElementById('accessWhatsappToken')?.focus();
+      return null;
+    }
   }
   if (btn) {
     btn.disabled = true;
@@ -1165,7 +1179,8 @@ async function saveAccessWhatsappConfig() {
   try {
     const res = await api('/api/access-control/whatsapp', { method: 'PUT', body: JSON.stringify(payload) });
     const data = await jsonOrReadableError(res, 'Nao foi possivel salvar o WhatsApp.');
-    document.getElementById('accessWhatsappApiKey').value = '';
+    const campoToken = document.getElementById('accessWhatsappToken');
+    if (campoToken) campoToken.value = '';
     _accessWhatsappCurrentConfigured = !!data.configured;
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(true);
@@ -1184,57 +1199,76 @@ async function saveAccessWhatsappConfig() {
 }
 
 function setAccessWhatsappConnection(data = null) {
+  // Canal oficial: nao ha sessao para cair. O painel mostra de quem a mensagem
+  // sai e em que estado esta o modelo -- que e o que costuma travar o envio.
   const status = document.getElementById('accessWhatsappConnectionStatus');
-  const img = document.getElementById('accessWhatsappQrImage');
-  const placeholder = document.getElementById('accessWhatsappQrPlaceholder');
-  const box = document.getElementById('accessWhatsappQrBox');
-  const title = document.getElementById('accessWhatsappQrTitle');
-  const hint = document.getElementById('accessWhatsappQrHint');
-  const disconnectBtn = document.getElementById('btnAccessWhatsappDisconnect');
-  const state = String(data?.state || '').toLowerCase();
-  const connected = !!data?.connected || state === 'connected';
-  const qrcode = data?.qrcode || '';
-
-  box?.classList.toggle('connected', connected);
-  if (disconnectBtn) disconnectBtn.disabled = !connected && state !== 'unknown';
+  const escreve = (id, valor) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = valor || '-';
+  };
+  const configurado = !!data?.configured;
 
   if (status) {
-    if (connected) {
-      status.textContent = 'Conectado';
+    if (!data) {
+      status.textContent = 'Indisponivel';
+      status.className = 'badge badge-gray';
+    } else if (configurado) {
+      status.textContent = 'Pronto';
       status.className = 'badge badge-green';
-    } else if (state === 'waiting_qr' || qrcode) {
-      status.textContent = 'Aguardando QR';
-      status.className = 'badge badge-amber';
-    } else if (state === 'not_configured') {
+    } else {
       status.textContent = 'Nao configurado';
       status.className = 'badge badge-gray';
-    } else if (state === 'error') {
-      status.textContent = 'Erro';
-      status.className = 'badge badge-red';
-    } else {
-      status.textContent = 'Desconectado';
-      status.className = 'badge badge-gray';
     }
   }
 
-  if (img && placeholder) {
-    if (qrcode && !connected) {
-      img.src = qrcode.startsWith('data:image/') ? qrcode : `data:image/png;base64,${qrcode}`;
-      img.hidden = false;
-      placeholder.hidden = true;
-    } else {
-      img.hidden = true;
-      img.removeAttribute('src');
-      placeholder.hidden = false;
-      placeholder.textContent = connected ? 'OK' : 'QR Code indisponivel';
-    }
-  }
+  escreve('accessWhatsappCloudNumber', data?.display_phone_number || data?.phone_number_id);
+  escreve('accessWhatsappCloudName', data?.verified_name);
 
-  if (title) title.textContent = connected ? 'WhatsApp conectado' : 'Escaneie o QR Code';
-  if (hint) {
-    hint.textContent = connected
-      ? 'A instancia esta pronta para enviar mensagens privadas.'
-      : (data?.qr_error || data?.error || 'Use WhatsApp > Aparelhos conectados para escanear.');
+  const QUALIDADE = { GREEN: 'Boa', YELLOW: 'Media', RED: 'Baixa', UNKNOWN: 'Sem historico' };
+  escreve('accessWhatsappCloudQuality', QUALIDADE[String(data?.quality_rating || '').toUpperCase()]);
+
+  const SITUACAO = { APPROVED: 'aprovado', PENDING: 'em analise', REJECTED: 'reprovado' };
+  const modelo = data?.template_name;
+  const situacao = SITUACAO[String(data?.template_status || '').toUpperCase()];
+  escreve('accessWhatsappCloudTemplate', modelo ? (situacao ? `${modelo} (${situacao})` : modelo) : null);
+
+  // sem restaurar o texto padrao, um erro de um site ficava grudado ao trocar
+  // para outro que esta funcionando
+  const nota = document.getElementById('accessWhatsappCloudHint');
+  if (nota) {
+    nota.textContent = data?.error || 'Sem QR Code e sem sessao: a autenticacao e um token permanente.';
+  }
+}
+
+async function verificarCanalWhatsapp() {
+  // Sem retorno visual a verificacao parece nao fazer nada: os valores quase
+  // nunca mudam, entao repintar em silencio e indistinguivel de botao quebrado.
+  const btn = document.getElementById('btnAccessWhatsappConnection');
+  const htmlAntigo = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Verificando';
+    lucide.createIcons();
+  }
+  try {
+    const data = await loadAccessWhatsappConnection(true);
+    if (!data) {
+      showToast('Nao foi possivel falar com a Meta.', true);
+    } else if (!data.configured) {
+      showToast(data.error || 'Canal ainda nao configurado.', true);
+    } else {
+      const modelo = data.template_status === 'APPROVED' ? 'modelo aprovado'
+        : data.template_status === 'PENDING' ? 'modelo em analise'
+        : data.template_status === 'REJECTED' ? 'modelo reprovado'
+        : 'usando modelo padrao';
+      showToast(`Canal ativo em ${data.display_phone_number || data.phone_number_id} (${modelo}).`);
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = htmlAntigo;
+      lucide.createIcons();
+    }
   }
 }
 
@@ -1246,57 +1280,6 @@ async function loadAccessWhatsappConnection(force = false) {
   } catch (err) {
     setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel consultar a conexao.' });
     return null;
-  }
-}
-
-async function refreshAccessWhatsappQr() {
-  const saved = await saveAccessWhatsappConfig();
-  if (!saved) return;
-  const btn = document.getElementById('btnAccessWhatsappQr');
-  const oldHtml = btn?.innerHTML;
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<i data-lucide="loader-circle"></i> Atualizando';
-    lucide.createIcons();
-  }
-  try {
-    const res = await api(`/api/access-control/whatsapp/qr${accessWhatsappSiteQuery()}`, { method: 'POST' });
-    const data = await jsonOrReadableError(res, 'Nao foi possivel atualizar o QR Code.');
-    setAccessWhatsappConnection(data);
-    showToast(data.connected ? 'WhatsApp ja esta conectado.' : 'QR Code atualizado.');
-  } catch (err) {
-    setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel atualizar o QR Code.' });
-    showToast(err?.message || 'Nao foi possivel atualizar o QR Code.', true);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = oldHtml || '<i data-lucide="qr-code"></i> Atualizar QR';
-      lucide.createIcons();
-    }
-  }
-}
-
-async function disconnectAccessWhatsapp() {
-  const btn = document.getElementById('btnAccessWhatsappDisconnect');
-  const oldHtml = btn?.innerHTML;
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<i data-lucide="loader-circle"></i> Desconectando';
-    lucide.createIcons();
-  }
-  try {
-    const res = await api(`/api/access-control/whatsapp/disconnect${accessWhatsappSiteQuery()}`, { method: 'POST' });
-    const data = await jsonOrReadableError(res, 'Nao foi possivel desconectar o WhatsApp.');
-    setAccessWhatsappConnection(data);
-    showToast('WhatsApp desconectado.');
-  } catch (err) {
-    setAccessWhatsappConnection({ state: 'error', error: err?.message || 'Nao foi possivel desconectar o WhatsApp.' });
-    showToast(err?.message || 'Nao foi possivel desconectar o WhatsApp.', true);
-  } finally {
-    if (btn) {
-      btn.innerHTML = oldHtml || '<i data-lucide="log-out"></i> Desconectar';
-      lucide.createIcons();
-    }
   }
 }
 
@@ -1325,11 +1308,12 @@ async function testAccessWhatsappConfig() {
     const res = await api('/api/access-control/whatsapp/test', { method: 'POST', body: JSON.stringify({ number, site: accessWhatsappSiteValue() }) });
     const data = await jsonOrReadableError(res, 'Nao foi possivel enviar o teste.');
     if (status) {
-      status.textContent = data.status === 'whatsapp_sent' ? 'Enviado' : 'Verifique';
-      status.className = `badge ${data.status === 'whatsapp_sent' ? 'badge-green' : 'badge-gray'}`;
+      const pending = data.status === 'whatsapp_pending';
+      status.textContent = data.status === 'whatsapp_sent' ? 'Enviado' : (pending ? 'Pendente' : 'Verifique');
+      status.className = `badge ${data.status === 'whatsapp_sent' ? 'badge-green' : (pending ? 'badge-amber' : 'badge-gray')}`;
     }
-    if (result) result.textContent = 'Teste enviado. Confira o WhatsApp do numero informado.';
-    showToast('Teste de WhatsApp enviado.');
+    if (result) result.textContent = data.status === 'whatsapp_pending' ? 'A API aceitou a mensagem, mas ainda nao confirmou entrega.' : 'Teste enviado. Confira o WhatsApp do numero informado.';
+    showToast(data.status === 'whatsapp_pending' ? 'Teste aceito pela API.' : 'Teste de WhatsApp enviado.');
   } catch (err) {
     if (status) {
       status.textContent = 'Erro';

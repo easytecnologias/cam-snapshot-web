@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=240">
+  <link rel="stylesheet" href="styles.css?v=245">
 </head>
 <body>
 
@@ -2016,7 +2016,7 @@
             <div class="access-connection-steps">
               <div><span>1</span><strong>Evento</strong><small>Entrada, saida ou saida manual</small></div>
               <div><span>2</span><strong>Responsavel</strong><small>Telefone salvo no cadastro da pessoa</small></div>
-              <div><span>3</span><strong>Evolution API</strong><small>Instancia WhatsApp conectada</small></div>
+              <div><span>3</span><strong>Provedor WhatsApp</strong><small>Canal configurado para envio</small></div>
               <div><span>4</span><strong>Entrega</strong><small>Mensagem privada para o responsavel</small></div>
             </div>
           </div>
@@ -2037,16 +2037,16 @@
                     <option value="">Padrao do cliente</option>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label for="accessWhatsappInstance">Instancia</label>
-                  <input id="accessWhatsappInstance" placeholder="sightops">
+                <div class="form-group" id="accessWhatsappPhoneIdGroup">
+                  <label for="accessWhatsappPhoneId">Phone Number ID</label>
+                  <input id="accessWhatsappPhoneId" placeholder="Identificacao do numero na Meta">
                 </div>
               </div>
               <div class="form-row access-provider-row">
                 <div class="form-group">
                   <label for="accessWhatsappProvider">Provedor</label>
                   <select id="accessWhatsappProvider">
-                    <option value="evolution">Evolution API</option>
+                    <option value="cloud_api">API Oficial (Meta)</option>
                   </select>
                 </div>
                 <div class="form-group access-technical-group">
@@ -2055,14 +2055,24 @@
                     <summary>
                       <span><i data-lucide="settings-2"></i> Configuracao tecnica</span>
                     </summary>
-                    <div class="form-row">
+                    <div class="form-row" id="accessWhatsappCloudRow">
                       <div class="form-group">
-                        <label for="accessWhatsappBaseUrl">Endpoint interno</label>
-                        <input id="accessWhatsappBaseUrl" placeholder="http://10.10.12.7:8080">
+                        <label for="accessWhatsappWabaId">WABA ID</label>
+                        <input id="accessWhatsappWabaId" placeholder="Identificacao da conta WhatsApp Business">
                       </div>
                       <div class="form-group">
-                        <label for="accessWhatsappApiKey">API key</label>
-                        <input id="accessWhatsappApiKey" type="password" placeholder="Deixe vazio para manter a atual">
+                        <label for="accessWhatsappToken">Token de acesso</label>
+                        <input id="accessWhatsappToken" type="password" placeholder="Deixe vazio para manter o atual">
+                      </div>
+                    </div>
+                    <div class="form-row" id="accessWhatsappTemplateRow">
+                      <div class="form-group">
+                        <label for="accessWhatsappTemplate">Template aprovado</label>
+                        <input id="accessWhatsappTemplate" placeholder="acesso_entrada_saida">
+                      </div>
+                      <div class="form-group">
+                        <label for="accessWhatsappTemplateLang">Idioma do template</label>
+                        <input id="accessWhatsappTemplateLang" placeholder="pt_BR">
                       </div>
                     </div>
                   </details>
@@ -2084,25 +2094,22 @@
             <div class="panel-header">
               <div>
                 <h2>Conexao WhatsApp</h2>
-                <p>Conecte o aparelho que enviara as mensagens do Controle de Acesso.</p>
+                <p>Origem das mensagens enviadas aos responsaveis.</p>
               </div>
               <span class="badge badge-gray" id="accessWhatsappConnectionStatus">Aguardando</span>
             </div>
             <div class="access-connection-form">
-              <div class="access-whatsapp-qr" id="accessWhatsappQrBox">
-                <div class="access-whatsapp-qr-frame">
-                  <img id="accessWhatsappQrImage" alt="QR Code do WhatsApp" hidden>
-                  <div id="accessWhatsappQrPlaceholder">QR Code indisponivel</div>
-                </div>
-                <div class="access-whatsapp-qr-copy">
-                  <strong id="accessWhatsappQrTitle">Aguardando conexao</strong>
-                  <span id="accessWhatsappQrHint">Use WhatsApp &gt; Aparelhos conectados para escanear.</span>
-                </div>
+              <div class="access-whatsapp-cloud" id="accessWhatsappCloudBox">
+                <dl class="access-whatsapp-cloud-facts">
+                  <div><dt>Numero remetente</dt><dd id="accessWhatsappCloudNumber">-</dd></div>
+                  <div><dt>Nome exibido</dt><dd id="accessWhatsappCloudName">-</dd></div>
+                  <div><dt>Modelo de mensagem</dt><dd id="accessWhatsappCloudTemplate">-</dd></div>
+                  <div><dt>Qualidade da conta</dt><dd id="accessWhatsappCloudQuality">-</dd></div>
+                </dl>
+                <p class="access-whatsapp-cloud-note" id="accessWhatsappCloudHint">Sem QR Code e sem sessao: a autenticacao e um token permanente.</p>
               </div>
               <div class="access-connection-actions">
-                <button class="primary-action" id="btnAccessWhatsappQr" type="button"><i data-lucide="qr-code"></i> Atualizar QR</button>
                 <button class="secondary-action" id="btnAccessWhatsappConnection" type="button"><i data-lucide="activity"></i> Verificar conexao</button>
-                <button class="secondary-action danger-action" id="btnAccessWhatsappDisconnect" type="button"><i data-lucide="log-out"></i> Desconectar</button>
               </div>
             </div>
           </div>
@@ -2111,7 +2118,7 @@
             <div class="panel-header">
               <div>
                 <h2>Teste de envio</h2>
-                <p>Use um numero liberado no WhatsApp conectado para validar a entrega.</p>
+                <p>Use um numero liberado na conta da Meta para validar a entrega.</p>
               </div>
               <span class="badge badge-gray" id="accessWhatsappTestStatus">Aguardando</span>
             </div>
@@ -5964,7 +5971,7 @@
   <script src="js/monitoring.js?v=8"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=70"></script>
+  <script src="js/accessControl.js?v=78"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=189"></script>

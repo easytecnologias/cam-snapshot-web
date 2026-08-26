@@ -121,8 +121,14 @@ def _whatsapp_target(phone: Any) -> str:
     return f"+{digits}"
 
 
-def _evolution_number(phone: Any) -> str:
+def _numero_whatsapp(phone: Any) -> str:
     return _digits(_whatsapp_target(phone))
+
+
+def _whatsapp_provider(cfg: Dict[str, Any]) -> str:
+    # A API oficial e o unico canal suportado; provedores antigos gravados nas
+    # configuracoes viram cloud_api para nao deixarem a tela em branco.
+    return "cloud_api"
 
 
 def _site_key(site: Any) -> str:
@@ -173,31 +179,97 @@ def _send_telegram(settings: Dict[str, Any], message: str) -> str:
     return "telegram_failed"
 
 
-def _send_whatsapp_evolution(cfg: Dict[str, Any], event: Dict[str, Any], message: str) -> str:
-    base_url = _text(cfg.get("base_url"), 500).rstrip("/")
-    api_key = _text(cfg.get("api_key"), 300)
-    instance = _text(cfg.get("instance") or cfg.get("instance_name"), 120)
-    number = _evolution_number(event.get("guardian_phone"))
-    if not base_url or not api_key or not instance or not number:
+_GRAPH_VERSION = "v21.0"
+
+
+def _cloud_cfg(cfg: Dict[str, Any]) -> Dict[str, str]:
+    """Credenciais da Cloud API oficial da Meta."""
+    return {
+        # Sem heranca de instance/api_key: sao campos de outro provedor e faziam
+        # uma configuracao velha da Evolution passar por configuracao da Meta.
+        "phone_number_id": _text(cfg.get("phone_number_id"), 60),
+        "access_token": _text(cfg.get("access_token"), 600),
+        "template_name": _text(cfg.get("template_name"), 120),
+        "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
+    }
+
+
+def _cloud_template_params(event: Dict[str, Any], message: str) -> list[Dict[str, str]]:
+    """Variaveis do template, na ordem em que foram cadastradas na Meta.
+
+    A Cloud API nao aceita texto livre em mensagem iniciada pela empresa: o corpo
+    e um template aprovado com lacunas. Por isso o evento e desmontado em campos
+    em vez de mandar a frase pronta que o Telegram recebe.
+    """
+    return [
+        {"type": "text", "text": _event_label(event.get("event_type")) or "Acesso"},
+        {"type": "text", "text": _text(event.get("site"), 60) or "-"},
+        {"type": "text", "text": _text(event.get("person_name") or event.get("person_name_raw"), 60) or "-"},
+        {"type": "text", "text": _text(event.get("occurred_at"), 40) or "-"},
+    ]
+
+
+def _send_whatsapp_cloud(cfg: Dict[str, Any], event: Dict[str, Any], message: str) -> str:
+    """Envia pela API oficial da Meta.
+
+    Diferente dos provedores nao oficiais, aqui a resposta diz o que aconteceu:
+    'accepted' com o wamid, ou um objeto de erro com motivo. Falha nao vira
+    silencio -- vai para o log com a mensagem que a Meta devolveu.
+    """
+    dados = _cloud_cfg(cfg)
+    numero = _numero_whatsapp(event.get("guardian_phone"))
+    if not dados["phone_number_id"] or not dados["access_token"] or not numero:
         return "whatsapp_skipped"
+    if event.get("whatsapp_enabled") is False:
+        return "whatsapp_skipped"
+
+    if dados["template_name"]:
+        corpo = {
+            "messaging_product": "whatsapp",
+            "to": numero,
+            "type": "template",
+            "template": {
+                "name": dados["template_name"],
+                "language": {"code": dados["template_language"]},
+                "components": [{"type": "body", "parameters": _cloud_template_params(event, message)}],
+            },
+        }
+    else:
+        # Sem template proprio cadastrado ainda: usa o de exemplo da Meta, que
+        # existe em toda conta nova. Serve para validar a ligacao ponta a ponta.
+        corpo = {
+            "messaging_product": "whatsapp",
+            "to": numero,
+            "type": "template",
+            "template": {"name": "hello_world", "language": {"code": "en_US"}},
+        }
+
     response = requests.post(
-        f"{base_url}/message/sendText/{instance}",
-        headers={"apikey": api_key, "Content-Type": "application/json"},
-        json={
-            "number": number,
-            "text": message,
-            "linkPreview": False,
-        },
-        timeout=20,
+        f"https://graph.facebook.com/{_GRAPH_VERSION}/{dados['phone_number_id']}/messages",
+        headers={"Authorization": f"Bearer {dados['access_token']}", "Content-Type": "application/json"},
+        json=corpo,
+        timeout=25,
     )
+    payload = _resposta_json(response)
     if 200 <= int(response.status_code or 0) < 300:
-        return "whatsapp_sent"
+        estado = ((payload.get("messages") or [{}])[0] or {}).get("message_status") or "accepted"
+        if estado in {"accepted", "sent", "delivered", "read"}:
+            return "whatsapp_sent"
+        logger.warning("Cloud API devolveu estado inesperado: %s", estado)
+        return "whatsapp_failed"
+    erro = payload.get("error") or {}
+    logger.warning(
+        "Cloud API recusou a mensagem (HTTP %s): %s | codigo %s",
+        response.status_code,
+        erro.get("message") or response.text[:200],
+        erro.get("code"),
+    )
     return "whatsapp_failed"
 
 
 def send_access_whatsapp_text(number: Any, message: str, *, site: Any = "") -> Dict[str, Any]:
     """Envia uma resposta direta pelo mesmo canal usado nas notificacoes."""
-    target = _evolution_number(number)
+    target = _numero_whatsapp(number)
     text = _text(message, 4000)
     cfg = _access_whatsapp_cfg(db_store.load_app_settings(), site)
     if not target:
@@ -206,171 +278,156 @@ def send_access_whatsapp_text(number: Any, message: str, *, site: Any = "") -> D
         return {"ok": False, "status": "whatsapp_skipped", "error": "Mensagem vazia."}
     if not cfg.get("enabled"):
         return {"ok": False, "status": "whatsapp_skipped", "error": "WhatsApp desativado."}
-    if _text(cfg.get("provider"), 40).lower() != "evolution":
-        return {"ok": False, "status": "whatsapp_skipped", "error": "Provedor nao suportado para resposta."}
     try:
-        status = _send_whatsapp_evolution(cfg, {"guardian_phone": target, "whatsapp_enabled": True}, text)
+        status = _send_whatsapp_cloud(cfg, {"guardian_phone": target, "whatsapp_enabled": True}, text)
     except Exception as exc:
         logger.warning("Falha ao enviar resposta WhatsApp de acesso: %s", exc)
         return {"ok": False, "status": "whatsapp_failed", "error": str(exc)}
     return {"ok": status == "whatsapp_sent", "status": status}
 
 
-def _evolution_cfg(site: Any = "") -> Dict[str, str]:
-    cfg = _access_whatsapp_cfg(db_store.load_app_settings(), site)
-    if _text(cfg.get("provider"), 40).lower() != "evolution":
+def _resposta_json(response: requests.Response) -> Dict[str, Any]:
+    try:
+        data = response.json() if response.content else {}
+    except Exception:
         return {}
-    return {
-        "base_url": _text(cfg.get("base_url"), 500).rstrip("/"),
-        "api_key": _text(cfg.get("api_key"), 300),
-        "instance": _text(cfg.get("instance") or cfg.get("instance_name"), 120),
-    }
+    return data if isinstance(data, dict) else {}
 
 
-def _evolution_headers(cfg: Dict[str, str]) -> Dict[str, str]:
-    return {"apikey": cfg["api_key"], "Content-Type": "application/json"}
+def resolver_cliente_por_numero(phone_number_id: Any) -> Dict[str, str]:
+    """Descobre de qual cliente e escola e o numero que recebeu a mensagem.
+
+    A Meta entrega um webhook unico para o app inteiro. Como cada cliente tem
+    seu proprio numero, o phone_number_id do payload e o que separa um do outro
+    -- sem isso, mensagem de um cliente seria gravada nos dados de outro.
+    """
+    alvo = _text(phone_number_id, 60)
+    if not alvo:
+        return {}
+    from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+    from app.services.monitoring_service import list_monitoring_tenants
+
+    try:
+        clientes = list_monitoring_tenants()
+    except Exception as exc:
+        logger.warning("Nao foi possivel listar clientes para resolver o webhook: %s", exc)
+        return {}
+
+    for slug in clientes:
+        ctx = set_current_tenant_slug(slug)
+        try:
+            settings = db_store.load_app_settings()
+            candidatos = [("", settings.get("access_control_whatsapp_notifications") or {})]
+            candidatos += list(_access_whatsapp_site_configs(settings).items())
+            for site, cfg in candidatos:
+                if not isinstance(cfg, dict):
+                    continue
+                if _text(cfg.get("phone_number_id"), 60) == alvo:
+                    return {"tenant": slug, "site": site}
+        except Exception as exc:
+            logger.warning("Falha ao ler configuracao de %s ao resolver webhook: %s", slug, exc)
+        finally:
+            reset_current_tenant_slug(ctx)
+    return {}
 
 
-def _evolution_state_label(data: Dict[str, Any]) -> str:
-    raw = (
-        data.get("state")
-        or data.get("status")
-        or (data.get("instance") or {}).get("state")
-        or (data.get("instance") or {}).get("status")
-        or ""
-    )
-    state = _text(raw, 40).lower()
-    if state in {"open", "connected", "online"}:
-        return "connected"
-    if state in {"connecting", "qrcode", "qr", "pairing"}:
-        return "waiting_qr"
-    if state in {"close", "closed", "disconnected", "offline"}:
-        return "disconnected"
-    return state or "unknown"
+def get_access_whatsapp_connection(*, refresh_qr: bool = False, site: Any = "", resumo: bool = False) -> Dict[str, Any]:
+    """Estado do canal oficial.
 
+    Nao existe QR nem sessao para cair: a autenticacao e um token permanente.
+    O que interessa saber e se as credenciais estao no lugar e se o template
+    escolhido ja foi aprovado pela Meta.
+    """
+    settings = db_store.load_app_settings()
+    cfg = _access_whatsapp_cfg(settings, site)
+    dados = _cloud_cfg(cfg)
+    site_efetivo = _site_key(site)
 
-def _evolution_qrcode_base64(data: Dict[str, Any]) -> str:
-    raw = data.get("base64") or (data.get("qrcode") or {}).get("base64") or ""
-    return _text(raw, 200000)
+    # Sem site escolhido, o indicador do topo perguntaria pela configuracao
+    # global e diria "nao configurado" mesmo com escolas enviando normalmente.
+    # Entao, na falta dela, responde pela primeira escola configurada.
+    # So o indicador do topo (resumo) responde por outra escola. No painel de
+    # Conexoes, escolher "Padrao do cliente" tem que mostrar o padrao do cliente
+    # -- e nao os dados de uma escola que o usuario nao selecionou.
+    sites_ok: list[str] = []
+    if not site_efetivo and resumo:
+        for nome_site in _access_whatsapp_site_configs(settings):
+            candidato = _cloud_cfg(_access_whatsapp_cfg(settings, nome_site))
+            if candidato["phone_number_id"] and candidato["access_token"]:
+                sites_ok.append(nome_site)
+        if (not dados["phone_number_id"] or not dados["access_token"]) and sites_ok:
+            site_efetivo = sites_ok[0]
+            cfg = _access_whatsapp_cfg(settings, site_efetivo)
+            dados = _cloud_cfg(cfg)
 
-
-def get_access_whatsapp_connection(*, refresh_qr: bool = False, site: Any = "") -> Dict[str, Any]:
-    cfg = _evolution_cfg(site)
-    if not cfg.get("base_url") or not cfg.get("api_key") or not cfg.get("instance"):
+    if not dados["phone_number_id"] or not dados["access_token"]:
         return {
             "ok": False,
             "configured": False,
             "state": "not_configured",
             "connected": False,
             "qrcode": "",
-            "error": "WhatsApp nao configurado.",
+            "external_connection": True,
+            "error": "Informe Phone Number ID e token da API oficial.",
         }
-
-    base_url = cfg["base_url"]
-    instance = cfg["instance"]
-    headers = _evolution_headers(cfg)
-    result: Dict[str, Any] = {"ok": True, "configured": True, "state": "unknown", "connected": False, "qrcode": ""}
-
+    resultado = {
+        "ok": True,
+        "configured": True,
+        "connected": True,
+        "state": "connected",
+        "qrcode": "",
+        "external_connection": True,
+        "phone_number_id": dados["phone_number_id"],
+        "template_name": dados["template_name"] or "hello_world",
+        "message": "Canal oficial da Meta: sem QR Code nem sessao para cair.",
+        "site": site_efetivo,
+        # quantas escolas tem canal proprio: com mais de uma, citar so a
+        # primeira daria a impressao de que as outras estao fora
+        "configured_sites": sites_ok,
+    }
+    # Dados do proprio numero: o Phone Number ID nao diz nada para quem olha a
+    # tela, mas o numero formatado, o nome exibido e a qualidade dizem.
     try:
-        state_response = requests.get(
-            f"{base_url}/instance/connectionState/{instance}",
-            headers=headers,
+        resposta = requests.get(
+            f"https://graph.facebook.com/{_GRAPH_VERSION}/{dados['phone_number_id']}",
+            params={"fields": "display_phone_number,verified_name,quality_rating"},
+            headers={"Authorization": f"Bearer {dados['access_token']}"},
             timeout=15,
         )
-        if state_response.status_code == 404:
-            create_response = requests.post(
-                f"{base_url}/instance/create",
-                headers=headers,
-                json={"instanceName": instance, "integration": "WHATSAPP-BAILEYS", "qrcode": True},
-                timeout=25,
-            )
-            create_data = create_response.json() if create_response.content else {}
-            state = _evolution_state_label(create_data)
-            result.update({"state": state, "connected": state == "connected", "qrcode": _evolution_qrcode_base64(create_data)})
-            return result
-        state_data = state_response.json() if state_response.content else {}
-        state = _evolution_state_label(state_data)
-        result.update({"state": state, "connected": state == "connected"})
+        numero = _resposta_json(resposta)
+        if numero.get("display_phone_number"):
+            resultado["display_phone_number"] = numero["display_phone_number"]
+        if numero.get("verified_name"):
+            resultado["verified_name"] = numero["verified_name"]
+        if numero.get("quality_rating"):
+            resultado["quality_rating"] = numero["quality_rating"]
     except Exception as exc:
-        return {**result, "ok": False, "state": "error", "error": str(exc)}
+        logger.warning("Nao foi possivel consultar o numero na Meta: %s", exc)
 
-    if refresh_qr or not result["connected"]:
+    nome = dados["template_name"]
+    waba = _text(cfg.get("waba_id"), 60)
+    if nome and waba:
         try:
-            qr_response = requests.get(
-                f"{base_url}/instance/connect/{instance}",
-                headers=headers,
-                timeout=25,
+            resposta = requests.get(
+                f"https://graph.facebook.com/{_GRAPH_VERSION}/{waba}/message_templates",
+                params={"name": nome, "fields": "name,status"},
+                headers={"Authorization": f"Bearer {dados['access_token']}"},
+                timeout=15,
             )
-            qr_data = qr_response.json() if qr_response.content else {}
-            qrcode = _evolution_qrcode_base64(qr_data)
-            if qrcode:
-                result["qrcode"] = qrcode
-                if result["state"] in {"unknown", "disconnected", "error"}:
-                    result["state"] = "waiting_qr"
+            for item in (_resposta_json(resposta).get("data") or []):
+                if item.get("name") == nome:
+                    resultado["template_status"] = item.get("status")
+                    break
         except Exception as exc:
-            result["qr_error"] = str(exc)
-    return result
-
-
-def disconnect_access_whatsapp(site: Any = "") -> Dict[str, Any]:
-    cfg = _evolution_cfg(site)
-    if not cfg.get("base_url") or not cfg.get("api_key") or not cfg.get("instance"):
-        return {
-            "ok": False,
-            "configured": False,
-            "state": "not_configured",
-            "connected": False,
-            "qrcode": "",
-            "error": "WhatsApp nao configurado.",
-        }
-
-    base_url = cfg["base_url"]
-    instance = cfg["instance"]
-    headers = _evolution_headers(cfg)
-    try:
-        response = requests.delete(
-            f"{base_url}/instance/logout/{instance}",
-            headers=headers,
-            timeout=25,
-        )
-        if response.status_code == 404:
-            return {"ok": True, "configured": True, "state": "disconnected", "connected": False, "qrcode": ""}
-        if not (200 <= int(response.status_code or 0) < 300):
-            detail = response.text[:300] if getattr(response, "text", "") else "Falha ao desconectar WhatsApp."
-            return {"ok": False, "configured": True, "state": "error", "connected": False, "qrcode": "", "error": detail}
-    except Exception as exc:
-        return {"ok": False, "configured": True, "state": "error", "connected": False, "qrcode": "", "error": str(exc)}
-    return {"ok": True, "configured": True, "state": "disconnected", "connected": False, "qrcode": ""}
+            logger.warning("Nao foi possivel consultar o template na Meta: %s", exc)
+    return resultado
 
 
 def _send_whatsapp(settings: Dict[str, Any], event: Dict[str, Any], message: str) -> str:
     cfg = _access_whatsapp_cfg(settings, event.get("site"))
     if not cfg.get("enabled"):
         return "whatsapp_skipped"
-    if _text(cfg.get("provider"), 40).lower() == "evolution":
-        return _send_whatsapp_evolution(cfg, event, message)
-    webhook_url = _text(cfg.get("webhook_url"), 500)
-    target = _whatsapp_target(event.get("guardian_phone"))
-    if not webhook_url or not target or event.get("whatsapp_enabled") is False:
-        return "whatsapp_skipped"
-    response = requests.post(
-        webhook_url,
-        json={
-            "to": target,
-            "message": message,
-            "event": {
-                "id": _text(event.get("id"), 80),
-                "type": _text(event.get("event_type"), 32),
-                "person_id": _text(event.get("person_id"), 80),
-                "site": _text(event.get("site"), 120),
-                "occurred_at": _text(event.get("occurred_at"), 40),
-            },
-        },
-        timeout=20,
-    )
-    if 200 <= int(response.status_code or 0) < 300:
-        return "whatsapp_sent"
-    return "whatsapp_failed"
+    return _send_whatsapp_cloud(cfg, event, message)
 
 
 def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
@@ -378,11 +435,15 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
     site_key = _site_key(site)
     site_configs = _access_whatsapp_site_configs(settings)
     cfg = _access_whatsapp_cfg(settings, site_key)
-    provider = _text(cfg.get("provider") or "evolution", 40).lower() or "evolution"
-    base_url = _text(cfg.get("base_url"), 500).rstrip("/")
+    provider = _whatsapp_provider(cfg)
+    base_url = ""
     instance = _text(cfg.get("instance") or cfg.get("instance_name") or "sightops", 120)
-    configured = bool(base_url and instance and _text(cfg.get("api_key"), 300))
-    return {
+    if provider == "cloud_api":
+        dados = _cloud_cfg(cfg)
+        configured = bool(dados["phone_number_id"] and dados["access_token"])
+    else:
+        configured = bool(base_url and instance and _text(cfg.get("api_key"), 300))
+    resultado = {
         "site": site_key,
         "enabled": bool(cfg.get("enabled")),
         "configured": configured,
@@ -391,6 +452,16 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
         "base_url": base_url,
         "instance": instance,
     }
+    if provider == "cloud_api":
+        resultado.update({
+            "phone_number_id": _text(cfg.get("phone_number_id"), 60),
+            "waba_id": _text(cfg.get("waba_id"), 60),
+            "template_name": _text(cfg.get("template_name"), 120),
+            "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
+            # o token nunca volta para a tela; so se ele existe
+            "token_saved": bool(_text(cfg.get("access_token"), 600)),
+        })
+    return resultado
 
 
 def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -401,15 +472,24 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(old_global, dict):
         old_global = {}
     old = site_configs.get(site_key, {}) if site_key else old_global
-    provider = _text(payload.get("provider") or old.get("provider") or "evolution", 40).lower() or "evolution"
+    provider = _whatsapp_provider({"provider": payload.get("provider") or old.get("provider") or "evolution"})
     api_key = _text(payload.get("api_key"), 300) or _text(old.get("api_key"), 300) or _text(old_global.get("api_key"), 300)
     saved_cfg = {
         "enabled": bool(payload.get("enabled")),
         "provider": provider,
-        "base_url": _text(payload.get("base_url"), 500).rstrip("/"),
         "api_key": api_key,
         "instance": _text(payload.get("instance") or payload.get("instance_name") or old.get("instance") or "sightops", 120),
     }
+    if provider == "cloud_api":
+        # Campos da API oficial. Token e longo (200+ chars) e nao cabe em api_key,
+        # que os provedores nao oficiais usam para chave curta de instancia.
+        saved_cfg.update({
+            "phone_number_id": _text(payload.get("phone_number_id") or old.get("phone_number_id"), 60),
+            "waba_id": _text(payload.get("waba_id") or old.get("waba_id"), 60),
+            "access_token": _text(payload.get("access_token") or old.get("access_token"), 600),
+            "template_name": _text(payload.get("template_name") or old.get("template_name"), 120),
+            "template_language": _text(payload.get("template_language") or old.get("template_language") or "pt_BR", 12),
+        })
     if site_key:
         site_configs[site_key] = saved_cfg
         settings["access_control_whatsapp_notifications_by_site"] = site_configs
@@ -421,7 +501,7 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def test_access_whatsapp(payload: Dict[str, Any]) -> Dict[str, Any]:
     number = _text(payload.get("number") or payload.get("to"), 40)
-    if not _evolution_number(number):
+    if not _numero_whatsapp(number):
         return {"ok": False, "error": "Informe um numero de WhatsApp para teste."}
     cfg = _access_whatsapp_cfg(db_store.load_app_settings(), payload.get("site"))
     if not cfg.get("enabled"):

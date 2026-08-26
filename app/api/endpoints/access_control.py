@@ -7,7 +7,9 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import APIRouter, File, Header, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
-from starlette.responses import StreamingResponse
+from starlette.responses import PlainTextResponse, StreamingResponse
+
+import logging
 
 from app.services.access_control_store import (
     access_control_summary,
@@ -47,8 +49,8 @@ from app.services.access_control_photos import load_person_face_photo, save_pers
 from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
 from app.services.access_control_sync import enqueue_person_provisioning
 from app.services.access_control_notifications import (
-    disconnect_access_whatsapp,
     get_access_whatsapp_connection,
+    resolver_cliente_por_numero,
     get_access_whatsapp_config,
     save_access_whatsapp_config,
     send_access_whatsapp_text,
@@ -59,6 +61,8 @@ from app.services.access_control_whatsapp_inbound import (
     approve_ready_access_whatsapp_triage_items,
     create_access_whatsapp_triage_item,
     ensure_access_whatsapp_inbound_token,
+    extract_meta_inbound,
+    extract_meta_statuses,
     list_access_whatsapp_triage,
     process_access_whatsapp_inbound,
     process_access_whatsapp_text,
@@ -67,6 +71,8 @@ from app.services.access_control_whatsapp_inbound import (
     verify_access_whatsapp_inbound_token,
 )
 from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+
+logger = logging.getLogger("cam-snapshot")
 
 router = APIRouter(prefix="/api/access-control", tags=["access-control"])
 
@@ -260,28 +266,10 @@ def api_access_control_whatsapp_test(req: AccessWhatsappTestRequest) -> Dict[str
 
 
 @router.get("/whatsapp/connection")
-def api_access_control_whatsapp_connection(site: str = Query("")) -> Dict[str, Any]:
-    result = get_access_whatsapp_connection(refresh_qr=False, site=site)
+def api_access_control_whatsapp_connection(site: str = Query(""), summary: bool = Query(False)) -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=False, site=site, resumo=summary)
     if not result.get("ok") and result.get("state") == "error":
         raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao consultar WhatsApp.")
-    return result
-
-
-@router.post("/whatsapp/qr")
-def api_access_control_whatsapp_qr(site: str = Query("")) -> Dict[str, Any]:
-    result = get_access_whatsapp_connection(refresh_qr=True, site=site)
-    if not result.get("ok"):
-        status_code = 400 if result.get("state") == "not_configured" else 502
-        raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao gerar QR Code.")
-    return result
-
-
-@router.post("/whatsapp/disconnect")
-def api_access_control_whatsapp_disconnect(site: str = Query("")) -> Dict[str, Any]:
-    result = disconnect_access_whatsapp(site)
-    if not result.get("ok"):
-        status_code = 400 if result.get("state") == "not_configured" else 502
-        raise HTTPException(status_code=status_code, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
     return result
 
 
@@ -361,6 +349,96 @@ def api_access_control_whatsapp_triage_reject(item_id: str, req: AccessWhatsappT
 @router.post("/whatsapp/triage/approve-ready")
 def api_access_control_whatsapp_triage_approve_ready() -> Dict[str, Any]:
     return {"ok": True, **approve_ready_access_whatsapp_triage_items(), **list_access_whatsapp_triage()}
+
+
+@router.get("/whatsapp/meta/{tenant_slug}")
+def api_access_control_whatsapp_meta_verify(
+    tenant_slug: str,
+    hub_mode: str = Query("", alias="hub.mode"),
+    hub_challenge: str = Query("", alias="hub.challenge"),
+    hub_verify_token: str = Query("", alias="hub.verify_token"),
+) -> PlainTextResponse:
+    """Handshake que a Meta faz ao cadastrar o webhook.
+
+    Ela chama uma vez com hub.challenge e so aceita a URL se receber o mesmo
+    valor de volta em texto puro -- JSON aqui faz o cadastro falhar.
+    """
+    ctx_token = set_current_tenant_slug(tenant_slug)
+    try:
+        if hub_mode != "subscribe" or not verify_access_whatsapp_inbound_token(hub_verify_token):
+            raise HTTPException(status_code=403, detail="Token de verificacao invalido.")
+        return PlainTextResponse(hub_challenge)
+    finally:
+        reset_current_tenant_slug(ctx_token)
+
+
+@router.post("/whatsapp/meta/{tenant_slug}")
+async def api_access_control_whatsapp_meta_webhook(tenant_slug: str, request: Request) -> Dict[str, Any]:
+    """Recebe mensagens e confirmacoes de entrega da Cloud API.
+
+    Responde 200 mesmo em erro de conteudo: a Meta reenvia e depois desativa o
+    webhook de quem devolve falha, e perder o canal e pior do que perder um
+    evento isolado.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    # O app da Meta tem um webhook so para todos os clientes. Quem separa um do
+    # outro e o numero que recebeu -- o slug da URL vale apenas como reserva.
+    numero_id = ""
+    for entrada in payload.get("entry") if isinstance(payload.get("entry"), list) else []:
+        for mudanca in (entrada or {}).get("changes") or [] if isinstance(entrada, dict) else []:
+            valor = (mudanca or {}).get("value") if isinstance(mudanca, dict) else {}
+            numero_id = str(((valor or {}).get("metadata") or {}).get("phone_number_id") or "")
+            if numero_id:
+                break
+        if numero_id:
+            break
+
+    dono = resolver_cliente_por_numero(numero_id) if numero_id else {}
+    if numero_id and not dono:
+        logger.warning(
+            "Webhook do WhatsApp para numero %s sem cliente configurado; ignorado.", numero_id
+        )
+        return {"ok": True, "ignored": "numero desconhecido"}
+
+    ctx_token = set_current_tenant_slug(dono.get("tenant") or tenant_slug)
+    try:
+        for st in extract_meta_statuses(payload):
+            if st.get("status") == "failed":
+                logger.warning(
+                    "WhatsApp nao entregou %s para %s: %s",
+                    st.get("message_id"), st.get("recipient"), st.get("error") or "sem motivo informado",
+                )
+            else:
+                logger.info(
+                    "WhatsApp %s para %s (%s)",
+                    st.get("status"), st.get("recipient"), st.get("message_id"),
+                )
+
+        recebidas = extract_meta_inbound(payload)
+        if not recebidas.get("from_number"):
+            return {"ok": True, "handled": "status"}
+
+        try:
+            result = process_access_whatsapp_inbound(payload)
+        except Exception as exc:
+            logger.exception("Falha ao processar mensagem recebida do WhatsApp: %s", exc)
+            return {"ok": False, "error": str(exc)}
+
+        reply = str(result.get("reply") or "")
+        if reply:
+            send_access_whatsapp_text(
+                recebidas["from_number"], reply,
+                site=(result.get("draft") or {}).get("site") or dono.get("site", ""),
+            )
+        return {"ok": True, "handled": "message"}
+    finally:
+        reset_current_tenant_slug(ctx_token)
 
 
 @router.post("/whatsapp/inbound/{tenant_slug}")

@@ -986,6 +986,12 @@ a { color: inherit; text-decoration: none; }
 .access-technical-details .form-row {
   padding: 14px;
 }
+.access-technical-details .form-row + .form-row {
+  padding-top: 0;
+}
+.access-technical-details .form-group label {
+  white-space: nowrap;
+}
 .access-technical-group:has(.access-technical-details[open]) {
   grid-column: 1 / -1;
 }
@@ -1067,6 +1073,52 @@ a { color: inherit; text-decoration: none; }
   color: #007f5f;
   font-size: 16px;
 }
+.access-whatsapp-cloud {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  /* ocupa a sobra para o botao cair na mesma altura do card ao lado */
+  height: 100%;
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.access-whatsapp-cloud-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 20px;
+  margin: 0;
+}
+
+.access-whatsapp-cloud-facts dt {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 3px;
+}
+
+.access-whatsapp-cloud-facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.access-whatsapp-cloud-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .access-whatsapp-qr-copy {
   display: grid;
   gap: 6px;

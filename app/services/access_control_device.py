@@ -166,8 +166,77 @@ def _post_json_via_connector(
     return _AccessRemoteResponse(text=text, status_code=200)
 
 
+class _TunelIndisponivel(Exception):
+    """A requisicao nao chegou ao dispositivo (rede/tunel).
+
+    Diferente de o dispositivo ter respondido recusando: so este caso justifica
+    tentar de novo pelo agente do conector.
+    """
+
+
+def _host_no_inventario_do_conector(device: Dict[str, Any]) -> bool:
+    """O IP deste dispositivo aparece na rede DESTE conector?
+
+    E o que autoriza falar pelo tunel: o agente do site reporta ARP/DHCP, entao
+    se o IP esta la, ele e daquele site. Sem essa confirmacao o acesso direto
+    fica proibido -- IP privado repetido entre clientes e normal, e falar com a
+    controladora do cliente errado seria muito pior do que falhar.
+    """
+    connector_id = _connector_id(device)
+    host = str(device.get("host") or "").strip()
+    if not connector_id or not host:
+        return False
+    try:
+        from app.services.connector_service import get_connector
+
+        conector = get_connector(connector_id, include_token=False, enforce_tenant=True) or {}
+    except Exception:
+        return False
+    inventario = conector.get("inventory") if isinstance(conector.get("inventory"), dict) else {}
+    for chave in ("arp_sample", "dhcp_sample", "neighbor_sample", "known_targets"):
+        bruto = inventario.get(chave) or conector.get(chave)
+        if not bruto:
+            continue
+        if host in str(bruto):
+            return True
+    return False
+
+
+def _get_direto(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None) -> requests.Response:
+    """Fala com o dispositivo pelo tunel, com Digest (o que o RouterOS nao faz)."""
+    url = f"{_base_url(device)}{path}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    try:
+        resp = requests.get(url, auth=_auth(device), timeout=_TIMEOUT)
+    except requests.ConnectTimeout as exc:
+        raise _TunelIndisponivel("tempo esgotado ao conectar") from exc
+    except requests.ConnectionError as exc:
+        raise _TunelIndisponivel("nao foi possivel conectar") from exc
+    except requests.RequestException as exc:
+        raise _TunelIndisponivel(str(exc)) from exc
+    if resp.status_code in {401, 403}:
+        _raise_device_auth_error()
+    if _looks_like_auth_error(resp.text or ""):
+        _raise_device_auth_error()
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Dispositivo respondeu com erro (HTTP {resp.status_code}): {(resp.text or '').strip()}",
+        )
+    return resp
+
+
 def _get(device: Dict[str, Any], path: str, params: Dict[str, Any] | None = None) -> requests.Response:
     if _connector_id(device):
+        # Tunel primeiro -- so quando o IP e comprovadamente daquele conector.
+        # Erro de credencial NAO cai para o agente: a senha estaria errada nos
+        # dois caminhos, e mascarar isso viraria "tempo esgotado" sem explicacao.
+        if _host_no_inventario_do_conector(device):
+            try:
+                return _get_direto(device, path, params)
+            except _TunelIndisponivel:
+                pass  # tunel fora do ar: vale tentar pelo agente
         return _get_via_connector(device, path, params)  # type: ignore[return-value]
     url = f"{_base_url(device)}{path}"
     if params:
@@ -209,8 +278,35 @@ def _check_device_response(resp: requests.Response, action: str) -> str:
     return text
 
 
+def _post_direto(device: Dict[str, Any], path_with_query: str, payload: Dict[str, Any], action_label: str):
+    """Escreve no dispositivo pelo tunel, com Digest."""
+    url = f"{_base_url(device)}{path_with_query}"
+    try:
+        # Escrita precisa de mais folego que leitura: enviar foto facial faz a
+        # controladora processar biometria, e passa MUITO dos 10s de _TIMEOUT.
+        # Sem isso o POST estoura, cai no agente e falha por Digest -- era o que
+        # deixava o sync das pessoas em "falhou".
+        return requests.post(url, auth=_auth(device), json=payload, timeout=_CONNECTOR_JOB_TIMEOUT)
+    except requests.ConnectTimeout as exc:
+        raise _TunelIndisponivel("tempo esgotado ao conectar") from exc
+    except requests.ConnectionError as exc:
+        raise _TunelIndisponivel("nao foi possivel conectar") from exc
+    except requests.RequestException as exc:
+        raise _TunelIndisponivel(str(exc)) from exc
+
+
 def _post_json(device: Dict[str, Any], path_with_query: str, payload: Dict[str, Any], action_label: str) -> str:
     if _connector_id(device):
+        # Tunel primeiro, pela mesma regra da leitura: so quando o IP e
+        # comprovadamente daquele conector. O agente RouterOS nao fala Digest,
+        # entao por ele a escrita nunca completa.
+        if _host_no_inventario_do_conector(device):
+            try:
+                return _check_device_response(
+                    _post_direto(device, path_with_query, payload, action_label), action_label
+                )
+            except _TunelIndisponivel:
+                pass  # tunel fora do ar: vale tentar pelo agente
         return _check_device_response(_post_json_via_connector(device, path_with_query, payload, action_label), action_label)
     url = f"{_base_url(device)}{path_with_query}"
     try:

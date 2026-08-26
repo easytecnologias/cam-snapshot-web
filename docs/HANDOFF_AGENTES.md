@@ -7,6 +7,72 @@ resposta final do agente pro usuário. Entrada mais recente no topo.
 
 ---
 
+## 2026-08-26 — WhatsApp migrado para a Cloud API oficial; Evolution e W-API removidos
+
+**Agente:** Claude.
+
+**Codex: isto conflita com o que voce fez hoje.** O commit `41e9a65` trouxe
+suporte a W-API, e havia 160 linhas de teste do provedor Evolution na working
+tree. Removi os dois, com autorizacao explicita do usuario ("pode tirar qualquer
+coisa de apis gratuitas so estamos com a oficial"). Os testes daqueles provedores
+foram substituidos por um da Cloud API em
+`scripts/sightops_access_control_notifications_test.py`.
+
+**Por que:** a Evolution passou uma noite inteira aceitando mensagens (HTTP 201,
+ack do servidor) sem entregar nenhuma. O WhatsApp devolvia ERRO em todas, e a
+Evolution engolia o aviso -- o banco ficava em PENDING para sempre e a tela dizia
+"Conectado" com a sessao morta. Diagnostico so fechou olhando o sufixo das chaves
+no Redis (`_0` = ERROR). Causa raiz: Baileys `rc.9` desatualizado para o protocolo
+atual; a correcao existe em `rc13`, que so esta numa imagem `homolog` que nao
+sobe (bug de Prisma). Ou seja: nao havia caminho por ali.
+
+**O que mudou no codigo:**
+- `access_control_notifications.py`: provedor unico `cloud_api`. Removidas
+  `_send_whatsapp_evolution`, `_send_whatsapp_wapi`, `_evolution_cfg`,
+  `_evolution_state_label`, `disconnect_access_whatsapp`, `_whatsapp_base_url` e o
+  watchdog de sessao. Envio agora e por **template aprovado** com 4 variaveis
+  (evento, escola, aluno, horario) -- a Cloud API nao aceita texto livre em
+  mensagem iniciada pela empresa.
+- `access_control.py`: endpoints `/whatsapp/qr` e `/whatsapp/disconnect` removidos
+  (nao existe QR nem sessao no canal oficial). Adicionados `GET` e `POST`
+  `/whatsapp/meta/{tenant}` -- webhook da Meta.
+- `security.py`: `/api/access-control/whatsapp/meta/` liberado da autenticacao
+  (a Meta chama sem credencial; a protecao e o token de verificacao conferido
+  dentro do endpoint).
+- `access_control_whatsapp_inbound.py`: `extract_meta_inbound` e
+  `extract_meta_statuses`. O `process_access_whatsapp_inbound` aceita os dois
+  formatos, entao a triagem sobreviveu.
+- Frontend: painel de QR substituido por bloco de status do canal (numero, nome
+  exibido, template e sua situacao, qualidade da conta).
+
+**Multi-cliente, atencao:** o webhook da Meta e **um so para o app inteiro**. Quem
+separa cliente e o `phone_number_id` que recebeu -- `resolver_cliente_por_numero`
+percorre os tenants e casa pela configuracao. O slug da URL e so reserva. Se o
+numero nao pertencer a ninguem configurado, o webhook **ignora e responde 200**
+(erro faria a Meta desativar o webhook). Esse resolvedor e O(tenants) por
+mensagem: serve para os 4 clientes de hoje, precisa de indice antes de escalar.
+
+**Estado na Meta (conta da Easy Tecnologia):** empresa verificada, app publicado,
+numero +55 82 9369-0487 "Escola Segura" inscrito, pagamento configurado, webhook
+validado e app inscrito na WABA. Falta so o template `aviso_acesso_aluno` sair de
+"em analise" -- quando aprovar, o envio funciona sem mexer em nada.
+
+**Armadilha que custou tempo, para nao repetir:** criar template mandando JSON com
+acentos pela linha de comando no Windows grava `?` no lugar do acento (o shell nao
+entrega UTF-8). O primeiro template foi criado com "Hor?rio" e precisou ser
+refeito. Monte o payload em Python, grave em arquivo e mande com `--data-binary`.
+
+**Tambem entrou neste commit:** as correcoes de tunel do controle de acesso da
+noite de 25/08, que ate agora existiam **so na imagem de producao**
+(`access_control_device.py`, +96 linhas): leitura e escrita falam direto com a
+controladora pelo WireGuard quando o IP consta no inventario **daquele** conector,
+porque o agente RouterOS nao faz Digest. `_TunelIndisponivel` separa "o tunel nao
+entregou" de "o dispositivo recusou" -- antes os dois viravam 502 e a recusa
+legitima da controladora ("Batch Process Error", que so pede updateMulti) era
+tratada como falha de rede.
+
+---
+
 ## 2026-08-21 (madrugada) — fechamento da noite: producao alinhada e mapas de volta
 
 **Agente:** Claude. Tres pendencias que ficaram abertas na noite anterior foram
