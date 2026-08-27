@@ -395,6 +395,8 @@ async function loadDashboard() {
   setText('mOltsTotal', oltTotal ? `${oltUp} online · ${oltAttention} em atencao` : 'nenhuma cadastrada');
   setMonitoringKpi('connector', 'mConnectorsOnline', 'mConnectorsTotal');
   setMonitoringKpi('windows', 'mComputersOnline', 'mComputersTotal');
+  setMonitoringKpi('access_device', 'mAccessDevicesOnline', 'mAccessDevicesTotal');
+  setMonitoringKpi('whatsapp', 'mWhatsappOnline', 'mWhatsappTotal');
 
   const attentionTotal = _dashAttentionTotal(monitoring);
   setText('mAttention', attentionTotal);
@@ -520,6 +522,10 @@ async function loadDashboard() {
   if (kpiConnectors) kpiConnectors.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('connector', 'all') : navigateTo('monitoring');
   const kpiComputers = document.getElementById('kpiComputers');
   if (kpiComputers) kpiComputers.onclick = () => openDashDrawerWindows('all');
+  const kpiAccessDevices = document.getElementById('kpiAccessDevices');
+  if (kpiAccessDevices) kpiAccessDevices.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('access_device', 'all') : navigateTo('monitoring');
+  const kpiWhatsapp = document.getElementById('kpiWhatsapp');
+  if (kpiWhatsapp) kpiWhatsapp.onclick = () => typeof openMonitoringDrawer === 'function' ? openMonitoringDrawer('whatsapp', 'all') : navigateTo('monitoring');
   const kpiAttention = document.getElementById('kpiAttention');
   if (kpiAttention) kpiAttention.onclick = () => {
     if (typeof openMonitoringAttentionDrawer === 'function') openMonitoringAttentionDrawer();
