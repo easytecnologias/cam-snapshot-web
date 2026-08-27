@@ -259,8 +259,8 @@ def refresh_from_inventory() -> Dict[str, Any]:
     } for r in access_devices if r.get("id")), prune_entity_type="access_device")
     whatsapp_channels = list_access_whatsapp_channels()
     counts["whatsapp"] = _observe_many(({
-        "entity_key": f"whatsapp:{c.get('site') or 'default'}", "entity_type": "whatsapp",
-        "entity_id": c.get("site") or "default", "site": c.get("site"), "display_name": c.get("label"),
+        "entity_key": f"whatsapp:{c.get('site') or '__default__'}", "entity_type": "whatsapp",
+        "entity_id": c.get("site") or "__default__", "site": c.get("site"), "display_name": c.get("label"),
         "status": "online" if c.get("connected") else "offline",
         "detail": {
             "phone_number_id": c.get("phone_number_id"), "display_phone_number": c.get("display_phone_number"),
