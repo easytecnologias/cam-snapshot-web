@@ -2709,7 +2709,7 @@ a { color: inherit; text-decoration: none; }
 .dashboard-live-wrap { display: grid; justify-items: end; gap: 3px; }
 .dashboard-live-wrap small { color: var(--muted); font-size: 11px; }
 .dashboard-workspace .metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
