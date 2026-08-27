@@ -17,6 +17,8 @@ DEFAULT_PROFILES = (
     ("nvr-default", "NVR", "nvr", 60, 2),
     ("dvr-default", "DVR", "dvr", 60, 2),
     ("windows-default", "Computador Windows", "windows", 120, 2),
+    ("access-device-default", "Controladora de Acesso", "access_device", 180, 2),
+    ("whatsapp-default", "Canal WhatsApp", "whatsapp", 300, 1),
 )
 
 
@@ -153,6 +155,7 @@ def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.olt_service import list_macs
     from app.services.dashboard_service import _recorder_rows
     from app.services.windows_inventory_service import load_windows_inventory
+    from app.services.access_control_store import list_devices as list_access_devices
 
     ensure_default_profiles()
     counts: Dict[str, int] = {}
@@ -246,6 +249,13 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "entity_id": r.get("hostname") or r.get("ip"), "site": r.get("local") or r.get("site"), "connector_id": r.get("connector_id"),
         "display_name": r.get("hostname") or r.get("ip"), "status": r.get("status"), "detail": {"ip": r.get("ip")},
     } for r in windows if r.get("hostname") or r.get("ip")), prune_entity_type="windows")
+    access_devices = list_access_devices()
+    counts["access_device"] = _observe_many(({
+        "entity_key": f"access_device:{r.get('id')}", "entity_type": "access_device", "entity_id": r.get("id"),
+        "site": r.get("site"), "connector_id": r.get("connector_id"), "display_name": r.get("name") or r.get("host"),
+        "status": r.get("status") if r.get("active") else "maintenance",
+        "detail": {"host": r.get("host"), "vendor": r.get("vendor"), "model": r.get("model"), "last_seen_at": r.get("last_seen_at")},
+    } for r in access_devices if r.get("id")), prune_entity_type="access_device")
     return {"ok": True, "tenant": _tenant(), "observed": counts, "total": sum(counts.values())}
 
 
@@ -282,7 +292,7 @@ def list_monitoring_tenants() -> List[str]:
     """Tenants com inventario no banco; nunca retorna dados das linhas."""
     found = {"default"}
     with _conn() as c:
-        for table in ("sites", "ip_cameras", "recorders", "olts", "monitoring_profiles"):
+        for table in ("sites", "ip_cameras", "recorders", "olts", "monitoring_profiles", "access_devices"):
             try:
                 rows = c.execute(f"SELECT DISTINCT tenant_slug FROM {table}").fetchall()
                 found.update(_text(dict(row).get("tenant_slug")).lower() for row in rows)
