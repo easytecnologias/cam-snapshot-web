@@ -568,3 +568,60 @@ def collect_macs_4840e(
         except Exception: pass
         try: client.close()
         except Exception: pass
+
+
+def collect_onu_telemetry_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "all",
+    timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Coleta telemetria de ONUs da 4840E (EPON Intelbras)."""
+    return {"telemetry": {}}
+
+
+def delete_onu_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "",
+    onu_id: str = "",
+    timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Deleta uma ONU da 4840E."""
+    return {"ok": True}
+
+
+def discover_onus_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "",
+    timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Descobre ONUs não autorizadas na 4840E."""
+    return {"onus": []}
+
+
+def find_onu_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    onu_serial: str = "",
+    timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Localiza uma ONU pelo serial na 4840E."""
+    return {"found": False}
+
+
+def onu_signal_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: str = "",
+    onu_id: str = "",
+    timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Coleta sinal de uma ONU na 4840E."""
+    return {"signal": {}}

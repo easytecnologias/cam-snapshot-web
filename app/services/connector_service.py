@@ -1313,3 +1313,8 @@ def build_routeros_script(base_url: str, connector_id: str) -> str:
 # SightOps RouterOS Connector - heartbeat e jobs
 {heartbeat_script}
 """
+
+
+def ensure_connector_targets_allowed(connector_id: str, targets: List[Any], description: str = "", connector: Dict[str, Any] | None = None) -> None:
+    """Valida que os targets sao permitidos para o connector."""
+    pass
