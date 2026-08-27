@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
 from app.core.tenant_context import get_current_tenant_slug
 from app.services.db_store import _conn
+
+logger = logging.getLogger("cam-snapshot")
 
 
 DEFAULT_PROFILES = (
@@ -17,7 +20,11 @@ DEFAULT_PROFILES = (
     ("nvr-default", "NVR", "nvr", 60, 2),
     ("dvr-default", "DVR", "dvr", 60, 2),
     ("windows-default", "Computador Windows", "windows", 120, 2),
-    ("access-device-default", "Controladora de Acesso", "access_device", 180, 2),
+    # underscore para casar com o fallback automatico de _observe_entity_on()
+    # (f"{entity_type}-default", e entity_type="access_device"); o bloco de
+    # access_device em refresh_from_inventory() nunca define profile_key, entao
+    # so o underscore encontra a linha certa e pega o failure_threshold real.
+    ("access_device-default", "Controladora de Acesso", "access_device", 180, 2),
     ("whatsapp-default", "Canal WhatsApp", "whatsapp", 300, 1),
 )
 
@@ -250,23 +257,39 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "entity_id": r.get("hostname") or r.get("ip"), "site": r.get("local") or r.get("site"), "connector_id": r.get("connector_id"),
         "display_name": r.get("hostname") or r.get("ip"), "status": r.get("status"), "detail": {"ip": r.get("ip")},
     } for r in windows if r.get("hostname") or r.get("ip")), prune_entity_type="windows")
-    access_devices = list_access_devices()
-    counts["access_device"] = _observe_many(({
-        "entity_key": f"access_device:{r.get('id')}", "entity_type": "access_device", "entity_id": r.get("id"),
-        "site": r.get("site"), "connector_id": r.get("connector_id"), "display_name": r.get("name") or r.get("host"),
-        "status": r.get("status") if r.get("active") else "maintenance",
-        "detail": {"host": r.get("host"), "vendor": r.get("vendor"), "model": r.get("model"), "last_seen_at": r.get("last_seen_at")},
-    } for r in access_devices if r.get("id")), prune_entity_type="access_device")
-    whatsapp_channels = list_access_whatsapp_channels()
-    counts["whatsapp"] = _observe_many(({
-        "entity_key": f"whatsapp:{c.get('site') or '__default__'}", "entity_type": "whatsapp",
-        "entity_id": c.get("site") or "__default__", "site": c.get("site"), "display_name": c.get("label"),
-        "status": "online" if c.get("connected") else "offline",
-        "detail": {
-            "phone_number_id": c.get("phone_number_id"), "display_phone_number": c.get("display_phone_number"),
-            "quality_rating": c.get("quality_rating"),
-        },
-    } for c in whatsapp_channels), prune_entity_type="whatsapp")
+    try:
+        access_devices = list_access_devices()
+        counts["access_device"] = _observe_many(({
+            "entity_key": f"access_device:{r.get('id')}", "entity_type": "access_device", "entity_id": r.get("id"),
+            "site": r.get("site"), "connector_id": r.get("connector_id"), "display_name": r.get("name") or r.get("host"),
+            "status": r.get("status") if r.get("active") else "maintenance",
+            "detail": {"host": r.get("host"), "vendor": r.get("vendor"), "model": r.get("model"), "last_seen_at": r.get("last_seen_at")},
+        } for r in access_devices if r.get("id")), prune_entity_type="access_device")
+    except Exception as exc:
+        # refresh_from_inventory() roda por tenant dentro de um loop que
+        # processa TODOS os tenants (app/main.py:_monitoring_refresh_loop).
+        # Uma excecao aqui nao pode propagar: abortaria o refresh dos tenants
+        # seguintes naquele ciclo, silenciosamente.
+        logger.warning("Falha ao observar controladoras de acesso no monitoramento: %s", exc)
+        counts["access_device"] = 0
+    try:
+        whatsapp_channels = list_access_whatsapp_channels()
+        counts["whatsapp"] = _observe_many(({
+            "entity_key": f"whatsapp:{c.get('site') or '__default__'}", "entity_type": "whatsapp",
+            "entity_id": c.get("site") or "__default__", "site": c.get("site"), "display_name": c.get("label"),
+            "status": "online" if c.get("connected") else "offline",
+            "detail": {
+                "phone_number_id": c.get("phone_number_id"), "display_phone_number": c.get("display_phone_number"),
+                "quality_rating": c.get("quality_rating"),
+            },
+        } for c in whatsapp_channels), prune_entity_type="whatsapp")
+    except Exception as exc:
+        # list_access_whatsapp_channels() faz chamadas HTTP reais pra Meta
+        # (timeout 15s cada) e decrypt() no token salvo -- ambos podem falhar
+        # de verdade (Meta fora do ar, chave de cripto trocada) e nao podem
+        # derrubar o refresh dos outros tenants no mesmo ciclo.
+        logger.warning("Falha ao observar canais WhatsApp no monitoramento: %s", exc)
+        counts["whatsapp"] = 0
     return {"ok": True, "tenant": _tenant(), "observed": counts, "total": sum(counts.values())}
 
 
