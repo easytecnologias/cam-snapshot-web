@@ -25,12 +25,37 @@ function _mntIpMatchTerm(ip, term) {
   return null; // n\u00e3o \u00e9 padr\u00e3o de range/CIDR
 }
 
+let _mntCamView = (() => {
+  try { return sessionStorage.getItem('so_mnt_cam_view') || 'basico'; } catch { return 'basico'; }
+})();
+
+async function setMntCamView(view) {
+  if (!['basico', 'olt', 'switch'].includes(view)) view = 'basico';
+  _mntCamView = view;
+  try { sessionStorage.setItem('so_mnt_cam_view', view); } catch {}
+  const sel = document.getElementById('mntCamView');
+  if (sel && sel.value !== view) sel.value = view;
+  await loadMntCam();
+}
+
+function atualizarAbasMntCam() {
+  const sel = document.getElementById('mntCamView');
+  if (sel && sel.value !== _mntCamView) sel.value = _mntCamView;
+}
+
 async function loadMntCam() {
   const grid = document.getElementById('mntCamGrid');
   if (!grid) return;
   grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--muted)">Carregando</div>';
-  const data = await apiJson('/api/cameras?mode=olt');
+  // Cada cliente usa um modo de inventario: quem tem OLT nao tem switch e
+  // vice-versa. Pedir 'olt' fixo deixava a tela vazia para cliente de switch --
+  // foi o caso da San Marine, cujas 48 cameras nunca apareceram aqui.
+  const data = await apiJson(`/api/cameras?mode=${encodeURIComponent(_mntCamView)}`);
   _mntCamAll = data?.cameras || data || [];
+
+  // Escondido o modo sem nenhuma camera, para o usuario nao clicar em vazio.
+  // Basico fica sempre visivel por ser o denominador comum.
+  atualizarAbasMntCam();
 
   const sites = [...new Set(_mntCamAll.map(c => c.local).filter(Boolean))].sort();
   const sel = document.getElementById('mntCamSite');

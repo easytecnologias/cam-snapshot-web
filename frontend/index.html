@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=246">
+  <link rel="stylesheet" href="styles.css?v=248">
 </head>
 <body>
 
@@ -1041,6 +1041,11 @@
             <i data-lucide="search"></i>
             <input type="text" class="mnt-search" id="mntCamSearch" placeholder="Nome, IP, MAC — range: 10.10.9.20-30 — CIDR: 10.10.9.0/24 — lista: ip1,ip2,nome">
           </label>
+          <select id="mntCamView" class="mnt-filter-select">
+            <option value="basico">Visao: Basico</option>
+            <option value="olt">Visao: OLT</option>
+            <option value="switch">Visao: Switch</option>
+          </select>
           <select id="mntCamSite" class="mnt-filter-select"><option value="">Todos os sites</option></select>
           <div class="mnt-status-btns">
             <button class="mnt-status-btn active" data-mnt-status="">Todos</button>
@@ -6001,7 +6006,7 @@
   <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=142"></script>
-  <script src="js/maintenance.js?v=141"></script>
+  <script src="js/maintenance.js?v=145"></script>
   <script src="js/analysis.js?v=143"></script>
   <script src="js/network.js?v=157"></script>
   <script src="js/deploy.js?v=168"></script>
@@ -6013,6 +6018,6 @@
   <script src="js/accessControl.js?v=81"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
-  <script src="js/bootstrap.js?v=189"></script>
+  <script src="js/bootstrap.js?v=191"></script>
 </body>
 </html>

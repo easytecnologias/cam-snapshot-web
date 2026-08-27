@@ -1925,6 +1925,7 @@ document.addEventListener('DOMContentLoaded', () => {
   mntCamSearch?.addEventListener('search', runMntCamSearch);
   mntCamSearch?.addEventListener('change', runMntCamSearch);
   document.getElementById('mntCamSite')?.addEventListener('change', e => { _mntCamFilter.site = e.target.value; _mntCamRender(); });
+  document.getElementById('mntCamView')?.addEventListener('change', e => setMntCamView(e.target.value));
   document.querySelectorAll('[data-mnt-status]').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('[data-mnt-status]').forEach(b => b.classList.remove('active'));

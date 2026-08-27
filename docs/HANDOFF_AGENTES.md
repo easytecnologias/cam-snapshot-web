@@ -1612,3 +1612,53 @@ controladora.
 `sightops_access_control_import_test.py`. As 4 falhas restantes da bateria
 (`controller_import`, `route`, `routes`, `shell`) sao anteriores e nao foram
 introduzidas aqui.
+
+---
+
+## 2026-08-27 manha — Nome de fabrica apagava titulo; Manutencao vazia no switch
+
+**Sintoma 1:** os titulos das 48 cameras da San Marine, cadastrados a mao, sumiam
+sozinhos. Um scan as 09:15 desfez o trabalho inteiro.
+
+**Causa:** `_merge_inventory_rows` protege o titulo ja cadastrado, mas
+`is_placeholder_title` so considerava placeholder o valor **vazio ou igual ao
+IP**. "IP CAMERA" e o nome de fabrica da Hikvision e passava como titulo
+legitimo -- entao cada varredura lia o nome de fabrica do equipamento e
+sobrescrevia o nome do usuario.
+
+**Correcao:** `TITULOS_DE_FABRICA` (IP CAMERA, IPCAMERA, CAMERA, NETWORK CAMERA,
+IPC, DVR, NVR, SEM NOME, NO NAME) tambem conta como placeholder. Testado no
+container antes de publicar: scan trazendo "IP CAMERA" nao derruba mais
+"06 - PORTOES".
+
+**Nao remover essa lista.** Sem ela, qualquer cliente perde os nomes das cameras
+na proxima varredura, e o sintoma e lento de perceber -- so aparece quando
+alguem repara que a tabela voltou a ficar generica.
+
+**Sintoma 2:** Manutencao > Cameras IP aparecia **vazia** para a San Marine.
+
+**Causa:** `loadMntCam()` pedia `/api/cameras?mode=olt` fixo. Cada cliente usa um
+modo OU outro:
+
+    san-marine    olt:   0   switch:  48
+    rads          olt: 536   switch:   0
+    easy-tecno.   olt: 382   switch:   0
+    inforbr       olt:  42   switch:   0
+
+A San Marine e o primeiro cliente de switch, entao a tela sempre esteve vazia
+para ela -- inclusive as operacoes em lote (reboot, senha, renomear, NTP).
+
+**Correcao:** seletor de visao (Basico/OLT/Switch) na barra de filtros, como
+caixa `<select>` no estilo do filtro de sites. Os tres modos ficam sempre
+visiveis de proposito: esconder o vazio parecia perda de funcionalidade.
+Escolha guardada em sessionStorage.
+
+**Dados aplicados em producao (san-marine):** as 48 cameras receberam titulo,
+switch, porta e VLAN a partir do relatorio de 07/08. Gravado via
+`load/save_inventory_json`, **nao** no `cam-inventory-switch.json` -- o
+inventario vive no banco e o arquivo e resquicio legado; editar o arquivo nao
+muda nada na tela.
+
+**Achado operacional:** SWITCH-06 e SWITCH-08 estao com 6 de 6 cameras offline
+cada. 12 das 15 quedas concentradas em dois switches quase nunca sao 12
+defeitos.

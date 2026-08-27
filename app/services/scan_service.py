@@ -249,10 +249,23 @@ def _merge_inventory_rows(old_rows: List[Dict[str, Any]], new_rows: List[Dict[st
     def is_remote(row: dict[str, Any]) -> bool:
         return bool(str(row.get("remote_connector_id") or row.get("connector_id") or "").strip())
 
+    # Nome de fabrica nao e nome: a Hikvision entrega "IP CAMERA" e a Intelbras
+    # variantes parecidas. Sem isso aqui, cada varredura lia o nome de fabrica
+    # do equipamento e sobrescrevia o nome que o usuario cadastrou -- o trabalho
+    # de nomear 48 cameras sumia no scan seguinte.
+    TITULOS_DE_FABRICA = {
+        "IP CAMERA", "IPCAMERA", "IP-CAMERA", "CAMERA", "NETWORK CAMERA",
+        "IPC", "DVR", "NVR", "SEM NOME", "NO NAME",
+    }
+
     def is_placeholder_title(row: dict[str, Any], value: Any) -> bool:
         title = str(value or "").strip()
+        if not title:
+            return True
         ip = norm_ip(row.get("ip") or row.get("IP") or row.get("host"))
-        return not title or bool(ip and title == ip)
+        if ip and title == ip:
+            return True
+        return title.upper() in TITULOS_DE_FABRICA
 
     merged: list[dict[str, Any]] = [dict(r) for r in (old_rows or [])]
 
