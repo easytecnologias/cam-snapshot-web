@@ -90,7 +90,10 @@ def main() -> None:
             assert "" in by_site, "esperado canal 'Padrao do cliente' com site==''"
             assert by_site[""]["configured"] is True, by_site[""]
             assert by_site[""]["connected"] is True, by_site[""]
-            assert by_site[""]["label"] == "Padrao do cliente", by_site[""]
+            # o rotulo do canal padrao inclui o slug do tenant para nao colidir
+            # no nome visivel do Zabbix entre clientes diferentes (ver
+            # list_access_whatsapp_channels() em access_control_notifications.py)
+            assert by_site[""]["label"] == "Padrao do cliente (escola-whatsapp-test)", by_site[""]
             print("OK: list_access_whatsapp_channels devolve um canal por site configurado")
 
             from app.services.monitoring_service import refresh_from_inventory
