@@ -56,6 +56,11 @@ def main() -> None:
             status_apos_falha = _status_of(device_id)
             assert status_apos_falha == "offline", f"esperado offline, veio {status_apos_falha!r}"
 
+            # Verificar que last_seen_at foi preenchido (nao blanked)
+            device_after_failure = next(d for d in list_devices() if d["id"] == device_id)
+            last_seen_at_apos_falha = device_after_failure.get("last_seen_at", "")
+            assert last_seen_at_apos_falha, f"last_seen_at deveria ser preenchido, veio vazio"
+
             print("OK: poll_device_events marca offline quando a consulta falha")
         finally:
             reset_current_tenant_slug(token)
