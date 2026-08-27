@@ -318,6 +318,10 @@ def poll_device_events(device_id: str) -> int:
         events = poll_events(device, since_id=device.get("last_event_id") or "")
     except HTTPException as exc:
         logger.warning("Falha ao consultar eventos do dispositivo %s: %s", device_id, exc.detail)
+        try:
+            update_device_health(device_id, status="offline", last_seen_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+        except ValueError:
+            logger.warning("Nao foi possivel marcar dispositivo %s como offline", device_id)
         return 0
     try:
         update_device_health(

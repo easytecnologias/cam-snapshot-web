@@ -5,11 +5,12 @@ import hmac
 import html
 import logging
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import requests
 
 from app.core.crypto import decrypt, encrypt
+from app.core.tenant_context import get_current_tenant_slug
 from app.services import db_store
 
 logger = logging.getLogger("cam-snapshot")
@@ -458,6 +459,54 @@ def get_access_whatsapp_connection(*, refresh_qr: bool = False, site: Any = "", 
         except Exception as exc:
             logger.warning("Nao foi possivel consultar o template na Meta: %s", exc)
     return resultado
+
+
+def list_access_whatsapp_channels() -> List[Dict[str, Any]]:
+    """Canais WhatsApp configurados, com status real de conexao de cada um.
+
+    "connected" aqui exige uma chamada bem-sucedida na Graph API, nao so
+    credencial presente: get_access_whatsapp_connection() ja marca
+    "connected: True" apenas por existir phone_number_id + token gravados
+    (mesmo com token revogado) -- so "display_phone_number" vem preenchido
+    quando a consulta na Meta realmente deu certo (ver
+    access_control_notifications.py:427-442), entao esse e o sinal usado
+    aqui como conectividade de verdade, sem mudar o contrato da funcao que
+    a tela de Conexoes ja usa.
+
+    Um canal por site com config propria, mais o "padrao do cliente" quando
+    ele tiver credenciais proprias (nao amarradas a nenhum site especifico).
+    Usado para alimentar o card do Dashboard e o Zabbix -- ver
+    refresh_from_inventory() em monitoring_service.py.
+    """
+    settings = db_store.load_app_settings()
+    channels: List[Dict[str, Any]] = []
+
+    def _channel(site: str, label: str) -> Dict[str, Any]:
+        result = get_access_whatsapp_connection(site=site)
+        return {
+            "site": site, "label": label,
+            "configured": bool(result.get("configured")),
+            "connected": bool(result.get("display_phone_number")),
+            "phone_number_id": result.get("phone_number_id", ""),
+            "display_phone_number": result.get("display_phone_number", ""),
+            "quality_rating": result.get("quality_rating", ""),
+        }
+
+    global_cfg = _cloud_cfg(settings.get("access_control_whatsapp_notifications") or {})
+    if global_cfg["phone_number_id"] and global_cfg["access_token"]:
+        # O rotulo precisa ser unico por cliente: e ele que vira o nome visivel
+        # do host no Zabbix (zabbix_monitoring_service.py), que exige nome unico
+        # globalmente. Com o mesmo texto fixo para todo tenant, o host.create()
+        # do segundo cliente com canal padrao falhava e abortava o ciclo de
+        # monitoramento para todos os tenants processados depois dele.
+        tenant_slug = str(get_current_tenant_slug() or "").strip().lower()
+        label = f"Padrao do cliente ({tenant_slug})" if tenant_slug else "Padrao do cliente"
+        channels.append(_channel("", label))
+
+    for site_name in _access_whatsapp_site_configs(settings):
+        channels.append(_channel(site_name, site_name))
+
+    return channels
 
 
 def _send_whatsapp(settings: Dict[str, Any], event: Dict[str, Any], message: str) -> str:

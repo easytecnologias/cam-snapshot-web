@@ -276,6 +276,8 @@ function renderDashboardHealth(data) {
   const onus = availability(monitoring.onu);
   const olts = availability(monitoring.olt);
   const connectors = availability(monitoring.connector);
+  const accessDevices = availability(monitoring.access_device);
+  const whatsapp = availability(monitoring.whatsapp);
   const recorders = { total: recTotal, online: recOnline, pct: recTotal ? _dashPct(recOnline, recTotal) : null };
   const pending = _dashAttentionTotal(monitoring);
   const monitoredTotal = Object.values(monitoring).reduce((sum, item) => sum + _dashNum(item?.total), 0);
@@ -284,6 +286,8 @@ function renderDashboardHealth(data) {
     { label: 'ONUs / ONTs', value: onus.pct == null ? '--' : `${onus.pct}%`, sub: onus.total ? `${onus.online} up de ${onus.total}` : 'nenhuma monitorada', pct: onus.pct, action: 'onus' },
     { label: 'OLTs', value: olts.pct == null ? '--' : `${olts.pct}%`, sub: olts.total ? `${olts.online} up de ${olts.total}` : 'nenhuma cadastrada', pct: olts.pct, action: 'olts' },
     { label: 'Conectores', value: connectors.pct == null ? '--' : `${connectors.pct}%`, sub: connectors.total ? `${connectors.online} online de ${connectors.total}` : 'nenhum cadastrado', pct: connectors.pct, action: 'connectors' },
+    { label: 'Controladoras de Acesso', value: accessDevices.pct == null ? '--' : `${accessDevices.pct}%`, sub: accessDevices.total ? `${accessDevices.online} online de ${accessDevices.total}` : 'nenhuma cadastrada', pct: accessDevices.pct, action: 'access_devices' },
+    { label: 'WhatsApp', value: whatsapp.pct == null ? '--' : `${whatsapp.pct}%`, sub: whatsapp.total ? `${whatsapp.online} conectado(s) de ${whatsapp.total} configurado(s)` : 'nenhum canal configurado', pct: whatsapp.pct, action: 'whatsapp' },
     { label: 'Gravadores', value: recorders.pct == null ? '--' : `${recorders.pct}%`, sub: recorders.total ? `${recorders.online} canais online de ${recorders.total}` : 'nenhum canal cadastrado', pct: recorders.pct, action: 'recorders' },
     { label: 'Pendencias', value: pending, sub: 'equipamentos exigem verificacao', pct: pending ? Math.max(8, 100 - _dashPct(pending, monitoredTotal)) : 100, action: 'attention', state: pending ? 'warning' : 'healthy' },
   ];
@@ -304,6 +308,8 @@ function renderDashboardHealth(data) {
     if (action === 'onus' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('onu', 'all');
     if (action === 'olts' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('olt', 'all');
     if (action === 'connectors' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('connector', 'all');
+    if (action === 'access_devices' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('access_device', 'all');
+    if (action === 'whatsapp' && typeof openMonitoringDrawer === 'function') openMonitoringDrawer('whatsapp', 'all');
     if (action === 'recorders') openDashDrawerRecorder('all', 'all');
     if (action === 'attention' && typeof openMonitoringAttentionDrawer === 'function') openMonitoringAttentionDrawer();
   }));
@@ -437,6 +443,8 @@ async function loadDashboard() {
     { label: 'Conectores', icon: 'plug',        s: monitoring.connector || {}, type: 'monitoring' },
     { label: 'OLTs',       icon: 'radio-tower', s: monitoring.olt || {},       type: 'monitoring' },
     { label: 'ONUs/ONTs',  icon: 'wifi',        s: monitoring.onu || {},       type: 'monitoring' },
+    { label: 'Controladoras', icon: 'shield-check', s: monitoring.access_device || {}, type: 'monitoring' },
+    { label: 'WhatsApp',      icon: 'message-circle', s: monitoring.whatsapp || {},    type: 'monitoring' },
     { label: 'Cameras IP',  icon: 'camera',     s: ip,  type: 'ip'      },
     { label: 'DVR canais',  icon: 'hard-drive',  s: dvr, type: 'dvr'     },
     { label: 'NVR canais',  icon: 'hard-drive',  s: nvr, type: 'nvr'     },

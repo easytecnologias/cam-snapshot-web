@@ -3,6 +3,7 @@ let _monitoringEntities = [];
 const MONITORING_LABELS = {
   connector: 'Conectores', olt: 'OLTs', onu: 'ONUs/ONTs', camera: 'Cameras',
   nvr: 'NVRs', dvr: 'DVRs', windows: 'Computadores',
+  access_device: 'Controladoras de Acesso', whatsapp: 'WhatsApp',
 };
 
 function monitoringStatusLabel(status) {
