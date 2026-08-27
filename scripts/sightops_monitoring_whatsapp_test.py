@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+
+def _shim_broken_olt_service() -> None:
+    """app/cli/tools/olt_4840e_collect_macs.py esta com um refactor incompleto
+    (varios nomes que app/services/olt_service.py e app/cli/tools/olt_vsol_epon.py
+    esperam importar nao existem mais no arquivo) -- isso e trabalho de terceiros
+    em andamento, sem relacao com Controle de Acesso/WhatsApp, e nao deve ser
+    tocado aqui. refresh_from_inventory() importa app.services.olt_service so
+    para o bloco de OLT/ONU (fora do escopo deste teste), entao "pre-populamos"
+    esse modulo no sys.modules com um shim minimo antes de importar qualquer
+    coisa -- isso evita que o Python execute a cadeia de import quebrada, sem
+    tocar em nenhum arquivo real. Se este shim comecar a falhar porque
+    refresh_from_inventory() passou a depender de mais funcoes de list_macs,
+    isso e sinal de que o bloco de OLT mudou -- nao que este teste esta errado.
+    """
+    if "app.services.olt_service" in sys.modules:
+        return
+    fake = types.ModuleType("app.services.olt_service")
+    fake.list_macs = lambda *a, **k: {"rows": []}
+    sys.modules["app.services.olt_service"] = fake
+
+
+def main() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    _shim_broken_olt_service()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["DATA_DIR"] = tmp
+        os.environ["DATABASE_BACKEND"] = "sqlite"
+        os.environ["SIGHTOPS_DB_PATH"] = os.path.join(tmp, "sightops-monitoring-whatsapp.db")
+        os.environ["SIGHTOPS_SECRET_KEY"] = "sightops-monitoring-whatsapp-test-key"
+
+        from app.core.tenant_context import reset_current_tenant_slug, set_current_tenant_slug
+        from app.services.db_store import save_app_settings
+        from app.services.access_control_notifications import list_access_whatsapp_channels
+
+        token = set_current_tenant_slug("escola-whatsapp-test")
+        try:
+            save_app_settings({
+                "access_control_whatsapp_notifications_by_site": {
+                    "ESCOLA A": {
+                        "phone_number_id": "111111",
+                        "access_token": "token-escola-a",
+                        "template_name": "aviso_acesso_aluno",
+                    },
+                    "ESCOLA B": {
+                        "phone_number_id": "222222",
+                        "access_token": "token-escola-b",
+                        "template_name": "aviso_acesso_aluno",
+                    },
+                },
+            })
+
+            fake_ok = MagicMock(status_code=200)
+            fake_ok.json.return_value = {"display_phone_number": "+55 82 90000-0000", "quality_rating": "GREEN"}
+            fake_fail = MagicMock(status_code=401)
+            fake_fail.json.return_value = {"error": {"message": "token invalido"}}
+
+            def fake_get(url: str, **kwargs):
+                # ESCOLA B tem token invalido -- simula token expirado/errado
+                return fake_fail if "222222" in url else fake_ok
+
+            with patch("app.services.access_control_notifications.requests.get", side_effect=fake_get):
+                channels = list_access_whatsapp_channels()
+
+            by_site = {c["site"]: c for c in channels}
+            assert len(channels) == 2, f"esperado 2 canais configurados, veio {len(channels)}"
+            assert by_site["ESCOLA A"]["connected"] is True, by_site["ESCOLA A"]
+            assert by_site["ESCOLA B"]["connected"] is False, by_site["ESCOLA B"]
+            assert by_site["ESCOLA B"]["configured"] is True, by_site["ESCOLA B"]
+            print("OK: list_access_whatsapp_channels devolve um canal por site configurado")
+
+            from app.services.monitoring_service import refresh_from_inventory
+            from app.services.monitoring_service import list_entities as list_monitoring_entities
+
+            with patch("app.services.access_control_notifications.requests.get", side_effect=fake_get):
+                refresh_from_inventory()
+
+            rows = list_monitoring_entities(entity_type="whatsapp")
+            by_site2 = {r["site"]: r["status"] for r in rows}
+            assert by_site2.get("ESCOLA A") == "up", by_site2
+            assert by_site2.get("ESCOLA B") == "down", by_site2
+            print("OK: canais WhatsApp aparecem em monitoring_entities com status certo")
+        finally:
+            reset_current_tenant_slug(token)
+
+
+if __name__ == "__main__":
+    main()

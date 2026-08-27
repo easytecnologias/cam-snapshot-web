@@ -156,6 +156,7 @@ def refresh_from_inventory() -> Dict[str, Any]:
     from app.services.dashboard_service import _recorder_rows
     from app.services.windows_inventory_service import load_windows_inventory
     from app.services.access_control_store import list_devices as list_access_devices
+    from app.services.access_control_notifications import list_access_whatsapp_channels
 
     ensure_default_profiles()
     counts: Dict[str, int] = {}
@@ -256,6 +257,16 @@ def refresh_from_inventory() -> Dict[str, Any]:
         "status": r.get("status") if r.get("active") else "maintenance",
         "detail": {"host": r.get("host"), "vendor": r.get("vendor"), "model": r.get("model"), "last_seen_at": r.get("last_seen_at")},
     } for r in access_devices if r.get("id")), prune_entity_type="access_device")
+    whatsapp_channels = list_access_whatsapp_channels()
+    counts["whatsapp"] = _observe_many(({
+        "entity_key": f"whatsapp:{c.get('site') or 'default'}", "entity_type": "whatsapp",
+        "entity_id": c.get("site") or "default", "site": c.get("site"), "display_name": c.get("label"),
+        "status": "online" if c.get("connected") else "offline",
+        "detail": {
+            "phone_number_id": c.get("phone_number_id"), "display_phone_number": c.get("display_phone_number"),
+            "quality_rating": c.get("quality_rating"),
+        },
+    } for c in whatsapp_channels), prune_entity_type="whatsapp")
     return {"ok": True, "tenant": _tenant(), "observed": counts, "total": sum(counts.values())}
 
 
