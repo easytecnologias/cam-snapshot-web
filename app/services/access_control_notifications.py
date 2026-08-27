@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import requests
 
 from app.core.crypto import decrypt, encrypt
+from app.core.tenant_context import get_current_tenant_slug
 from app.services import db_store
 
 logger = logging.getLogger("cam-snapshot")
@@ -493,7 +494,14 @@ def list_access_whatsapp_channels() -> List[Dict[str, Any]]:
 
     global_cfg = _cloud_cfg(settings.get("access_control_whatsapp_notifications") or {})
     if global_cfg["phone_number_id"] and global_cfg["access_token"]:
-        channels.append(_channel("", "Padrao do cliente"))
+        # O rotulo precisa ser unico por cliente: e ele que vira o nome visivel
+        # do host no Zabbix (zabbix_monitoring_service.py), que exige nome unico
+        # globalmente. Com o mesmo texto fixo para todo tenant, o host.create()
+        # do segundo cliente com canal padrao falhava e abortava o ciclo de
+        # monitoramento para todos os tenants processados depois dele.
+        tenant_slug = str(get_current_tenant_slug() or "").strip().lower()
+        label = f"Padrao do cliente ({tenant_slug})" if tenant_slug else "Padrao do cliente"
+        channels.append(_channel("", label))
 
     for site_name in _access_whatsapp_site_configs(settings):
         channels.append(_channel(site_name, site_name))
