@@ -169,6 +169,18 @@ let _mapLayers      = [];
 let _mapLayerGroups = {}; // id  { group, active, features }
 let _mapCameraIndex = { byName: {}, byIp: {} };
 
+// Modo de edicao de pontos: uma camada por vez. _mapEditPendingCam guarda a
+// camera escolhida na lista "sem ponto no mapa" enquanto se espera o clique
+// no mapa que vai criar o ponto dela.
+let _mapEditLayerId     = null;
+let _mapEditDef         = null;
+let _mapEditPendingCam  = null;
+let _mapEditClickHandler = null;
+
+function mapEditIsActive(id) {
+  return !!_mapEditLayerId && _mapEditLayerId === id;
+}
+
 // Definicao das camadas disponiveis
 const MAP_LAYER_DEFS = [
   { id: 'cameras',  get label() { return sessionStorage.getItem('so_kmz_generated_name') || 'Cameras do Inventario'; },
@@ -371,9 +383,13 @@ async function loadKmz() {
 
   if (!_map) {
     _map = L.map('leafletMap', { zoomControl: true }).setView([-9.76, -36.67], 14);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: ' OpenStreetMap  CARTO',
-      subdomains: 'abcd', maxZoom: 20,
+    // OpenStreetMap direto: a CARTO passou a exigir chave de API nos mapas
+    // dark_all e as tiles voltavam carimbadas com "API KEY REQUIRED". O visual
+    // escuro e recuperado por filtro CSS sobre o painel de tiles -- os
+    // marcadores ficam em outro painel e nao sao afetados.
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap',
+      subdomains: 'abc', maxZoom: 19,
     }).addTo(_map);
   }
 
@@ -744,36 +760,65 @@ async function loadMapLayers() {
     }
     row.appendChild(statsEl);
 
-    const actions = document.createElement('div');
-    actions.className = 'map-layer-actions';
+    // Menu unico por camada: com quatro ou mais acoes soltas o card ficava
+    // poluido, e ainda vao entrar as de edicao de ponto.
+    const menuWrap = document.createElement('div');
+    menuWrap.className = 'map-layer-menu-wrap';
 
-    const detailBtn = document.createElement('button');
-    detailBtn.className = 'map-layer-action';
-    detailBtn.innerHTML = '<i data-lucide="list"></i> Detalhes';
-    detailBtn.onclick = (e) => { e.stopPropagation(); openMapLayerDetails(def); };
-    actions.appendChild(detailBtn);
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'map-layer-action map-layer-menu-btn';
+    menuBtn.title = 'Acoes da camada';
+    menuBtn.innerHTML = '<i data-lucide="more-vertical"></i>';
 
+    const menu = document.createElement('div');
+    menu.className = 'map-layer-menu';
+    menu.hidden = true;
+
+    const item = (icone, rotulo, aoClicar, perigo = false) => {
+      const b = document.createElement('button');
+      b.className = 'map-layer-menu-item' + (perigo ? ' danger' : '');
+      b.innerHTML = `<i data-lucide="${icone}"></i><span>${esc(rotulo)}</span>`;
+      b.onclick = (e) => { e.stopPropagation(); menu.hidden = true; aoClicar(); };
+      return b;
+    };
+
+    menu.appendChild(item('list', 'Detalhes', () => openMapLayerDetails(def)));
     if (def.updateUrl) {
-      const editBtn = document.createElement('button');
-      editBtn.title = 'Editar nome da camada';
-      editBtn.className = 'map-layer-action';
-      editBtn.innerHTML = '<i data-lucide="pencil"></i>';
-      editBtn.onclick = (e) => { e.stopPropagation(); openMapLayerRename(def); };
-      actions.appendChild(editBtn);
+      menu.appendChild(item('pencil', 'Renomear camada', () => openMapLayerRename(def)));
+      menu.appendChild(item(
+        mapEditIsActive(def.id) ? 'x' : 'move',
+        mapEditIsActive(def.id) ? 'Sair do modo de edicao' : 'Editar pontos no mapa',
+        () => mapEditIsActive(def.id) ? exitMapPointEditor() : openMapPointEditor(def),
+      ));
     }
-
     const dlUrl = mapLayerDownloadUrl(def);
     if (dlUrl) {
-      const dlBtn = document.createElement('button');
-      dlBtn.title = def.source === 'imported' ? 'Baixar KMZ enriquecido' : 'Baixar KMZ';
-      dlBtn.className = 'map-layer-action';
-      dlBtn.innerHTML = '<i data-lucide="download"></i>';
-      dlBtn.onclick = (e) => { e.stopPropagation(); downloadWithAuth(dlUrl, `${def.label || 'mapa'}.kmz`); };
-      actions.appendChild(dlBtn);
+      const rotulo = def.source === 'imported' ? 'Baixar KMZ enriquecido' : 'Baixar KMZ';
+      menu.appendChild(item('download', rotulo, () => downloadWithAuth(dlUrl, `${def.label || 'mapa'}.kmz`)));
     }
+    menu.appendChild(document.createElement('hr'));
+    menu.appendChild(item('trash-2', 'Excluir camada', () => delBtn.onclick(new Event('click')), true));
 
-    actions.appendChild(delBtn);
-    row.appendChild(actions);
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      // fecha os menus das outras camadas: dois abertos ao mesmo tempo confunde
+      document.querySelectorAll('.map-layer-menu').forEach(m => { if (m !== menu) m.hidden = true; });
+      const abrir = menu.hidden;
+      menu.hidden = !abrir;
+      if (!abrir) return;
+      // O card tem overflow:hidden e cortava o menu. Com position:fixed ele
+      // escapa de qualquer recorte; a posicao vem do botao.
+      const r = menuBtn.getBoundingClientRect();
+      menu.style.top = `${Math.round(r.bottom + 4)}px`;
+      menu.style.left = `${Math.round(Math.max(8, r.right - 220))}px`;
+      lucide.createIcons();
+    };
+
+    menuWrap.appendChild(menuBtn);
+    menuWrap.appendChild(menu);
+    // Fora do fluxo, no canto do card: dentro do cabecalho ele encolhia o
+    // nome da camada, que virava "JARDI...".
+    row.appendChild(menuWrap);
     listEl.appendChild(row);
   });
 
@@ -799,23 +844,17 @@ async function loadMapLayers() {
   }
 }
 
-async function toggleMapLayer(id, def, skipFit = false) {
-  if (!_map) return;
+function renderMapLayerGroup(id, def, skipFit = false) {
   const state = _mapLayerGroups[id];
   if (!state) return;
 
-  if (state.active) {
-    _map.removeLayer(state.group);
-    state.group.clearLayers();
-    state.active = false;
-    state.drawnCount = 0;
-  } else {
-    // Renderiza os pontos neste grupo
-    state.group = L.layerGroup();
-    state.markers = {};
-    const bounds = [];
-    let drawnCount = 0;
-    state.features.forEach(f => {
+  // Renderiza os pontos neste grupo
+  state.group = L.layerGroup();
+  state.markers = {};
+  const bounds = [];
+  let drawnCount = 0;
+  const editing = mapEditIsActive(id);
+  state.features.forEach(f => {
       const geomType = String(f.geometry?.type || '');
       const name = f.properties?.name || '';
       const cam = mapFindCamera(f, _mapCameraIndex);
@@ -869,11 +908,18 @@ async function toggleMapLayer(id, def, skipFit = false) {
         other:  { bg: def?.color || '#d97706', label: '' },
       };
       const tc = typeConfig[pointType] || typeConfig.other;
+      // Em modo de edicao, os pontos de camera ganham draggable: true (ver
+      // editar_ponto_no_kmz no backend, que casa o Placemark pelo nome do
+      // proprio ponto e regrava a coordenada preservando estilo/descricao).
+      const canDrag = editing && pointType === 'camera' && !!mapFeatureName(f) && !!def?.updateUrl;
       const icon = L.divIcon({
-        html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:pointer">${tc.label}</div>`,
+        html: `<div style="background:${tc.bg};color:white;border:2px solid white;border-radius:6px;padding:2px 5px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:${canDrag ? 'move' : 'pointer'}${canDrag ? ';outline:2px dashed rgba(255,255,255,.8);outline-offset:2px' : ''}">${tc.label}</div>`,
         className: '', iconSize: [40, 22], iconAnchor: [20, 11], popupAnchor: [0, -14],
       });
-      const marker = L.marker([+lat, +lng], { icon });
+      const marker = L.marker([+lat, +lng], { icon, draggable: canDrag });
+      if (canDrag) {
+        marker.on('dragend', () => handleMapPointDragEnd(def, mapFeatureName(f), marker));
+      }
       const featureKey = mapFeatureKey(f, cam);
       if (!state.markers) state.markers = {};
       // Popup rico e moderno
@@ -919,17 +965,23 @@ async function toggleMapLayer(id, def, skipFit = false) {
       state.group.addLayer(marker);
       bounds.push([+lat, +lng]);
       drawnCount += 1;
-    });
-    _map.addLayer(state.group);
-    state.active = true;
-    state.drawnCount = drawnCount;
+  });
+  _map.addLayer(state.group);
+  state.active = true;
+  state.drawnCount = drawnCount;
+  state.def = def;
 
-    if (bounds.length > 0 && !skipFit) {
-      try { _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); } catch {}
-    }
+  if (bounds.length > 0 && !skipFit) {
+    try { _map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); } catch {}
   }
+}
 
-  // Atualiza botao visual
+// Atualiza botao/contador visual de uma camada sem mexer nos marcadores --
+// usado tanto por toggleMapLayer quanto por reRenderMapLayerGroup (que
+// reconstroi os marcadores sem ligar/desligar a camada).
+function updateMapLayerUiState(id) {
+  const state = _mapLayerGroups[id];
+  if (!state) return;
   const btn = document.querySelector(`[data-layer-id="${id}"]`);
   if (btn) btn.classList.toggle('active', state.active);
   const chk = document.querySelector(`[data-layer-check="${CSS.escape(id)}"]`);
@@ -937,9 +989,238 @@ async function toggleMapLayer(id, def, skipFit = false) {
   const card = document.querySelector(`[data-layer-card-id="${id}"]`);
   if (card) card.classList.toggle('active', state.active);
 
-  // Atualiza contador
   const totalShown = Object.values(_mapLayerGroups).filter(s => s.active).reduce((a, s) => a + (s.drawnCount ?? s.group?.getLayers?.().length ?? 0), 0);
   setText('mapCounter', `${totalShown} ponto${totalShown !== 1 ? 's' : ''} visiveis`);
+}
+
+async function toggleMapLayer(id, def, skipFit = false) {
+  if (!_map) return;
+  const state = _mapLayerGroups[id];
+  if (!state) return;
+
+  if (state.active) {
+    _map.removeLayer(state.group);
+    state.group.clearLayers();
+    state.active = false;
+    state.drawnCount = 0;
+  } else {
+    renderMapLayerGroup(id, def, skipFit);
+  }
+
+  updateMapLayerUiState(id);
+}
+
+// Reconstroi os marcadores de uma camada ja ativa (usado ao entrar/sair do
+// modo de edicao, onde so muda se os pontos de camera sao draggable, e apos
+// salvar um ponto, quando o layerGroup precisa refletir a coordenada nova).
+function reRenderMapLayerGroup(id, def, skipFit = true) {
+  const state = _mapLayerGroups[id];
+  if (!state) return;
+  if (state.active && state.group) {
+    try { _map.removeLayer(state.group); } catch {}
+  }
+  renderMapLayerGroup(id, def, skipFit);
+  updateMapLayerUiState(id);
+}
+
+// --- Modo de edicao de pontos no mapa ------------------------------------
+// Liga o modo de edicao para uma camada: os pontos de camera ja existentes
+// ganham draggable (soltar = mover, PATCH com o mesmo nome), e a lista de
+// cameras do inventario sem ponto vira clicavel (escolher -> clicar no mapa
+// = criar). Uma camada por vez para nao confundir qual "clique no mapa"
+// pertence a qual.
+async function openMapPointEditor(def) {
+  if (!def?.updateUrl) {
+    showToast('Esta camada nao suporta edicao de pontos.', true);
+    return;
+  }
+  if (_mapEditLayerId && _mapEditLayerId !== def.id) {
+    await exitMapPointEditor({ silent: true });
+  }
+  _mapEditLayerId = def.id;
+  _mapEditDef = def;
+  _mapEditPendingCam = null;
+
+  const state = _mapLayerGroups[def.id];
+  if (state && !state.active) {
+    await toggleMapLayer(def.id, def, true);
+  } else {
+    reRenderMapLayerGroup(def.id, def, true);
+  }
+
+  if (!_mapEditClickHandler) {
+    _mapEditClickHandler = (e) => handleMapEditClick(e);
+    _map.on('click', _mapEditClickHandler);
+  }
+
+  renderMapEditBanner();
+  showToast(`Modo de edicao ativo em "${def.label}". Arraste um ponto para mover ou escolha uma camera na lista para adicionar.`);
+}
+
+async function exitMapPointEditor({ silent = false } = {}) {
+  const prevId = _mapEditLayerId;
+  const prevDef = _mapEditDef;
+  _mapEditLayerId = null;
+  _mapEditDef = null;
+  _mapEditPendingCam = null;
+  if (_mapEditClickHandler) {
+    _map.off('click', _mapEditClickHandler);
+    _mapEditClickHandler = null;
+  }
+  if (prevId && _mapLayerGroups[prevId]?.active) {
+    reRenderMapLayerGroup(prevId, prevDef || _mapLayerGroups[prevId].def, true);
+  }
+  renderMapEditBanner();
+  if (!silent) showToast('Modo de edicao encerrado.');
+}
+
+// Ponto NOVO nao passa pela reescrita de descricao que a camada importada
+// sofre no download-enriquecido (isso so acontece para camadas "imported" --
+// ver _ensure_imported_layer_enriched no backend). Sem isso, um ponto criado
+// aqui saia so com "IP: x.x.x.x" e sem a foto do imgbb. Monta a mesma cara do
+// popup usado no restante do mapa (ver _popup_html em kmz_enricher.py) pra
+// nao depender de reenriquecimento.
+function mapEditBuildDescriptionHtml(cam) {
+  const foto = cameraImgbbUrl(cam);
+  const isOnline = String(cam?.status || '').toLowerCase() === 'online';
+  const partes = [];
+  if (foto) {
+    partes.push(`<img src="${esc(foto)}" style="max-width:320px;width:100%;height:auto;border-radius:10px;display:block;"/><br/>`);
+  }
+  if (cam?.titulo) {
+    partes.push(`<div style="font-weight:800;font-size:14px;margin:6px 0;color:#111827;">${esc(cam.titulo)}</div>`);
+  }
+  const linhas = [
+    (cam?.modelo || cam?.model) ? `CAMERA: ${esc(cam.modelo || cam.model)}` : '',
+    cam?.local ? `LOCAL: ${esc(cam.local)}` : '',
+    cam?.mac ? `MAC: ${esc(cam.mac)}` : '',
+    cam?.ip ? `IP: ${esc(cam.ip)}` : '',
+    `STATUS: <span style="color:${isOnline ? '#16a34a' : '#dc2626'};font-weight:800">${isOnline ? 'ONLINE' : 'OFFLINE'}</span>`,
+  ].filter(Boolean).join('<br/>');
+  partes.push(linhas);
+  return partes.join('\n');
+}
+
+async function handleMapEditClick(e) {
+  if (!_mapEditPendingCam || !_mapEditLayerId) return;
+  const def = _mapLayerGroups[_mapEditLayerId]?.def || _mapEditDef;
+  if (!def?.updateUrl) return;
+  const cam = _mapEditPendingCam;
+  _mapEditPendingCam = null;
+  renderMapEditBanner();
+  await saveMapPoint(def, {
+    nome: cam.titulo || cam.ip,
+    lat: e.latlng.lat,
+    lon: e.latlng.lng,
+    descricao: mapEditBuildDescriptionHtml(cam),
+  }, `Ponto criado para "${cam.titulo || cam.ip}".`);
+}
+
+async function handleMapPointDragEnd(def, nome, marker) {
+  if (!nome) {
+    showToast('Nao foi possivel identificar o nome deste ponto.', true);
+    return;
+  }
+  const latlng = marker.getLatLng();
+  await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng }, `Ponto "${nome}" movido.`);
+}
+
+async function saveMapPoint(def, ponto, successMsg) {
+  if (!def?.updateUrl) return;
+  try {
+    const res = await api(def.updateUrl, { method: 'PATCH', body: JSON.stringify({ ponto }) });
+    const body = await res?.json().catch(() => ({}));
+    if (!res?.ok || body?.ok === false) {
+      showToast(body?.detail || body?.error || 'Nao foi possivel salvar o ponto.', true);
+    } else {
+      showToast(successMsg || 'Ponto salvo.');
+    }
+  } catch (err) {
+    showToast(`Falha ao salvar ponto: ${err.message || err}`, true);
+  }
+  await reloadMapEditLayer();
+}
+
+// Recarrega as camadas do servidor (o KMZ mudou) mantendo o modo de edicao
+// ativo na mesma camada, para o aviso "sem ponto no mapa" e os marcadores
+// atualizarem na hora sem o usuario precisar sair e reentrar no modo.
+async function reloadMapEditLayer() {
+  const editingId = _mapEditLayerId;
+  await loadMapLayers();
+  if (editingId && _mapLayerGroups[editingId]) {
+    _mapEditDef = _mapLayerGroups[editingId].def;
+  } else {
+    _mapEditLayerId = null;
+    _mapEditDef = null;
+  }
+  renderMapEditBanner();
+}
+
+function renderMapEditBanner() {
+  const panel = document.getElementById('mapEditPanel');
+  if (!panel) return;
+
+  if (!_mapEditLayerId) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+
+  const state = _mapLayerGroups[_mapEditLayerId];
+  const def = state?.def || _mapEditDef;
+  if (!def) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+
+  panel.classList.remove('hidden');
+
+  const fora = camerasForaDoMapa(def);
+  const lista = fora.lista || [];
+
+  const pendingHtml = _mapEditPendingCam
+    ? `<div class="map-edit-pending">
+        Clique no mapa para posicionar <strong>${esc(_mapEditPendingCam.titulo || _mapEditPendingCam.ip)}</strong>.
+        <button type="button" class="map-edit-cancel-pending" id="mapEditCancelPending">Cancelar</button>
+      </div>`
+    : '';
+
+  const listHtml = lista.length
+    ? lista.map(c => `
+        <button type="button" class="map-edit-cam-item" data-map-edit-cam-ip="${esc(c.ip)}">
+          <span class="map-edit-cam-dot" style="background:${String(c.status || '').toLowerCase() === 'online' ? '#16a34a' : '#dc2626'}"></span>
+          <div><strong>${esc(c.titulo || c.ip)}</strong><span class="muted">${esc(c.ip)}</span></div>
+        </button>`).join('')
+    : '<div class="map-edit-empty">Todas as cameras do inventario ja tem ponto nesta camada.</div>';
+
+  panel.innerHTML = `
+    <div class="map-edit-header">
+      <strong title="${esc(def.label || '')}">Editando: ${esc(def.label || '')}</strong>
+      <button type="button" class="map-edit-exit" id="mapEditExitBtn" title="Sair do modo de edicao"><i data-lucide="x"></i></button>
+    </div>
+    <div class="map-edit-hint">Arraste um ponto de camera existente pra move-lo. Escolha uma camera na lista e clique no mapa pra adicionar.</div>
+    ${pendingHtml}
+    <div class="map-edit-cam-list-title">Sem ponto no mapa</div>
+    <div class="map-edit-cam-list">${listHtml}</div>`;
+
+  document.getElementById('mapEditExitBtn')?.addEventListener('click', () => exitMapPointEditor());
+  document.getElementById('mapEditCancelPending')?.addEventListener('click', () => {
+    _mapEditPendingCam = null;
+    renderMapEditBanner();
+  });
+  panel.querySelectorAll('[data-map-edit-cam-ip]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ip = btn.dataset.mapEditCamIp;
+      const cam = lista.find(c => c.ip === ip);
+      if (cam) {
+        _mapEditPendingCam = cam;
+        renderMapEditBanner();
+      }
+    });
+  });
+
+  lucide.createIcons();
 }
 
 function openMapLayerDetails(def) {
@@ -2273,3 +2554,16 @@ async function runInvOltReport(button) {
 }
 
 //  Inventario DVR
+
+
+// Clique em qualquer outro lugar fecha o menu de camada aberto.
+document.addEventListener('click', function fecharMenusDeCamada(ev) {
+  if (ev.target.closest?.('.map-layer-menu-wrap')) return;
+  document.querySelectorAll('.map-layer-menu').forEach(m => { m.hidden = true; });
+});
+
+// Com position:fixed o menu nao acompanha a rolagem da lista: ficaria solto
+// na tela, longe da camada que o abriu.
+document.addEventListener('scroll', () => {
+  document.querySelectorAll('.map-layer-menu').forEach(m => { m.hidden = true; });
+}, true);

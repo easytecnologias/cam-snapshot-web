@@ -1901,8 +1901,38 @@ def scripts_zabbix_status_sync(payload: Dict[str, Any]) -> Dict[str, Any]:
                 else:
                     offline += 1
 
+        # Este sync carrega o inventario inteiro no inicio da funcao e so
+        # grava aqui no final -- no meio, ha chamadas de rede pro Zabbix
+        # (login, host.get, as vezes bootstrap de host) que levam segundos, e
+        # o loop de fundo roda para todos os tenants/modos a cada 60s. Se
+        # outro request (ex.: upload de foto pro ImgBB) salvar o inventario
+        # nesse meio tempo, um save_inventory_json(rows_by_mode...) direto
+        # sobrescreveria o arquivo inteiro com esta copia em memoria, que ja
+        # esta desatualizada, e apagaria o que o outro processo acabou de
+        # gravar. Foi exatamente isso: upload confirmava no log ("OK") mas o
+        # imgbb_url sumia minutos depois. Por isso: recarrega o inventario
+        # atual bem antes de salvar e aplica so os campos de status por IP,
+        # preservando qualquer outro campo que tenha mudado nesse intervalo.
+        _STATUS_SYNC_FIELDS = (
+            "status", "status_source", "status_checked_at", "zabbix_hostid",
+            "zabbix_host", "status_detail", "status_check_method",
+        )
         for item_mode in touched_modes:
-            save_inventory_json(rows_by_mode.get(item_mode) or [], mode=item_mode)
+            updates_by_ip: Dict[str, Dict[str, Any]] = {}
+            for row in rows_by_mode.get(item_mode) or []:
+                ip = _as_str(row.get("ip") or row.get("IP"))
+                if ip:
+                    updates_by_ip[ip] = {k: row[k] for k in _STATUS_SYNC_FIELDS if k in row}
+
+            fresh_rows = load_inventory_json(site="", mode=item_mode) or []
+            changed = False
+            for row in fresh_rows:
+                upd = updates_by_ip.get(_as_str(row.get("ip") or row.get("IP")))
+                if upd:
+                    row.update(upd)
+                    changed = True
+            if changed:
+                save_inventory_json(fresh_rows, mode=item_mode)
 
         return {
             "ok": True,

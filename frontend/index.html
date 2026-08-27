@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=248">
+  <link rel="stylesheet" href="styles.css?v=253">
 </head>
 <body>
 
@@ -2754,6 +2754,10 @@
 
           <!-- Mapa -->
           <div id="leafletMap" style="flex:1;z-index:0"></div>
+
+          <!-- Painel flutuante do modo de edicao de pontos (ver openMapPointEditor
+               em cameras.js). Fica escondido por padrao. -->
+          <div id="mapEditPanel" class="map-edit-panel hidden"></div>
         </div>
       </section>
 
@@ -6002,7 +6006,7 @@
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
   <script src="js/core.js?v=164"></script>
   <script src="js/dashboard.js?v=153"></script>
-  <script src="js/cameras.js?v=172"></script>
+  <script src="js/cameras.js?v=178"></script>
   <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=142"></script>

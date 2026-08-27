@@ -484,3 +484,91 @@ def read_geojson_file(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8") or "{}")
     except Exception:
         return {}
+
+
+# --- edicao de pontos direto no mapa -----------------------------------------
+# Marcar uma camera no Google Earth e reimportar o KMZ inteiro so para acertar
+# um ponto e trabalho demais. Aqui o ponto e gravado no proprio KMZ, que segue
+# sendo a fonte de verdade: o geojson que o mapa le e regerado dele, entao mapa
+# e arquivo baixado nunca divergem.
+
+def _mesmo_ponto(pm: ET.Element, nome_alvo: str) -> bool:
+    nome = (pm.findtext("kml:name", default="", namespaces=KML_NS) or "").strip()
+    return _norm_text(nome) == _norm_text(nome_alvo)
+
+
+def editar_ponto_no_kmz(
+    kmz_path: Path,
+    *,
+    nome: str,
+    lat: float | None = None,
+    lon: float | None = None,
+    descricao: str = "",
+    remover: bool = False,
+) -> dict[str, Any]:
+    """Adiciona, move ou remove um ponto no KMZ, casando pelo nome.
+
+    Devolve o que aconteceu para a tela poder dizer ao usuario. Nome vazio e
+    recusado: sem ele o ponto nao casa com camera nenhuma e vira pino solto.
+    """
+    nome = str(nome or "").strip()
+    if not nome:
+        raise ValueError("Informe o nome do ponto.")
+    if not remover and (lat is None or lon is None):
+        raise ValueError("Informe latitude e longitude do ponto.")
+    if not kmz_path.exists():
+        raise ValueError("Camada nao encontrada.")
+
+    with zipfile.ZipFile(kmz_path, "r") as zf:
+        nomes = zf.namelist()
+        kml_names = [n for n in nomes if n.lower().endswith(".kml")]
+        if not kml_names:
+            raise ValueError("KMZ sem arquivo KML.")
+        kml_name = "doc.kml" if "doc.kml" in kml_names else kml_names[0]
+        conteudo = {n: zf.read(n) for n in nomes}
+
+    ET.register_namespace("", KML_NS["kml"])
+    root = ET.fromstring(sanitize_kml_xml(conteudo[kml_name]))
+
+    # o Placemark pode estar dentro de qualquer Folder; procura o pai real
+    pai_de: dict[ET.Element, ET.Element] = {f: p for p in root.iter() for f in p}
+    existentes = [pm for pm in root.findall(".//kml:Placemark", KML_NS) if _mesmo_ponto(pm, nome)]
+
+    if remover:
+        if not existentes:
+            return {"acao": "inalterado", "motivo": "ponto nao encontrado"}
+        for pm in existentes:
+            pai_de[pm].remove(pm)
+        acao = "removido"
+    elif existentes:
+        # mover: troca so a coordenada, preservando estilo e descricao do original
+        for pm in existentes:
+            coord = pm.find(".//kml:Point/kml:coordinates", KML_NS)
+            if coord is None:
+                ponto = ET.SubElement(pm, f"{{{KML_NS['kml']}}}Point")
+                coord = ET.SubElement(ponto, f"{{{KML_NS['kml']}}}coordinates")
+            coord.text = f"{float(lon):.8f},{float(lat):.8f},0"
+        acao = "movido"
+    else:
+        # criar: pendura no primeiro Document/Folder disponivel
+        destino = root.find(".//kml:Document", KML_NS) or root
+        pm = ET.SubElement(destino, f"{{{KML_NS['kml']}}}Placemark")
+        ET.SubElement(pm, f"{{{KML_NS['kml']}}}name").text = nome
+        if descricao:
+            ET.SubElement(pm, f"{{{KML_NS['kml']}}}description").text = descricao
+        ponto = ET.SubElement(pm, f"{{{KML_NS['kml']}}}Point")
+        ET.SubElement(ponto, f"{{{KML_NS['kml']}}}coordinates").text = (
+            f"{float(lon):.8f},{float(lat):.8f},0"
+        )
+        acao = "criado"
+
+    conteudo[kml_name] = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    # regrava o zip inteiro: alterar um membro no lugar nao e suportado
+    tmp = kmz_path.with_suffix(".kmz.tmp")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for n, dados in conteudo.items():
+            zf.writestr(n, dados)
+    tmp.replace(kmz_path)
+
+    return {"acao": acao, "nome": nome}

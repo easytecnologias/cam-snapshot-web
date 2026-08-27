@@ -1182,7 +1182,17 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
             uploaded_by_key[key] = r
 
     if uploaded_by_key:
-        for r in rows:
+        # `rows` foi carregado no INICIO da requisicao, antes do upload real
+        # pro ImgBB (rede, um round-trip por camera). O sync automatico de
+        # status Zabbix roda a cada 60s e faz a mesma coisa -- carrega tudo,
+        # demora com chamadas de rede, salva tudo -- e o "salva tudo" de um
+        # por cima do outro apaga silenciosamente o que o outro acabou de
+        # gravar (visto em producao: upload confirmava no log mas o
+        # imgbb_url sumia minutos depois). Recarrega aqui, bem antes de
+        # salvar, e aplica so os campos do upload por chave.
+        fresh_rows = _load_inventory_rows(mode=mode)
+        changed = False
+        for r in fresh_rows:
             if not isinstance(r, dict):
                 continue
             u = uploaded_by_key.get(inventory_row_key(r))
@@ -1196,7 +1206,10 @@ async def api_inventory_imgbb_upload(payload: Dict[str, Any] | None = None) -> D
                 r["imgbb_thumb_url"] = thumb_url
             r["imgbb_status"] = "up"
             r["imgbb_updated_at"] = datetime.now().isoformat(timespec="seconds")
-    _save_inventory_rows(rows, mode=mode)
+            changed = True
+        if changed:
+            _save_inventory_rows(fresh_rows, mode=mode)
+            rows = fresh_rows
     err_text = str(err or "").strip()
     skipped_no_snapshot = 0
     if int(uploaded or 0) == 0 and "nenhum snapshot local" in err_text.lower():
@@ -1434,8 +1447,60 @@ async def api_kmz_import_layer_download_enriched(
     return FileResponse(kmz_path, media_type="application/vnd.google-earth.kmz", filename=filename)
 
 
+def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: bool = False) -> Dict[str, Any]:
+    """Grava um ponto no KMZ da camada e regenera o geojson que o mapa le.
+
+    A fonte de verdade continua sendo o KMZ: regerar o geojson dele evita que o
+    mapa mostre um ponto que o arquivo baixado nao tem.
+    """
+    from app.services.kmz_ops import editar_ponto_no_kmz, kmz_to_geojson
+
+    paths_fn = _kmz_generated_layer_paths if generated else _kmz_layer_paths
+    kmz_path, geojson_path, meta_path = paths_fn(layer_id)
+    if not kmz_path.exists():
+        raise HTTPException(404, "Camada KMZ nao encontrada.")
+
+    def _coord(chave: str) -> float | None:
+        valor = ponto.get(chave)
+        if valor in (None, ""):
+            return None
+        try:
+            return float(valor)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Valor invalido para {chave}.")
+
+    try:
+        resultado = editar_ponto_no_kmz(
+            kmz_path,
+            nome=str(ponto.get("nome") or ""),
+            lat=_coord("lat"),
+            lon=_coord("lon"),
+            descricao=str(ponto.get("descricao") or ""),
+            remover=bool(ponto.get("remover")),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    geojson_path.write_text(
+        json.dumps(kmz_to_geojson(kmz_path), ensure_ascii=False), encoding="utf-8"
+    )
+
+    meta = _read_kmz_layer_meta(meta_path)
+    meta["id"] = layer_id
+    meta["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    _write_kmz_layer_meta(meta_path, meta)
+
+    # A copia enriquecida foi gerada do KMZ antigo e ficaria desatualizada.
+    if not generated:
+        _apagar_geradas_do_mapa(layer_id)
+
+    return resultado
+
+
 @router.patch("/kmz/import/layers/{layer_id}")
 async def api_kmz_import_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(payload.get("ponto"), dict):
+        return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"])}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""))
     return {"ok": True, "layer": layer}
 
@@ -1712,6 +1777,8 @@ async def api_kmz_generated_layer_download(layer_id: str) -> FileResponse:
 
 @router.patch("/kmz/generated/layers/{layer_id}")
 async def api_kmz_generated_layer_update(layer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if isinstance(payload.get("ponto"), dict):
+        return {"ok": True, **_editar_ponto_da_camada(layer_id, payload["ponto"], generated=True)}
     layer = _rename_kmz_layer(layer_id, str(payload.get("label") or ""), generated=True)
     return {"ok": True, "layer": layer}
 
