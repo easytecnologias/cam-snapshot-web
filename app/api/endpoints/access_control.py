@@ -49,6 +49,7 @@ from app.services.access_control_photos import load_person_face_photo, save_pers
 from app.services.access_control_sync import provision_person_everywhere, resolve_target_devices_for_person
 from app.services.access_control_sync import enqueue_person_provisioning
 from app.services.access_control_notifications import (
+    assinatura_webhook_valida,
     get_access_whatsapp_connection,
     resolver_cliente_por_numero,
     get_access_whatsapp_config,
@@ -380,8 +381,29 @@ async def api_access_control_whatsapp_meta_webhook(tenant_slug: str, request: Re
     webhook de quem devolve falha, e perder o canal e pior do que perder um
     evento isolado.
     """
+    # O corpo cru precisa vir antes do json(): a assinatura e calculada sobre os
+    # bytes exatos que a Meta enviou, e reserializar mudaria o resultado.
+    corpo = await request.body()
+
+    # O App Secret e um so, do app inteiro, e mora no cliente dono do app --
+    # que e o slug da URL. A checagem precisa rodar ANTES de resolver de quem e
+    # a mensagem: e ela que decide se o payload merece ser processado. Guardar
+    # o segredo por site fazia a verificacao nao achar nada e deixar passar.
+    ctx_dono = set_current_tenant_slug(tenant_slug)
     try:
-        payload = await request.json()
+        assinatura_ok = assinatura_webhook_valida(
+            corpo, request.headers.get("x-hub-signature-256", "")
+        )
+    finally:
+        reset_current_tenant_slug(ctx_dono)
+
+    if not assinatura_ok:
+        logger.warning("Webhook do WhatsApp com assinatura invalida; descartado.")
+        # 200 de proposito: erro faz a Meta reenviar e depois desativar o webhook
+        return {"ok": True, "ignored": "assinatura invalida"}
+
+    try:
+        payload = json.loads(corpo or b"{}")
     except Exception:
         payload = {}
     if not isinstance(payload, dict):

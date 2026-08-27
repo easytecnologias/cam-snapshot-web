@@ -1662,3 +1662,56 @@ muda nada na tela.
 **Achado operacional:** SWITCH-06 e SWITCH-08 estao com 6 de 6 cameras offline
 cada. 12 das 15 quedas concentradas em dois switches quase nunca sao 12
 defeitos.
+
+---
+
+## 2026-08-27 tarde — Seguranca do webhook do WhatsApp e token em repouso
+
+Revisao de seguranca encontrou duas falhas, ambas introduzidas na migracao para
+a Cloud API destes dois dias.
+
+**1. Webhook publico sem verificacao de assinatura (Alto).** O POST em
+`/api/access-control/whatsapp/meta/{tenant}` e publico -- a Meta chama de fora --
+e o GET conferia o verify token, mas o POST nao conferia nada. Com apenas a URL
+era possivel:
+
+- forjar mensagem recebida e injetar item de triagem no cliente;
+- fazer o sistema **responder para um numero escolhido pelo atacante**, porque o
+  destino da resposta automatica vem do `from` do payload. As mensagens sairiam
+  do numero oficial da escola, cobradas do cliente, queimando a reputacao da
+  conta.
+
+E nem era preciso saber o `phone_number_id`: sem `metadata`, o codigo cai no
+`tenant_slug` da URL.
+
+**Correcao:** `assinatura_webhook_valida()` confere `X-Hub-Signature-256` (HMAC
+SHA-256 sobre os **bytes crus** -- reserializar o JSON mudaria o resultado).
+Payload invalido e descartado com **200**, nunca erro: erro faz a Meta reenviar
+e depois desativar o webhook.
+
+**Armadilha que me pegou:** a primeira versao passou em todos os testes locais e
+**nao bloqueava nada**. O App Secret e um so, do app inteiro, mas eu o guardei na
+config por site da RADS -- e a checagem roda ANTES de resolver de quem e a
+mensagem, entao nao achava segredo e liberava. O segredo mora no cliente **dono
+do app** (slug da URL), e o endpoint entra nesse contexto antes de verificar.
+
+Provado contra producao pela internet: sem assinatura e com assinatura forjada
+-> `ignored`; com assinatura valida -> `handled`.
+
+**2. Token da Meta em texto puro (Medio).** `access_token` e `app_secret`
+ficavam legiveis nas configuracoes, enquanto senha de OLT/camera/switch ja
+passava por `app.core.crypto`. O token nao expira e envia mensagem em nome da
+escola.
+
+**Correcao:** cifrados na gravacao, decifrados na leitura. `decrypt()` devolve
+como veio o valor sem prefixo, entao token gravado antes continua funcionando.
+Os valores que ja estavam em claro foram regravados cifrados em producao.
+
+**Campo vazio preserva o segredo atual** -- editar outro campo do formulario nao
+pode apagar credencial. Ha teste cobrindo isso.
+
+**Nao afrouxar:** sem App Secret configurado a checagem nao roda e o webhook
+fica aberto (bloquear pararia quem ja esta no ar). Isso e proposital, mas gera
+WARNING a cada chamada. Cliente novo com webhook precisa do App Secret.
+
+**Teste:** `scripts/sightops_whatsapp_webhook_seguranca_test.py`.

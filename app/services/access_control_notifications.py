@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import html
 import logging
 import re
@@ -7,6 +9,7 @@ from typing import Any, Dict
 
 import requests
 
+from app.core.crypto import decrypt, encrypt
 from app.services import db_store
 
 logger = logging.getLogger("cam-snapshot")
@@ -182,13 +185,47 @@ def _send_telegram(settings: Dict[str, Any], message: str) -> str:
 _GRAPH_VERSION = "v21.0"
 
 
+def _cifrar_token(novo: Any, antigo: Any) -> str:
+    """Guarda o token cifrado, preservando o atual quando o campo vem vazio."""
+    texto = _text(novo, 900)
+    if texto:
+        return encrypt(texto)
+    return _text(antigo, 900)      # ja esta cifrado no que veio do banco
+
+
+def assinatura_webhook_valida(corpo: bytes, cabecalho: str, site: Any = "") -> bool:
+    """Confere a assinatura que a Meta poe em cada POST do webhook.
+
+    Sem isso, qualquer um com a URL forja mensagem recebida: injeta item de
+    triagem no cliente e faz o sistema responder para um numero escolhido por
+    ele -- gastando o saldo e queimando a reputacao do numero da escola.
+
+    Sem App Secret configurado a checagem nao roda e o webhook segue aberto;
+    por isso o aviso e de nivel WARNING e nomeia o que fazer.
+    """
+    segredo = decrypt(_text(_access_whatsapp_cfg(db_store.load_app_settings(), site).get("app_secret"), 900))
+    if not segredo:
+        logger.warning(
+            "Webhook do WhatsApp sem App Secret configurado: a assinatura nao esta "
+            "sendo conferida e qualquer um com a URL pode forjar mensagens."
+        )
+        return True
+    esperado = hmac.new(segredo.encode("utf-8"), corpo, hashlib.sha256).hexdigest()
+    recebido = _text(cabecalho, 200).replace("sha256=", "").strip()
+    return hmac.compare_digest(esperado, recebido)
+
+
 def _cloud_cfg(cfg: Dict[str, Any]) -> Dict[str, str]:
     """Credenciais da Cloud API oficial da Meta."""
     return {
         # Sem heranca de instance/api_key: sao campos de outro provedor e faziam
         # uma configuracao velha da Evolution passar por configuracao da Meta.
         "phone_number_id": _text(cfg.get("phone_number_id"), 60),
-        "access_token": _text(cfg.get("access_token"), 600),
+        # Token permanente da Meta: nao expira e envia mensagem em nome da
+        # escola. Fica cifrado como as senhas de OLT/camera. decrypt() devolve
+        # como veio o que foi gravado antes desta camada, entao token antigo
+        # continua funcionando.
+        "access_token": decrypt(_text(cfg.get("access_token"), 900)),
         "template_name": _text(cfg.get("template_name"), 120),
         "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
     }
@@ -486,9 +523,10 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         saved_cfg.update({
             "phone_number_id": _text(payload.get("phone_number_id") or old.get("phone_number_id"), 60),
             "waba_id": _text(payload.get("waba_id") or old.get("waba_id"), 60),
-            "access_token": _text(payload.get("access_token") or old.get("access_token"), 600),
+            "access_token": _cifrar_token(payload.get("access_token"), old.get("access_token")),
             "template_name": _text(payload.get("template_name") or old.get("template_name"), 120),
             "template_language": _text(payload.get("template_language") or old.get("template_language") or "pt_BR", 12),
+            "app_secret": _cifrar_token(payload.get("app_secret"), old.get("app_secret")),
         })
     if site_key:
         site_configs[site_key] = saved_cfg
