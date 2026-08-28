@@ -4395,6 +4395,29 @@
     </div>
   </div>
 
+  <!-- --- MODAL: RENOMEAR PONTO DO MAPA --- -->
+  <div id="modalMapPointRename" class="modal-backdrop hidden" onclick="if(event.target===this)closeMapPointRename()">
+    <div class="modal map-layer-rename-modal">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Mapa</p>
+          <h2>Renomear ponto</h2>
+          <p class="map-layer-rename-subtitle">O nome precisa continuar batendo com o titulo da camera no inventario, senao o ponto perde o vinculo com ela.</p>
+        </div>
+        <button class="icon-button" type="button" onclick="closeMapPointRename()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="map-layer-rename-field">Nome do ponto
+          <input id="mapPointRenameInput" type="text" autocomplete="off" onkeydown="handleMapPointRenameKey(event)">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" onclick="closeMapPointRename()">Cancelar</button>
+        <button class="primary-action" id="confirmMapPointRename" type="button" onclick="saveMapPointRename()"><i data-lucide="check"></i> Salvar nome</button>
+      </div>
+    </div>
+  </div>
+
   <!-- --- MODAL: EDITAR C-MERAS --- -->
   <div id="modalWinScan" class="modal-backdrop hidden" onclick="if(event.target===this)closeWinScanModal()">
     <div class="modal" style="max-width:560px">
@@ -6042,7 +6065,7 @@
        antes de bootstrap.js, que e quem liga os botoes no DOMContentLoaded. -->
   <script src="js/core.js?v=164"></script>
   <script src="js/dashboard.js?v=155"></script>
-  <script src="js/cameras.js?v=178"></script>
+  <script src="js/cameras.js?v=179"></script>
   <script src="js/recorders.js?v=148"></script>
   <script src="js/windows.js?v=142"></script>
   <script src="js/snapshots.js?v=142"></script>

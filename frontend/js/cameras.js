@@ -960,7 +960,19 @@ function renderMapLayerGroup(id, def, skipFit = false) {
           ${cam?.ip ? `<div style="margin-top:10px;display:flex;gap:6px">
             <a href="http://${esc(cam.ip)}" target="_blank" style="flex:1;text-align:center;padding:6px;background:#e7f5ff;color:#1971c2;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;border:1px solid #a5d8ff">Abrir camera</a>
           </div>` : ''}
+          ${canDrag ? `<div style="margin-top:8px;display:flex;gap:6px">
+            <button type="button" data-map-point-rename style="flex:1;text-align:center;padding:6px;background:#fff3bf;color:#997404;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffe066;cursor:pointer">Renomear ponto</button>
+            <button type="button" data-map-point-delete style="flex:1;text-align:center;padding:6px;background:#ffe3e3;color:#c92a2a;border-radius:6px;font-size:11px;font-weight:600;border:1px solid #ffc9c9;cursor:pointer">Excluir ponto</button>
+          </div>` : ''}
         </div>`, { maxWidth: 320, className: 'sightops-popup' });
+      if (canDrag) {
+        marker.on('popupopen', () => {
+          const el = marker.getPopup()?.getElement();
+          const nomePonto = mapFeatureName(f);
+          el?.querySelector('[data-map-point-rename]')?.addEventListener('click', () => openMapPointRename(def, nomePonto));
+          el?.querySelector('[data-map-point-delete]')?.addEventListener('click', () => handleMapPointDelete(def, nomePonto));
+        });
+      }
       state.markers[featureKey] = marker;
       state.group.addLayer(marker);
       bounds.push([+lat, +lng]);
@@ -1123,6 +1135,55 @@ async function handleMapPointDragEnd(def, nome, marker) {
   }
   const latlng = marker.getLatLng();
   await saveMapPoint(def, { nome, lat: latlng.lat, lon: latlng.lng }, `Ponto "${nome}" movido.`);
+}
+
+let _mapPointRenameTarget = null;
+
+function openMapPointRename(def, nome) {
+  if (!def?.updateUrl || !nome) return;
+  _mapPointRenameTarget = { def, nome };
+  const modal = document.getElementById('modalMapPointRename');
+  const input = document.getElementById('mapPointRenameInput');
+  if (!modal || !input) return;
+  input.value = nome;
+  modal.classList.remove('hidden');
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+  lucide.createIcons();
+}
+
+function closeMapPointRename() {
+  document.getElementById('modalMapPointRename')?.classList.add('hidden');
+  _mapPointRenameTarget = null;
+}
+
+function handleMapPointRenameKey(event) {
+  if (event.key === 'Escape') { closeMapPointRename(); return; }
+  if (event.key === 'Enter') { event.preventDefault(); saveMapPointRename(); }
+}
+
+async function saveMapPointRename() {
+  const alvo = _mapPointRenameTarget;
+  if (!alvo) return;
+  const input = document.getElementById('mapPointRenameInput');
+  const novoNome = String(input?.value || '').trim();
+  if (!novoNome) {
+    showToast('Informe o nome do ponto.', true);
+    return;
+  }
+  closeMapPointRename();
+  if (novoNome === alvo.nome) return;
+  await saveMapPoint(alvo.def, { nome: alvo.nome, novo_nome: novoNome }, `Ponto renomeado para "${novoNome}".`);
+}
+
+async function handleMapPointDelete(def, nome) {
+  if (!def?.updateUrl || !nome) return;
+  const ok = await showConfirm({
+    title: 'Excluir ponto',
+    msg: `Remover o ponto "${nome}" do mapa? A camera continua no inventario, so o pino some do KMZ.`,
+    label: 'Excluir',
+  });
+  if (!ok) return;
+  await saveMapPoint(def, { nome, remover: true }, `Ponto "${nome}" removido.`);
 }
 
 async function saveMapPoint(def, ponto, successMsg) {

@@ -505,16 +505,21 @@ def editar_ponto_no_kmz(
     lon: float | None = None,
     descricao: str = "",
     remover: bool = False,
+    novo_nome: str = "",
 ) -> dict[str, Any]:
-    """Adiciona, move ou remove um ponto no KMZ, casando pelo nome.
+    """Adiciona, move, renomeia ou remove um ponto no KMZ, casando pelo nome.
 
     Devolve o que aconteceu para a tela poder dizer ao usuario. Nome vazio e
     recusado: sem ele o ponto nao casa com camera nenhuma e vira pino solto.
+    Renomear sozinho (sem lat/lon) so vale pra ponto que ja existe -- criar
+    um ponto novo exige coordenada, entao nao ha "so nome" possivel ali.
     """
     nome = str(nome or "").strip()
     if not nome:
         raise ValueError("Informe o nome do ponto.")
-    if not remover and (lat is None or lon is None):
+    novo_nome = str(novo_nome or "").strip()
+    tem_coord = lat is not None and lon is not None
+    if not remover and not tem_coord and not novo_nome:
         raise ValueError("Informe latitude e longitude do ponto.")
     if not kmz_path.exists():
         raise ValueError("Camada nao encontrada.")
@@ -541,16 +546,32 @@ def editar_ponto_no_kmz(
             pai_de[pm].remove(pm)
         acao = "removido"
     elif existentes:
-        # mover: troca so a coordenada, preservando estilo e descricao do original
+        # mover e/ou renomear: preserva estilo e descricao do original, so
+        # troca o que foi pedido
+        moveu = False
+        renomeou = False
         for pm in existentes:
-            coord = pm.find(".//kml:Point/kml:coordinates", KML_NS)
-            if coord is None:
-                ponto = ET.SubElement(pm, f"{{{KML_NS['kml']}}}Point")
-                coord = ET.SubElement(ponto, f"{{{KML_NS['kml']}}}coordinates")
-            coord.text = f"{float(lon):.8f},{float(lat):.8f},0"
-        acao = "movido"
+            if tem_coord:
+                coord = pm.find(".//kml:Point/kml:coordinates", KML_NS)
+                if coord is None:
+                    ponto = ET.SubElement(pm, f"{{{KML_NS['kml']}}}Point")
+                    coord = ET.SubElement(ponto, f"{{{KML_NS['kml']}}}coordinates")
+                coord.text = f"{float(lon):.8f},{float(lat):.8f},0"
+                moveu = True
+            if novo_nome and novo_nome != nome:
+                nome_el = pm.find("kml:name", KML_NS)
+                if nome_el is None:
+                    nome_el = ET.SubElement(pm, f"{{{KML_NS['kml']}}}name")
+                nome_el.text = novo_nome
+                renomeou = True
+        acao = "movido e renomeado" if moveu and renomeou else "renomeado" if renomeou else "movido"
+        nome = novo_nome if renomeou else nome
     else:
-        # criar: pendura no primeiro Document/Folder disponivel
+        # criar: exige coordenada de verdade -- "so renomear" nao faz sentido
+        # pra um ponto que ainda nao existe
+        if not tem_coord:
+            raise ValueError("Ponto nao encontrado. Informe latitude e longitude para criar um novo.")
+        # pendura no primeiro Document/Folder disponivel
         destino = root.find(".//kml:Document", KML_NS) or root
         pm = ET.SubElement(destino, f"{{{KML_NS['kml']}}}Placemark")
         ET.SubElement(pm, f"{{{KML_NS['kml']}}}name").text = nome

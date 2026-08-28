@@ -104,6 +104,33 @@ def main() -> None:
             except ValueError:
                 pass
 
+        # --- renomear sozinho, sem mover: nao exige lat/lon
+        r = editar_ponto_no_kmz(kmz, nome="01 - PORTARIA", novo_nome="01 - PORTARIA PRINCIPAL")
+        assert r["acao"] == "renomeado", r
+        assert r["nome"] == "01 - PORTARIA PRINCIPAL", r
+        atual = pontos(kmz)
+        assert "01 - PORTARIA" not in atual, "nome antigo deveria ter sumido"
+        assert atual["01 - PORTARIA PRINCIPAL"] == (-9.5, -36.5), "coordenada nao pode mudar so por renomear"
+
+        # --- renomear casa sem depender de acento nem caixa, igual mover ja fazia
+        editar_ponto_no_kmz(kmz, nome="01 - portaria principal", novo_nome="01 - ENTRADA")
+        assert "01 - ENTRADA" in pontos(kmz), pontos(kmz)
+
+        # --- mover e renomear ao mesmo tempo, numa chamada so
+        r = editar_ponto_no_kmz(kmz, nome="01 - ENTRADA", novo_nome="01 - ENTRADA NOVA", lat=-9.1, lon=-36.1)
+        assert r["acao"] == "movido e renomeado", r
+        atual = pontos(kmz)
+        assert atual["01 - ENTRADA NOVA"] == (-9.1, -36.1), atual
+        assert "01 - ENTRADA" not in atual, atual
+
+        # --- renomear ponto que nao existe: nao cria nada (criar exige coordenada)
+        try:
+            editar_ponto_no_kmz(kmz, nome="99 - FANTASMA", novo_nome="99 - NOVO NOME")
+            raise AssertionError("deveria ter recusado renomear ponto inexistente sem coordenada")
+        except ValueError:
+            pass
+        assert "99 - NOVO NOME" not in pontos(kmz), pontos(kmz)
+
         # --- o KMZ continua um zip valido e legivel
         with zipfile.ZipFile(kmz) as zf:
             assert "doc.kml" in zf.namelist(), zf.namelist()

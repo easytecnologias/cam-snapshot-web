@@ -1477,6 +1477,7 @@ def _editar_ponto_da_camada(layer_id: str, ponto: Dict[str, Any], generated: boo
             lon=_coord("lon"),
             descricao=str(ponto.get("descricao") or ""),
             remover=bool(ponto.get("remover")),
+            novo_nome=str(ponto.get("novo_nome") or ""),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
