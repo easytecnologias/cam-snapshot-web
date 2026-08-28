@@ -81,7 +81,9 @@ def main() -> None:
             assert config["provider"] == "evolution", config
             assert config["configured"] is True, config
             assert config["instance"] == "escola-evolution-unidade-centro", config
-            assert config["base_url"] == "http://evolution.teste:8090", config
+            # o endereco interno do container Evolution nao volta mais para a
+            # tela: e infraestrutura da plataforma, e ninguem exibe esse campo
+            assert "base_url" not in config, config
 
             # --- envio de evento passa a usar o Evolution, nao a Meta ---
             chamadas.clear()
@@ -133,6 +135,92 @@ def main() -> None:
             # --- site sem configuracao de provider continua em cloud_api, sem regressao ---
             padrao = get_access_whatsapp_config("Outro Site")
             assert padrao["provider"] == "cloud_api", padrao
+
+            # --- config legada com instance="sightops" nao pode sobreviver a
+            # troca de provider. Todo WhatsApp salvo antes desta feature tem
+            # esse valor gravado (era o default do modelo antigo, ate em
+            # configuracao puramente cloud_api). Como "sightops" e truthy, um
+            # fallback `salvo or default` nunca chegava no nome seguro: os dois
+            # primeiros clientes a migrar para Evolution cairiam na MESMA
+            # instancia do container compartilhado e se derrubariam.
+            settings = db_store.load_app_settings()
+            settings["access_control_whatsapp_notifications_by_site"] = {
+                **(settings.get("access_control_whatsapp_notifications_by_site") or {}),
+                "Unidade Legada": {
+                    "enabled": True,
+                    "provider": "cloud_api",
+                    "instance": "sightops",
+                    "phone_number_id": "999",
+                    "access_token": "token-legado",
+                },
+            }
+            db_store.save_app_settings(settings)
+
+            legado = save_access_whatsapp_config({
+                "site": "Unidade Legada",
+                "enabled": True,
+                "provider": "evolution",
+            })
+            assert legado["provider"] == "evolution", legado
+            assert legado["instance"] == "escola-evolution-unidade-legada", legado
+            assert legado["instance"] != "sightops", legado
+            gravado = db_store.load_app_settings()["access_control_whatsapp_notifications_by_site"]["Unidade Legada"]
+            assert gravado["instance"] == "escola-evolution-unidade-legada", gravado
+
+            # e o envio real tem que usar o nome derivado, nao o legado
+            chamadas.clear()
+            send_access_whatsapp_text("5582988881111", "ola", site="Unidade Legada")
+            envio = next(c for c in chamadas if "sendText" in c["url"])
+            assert envio["url"].endswith("/message/sendText/escola-evolution-unidade-legada"), envio
+            assert "/sightops" not in envio["url"], envio
+
+            # --- instance vindo do corpo da requisicao e ignorado ---
+            # O container Evolution e a chave de admin sao compartilhados entre
+            # todos os clientes: aceitar um nome escolhido pelo cliente deixaria
+            # qualquer usuario autenticado operar a instancia de outro tenant
+            # (o nome e deduzivel) -- mandar mensagem pela sessao alheia, pegar
+            # o QR de pareamento dela ou desconecta-la.
+            invasor = "outro-cliente-matriz"
+            hijack = save_access_whatsapp_config({
+                "site": "Unidade Centro",
+                "enabled": True,
+                "provider": "evolution",
+                "instance": invasor,
+                "instance_name": invasor,
+            })
+            assert hijack["instance"] == "escola-evolution-unidade-centro", hijack
+            gravado = db_store.load_app_settings()["access_control_whatsapp_notifications_by_site"]["Unidade Centro"]
+            assert gravado["instance"] == "escola-evolution-unidade-centro", gravado
+
+            chamadas.clear()
+            respostas_get.clear()
+            respostas_get.append(FakeResponse(200, {"instance": {"state": "open"}}))
+            send_access_whatsapp_text("5582988881111", "ola", site="Unidade Centro")
+            get_access_whatsapp_connection(site="Unidade Centro")
+            respostas_delete.clear()
+            respostas_delete.append(FakeResponse(200, {}))
+            disconnect_access_whatsapp("Unidade Centro")
+            assert chamadas, "nenhuma chamada registrada"
+            for chamada in chamadas:
+                assert invasor not in chamada["url"], f"instance do payload chegou na URL: {chamada}"
+                assert "escola-evolution-unidade-centro" in chamada["url"], chamada
+
+            # --- por o canal padrao do cliente em Evolution nao arrasta site
+            # que tem credencial Meta propria e nunca escolheu provedor ---
+            settings = db_store.load_app_settings()
+            settings["access_control_whatsapp_notifications"] = {
+                "enabled": True, "provider": "evolution", "instance": "escola-evolution-padrao",
+            }
+            settings["access_control_whatsapp_notifications_by_site"]["Unidade Meta"] = {
+                "enabled": True, "phone_number_id": "555", "access_token": "token-meta",
+            }
+            db_store.save_app_settings(settings)
+            assert get_access_whatsapp_config("")["provider"] == "evolution", "padrao do cliente deveria ser evolution"
+            meta = get_access_whatsapp_config("Unidade Meta")
+            assert meta["provider"] == "cloud_api", f"site com credencial Meta nao pode herdar evolution do padrao: {meta}"
+            assert meta["configured"] is True, meta
+            assert meta["phone_number_id"] == "555", meta
+            assert meta["instance"] == "", meta
         finally:
             requests.get, requests.post, requests.delete = original_get, original_post, original_delete
             reset_current_tenant_slug(token)

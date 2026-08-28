@@ -212,7 +212,11 @@ class AccessWhatsappConfigRequest(BaseModel):
     provider: str = "cloud_api"
     base_url: str = ""
     api_key: str = ""
-    instance: str = ""
+    # Sem campo `instance`: o nome da instancia do Evolution e derivado do
+    # tenant+site no servidor (_evolution_default_instance). Aceitar um nome
+    # vindo do corpo deixaria qualquer usuario autenticado operar a instancia
+    # de outro cliente -- o container Evolution e a chave de admin sao
+    # compartilhados entre todos os tenants da SightOps.
 
 
 class AccessWhatsappTestRequest(BaseModel):
@@ -283,7 +287,15 @@ def api_access_control_whatsapp_connection(site: str = Query(""), summary: bool 
 def api_access_control_whatsapp_disconnect(req: AccessWhatsappDisconnectRequest) -> Dict[str, Any]:
     result = disconnect_access_whatsapp(req.site)
     if not result.get("ok"):
-        raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
+        # "este site nao usa Evolution" e "Evolution nao configurado nesta
+        # plataforma" sao erro de configuracao/pedido, nao falha do gateway:
+        # devolver 502 para eles mandava o operador caçar um problema de rede
+        # que nao existe. 502 fica so para falha real do Evolution.
+        upstream = result.get("state") == "error"
+        raise HTTPException(
+            status_code=502 if upstream else 400,
+            detail=result.get("error") or "Falha ao desconectar WhatsApp.",
+        )
     return result
 
 

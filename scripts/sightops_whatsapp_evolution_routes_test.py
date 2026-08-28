@@ -77,9 +77,29 @@ with TestClient(m.app) as c:
     check(conexao["connected"] is True, conexao)
     check(conexao["qrcode"] == "qr-fake", conexao)
 
+    check("base_url" not in dados, f"base_url interno da plataforma nao pode voltar na resposta: {dados}")
+
     r = c.post("/api/access-control/whatsapp/disconnect", json={"site": ""})
     check(r.status_code == 200, f"desconectar falhou: {r.status_code} {r.text[:200]}")
     check(r.json()["state"] == "disconnected", r.json())
+
+    # instance escolhido pelo cliente nao pode chegar no Evolution: o container
+    # e a chave de admin sao compartilhados entre todos os tenants, entao um
+    # nome livre no corpo do PUT daria acesso a sessao de outro cliente
+    r = c.put("/api/access-control/whatsapp", json={
+        "site": "", "enabled": True, "provider": "evolution", "instance": "cliente-vitima-matriz",
+    })
+    check(r.status_code == 200, f"salvar com instance no corpo falhou: {r.status_code} {r.text[:200]}")
+    dados = r.json()
+    check(dados["instance"] != "cliente-vitima-matriz", f"instance do corpo foi aceito: {dados}")
+    check(dados["instance"].endswith("-padrao"), dados)
+
+    # site em cloud_api: "nao usa Evolution" e erro de pedido (400), nao falha
+    # de gateway (502) -- 502 mandava o operador caçar problema de rede inexistente
+    r = c.put("/api/access-control/whatsapp", json={"site": "Unidade Meta", "enabled": True, "provider": "cloud_api"})
+    check(r.status_code == 200, f"salvar cloud_api falhou: {r.status_code} {r.text[:200]}")
+    r = c.post("/api/access-control/whatsapp/disconnect", json={"site": "Unidade Meta"})
+    check(r.status_code == 400, f"desconectar site cloud_api devia ser 400, veio {r.status_code}: {r.text[:200]}")
 
 if falhas:
     print("FALHAS:")

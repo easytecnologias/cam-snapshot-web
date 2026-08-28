@@ -1266,7 +1266,9 @@ function accessWhatsappSiteQuery() {
 }
 
 function accessWhatsappProviderValue() {
-  return (document.getElementById('accessWhatsappProvider')?.value || 'evolution').toLowerCase();
+  // sem o select na tela o default e o canal oficial, igual ao backend: cair
+  // em 'evolution' aqui escondia os campos da Meta de quem usa Cloud API
+  return (document.getElementById('accessWhatsappProvider')?.value || 'cloud_api').toLowerCase();
 }
 
 // A API oficial nao tem sessao nem QR: a autenticacao e um token permanente,
@@ -1388,16 +1390,36 @@ function setAccessWhatsappConnection(data = null) {
   };
   const configurado = !!data?.configured;
 
+  const ESTADOS_EVOLUTION = {
+    connected: 'Conectado', waiting_qr: 'Aguardando leitura do QR Code',
+    disconnected: 'Desconectado', not_configured: 'Nao configurado',
+    error: 'Erro ao consultar', unknown: 'Desconhecido',
+  };
+  const estadoTexto = ESTADOS_EVOLUTION[String(data?.state || '')] || data?.state || '-';
+
+  // Para o Evolution, "configurado" so quer dizer que a plataforma tem
+  // URL e chave -- nao diz nada sobre a sessao estar viva. Pintar verde por
+  // isso repetiria em menor escala o bug que esta feature existe para
+  // evitar: a tela dizendo Conectado com a sessao morta. No canal oficial
+  // nao ha sessao para cair, entao "configurado" continua sendo o sinal certo.
+  const provider = String(
+    data?.provider || (isAccessWhatsappCloudProvider() ? 'cloud_api' : 'evolution'),
+  ).toLowerCase();
+  const conectado = provider === 'evolution' ? !!data?.connected : configurado;
+
   if (status) {
     if (!data) {
       status.textContent = 'Indisponivel';
       status.className = 'badge badge-gray';
-    } else if (configurado) {
+    } else if (!configurado) {
+      status.textContent = 'Nao configurado';
+      status.className = 'badge badge-gray';
+    } else if (conectado) {
       status.textContent = 'Pronto';
       status.className = 'badge badge-green';
     } else {
-      status.textContent = 'Nao configurado';
-      status.className = 'badge badge-gray';
+      status.textContent = estadoTexto;
+      status.className = 'badge badge-amber';
     }
   }
 
@@ -1419,12 +1441,6 @@ function setAccessWhatsappConnection(data = null) {
     nota.textContent = data?.error || 'Sem QR Code e sem sessao: a autenticacao e um token permanente.';
   }
 
-  const ESTADOS_EVOLUTION = {
-    connected: 'Conectado', waiting_qr: 'Aguardando leitura do QR Code',
-    disconnected: 'Desconectado', not_configured: 'Nao configurado',
-    error: 'Erro ao consultar', unknown: 'Desconhecido',
-  };
-  const estadoTexto = ESTADOS_EVOLUTION[String(data?.state || '')] || data?.state || '-';
   const escreveEvolution = (id, valor) => {
     const el = document.getElementById(id);
     if (el) el.textContent = valor || '-';

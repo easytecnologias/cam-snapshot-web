@@ -199,6 +199,18 @@ def _access_whatsapp_cfg(settings: Dict[str, Any], site: Any = "") -> Dict[str, 
         return dict(global_cfg)
     merged = dict(global_cfg)
     merged.update(site_cfg)
+    # Escolher o canal e decisao manual POR SITE (constraint da spec: nunca
+    # herdada, nunca automatica). Herdar `provider` do canal padrao do cliente
+    # faria com que por o padrao em Evolution jogasse junto todo site que
+    # nunca escolheu provedor nenhum -- inclusive os que estao enviando pela
+    # Meta com credencial propria. Um site com config propria e sem
+    # `provider` volta ao default seguro do _whatsapp_provider (cloud_api).
+    # `instance` sai junto por ser campo do mesmo par (e hoje so historico).
+    # Os demais campos continuam herdando: um site sem credencial Meta
+    # propria usar o token do cliente e o comportamento legitimo de sempre.
+    for campo in ("provider", "instance", "instance_name"):
+        if campo not in site_cfg:
+            merged.pop(campo, None)
     return merged
 
 
@@ -353,12 +365,35 @@ def _evolution_instance_cfg(cfg: Dict[str, Any], site_key: Any = "") -> Dict[str
 
     base_url/api_key sao sempre da plataforma (_evolution_platform_cfg),
     nunca do que foi salvo por site -- mesmo que a configuracao antiga do
-    site tenha algo gravado ali. So o nome de instancia vem do que foi
-    salvo (ou do default unico por tenant+site, se nada foi salvo).
+    site tenha algo gravado ali.
+
+    O nome da instancia tambem NAO vem mais do que foi salvo: e sempre
+    derivado do tenant+site aqui no servidor. Dois motivos, ambos de
+    isolamento entre clientes no container Evolution compartilhado:
+
+    1. Toda configuracao salva antes desta feature tem instance="sightops"
+       gravado (era o default do modelo antigo, inclusive em configuracoes
+       puramente cloud_api). Como "sightops" e uma string truthy, um
+       fallback do tipo `cfg.get("instance") or default` nunca chegava no
+       default seguro: os dois primeiros clientes a migrar um site para
+       Evolution cairiam na MESMA instancia e derrubariam a sessao um do
+       outro.
+    2. O valor salvo veio de um corpo de requisicao (PUT /whatsapp) sem
+       validacao nenhuma. Com a chave de admin da plataforma nas maos do
+       backend, um instance escolhido pelo cliente permitiria falar com a
+       instancia de OUTRO tenant (o nome e deduzivel: {slug}-{site}):
+       mandar mensagem pela sessao alheia, pegar o QR de pareamento dela
+       ou desconecta-la.
+
+    O que ficou gravado em `instance` segue no banco por historico, mas
+    nunca mais e usado para montar URL do Evolution.
     """
     plataforma = _evolution_platform_cfg()
-    instance = _text(cfg.get("instance") or cfg.get("instance_name"), 120) or _evolution_default_instance(site_key)
-    return {"base_url": plataforma["base_url"], "api_key": plataforma["api_key"], "instance": instance}
+    return {
+        "base_url": plataforma["base_url"],
+        "api_key": plataforma["api_key"],
+        "instance": _evolution_default_instance(site_key),
+    }
 
 
 def _evolution_headers(conn: Dict[str, str]) -> Dict[str, str]:
@@ -385,7 +420,10 @@ def _evolution_state_label(data: Dict[str, Any]) -> str:
         return "waiting_qr"
     if state in {"close", "closed", "disconnected", "offline"}:
         return "disconnected"
-    return state or "unknown"
+    # Estado desconhecido nao passa como texto cru: a tela tem tratamento
+    # so para o vocabulario fixo e mostraria o rotulo do Evolution sem
+    # traducao, do lado de um "conectado?" que ninguem sabe responder.
+    return "unknown"
 
 
 def _evolution_qrcode_base64(data: Dict[str, Any]) -> str:
@@ -425,18 +463,32 @@ def _send_whatsapp_evolution(cfg: Dict[str, Any], event: Dict[str, Any], message
     return "whatsapp_failed"
 
 
-def _evolution_connection_status(cfg: Dict[str, Any], site_key: Any, *, refresh_qr: bool = False) -> Dict[str, Any]:
+def _evolution_connection_status(
+    cfg: Dict[str, Any], site_key: Any, *, refresh_qr: bool = False, probe_only: bool = False
+) -> Dict[str, Any]:
+    """Estado da sessao Evolution deste site.
+
+    `probe_only=True` = so observa, nao mexe. Criar instancia e pedir QR sao
+    efeitos colaterais legitimos quando um humano clicou em "Verificar
+    conexao", mas essa mesma funcao e chamada a cada ciclo do monitoramento
+    (list_access_whatsapp_channels -> monitoring_service.refresh_from_inventory,
+    ~2 min, por tenant e por site, para sempre). Sem esse freio, um canal
+    desconectado ganhava um QR Code novo a cada dois minutos, sem ninguem
+    olhando -- e o monitoramento passava a criar no Evolution instancias que
+    nao existiam. Checagem de saude nao altera o que observa.
+    """
     conn = _evolution_instance_cfg(cfg, site_key)
     if not conn["base_url"] or not conn["api_key"]:
         return {
             "ok": False, "configured": False, "state": "not_configured", "connected": False,
-            "qrcode": "", "external_connection": False, "site": _site_key(site_key),
+            "qrcode": "", "external_connection": False, "site": _site_key(site_key), "provider": "evolution",
             "error": "Evolution API nao configurado nesta plataforma (SIGHTOPS_EVOLUTION_URL/SIGHTOPS_EVOLUTION_API_KEY).",
         }
     headers = _evolution_headers(conn)
     resultado: Dict[str, Any] = {
         "ok": True, "configured": True, "connected": False, "state": "unknown",
-        "qrcode": "", "external_connection": False, "site": _site_key(site_key), "instance": conn["instance"],
+        "qrcode": "", "external_connection": False, "site": _site_key(site_key),
+        "instance": conn["instance"], "provider": "evolution",
     }
     try:
         state_response = requests.get(f"{conn['base_url']}/instance/connectionState/{conn['instance']}", headers=headers, timeout=15)
@@ -444,6 +496,11 @@ def _evolution_connection_status(cfg: Dict[str, Any], site_key: Any, *, refresh_
         return {**resultado, "ok": False, "state": "error", "error": str(exc)}
 
     if state_response.status_code == 404:
+        if probe_only:
+            # Instancia ainda nao existe no Evolution: para quem so observa,
+            # isso e um canal fora do ar -- criar aqui seria o monitoramento
+            # provisionando sessao sozinho.
+            return {**resultado, "state": "disconnected", "connected": False}
         try:
             create_response = requests.post(
                 f"{conn['base_url']}/instance/create", headers=headers,
@@ -457,11 +514,24 @@ def _evolution_connection_status(cfg: Dict[str, Any], site_key: Any, *, refresh_
         resultado.update({"state": estado, "connected": estado == "connected", "qrcode": _evolution_qrcode_base64(create_data)})
         return resultado
 
+    if int(state_response.status_code or 0) >= 400:
+        # 401 de chave errada, 500 do container: sem isso caia em {} -> estado
+        # "unknown" com ok=True, e a tela dizia "Desconhecido" para o que na
+        # verdade e Evolution mal configurado.
+        detalhe = getattr(state_response, "text", "")[:200]
+        return {
+            **resultado, "ok": False, "state": "error",
+            "error": f"Evolution respondeu HTTP {state_response.status_code}: {detalhe or 'sem detalhe'}",
+        }
+
     state_data = _resposta_json(state_response)
     estado = _evolution_state_label(state_data)
     # so estado genuinamente "open" conta como conectado -- ver docstring de
     # _evolution_state_label. Isso e a verificacao de saude ativa do design.
     resultado.update({"state": estado, "connected": estado == "connected"})
+
+    if probe_only:
+        return resultado
 
     if refresh_qr or not resultado["connected"]:
         try:
@@ -601,6 +671,7 @@ def _cloud_connection_status(settings: Dict[str, Any], cfg: Dict[str, Any], site
             "connected": False,
             "qrcode": "",
             "external_connection": True,
+            "provider": "cloud_api",
             "error": "Informe Phone Number ID e token da API oficial.",
         }
     resultado = {
@@ -610,6 +681,7 @@ def _cloud_connection_status(settings: Dict[str, Any], cfg: Dict[str, Any], site
         "state": "connected",
         "qrcode": "",
         "external_connection": True,
+        "provider": "cloud_api",
         "phone_number_id": dados["phone_number_id"],
         "template_name": dados["template_name"] or "hello_world",
         "message": "Canal oficial da Meta: sem QR Code nem sessao para cair.",
@@ -656,13 +728,19 @@ def _cloud_connection_status(settings: Dict[str, Any], cfg: Dict[str, Any], site
     return resultado
 
 
-def get_access_whatsapp_connection(*, refresh_qr: bool = False, site: Any = "", resumo: bool = False) -> Dict[str, Any]:
-    """Estado real da conexao do canal ativo do site: Meta ou Evolution."""
+def get_access_whatsapp_connection(
+    *, refresh_qr: bool = False, site: Any = "", resumo: bool = False, probe_only: bool = False
+) -> Dict[str, Any]:
+    """Estado real da conexao do canal ativo do site: Meta ou Evolution.
+
+    `probe_only=True` para quem so observa (monitoramento): nao cria
+    instancia nem gera QR Code -- ver _evolution_connection_status.
+    """
     settings = db_store.load_app_settings()
     cfg = _access_whatsapp_cfg(settings, site)
     site_efetivo = _site_key(site)
     if _whatsapp_provider(cfg) == "evolution":
-        return _evolution_connection_status(cfg, site_efetivo, refresh_qr=refresh_qr)
+        return _evolution_connection_status(cfg, site_efetivo, refresh_qr=refresh_qr, probe_only=probe_only)
     return _cloud_connection_status(settings, cfg, site_efetivo, resumo=resumo)
 
 
@@ -686,7 +764,9 @@ def list_access_whatsapp_channels() -> List[Dict[str, Any]]:
     def _channel(site: str, label: str) -> Dict[str, Any]:
         cfg = _access_whatsapp_cfg(settings, site)
         provider = _whatsapp_provider(cfg)
-        result = get_access_whatsapp_connection(site=site)
+        # probe_only: este caminho roda no ciclo de monitoramento e tem que
+        # ser somente-leitura (nada de /instance/create nem /instance/connect).
+        result = get_access_whatsapp_connection(site=site, probe_only=True)
         connected = bool(result.get("connected")) if provider == "evolution" else bool(result.get("display_phone_number"))
         return {
             "site": site, "label": label, "provider": provider,
@@ -737,13 +817,11 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
     cfg = _access_whatsapp_cfg(settings, site_key)
     provider = _whatsapp_provider(cfg)
     if provider == "cloud_api":
-        base_url = ""
         instance = ""
         dados = _cloud_cfg(cfg)
         configured = bool(dados["phone_number_id"] and dados["access_token"])
     else:
         conn = _evolution_instance_cfg(cfg, site_key)
-        base_url = conn["base_url"]
         instance = conn["instance"]
         configured = bool(conn["base_url"] and conn["api_key"])
     resultado = {
@@ -752,7 +830,10 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
         "configured": configured,
         "site_configured": bool(site_key and site_key in site_configs),
         "provider": provider,
-        "base_url": base_url,
+        # sem base_url: e o endereco interno do container Evolution da
+        # plataforma (IP de LAN), a tela nunca mostrou esse campo, e devolver
+        # infraestrutura interna para qualquer usuario autenticado do cliente
+        # e exposicao sem contrapartida.
         "instance": instance,
     }
     if provider == "cloud_api":
@@ -777,10 +858,12 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     old = site_configs.get(site_key, {}) if site_key else old_global
     provider = _whatsapp_provider({"provider": payload.get("provider") or old.get("provider") or "cloud_api"})
     api_key = _text(payload.get("api_key"), 300) or _text(old.get("api_key"), 300) or _text(old_global.get("api_key"), 300)
-    instance = (
-        _text(payload.get("instance") or payload.get("instance_name") or old.get("instance"), 120)
-        or _evolution_default_instance(site_key)
-    )
+    # O nome da instancia e sempre derivado do tenant+site aqui no servidor:
+    # nem o que o cliente mandou no corpo do PUT, nem o que ja estava salvo
+    # (as configuracoes antigas trazem o "sightops" fixo do modelo anterior,
+    # que colide entre clientes no container compartilhado). Ver
+    # _evolution_instance_cfg para o porque completo.
+    instance = _evolution_default_instance(site_key)
     saved_cfg = {
         "enabled": bool(payload.get("enabled")),
         "provider": provider,
