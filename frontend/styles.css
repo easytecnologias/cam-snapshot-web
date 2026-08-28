@@ -9037,6 +9037,12 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   }
   .access-report-people-panel {
     border: 0 !important;
+    /* Sem isso, o painel inteiro (41+ pessoas) pula pra pagina seguinte
+       sempre que nao cabe inteiro no que sobrou da primeira -- e o motivo da
+       primeira folha sair quase em branco, so com o resumo. O break-inside
+       avoid generico de .panel serve pra cards curtos, nao pra uma lista
+       longa que precisa fluir entre paginas. */
+    break-inside: auto;
   }
   .access-report-people-panel .panel-header {
     padding: 10px 0 !important;
@@ -9048,11 +9054,14 @@ body.shell-owner .nav-item.active { box-shadow: inset 3px 0 #c9962c; }
   }
   .access-report-person-card {
     grid-template-columns: minmax(210px, 1.2fr) 80px minmax(330px, 2fr) 82px !important;
-    min-height: 48px !important;
-    padding: 8px 0 !important;
+    min-height: 52px !important;
+    padding: 10px 0 !important;
     border-width: 0 0 1px !important;
     border-radius: 0 !important;
     background: #fff !important;
+    /* cada pessoa fica inteira na mesma pagina, so o painel como um todo
+       flui entre paginas */
+    break-inside: avoid;
   }
   .access-report-person-notification {
     display: none !important;
