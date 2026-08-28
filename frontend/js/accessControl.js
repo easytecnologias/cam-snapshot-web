@@ -1512,9 +1512,23 @@ async function verificarCanalWhatsapp() {
   try {
     const data = await loadAccessWhatsappConnection(true);
     if (!data) {
-      showToast('Nao foi possivel falar com a Meta.', true);
+      showToast(isAccessWhatsappCloudProvider() ? 'Nao foi possivel falar com a Meta.' : 'Nao foi possivel falar com o Evolution.', true);
     } else if (!data.configured) {
       showToast(data.error || 'Canal ainda nao configurado.', true);
+    } else if (String(data.provider || (isAccessWhatsappCloudProvider() ? 'cloud_api' : 'evolution')).toLowerCase() === 'evolution') {
+      if (data.connected) {
+        showToast(`Sessao conectada (instancia ${data.instance || '-'}).`);
+      } else if (data.state === 'error') {
+        showToast(data.error || 'Erro ao consultar o Evolution.', true);
+      } else {
+        const ESTADOS = {
+          waiting_qr: 'aguardando leitura do QR Code',
+          disconnected: 'desconectada',
+          unknown: 'em estado desconhecido',
+          not_configured: 'nao configurada',
+        };
+        showToast(`Sessao ${ESTADOS[data.state] || 'nao conectada'} (instancia ${data.instance || '-'}).`);
+      }
     } else {
       const modelo = data.template_status === 'APPROVED' ? 'modelo aprovado'
         : data.template_status === 'PENDING' ? 'modelo em analise'
