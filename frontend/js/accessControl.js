@@ -1366,7 +1366,10 @@ async function saveAccessWhatsappConfig() {
     _accessWhatsappCurrentConfigured = !!data.configured;
     setAccessWhatsappStatus(data);
     await loadAccessWhatsappConnection(true);
-    showToast(data.configured ? 'WhatsApp salvo.' : 'WhatsApp salvo, mas falta configurar URL/chave.');
+    const avisoIncompleto = isAccessWhatsappCloudProvider(payload.provider)
+      ? 'WhatsApp salvo, mas falta o Phone Number ID e o token da API oficial.'
+      : 'WhatsApp salvo, mas falta configurar URL/chave do Evolution na plataforma.';
+    showToast(data.configured ? 'WhatsApp salvo.' : avisoIncompleto);
     return data;
   } catch (err) {
     showToast(err?.message || 'Nao foi possivel salvar o WhatsApp.', true);
