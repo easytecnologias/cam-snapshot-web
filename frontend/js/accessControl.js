@@ -1339,7 +1339,7 @@ async function saveAccessWhatsappConfig() {
   if (isAccessWhatsappCloudProvider(payload.provider)) {
     payload.phone_number_id = document.getElementById('accessWhatsappPhoneId')?.value.trim() || '';
     payload.waba_id = document.getElementById('accessWhatsappWabaId')?.value.trim() || '';
-    payload.access_token = document.getElementById('accessWhatsappToken')?.value || '';
+    payload.access_token = document.getElementById('accessWhatsappToken')?.value.trim() || '';
     payload.template_name = document.getElementById('accessWhatsappTemplate')?.value.trim() || '';
     payload.template_language = document.getElementById('accessWhatsappTemplateLang')?.value.trim() || 'pt_BR';
     if (payload.enabled && !payload.phone_number_id) {
