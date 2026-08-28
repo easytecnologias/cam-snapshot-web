@@ -1470,22 +1470,32 @@ function setAccessWhatsappConnection(data = null) {
   };
   escreveEvolution('accessWhatsappEvolutionInstance', data?.instance);
   escreveEvolution('accessWhatsappEvolutionState', estadoTexto);
+  // A caixa do QR Code so aparece quando tem um QR de verdade pra mostrar --
+  // do contrario fica um retangulo vazio do tamanho do QR Code, que parece
+  // erro de tela em vez de "sessao ja conectada, nao precisa de nada".
+  const qrBox = document.getElementById('accessWhatsappEvolutionQrBox');
   const imgQr = document.getElementById('accessWhatsappEvolutionQr');
-  const semQr = document.getElementById('accessWhatsappEvolutionQrEmpty');
-  if (imgQr && semQr) {
+  if (qrBox && imgQr) {
     if (data?.qrcode) {
       imgQr.src = data.qrcode.startsWith('data:') ? data.qrcode : `data:image/png;base64,${data.qrcode}`;
       imgQr.hidden = false;
-      semQr.hidden = true;
+      qrBox.classList.remove('hidden');
     } else {
       imgQr.hidden = true;
-      semQr.hidden = false;
-      semQr.textContent = data?.connected ? 'Sessao conectada: nenhum QR Code necessario.' : 'Sem QR Code no momento.';
+      qrBox.classList.add('hidden');
     }
   }
   const notaEvolution = document.getElementById('accessWhatsappEvolutionHint');
   if (notaEvolution) {
-    notaEvolution.textContent = data?.error || 'Escaneie o QR Code no WhatsApp do celular da escola (Aparelhos conectados).';
+    if (data?.error) {
+      notaEvolution.textContent = data.error;
+    } else if (data?.qrcode) {
+      notaEvolution.textContent = 'Escaneie o QR Code no WhatsApp do celular da escola (Aparelhos conectados).';
+    } else if (data?.connected) {
+      notaEvolution.textContent = 'Sessao conectada: nenhum QR Code necessario.';
+    } else {
+      notaEvolution.textContent = 'Clique em "Verificar conexao" para gerar o QR Code.';
+    }
   }
 }
 

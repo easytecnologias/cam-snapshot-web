@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=256">
+  <link rel="stylesheet" href="styles.css?v=257">
 </head>
 <body>
 
@@ -2126,15 +2126,14 @@
                 </dl>
                 <p class="access-whatsapp-cloud-note" id="accessWhatsappCloudHint">Sem QR Code e sem sessao: a autenticacao e um token permanente.</p>
               </div>
-              <div class="access-whatsapp-evolution hidden" id="accessWhatsappEvolutionBox">
-                <div class="access-whatsapp-evolution-qr">
-                  <img id="accessWhatsappEvolutionQr" alt="QR Code do WhatsApp" hidden>
-                  <span id="accessWhatsappEvolutionQrEmpty">Sem QR Code no momento.</span>
-                </div>
+              <div class="access-whatsapp-cloud" id="accessWhatsappEvolutionBox">
                 <dl class="access-whatsapp-cloud-facts">
                   <div><dt>Instancia</dt><dd id="accessWhatsappEvolutionInstance">-</dd></div>
                   <div><dt>Estado da sessao</dt><dd id="accessWhatsappEvolutionState">-</dd></div>
                 </dl>
+                <div class="access-whatsapp-evolution-qr hidden" id="accessWhatsappEvolutionQrBox">
+                  <img id="accessWhatsappEvolutionQr" alt="QR Code do WhatsApp" hidden>
+                </div>
                 <p class="access-whatsapp-cloud-note" id="accessWhatsappEvolutionHint">Escaneie o QR Code no WhatsApp do celular da escola (Aparelhos conectados).</p>
               </div>
               <div class="access-connection-actions">
@@ -6043,7 +6042,7 @@
   <script src="js/monitoring.js?v=9"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=85"></script>
+  <script src="js/accessControl.js?v=86"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=191"></script>
