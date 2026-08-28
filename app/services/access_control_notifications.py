@@ -836,15 +836,17 @@ def get_access_whatsapp_config(site: Any = "") -> Dict[str, Any]:
         # e exposicao sem contrapartida.
         "instance": instance,
     }
-    if provider == "cloud_api":
-        resultado.update({
-            "phone_number_id": _text(cfg.get("phone_number_id"), 60),
-            "waba_id": _text(cfg.get("waba_id"), 60),
-            "template_name": _text(cfg.get("template_name"), 120),
-            "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
-            # o token nunca volta para a tela; so se ele existe
-            "token_saved": bool(_text(cfg.get("access_token"), 600)),
-        })
+    # Campos da API oficial voltam sempre, nao so quando ela e o provider
+    # ativo -- trocar para Evolution e depois voltar pra Meta nao pode
+    # obrigar reditar Phone Number ID/token so porque o provider mudou.
+    resultado.update({
+        "phone_number_id": _text(cfg.get("phone_number_id"), 60),
+        "waba_id": _text(cfg.get("waba_id"), 60),
+        "template_name": _text(cfg.get("template_name"), 120),
+        "template_language": _text(cfg.get("template_language") or "pt_BR", 12),
+        # o token nunca volta para a tela; so se ele existe
+        "token_saved": bool(_text(cfg.get("access_token"), 600)),
+    })
     return resultado
 
 
@@ -873,17 +875,21 @@ def save_access_whatsapp_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "api_key": api_key,
         "instance": instance,
     }
-    if provider == "cloud_api":
-        # Campos da API oficial. Token e longo (200+ chars) e nao cabe em api_key,
-        # que os provedores nao oficiais usam para chave curta de instancia.
-        saved_cfg.update({
-            "phone_number_id": _text(payload.get("phone_number_id") or old.get("phone_number_id"), 60),
-            "waba_id": _text(payload.get("waba_id") or old.get("waba_id"), 60),
-            "access_token": _cifrar_token(payload.get("access_token"), old.get("access_token")),
-            "template_name": _text(payload.get("template_name") or old.get("template_name"), 120),
-            "template_language": _text(payload.get("template_language") or old.get("template_language") or "pt_BR", 12),
-            "app_secret": _cifrar_token(payload.get("app_secret"), old.get("app_secret")),
-        })
+    # Campos da API oficial ficam gravados sempre, nao so quando ela e o
+    # provider ativo agora. So aceitam valor novo do payload quando o
+    # provider salvo e cloud_api (o frontend nunca manda esses campos com
+    # Evolution selecionado); do contrario preserva o que ja estava --
+    # trocar para Evolution e depois voltar pra Meta nao pode apagar
+    # Phone Number ID/WABA ID/template/token so por causa da troca.
+    payload_cloud = payload if provider == "cloud_api" else {}
+    saved_cfg.update({
+        "phone_number_id": _text(payload_cloud.get("phone_number_id") or old.get("phone_number_id"), 60),
+        "waba_id": _text(payload_cloud.get("waba_id") or old.get("waba_id"), 60),
+        "access_token": _cifrar_token(payload_cloud.get("access_token"), old.get("access_token")),
+        "template_name": _text(payload_cloud.get("template_name") or old.get("template_name"), 120),
+        "template_language": _text(payload_cloud.get("template_language") or old.get("template_language") or "pt_BR", 12),
+        "app_secret": _cifrar_token(payload_cloud.get("app_secret"), old.get("app_secret")),
+    })
     if site_key:
         site_configs[site_key] = saved_cfg
         settings["access_control_whatsapp_notifications_by_site"] = site_configs

@@ -238,6 +238,47 @@ def main() -> None:
             envio = next(c for c in chamadas if "sendText" in c["url"])
             assert envio["url"].endswith("/message/sendText/escola-evolution-unidade-centro"), envio
             assert "-padrao" not in envio["url"], envio
+
+            # --- trocar de Meta para Evolution e depois voltar nao pode apagar
+            # Phone Number ID/WABA ID/template/token. Achado ao vivo em
+            # producao: uma escola configurada na Meta perdeu esses campos de
+            # verdade (nao so escondidos na tela) ao salvar com Evolution
+            # selecionado, porque save_access_whatsapp_config so gravava os
+            # campos da API oficial dentro do "if provider == cloud_api".
+            site_meta = "Escola com Meta"
+            salvo_meta = save_access_whatsapp_config({
+                "site": site_meta,
+                "enabled": True,
+                "provider": "cloud_api",
+                "phone_number_id": "111222333",
+                "waba_id": "444555666",
+                "access_token": "token-secreto-meta",
+                "template_name": "aviso_padrao",
+                "template_language": "pt_BR",
+            })
+            assert salvo_meta["phone_number_id"] == "111222333", salvo_meta
+            assert salvo_meta["token_saved"] is True, salvo_meta
+
+            trocado = save_access_whatsapp_config({"site": site_meta, "enabled": True, "provider": "evolution"})
+            assert trocado["provider"] == "evolution", trocado
+            # os campos da Meta continuam voltando na leitura mesmo com
+            # Evolution ativo -- e o que faz o front pre-preencher o formulario
+            # se o usuario voltar pro provider oficial sem redigitar nada
+            assert trocado["phone_number_id"] == "111222333", trocado
+            assert trocado["waba_id"] == "444555666", trocado
+            assert trocado["token_saved"] is True, trocado
+
+            gravado_evolution = db_store.load_app_settings()["access_control_whatsapp_notifications_by_site"][site_meta]
+            assert gravado_evolution["phone_number_id"] == "111222333", gravado_evolution
+            assert gravado_evolution.get("access_token"), gravado_evolution
+
+            # voltar pra Meta sem mandar phone_number_id/token de novo (o
+            # front so envia esses campos quando o provider ativo e cloud_api)
+            # tem que continuar usando os valores preservados
+            de_volta = save_access_whatsapp_config({"site": site_meta, "enabled": True, "provider": "cloud_api"})
+            assert de_volta["provider"] == "cloud_api", de_volta
+            assert de_volta["phone_number_id"] == "111222333", de_volta
+            assert de_volta["token_saved"] is True, de_volta
         finally:
             requests.get, requests.post, requests.delete = original_get, original_post, original_delete
             reset_current_tenant_slug(token)
