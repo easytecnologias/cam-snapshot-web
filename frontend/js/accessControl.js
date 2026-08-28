@@ -561,7 +561,27 @@ function renderAccessWhatsappKpiStatus(data = {}) {
     setText('accessKpiWhatsappSub', 'configure na aba Conexoes');
     return;
   }
+  const provider = String(data?.provider || 'cloud_api').toLowerCase();
+  // Para o Evolution, "configurado" so quer dizer que a plataforma tem URL e
+  // chave -- nao que a sessao esta viva. Mostrar "Conectado" so por isso
+  // repetiria em menor escala o bug que esta feature existe para evitar: o
+  // card do topo dizendo Conectado com a sessao morta. No canal oficial nao
+  // ha sessao para cair, entao "configurado" continua sendo o sinal certo.
+  if (provider === 'evolution' && !data?.connected) {
+    const ESTADOS = {
+      waiting_qr: 'Aguardando QR Code', disconnected: 'Desconectado',
+      error: 'Erro ao consultar', unknown: 'Desconhecido', not_configured: 'Nao configurado',
+    };
+    setText('accessKpiWhatsapp', ESTADOS[String(data?.state || '')] || 'Nao conectado');
+    setText('accessKpiWhatsappSub', 'via Evolution API');
+    return;
+  }
   setText('accessKpiWhatsapp', 'Conectado');
+  if (provider === 'evolution') {
+    const site = String(data?.site || '').trim();
+    setText('accessKpiWhatsappSub', site ? `via ${site} (Evolution)` : 'via Evolution API');
+    return;
+  }
   // Com mais de uma escola, citar so a primeira daria a impressao de que as
   // demais estao fora do ar.
   const escolas = Array.isArray(data?.configured_sites) ? data.configured_sites : [];
