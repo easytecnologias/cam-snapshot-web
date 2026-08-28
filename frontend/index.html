@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=259">
+  <link rel="stylesheet" href="styles.css?v=260">
 </head>
 <body>
 
@@ -2210,7 +2210,11 @@
             <div class="form-row">
               <div class="form-group">
                 <label for="accessSheetFile">Arquivo</label>
-                <input id="accessSheetFile" type="file" accept=".xlsx,.csv">
+                <div class="access-file-control">
+                  <label class="secondary-action access-file-picker" for="accessSheetFile"><i data-lucide="upload"></i> Escolher arquivo</label>
+                  <input id="accessSheetFile" class="access-file-input" type="file" accept=".xlsx,.csv">
+                </div>
+                <p id="accessSheetFileName" class="muted-block">Nenhum arquivo escolhido</p>
               </div>
               <div class="form-group">
                 <label for="accessSheetSite">Escola/site</label>
@@ -2223,6 +2227,7 @@
               A planilha precisa ter as colunas <strong>matricula</strong> e <strong>nome</strong>.
               Sao reconhecidas tambem: telefone do responsavel, responsavel, turma, CPF e ID da controladora.
               A matricula identifica o aluno &mdash; reimportar a lista corrigida atualiza, nao duplica.
+              <button class="link-action" id="btnAccessSheetModelo" type="button"><i data-lucide="file-down"></i> Baixar planilha modelo</button>
             </div>
             <div id="accessSheetPreview" hidden></div>
             <div class="modal-actions">
@@ -6050,7 +6055,7 @@
   <script src="js/monitoring.js?v=9"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=87"></script>
+  <script src="js/accessControl.js?v=88"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=191"></script>

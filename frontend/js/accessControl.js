@@ -347,13 +347,16 @@ function bindAccessControl() {
   document.getElementById('btnAccessSheetCancel')?.addEventListener('click', fecharImportacaoPlanilha);
   document.getElementById('btnAccessSheetAnalyze')?.addEventListener('click', () => enviarPlanilha(false));
   document.getElementById('btnAccessSheetApply')?.addEventListener('click', () => enviarPlanilha(true));
-  document.getElementById('accessSheetFile')?.addEventListener('change', () => {
+  document.getElementById('accessSheetFile')?.addEventListener('change', (ev) => {
     // arquivo trocado invalida a conferencia anterior
     const aplicar = document.getElementById('btnAccessSheetApply');
     if (aplicar) aplicar.disabled = true;
     const previa = document.getElementById('accessSheetPreview');
     if (previa) previa.hidden = true;
+    const nomeArquivo = document.getElementById('accessSheetFileName');
+    if (nomeArquivo) nomeArquivo.textContent = ev.target.files?.[0]?.name || 'Nenhum arquivo escolhido';
   });
+  document.getElementById('btnAccessSheetModelo')?.addEventListener('click', baixarModeloPlanilhaAlunos);
     document.getElementById('btnAccessPeopleFooterSync')?.addEventListener('click', syncSelectedAccessPeople);
     document.getElementById('btnAccessPeopleFooterEdit')?.addEventListener('click', editSelectedAccessPerson);
     document.getElementById('btnAccessPeopleFooterDeleteSelected')?.addEventListener('click', deleteSelectedAccessPeople);
@@ -1013,6 +1016,25 @@ async function syncAccessPersonAfterSave(person) {
   return syncedPerson;
 }
 
+function baixarModeloPlanilhaAlunos() {
+  // Mesmas colunas que app/services/access_control_import.py reconhece --
+  // usar o primeiro apelido de cada campo, que e o nome mostrado na ajuda.
+  const linhas = [
+    ['matricula', 'nome', 'telefone do responsavel', 'responsavel', 'turma', 'cpf', 'id da controladora'],
+    ['1001', 'Nome Completo do Aluno', '82999998888', 'Nome do Responsavel', '5º Ano', '000.000.000-00', ''],
+  ];
+  const conteudo = linhas.map(linha => linha.map(v => `"${String(v).replaceAll('"', '""')}"`).join(';')).join('\r\n');
+  const blob = new Blob([`﻿${conteudo}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'sightops-modelo-importacao-alunos.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function abrirImportacaoPlanilha() {
   const modal = document.getElementById('modalAccessSheetImport');
   if (!modal) return;
@@ -1023,6 +1045,8 @@ async function abrirImportacaoPlanilha() {
   if (aplicar) aplicar.disabled = true;
   const arquivo = document.getElementById('accessSheetFile');
   if (arquivo) arquivo.value = '';
+  const nomeArquivo = document.getElementById('accessSheetFileName');
+  if (nomeArquivo) nomeArquivo.textContent = 'Nenhum arquivo escolhido';
 
   const select = document.getElementById('accessSheetSite');
   if (!select) return;
