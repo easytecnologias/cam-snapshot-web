@@ -112,6 +112,28 @@ def _build_message(event: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _build_whatsapp_message(event: Dict[str, Any]) -> str:
+    """Texto enviado ao responsavel pelo WhatsApp -- mesma redacao do template
+    aprovado na Meta (aviso_acesso_aluno), usado aqui so pelo Evolution (a
+    Cloud API manda pelo template dela, ja aprovado, sem passar por texto
+    livre). Mantem os dois provedores com a mesma cara pro responsavel, seja
+    qual for o canal ativo no site.
+    """
+    label = _event_label(event.get("event_type"))
+    person = _text(event.get("person_name") or event.get("person_name_raw"), 160) or "Pessoa nao identificada"
+    site = _text(event.get("site"), 120) or "--"
+    occurred_at = _text(event.get("occurred_at"), 40) or "--"
+    return (
+        "Aviso do controle de acesso.\n\n"
+        f"Evento: {label}\n"
+        f"Escola: {site}\n"
+        f"Aluno: {person}\n"
+        f"Horário: {occurred_at}\n\n"
+        "Mensagem automática Colegio + Seguro\n"
+        "Não precisa responder"
+    )
+
+
 def _whatsapp_target(phone: Any) -> str:
     raw = _text(phone, 32)
     if raw.startswith("+"):
@@ -934,7 +956,7 @@ def notify_access_event(event: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("Falha ao enviar Telegram de acesso: %s", exc)
             statuses.append("telegram_failed")
     try:
-        statuses.append(_send_whatsapp(settings, context, message))
+        statuses.append(_send_whatsapp(settings, context, _build_whatsapp_message(context)))
     except Exception as exc:
         logger.warning("Falha ao enviar WhatsApp de acesso: %s", exc)
         statuses.append("whatsapp_failed")

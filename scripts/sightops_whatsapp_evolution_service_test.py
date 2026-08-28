@@ -102,6 +102,16 @@ def main() -> None:
             assert envio["headers"]["apikey"] == "chave-teste", envio
             assert envio["json"]["number"] == "5582988881111", envio
             assert "whatsapp_sent" in status["statuses"], status
+            # o texto tem que ser igual ao template aprovado na Meta
+            # (aviso_acesso_aluno), pra ficar com a mesma cara pro responsavel
+            # em qualquer um dos dois provedores
+            texto = envio["json"]["text"]
+            assert texto.startswith("Aviso do controle de acesso.\n\n"), texto
+            assert "Evento: ENTRADA\n" in texto, texto
+            assert "Escola: Unidade Centro\n" in texto, texto
+            assert "Aluno: Aluno Evolution\n" in texto, texto
+            assert "Horário: 2026-08-27 08:00:00" in texto, texto
+            assert texto.endswith("Não precisa responder"), texto
 
             # --- resposta direta (send_access_whatsapp_text) tambem usa Evolution ---
             chamadas.clear()
