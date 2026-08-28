@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=255">
+  <link rel="stylesheet" href="styles.css?v=256">
 </head>
 <body>
 
@@ -2064,6 +2064,7 @@
                   <label for="accessWhatsappProvider">Provedor</label>
                   <select id="accessWhatsappProvider">
                     <option value="cloud_api">API Oficial (Meta)</option>
+                    <option value="evolution">Evolution API (plano B manual)</option>
                   </select>
                 </div>
                 <div class="form-group access-technical-group">
@@ -2125,8 +2126,20 @@
                 </dl>
                 <p class="access-whatsapp-cloud-note" id="accessWhatsappCloudHint">Sem QR Code e sem sessao: a autenticacao e um token permanente.</p>
               </div>
+              <div class="access-whatsapp-evolution hidden" id="accessWhatsappEvolutionBox">
+                <div class="access-whatsapp-evolution-qr">
+                  <img id="accessWhatsappEvolutionQr" alt="QR Code do WhatsApp" hidden>
+                  <span id="accessWhatsappEvolutionQrEmpty">Sem QR Code no momento.</span>
+                </div>
+                <dl class="access-whatsapp-cloud-facts">
+                  <div><dt>Instancia</dt><dd id="accessWhatsappEvolutionInstance">-</dd></div>
+                  <div><dt>Estado da sessao</dt><dd id="accessWhatsappEvolutionState">-</dd></div>
+                </dl>
+                <p class="access-whatsapp-cloud-note" id="accessWhatsappEvolutionHint">Escaneie o QR Code no WhatsApp do celular da escola (Aparelhos conectados).</p>
+              </div>
               <div class="access-connection-actions">
                 <button class="secondary-action" id="btnAccessWhatsappConnection" type="button"><i data-lucide="activity"></i> Verificar conexao</button>
+                <button class="secondary-action hidden" id="btnAccessWhatsappDisconnect" type="button"><i data-lucide="log-out"></i> Desconectar</button>
               </div>
             </div>
           </div>
@@ -6030,7 +6043,7 @@
   <script src="js/monitoring.js?v=9"></script>
   <script src="js/planning.js?v=66"></script>
   <script src="js/helpers.js?v=143"></script>
-  <script src="js/accessControl.js?v=81"></script>
+  <script src="js/accessControl.js?v=82"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
   <script src="js/bootstrap.js?v=191"></script>

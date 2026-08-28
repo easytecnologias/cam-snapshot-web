@@ -1276,8 +1276,17 @@ function isAccessWhatsappCloudProvider(provider = accessWhatsappProviderValue())
 }
 
 function updateAccessWhatsappProviderUi() {
-  // So existe o canal oficial: nada a alternar. Os dados do painel vem do
-  // endpoint de conexao, que consulta a propria Meta.
+  const cloud = isAccessWhatsappCloudProvider();
+  const alterna = (id, mostrar) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', !mostrar);
+  };
+  alterna('accessWhatsappPhoneIdGroup', cloud);
+  alterna('accessWhatsappCloudRow', cloud);
+  alterna('accessWhatsappTemplateRow', cloud);
+  alterna('accessWhatsappCloudBox', cloud);
+  alterna('accessWhatsappEvolutionBox', !cloud);
+  alterna('btnAccessWhatsappDisconnect', !cloud);
 }
 
 function setAccessWhatsappStatus(config = null) {
@@ -1295,7 +1304,7 @@ async function loadAccessWhatsappConfig(force = false) {
     await loadAccessWhatsappSiteOptions(force);
     const data = await apiJson(`/api/access-control/whatsapp${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
     _accessWhatsappCurrentConfigured = !!data.configured;
-    document.getElementById('accessWhatsappProvider').value = data.provider || 'evolution';
+    document.getElementById('accessWhatsappProvider').value = data.provider || 'cloud_api';
     document.getElementById('accessWhatsappEnabled').checked = !!data.enabled;
     const porId = (id, valor) => {
       const el = document.getElementById(id);
@@ -1323,7 +1332,7 @@ async function saveAccessWhatsappConfig() {
   const payload = {
     site: accessWhatsappSiteValue(),
     enabled: !!document.getElementById('accessWhatsappEnabled')?.checked,
-    provider: document.getElementById('accessWhatsappProvider')?.value || 'evolution',
+    provider: document.getElementById('accessWhatsappProvider')?.value || 'cloud_api',
   };
   if (isAccessWhatsappCloudProvider(payload.provider)) {
     payload.phone_number_id = document.getElementById('accessWhatsappPhoneId')?.value.trim() || '';
@@ -1409,6 +1418,36 @@ function setAccessWhatsappConnection(data = null) {
   if (nota) {
     nota.textContent = data?.error || 'Sem QR Code e sem sessao: a autenticacao e um token permanente.';
   }
+
+  const ESTADOS_EVOLUTION = {
+    connected: 'Conectado', waiting_qr: 'Aguardando leitura do QR Code',
+    disconnected: 'Desconectado', not_configured: 'Nao configurado',
+    error: 'Erro ao consultar', unknown: 'Desconhecido',
+  };
+  const estadoTexto = ESTADOS_EVOLUTION[String(data?.state || '')] || data?.state || '-';
+  const escreveEvolution = (id, valor) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = valor || '-';
+  };
+  escreveEvolution('accessWhatsappEvolutionInstance', data?.instance);
+  escreveEvolution('accessWhatsappEvolutionState', estadoTexto);
+  const imgQr = document.getElementById('accessWhatsappEvolutionQr');
+  const semQr = document.getElementById('accessWhatsappEvolutionQrEmpty');
+  if (imgQr && semQr) {
+    if (data?.qrcode) {
+      imgQr.src = data.qrcode.startsWith('data:') ? data.qrcode : `data:image/png;base64,${data.qrcode}`;
+      imgQr.hidden = false;
+      semQr.hidden = true;
+    } else {
+      imgQr.hidden = true;
+      semQr.hidden = false;
+      semQr.textContent = data?.connected ? 'Sessao conectada: nenhum QR Code necessario.' : 'Sem QR Code no momento.';
+    }
+  }
+  const notaEvolution = document.getElementById('accessWhatsappEvolutionHint');
+  if (notaEvolution) {
+    notaEvolution.textContent = data?.error || 'Escaneie o QR Code no WhatsApp do celular da escola (Aparelhos conectados).';
+  }
 }
 
 async function verificarCanalWhatsapp() {
@@ -1443,9 +1482,42 @@ async function verificarCanalWhatsapp() {
   }
 }
 
+async function desconectarCanalWhatsapp() {
+  const btn = document.getElementById('btnAccessWhatsappDisconnect');
+  const htmlAntigo = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader-circle"></i> Desconectando';
+    lucide.createIcons();
+  }
+  try {
+    const res = await api('/api/access-control/whatsapp/disconnect', { method: 'POST', body: JSON.stringify({ site: accessWhatsappSiteValue() }) });
+    const data = await jsonOrReadableError(res, 'Nao foi possivel desconectar o WhatsApp.');
+    showToast('Sessao desconectada.');
+    await loadAccessWhatsappConnection(true);
+    return data;
+  } catch (err) {
+    showToast(err?.message || 'Nao foi possivel desconectar o WhatsApp.', true);
+    return null;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = htmlAntigo;
+      lucide.createIcons();
+    }
+  }
+}
+
+document.getElementById('btnAccessWhatsappDisconnect')?.addEventListener('click', desconectarCanalWhatsapp);
+
 async function loadAccessWhatsappConnection(force = false) {
   try {
-    const data = await apiJson(`/api/access-control/whatsapp/connection${accessWhatsappSiteQuery()}`, { forceRefresh: force, cacheTtl: 0 });
+    const params = new URLSearchParams();
+    const site = accessWhatsappSiteValue();
+    if (site) params.set('site', site);
+    if (!isAccessWhatsappCloudProvider()) params.set('refresh_qr', '1');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const data = await apiJson(`/api/access-control/whatsapp/connection${query}`, { forceRefresh: force, cacheTtl: 0 });
     setAccessWhatsappConnection(data);
     return data;
   } catch (err) {
