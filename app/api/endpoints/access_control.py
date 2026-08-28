@@ -50,6 +50,7 @@ from app.services.access_control_sync import provision_person_everywhere, resolv
 from app.services.access_control_sync import enqueue_person_provisioning
 from app.services.access_control_notifications import (
     assinatura_webhook_valida,
+    disconnect_access_whatsapp,
     get_access_whatsapp_connection,
     resolver_cliente_por_numero,
     get_access_whatsapp_config,
@@ -208,14 +209,18 @@ class AccessManualExitRequest(BaseModel):
 class AccessWhatsappConfigRequest(BaseModel):
     site: str = ""
     enabled: bool = False
-    provider: str = "evolution"
+    provider: str = "cloud_api"
     base_url: str = ""
     api_key: str = ""
-    instance: str = "sightops"
+    instance: str = ""
 
 
 class AccessWhatsappTestRequest(BaseModel):
     number: str
+    site: str = ""
+
+
+class AccessWhatsappDisconnectRequest(BaseModel):
     site: str = ""
 
 
@@ -267,10 +272,18 @@ def api_access_control_whatsapp_test(req: AccessWhatsappTestRequest) -> Dict[str
 
 
 @router.get("/whatsapp/connection")
-def api_access_control_whatsapp_connection(site: str = Query(""), summary: bool = Query(False)) -> Dict[str, Any]:
-    result = get_access_whatsapp_connection(refresh_qr=False, site=site, resumo=summary)
+def api_access_control_whatsapp_connection(site: str = Query(""), summary: bool = Query(False), refresh_qr: bool = Query(False)) -> Dict[str, Any]:
+    result = get_access_whatsapp_connection(refresh_qr=refresh_qr, site=site, resumo=summary)
     if not result.get("ok") and result.get("state") == "error":
         raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao consultar WhatsApp.")
+    return result
+
+
+@router.post("/whatsapp/disconnect")
+def api_access_control_whatsapp_disconnect(req: AccessWhatsappDisconnectRequest) -> Dict[str, Any]:
+    result = disconnect_access_whatsapp(req.site)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("error") or "Falha ao desconectar WhatsApp.")
     return result
 
 
