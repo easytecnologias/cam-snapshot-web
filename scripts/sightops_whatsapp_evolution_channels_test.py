@@ -4,6 +4,8 @@ card do Dashboard e o Zabbix -- reflete o estado real de canais Evolution
 que um canal padrao do cliente configurado em Evolution tambem aparece na
 lista (hoje o gate de entrada so reconhece campos da Meta).
 
+Testa ambas direcoes: "connecting" → offline, "open" → conectado.
+
 Roda direto: python scripts/sightops_whatsapp_evolution_channels_test.py
 """
 from __future__ import annotations
@@ -38,11 +40,12 @@ def main() -> None:
             def json(self) -> dict[str, Any]:
                 return self._body
 
-        # todo GET de connectionState devolve "connecting" -- exatamente o
-        # estado real da instancia orfa "presidente-dutra" achada em producao
+        # Estado que sera retornado pelo fake_get para connectionState
+        test_state: dict[str, str] = {"state": "connecting"}
+
         def fake_get(url: str, **kwargs: Any) -> FakeResponse:
             if "connectionState" in url:
-                return FakeResponse(200, {"instance": {"state": "connecting"}})
+                return FakeResponse(200, {"instance": {"state": test_state["state"]}})
             return FakeResponse(200, {"base64": ""})
 
         import requests
@@ -54,14 +57,29 @@ def main() -> None:
             # canal padrao do cliente (sem site) configurado em Evolution
             save_access_whatsapp_config({"site": "", "enabled": True, "provider": "evolution"})
 
+            # Cenario 1: sessao presa em "connecting" -- exatamente o estado real
+            # da instancia orfa "presidente-dutra" achada em producao
+            test_state["state"] = "connecting"
             canais = list_access_whatsapp_channels()
             assert len(canais) == 1, canais
             canal = canais[0]
             assert canal["provider"] == "evolution", canal
             assert canal["configured"] is True, canal
             # sessao presa em "connecting": tem que aparecer como offline no
-            # Dashboard, nunca como conectada (era exatamente o bug real)
-            assert canal["connected"] is False, canal
+            # Dashboard, nunca como conectada
+            assert canal["connected"] is False, f"connecting should be offline: {canal}"
+
+            # Cenario 2: sessao genuinamente conectada com state "open"
+            test_state["state"] = "open"
+            canais = list_access_whatsapp_channels()
+            assert len(canais) == 1, canais
+            canal = canais[0]
+            assert canal["provider"] == "evolution", canal
+            assert canal["configured"] is True, canal
+            # sessao em "open" (genuinamente conectada): tem que aparecer como
+            # conectada no Dashboard (este era o bug: Evolution canais mostravam
+            # sempre offline mesmo quando conectados)
+            assert canal["connected"] is True, f"open should be connected: {canal}"
         finally:
             requests.get = original_get
             reset_current_tenant_slug(token)
