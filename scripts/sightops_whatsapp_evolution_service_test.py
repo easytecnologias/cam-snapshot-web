@@ -33,6 +33,7 @@ def main() -> None:
             notify_access_event,
             save_access_whatsapp_config,
             send_access_whatsapp_text,
+            test_access_whatsapp,
         )
 
         chamadas: list[dict[str, Any]] = []
@@ -221,6 +222,22 @@ def main() -> None:
             assert meta["configured"] is True, meta
             assert meta["phone_number_id"] == "555", meta
             assert meta["instance"] == "", meta
+
+            # --- botao "Testar envio" tem que falar com a instancia do site
+            # testado, nao com a instancia padrao do cliente. Achado ao vivo em
+            # producao: test_access_whatsapp() montava o contexto sem a chave
+            # "site", entao _send_whatsapp->_send_whatsapp_evolution recebia
+            # site_key="" e _evolution_instance_cfg (que so deriva do site,
+            # nunca do que esta salvo em cfg) calculava o nome da instancia
+            # PADRAO do cliente em vez da instancia do site que estava sendo
+            # testado -- uma escola conectada via QR via pro teste falhar (ou
+            # falar com a instancia errada) porque o teste mirava outra sessao.
+            chamadas.clear()
+            resultado_teste = test_access_whatsapp({"number": "5582988881111", "site": "Unidade Centro"})
+            assert resultado_teste["ok"] is True, resultado_teste
+            envio = next(c for c in chamadas if "sendText" in c["url"])
+            assert envio["url"].endswith("/message/sendText/escola-evolution-unidade-centro"), envio
+            assert "-padrao" not in envio["url"], envio
         finally:
             requests.get, requests.post, requests.delete = original_get, original_post, original_delete
             reset_current_tenant_slug(token)

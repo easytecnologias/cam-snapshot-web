@@ -897,10 +897,15 @@ def test_access_whatsapp(payload: Dict[str, Any]) -> Dict[str, Any]:
     number = _text(payload.get("number") or payload.get("to"), 40)
     if not _numero_whatsapp(number):
         return {"ok": False, "error": "Informe um numero de WhatsApp para teste."}
-    cfg = _access_whatsapp_cfg(db_store.load_app_settings(), payload.get("site"))
+    site_key = _site_key(payload.get("site"))
+    cfg = _access_whatsapp_cfg(db_store.load_app_settings(), site_key)
     if not cfg.get("enabled"):
         return {"ok": False, "error": "WhatsApp desativado."}
-    context = {"guardian_phone": number, "whatsapp_enabled": True}
+    # o site precisa ir no contexto: _evolution_instance_cfg deriva o nome da
+    # instancia so a partir dele (nunca do que ficou salvo em cfg), entao sem
+    # isso aqui o teste de um site especifico falava com a instancia errada
+    # (a padrao do cliente, nao a desse site).
+    context = {"guardian_phone": number, "whatsapp_enabled": True, "site": site_key}
     message = "Teste SightOps - notificacoes do Controle de Acesso configuradas."
     try:
         status = _send_whatsapp({"access_control_whatsapp_notifications": cfg}, context, message)
