@@ -88,3 +88,4 @@ SKILLS.md
 # importadas por ninguem -- servem para investigar uma vez e morrer.
 scripts/_*.py
 scripts/_*.sh
+.worktrees/
