@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import html
 import logging
+import os
 import re
 from typing import Any, Dict, List
 
@@ -130,9 +131,51 @@ def _numero_whatsapp(phone: Any) -> str:
 
 
 def _whatsapp_provider(cfg: Dict[str, Any]) -> str:
-    # A API oficial e o unico canal suportado; provedores antigos gravados nas
-    # configuracoes viram cloud_api para nao deixarem a tela em branco.
-    return "cloud_api"
+    """Provider ativo do site: 'evolution' so quando escolhido explicitamente.
+
+    Qualquer outra coisa (vazio, desconhecido, configuracao antiga sem o
+    campo) cai em 'cloud_api' -- o canal oficial nunca muda de comportamento
+    sem o usuario decidir isso na tela.
+    """
+    provider = _text(cfg.get("provider"), 40).lower()
+    return "evolution" if provider == "evolution" else "cloud_api"
+
+
+def _slug(text: Any) -> str:
+    s = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(text or "").strip())
+    while "--" in s:
+        s = s.replace("--", "-")
+    return s.strip("-")
+
+
+def _evolution_platform_cfg() -> Dict[str, str]:
+    """Endereco e chave do Evolution: infraestrutura da SightOps, um container
+    so para todos os clientes -- por isso vem de variavel de ambiente, no
+    mesmo padrao ja usado para o Zabbix (_default_zabbix_cfg em
+    zabbix_monitoring_service.py), nunca de configuracao por site.
+
+    So a URL tem valor padrao no codigo (endereco ja confirmado alcancavel a
+    partir deste container); a chave nunca tem default aqui -- sem ela, o
+    provider fica not_configured em vez de tentar falar com um Evolution
+    sem autenticacao.
+    """
+    return {
+        "base_url": _text(os.getenv("SIGHTOPS_EVOLUTION_URL") or "http://10.10.12.7:8090", 500).rstrip("/"),
+        "api_key": _text(os.getenv("SIGHTOPS_EVOLUTION_API_KEY"), 300),
+    }
+
+
+def _evolution_default_instance(site_key: Any = "") -> str:
+    """Nome de instancia unico por tenant+site.
+
+    O container Evolution e compartilhado entre todos os clientes da
+    SightOps: um default fixo tipo "sightops" colidiria entre escolas de
+    tenants diferentes (ou entre sites do mesmo tenant). O nome derivado do
+    tenant+site evita isso sem exigir que o usuario digite nada.
+    """
+    tenant = _slug(get_current_tenant_slug()) or "sightops"
+    parte = _slug(site_key) or "padrao"
+    return f"{tenant}-{parte}"[:120]
 
 
 def _site_key(site: Any) -> str:
