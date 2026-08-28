@@ -1450,6 +1450,18 @@ a { color: inherit; text-decoration: none; }
   .access-person-tabs {
     overflow-x: auto;
   }
+  /* Sem isso, as 6 abas (Pessoas/Dispositivos/Grupos/Regras/Relatorios/
+     Conexoes) nao cabem na largura do celular e as ultimas ficam cortadas
+     em vez de aparecerem rolando -- mesmo problema que .access-person-tabs
+     ja tinha e foi corrigido aqui do lado. */
+  .access-control-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  .access-control-tabs .tab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 .access-device-modal {
   width: min(640px, calc(100vw - 32px));
