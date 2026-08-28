@@ -669,36 +669,43 @@ def get_access_whatsapp_connection(*, refresh_qr: bool = False, site: Any = "", 
 def list_access_whatsapp_channels() -> List[Dict[str, Any]]:
     """Canais WhatsApp configurados, com status real de conexao de cada um.
 
-    "connected" aqui exige uma chamada bem-sucedida na Graph API, nao so
-    credencial presente: get_access_whatsapp_connection() ja marca
-    "connected: True" apenas por existir phone_number_id + token gravados
-    (mesmo com token revogado) -- so "display_phone_number" vem preenchido
-    quando a consulta na Meta realmente deu certo (ver
-    access_control_notifications.py:427-442), entao esse e o sinal usado
-    aqui como conectividade de verdade, sem mudar o contrato da funcao que
-    a tela de Conexoes ja usa.
+    Provider-aware: "connected" para cloud_api continua exigindo que a
+    consulta na Graph API tenha devolvido display_phone_number (so acontece
+    com token valido); para evolution, exige estado "connected" na checagem
+    ativa feita por get_access_whatsapp_connection() -- nunca so a
+    configuracao estar presente.
 
     Um canal por site com config propria, mais o "padrao do cliente" quando
-    ele tiver credenciais proprias (nao amarradas a nenhum site especifico).
-    Usado para alimentar o card do Dashboard e o Zabbix -- ver
-    refresh_from_inventory() em monitoring_service.py.
+    ele tiver credenciais proprias (Meta ou Evolution) nao amarradas a
+    nenhum site especifico. Usado para alimentar o card do Dashboard e o
+    Zabbix -- ver refresh_from_inventory() em monitoring_service.py.
     """
     settings = db_store.load_app_settings()
     channels: List[Dict[str, Any]] = []
 
     def _channel(site: str, label: str) -> Dict[str, Any]:
+        cfg = _access_whatsapp_cfg(settings, site)
+        provider = _whatsapp_provider(cfg)
         result = get_access_whatsapp_connection(site=site)
+        connected = bool(result.get("connected")) if provider == "evolution" else bool(result.get("display_phone_number"))
         return {
-            "site": site, "label": label,
+            "site": site, "label": label, "provider": provider,
             "configured": bool(result.get("configured")),
-            "connected": bool(result.get("display_phone_number")),
+            "connected": connected,
             "phone_number_id": result.get("phone_number_id", ""),
             "display_phone_number": result.get("display_phone_number", ""),
             "quality_rating": result.get("quality_rating", ""),
         }
 
-    global_cfg = _cloud_cfg(settings.get("access_control_whatsapp_notifications") or {})
-    if global_cfg["phone_number_id"] and global_cfg["access_token"]:
+    global_raw = settings.get("access_control_whatsapp_notifications") or {}
+    global_cfg = global_raw if isinstance(global_raw, dict) else {}
+    if _whatsapp_provider(global_cfg) == "evolution":
+        global_conn = _evolution_instance_cfg(global_cfg, "")
+        global_ready = bool(global_conn["base_url"] and global_conn["api_key"])
+    else:
+        global_dados = _cloud_cfg(global_cfg)
+        global_ready = bool(global_dados["phone_number_id"] and global_dados["access_token"])
+    if global_ready:
         # O rotulo precisa ser unico por cliente: e ele que vira o nome visivel
         # do host no Zabbix (zabbix_monitoring_service.py), que exige nome unico
         # globalmente. Com o mesmo texto fixo para todo tenant, o host.create()
