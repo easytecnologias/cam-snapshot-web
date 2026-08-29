@@ -1,0 +1,134 @@
+"""Testa o servico de streams do go2rtc: registro idempotente, desregistro e
+a varredura que remove streams sem espectador. Usa um FakeResponse para
+simular o go2rtc sem rede.
+
+Confirmado testando o go2rtc real em producao (versao 1.9.14): o parametro
+?name= do GET /api/streams e IGNORADO -- sempre devolve a lista inteira. So
+o DELETE respeita o filtro por nome. O FakeResponse abaixo reproduz esse
+comportamento de proposito, para o teste continuar valendo se alguem tentar
+"otimizar" o registro para filtrar do lado do servidor.
+
+Roda direto: python scripts/sightops_live_stream_service_test.py
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any
+
+
+def main() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    import requests
+    from app.services import live_stream_service as svc
+
+    chamadas: list[dict[str, Any]] = []
+    estado_streams: dict[str, Any] = {}
+
+    class FakeResponse:
+        def __init__(self, status_code: int, body: Any):
+            self.status_code = status_code
+            self._body = body
+
+        def json(self) -> Any:
+            return self._body
+
+    def fake_get(url: str, **kwargs: Any) -> FakeResponse:
+        chamadas.append({"metodo": "GET", "url": url, **kwargs})
+        # go2rtc real ignora ?name= no GET -- sempre devolve tudo.
+        return FakeResponse(200, dict(estado_streams))
+
+    def fake_put(url: str, **kwargs: Any) -> FakeResponse:
+        chamadas.append({"metodo": "PUT", "url": url, **kwargs})
+        params = kwargs.get("params") or {}
+        estado_streams[params["name"]] = {"producers": [{"url": params["src"]}], "consumers": None}
+        return FakeResponse(200, {})
+
+    def fake_delete(url: str, **kwargs: Any) -> FakeResponse:
+        chamadas.append({"metodo": "DELETE", "url": url, **kwargs})
+        params = kwargs.get("params") or {}
+        estado_streams.pop(params.get("name"), None)
+        return FakeResponse(200, {})
+
+    original_get, original_put, original_delete = requests.get, requests.put, requests.delete
+    requests.get = fake_get
+    requests.put = fake_put
+    requests.delete = fake_delete
+    try:
+        # --- registrar pela primeira vez: GET (checa) + PUT (cria) ---
+        chamadas.clear()
+        name = svc.register_stream(
+            ip="10.10.9.85", user="admin", password="segredo123",
+            subtype=1, vendor="Intelbras", model="VIP-1230",
+        )
+        assert name == "cam_10_10_9_85_1", name
+        assert [c["metodo"] for c in chamadas] == ["GET", "PUT"], chamadas
+        assert "10.10.9.85:554/cam/realmonitor?channel=1&subtype=1" in estado_streams[name]["producers"][0]["url"]
+
+        # --- registrar de novo, MESMA camera/qualidade/credencial: idempotente, SEM PUT ---
+        chamadas.clear()
+        svc.register_stream(
+            ip="10.10.9.85", user="admin", password="segredo123",
+            subtype=1, vendor="Intelbras", model="VIP-1230",
+        )
+        assert [c["metodo"] for c in chamadas] == ["GET"], (
+            f"registro repetido com os mesmos dados nao deveria fazer PUT de novo: {chamadas}"
+        )
+
+        # --- mesma camera, credencial DIFERENTE: fonte mudou, registra de novo ---
+        chamadas.clear()
+        svc.register_stream(
+            ip="10.10.9.85", user="admin", password="outra-senha",
+            subtype=1, vendor="Intelbras", model="VIP-1230",
+        )
+        assert [c["metodo"] for c in chamadas] == ["GET", "PUT"], (
+            f"credencial mudou, deveria ter re-registrado: {chamadas}"
+        )
+
+        # --- HD (subtype=0) e SD (subtype=1) da mesma camera sao streams DIFERENTES ---
+        name_hd = svc.register_stream(
+            ip="10.10.9.85", user="admin", password="outra-senha",
+            subtype=0, vendor="Intelbras", model="VIP-1230",
+        )
+        assert name_hd == "cam_10_10_9_85_0", name_hd
+        assert name_hd != name, "HD e SD tem que ser streams separados no go2rtc"
+
+        # --- fabricante Hikvision usa caminho RTSP diferente (Streaming/Channels) ---
+        name_hik = svc.register_stream(
+            ip="10.10.9.90", user="admin", password="x",
+            subtype=1, vendor="Hikvision", model="DS-2CD1021G0-I",
+        )
+        assert "/Streaming/Channels/102" in estado_streams[name_hik]["producers"][0]["url"], estado_streams[name_hik]
+
+        # --- desregistrar: DELETE com o nome certo, idempotente (nao existir nao e erro) ---
+        chamadas.clear()
+        svc.unregister_stream(ip="10.10.9.85", subtype=1)
+        assert len(chamadas) == 1 and chamadas[0]["metodo"] == "DELETE", chamadas
+        assert chamadas[0]["params"] == {"name": "cam_10_10_9_85_1"}, chamadas
+        assert "cam_10_10_9_85_1" not in estado_streams
+        svc.unregister_stream(ip="10.10.9.85", subtype=1)  # de novo, nao pode quebrar
+
+        # --- varredura remove so quem nao tem espectador (consumers vazio/None) ---
+        estado_streams.clear()
+        estado_streams["cam_1_2_3_4_1"] = {"producers": [{"url": "x"}], "consumers": None}
+        estado_streams["cam_5_6_7_8_1"] = {"producers": [{"url": "y"}], "consumers": []}
+        estado_streams["cam_9_9_9_9_1"] = {"producers": [{"url": "z"}], "consumers": [{"user_agent": "chrome"}]}
+        estado_streams["outra_coisa_nao_camera"] = {"producers": [{"url": "w"}], "consumers": None}
+        removidos = svc.reap_idle_streams()
+        assert set(removidos) == {"cam_1_2_3_4_1", "cam_5_6_7_8_1"}, removidos
+        assert "cam_9_9_9_9_1" in estado_streams, "stream com espectador nao pode ser removido"
+        assert "outra_coisa_nao_camera" in estado_streams, "so mexe em streams cam_*, nao em outras entradas do go2rtc"
+
+        # --- caminho RTSP por fabricante (migrado de maintenance.py, mesmo comportamento) ---
+        assert svc._stream_rtsp_path_for_camera(vendor="Hikvision", model="DS-2CD1021G0-I", subtype=1) == "/Streaming/Channels/102"
+        assert svc._stream_rtsp_path_for_camera(vendor="Intelbras", model="VIPC-1230-B-G2", subtype=1) == "/cam/realmonitor?channel=1&subtype=1"
+        assert svc._stream_rtsp_path_for_camera(vendor="", model="IPC-B121H-L", subtype=0) == "/Streaming/Channels/101"
+    finally:
+        requests.get, requests.put, requests.delete = original_get, original_put, original_delete
+
+    print("live_stream_service: registro idempotente, HD/SD separados, desregistro e varredura de ociosos ok")
+
+
+if __name__ == "__main__":
+    main()
