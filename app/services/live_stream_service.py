@@ -15,11 +15,26 @@ Este modulo concentra essa logica: registro idempotente (so mexe no go2rtc
 quando a fonte realmente mudou) e uma varredura periodica que remove
 streams sem espectador.
 
-Confirmado testando o go2rtc real em producao (versao 1.9.14): o parametro
-`?name=` do `GET /api/streams` e ignorado -- sempre devolve a lista
-INTEIRA. So o `DELETE /api/streams?name=X` respeita o filtro. Por isso o
-registro idempotente busca a lista inteira e procura o nome no dicionario
-em vez de tentar filtrar do lado do go2rtc.
+Confirmado testando o go2rtc real em producao (versao 1.9.14), lendo o
+codigo fonte dele quando precisou (`internal/streams/api.go`):
+
+- `GET /api/streams` ignora qualquer parametro -- sempre devolve a lista
+  INTEIRA. Por isso o registro idempotente busca a lista inteira e procura
+  o nome no dicionario em vez de tentar filtrar do lado do go2rtc.
+- `DELETE /api/streams` remove pelo parametro `src` (NAO `name`, apesar do
+  `PUT` usar `name` para a mesma coisa -- API inconsistente do proprio
+  go2rtc: `delete(streams, src)` no handler deles). Mandar `name=` no
+  DELETE nao da erro nenhum, so silenciosamente nao remove nada -- foi
+  descoberto so testando de verdade contra producao, apos o deploy inicial
+  desta feature, quando os streams pareciam nunca sumir do go2rtc mesmo
+  apos `unregister_stream`/`reap_idle_streams` "funcionarem" sem excecao.
+- `PUT /api/streams` falha com HTTP 400 ("yaml: line N: did not find
+  expected key") em TODO registro, se o `go2rtc.yaml` carregado tiver uma
+  chave `streams:` explicita (mesmo vazia, `streams: {}`) -- bug do
+  proprio go2rtc ao tentar reserializar esse mapa internamente. A correcao
+  real e no arquivo de config (`deploy/go2rtc/go2rtc.yaml` nunca declara
+  `streams:`), nao aqui; o fallback em `register_stream` abaixo fica so
+  como defesa extra.
 """
 from __future__ import annotations
 
@@ -118,9 +133,14 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
 
 
 def unregister_stream(*, ip: str, subtype: int = 1) -> None:
-    """Remove o stream do go2rtc. Nao existir mais nao e erro (idempotente)."""
+    """Remove o stream do go2rtc. Nao existir mais nao e erro (idempotente).
+
+    O parametro e `src`, nao `name` -- e como o DELETE do go2rtc identifica
+    o stream a remover (diferente do PUT, que usa `name`). Ver nota no
+    topo do arquivo.
+    """
     name = _stream_name(ip, subtype)
-    requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"name": name}, timeout=5)
+    requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": name}, timeout=5)
 
 
 def reap_idle_streams() -> List[str]:
@@ -145,6 +165,6 @@ def reap_idle_streams() -> List[str]:
         consumers = (info or {}).get("consumers")
         if consumers:
             continue
-        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"name": name}, timeout=5)
+        requests.delete(f"{GO2RTC_BASE_URL}/api/streams", params={"src": name}, timeout=5)
         removed.append(name)
     return removed

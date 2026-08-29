@@ -1,13 +1,19 @@
 # Config do go2rtc para o modulo SightOps de "ver ao vivo".
 #
-# streams comeca vazio de proposito: cada camera e registrada em tempo real
-# via API (app/services/live_stream_service.py) quando alguem abre o "ver
-# ao vivo", nunca pre-cadastrada aqui -- assim este arquivo nunca acumula
-# credencial de cliente nenhum, mesmo com o tempo.
+# Nenhuma camera pre-cadastrada aqui de proposito: cada uma e registrada em
+# tempo real via API (app/services/live_stream_service.py) quando alguem
+# abre o "ver ao vivo" -- assim este arquivo nunca acumula credencial de
+# cliente nenhum, mesmo com o tempo.
+#
+# NAO declare "streams:" aqui, nem vazio (streams: {}) -- confirmado
+# testando contra o go2rtc real (versao 1.9.14): com "streams: {}"
+# explicito no arquivo, TODO `PUT /api/streams` (registrar uma camera nova)
+# falha com HTTP 400 "yaml: line N: did not find expected key" -- um bug
+# do proprio go2rtc ao tentar reserializar um mapa que veio de um bloco
+# YAML vazio em estilo flow ({}). Sem a chave "streams" no arquivo (nil em
+# vez de mapa vazio), o PUT funciona normalmente.
 api:
   listen: ":1984"
 
 log:
   level: warn
-
-streams: {}

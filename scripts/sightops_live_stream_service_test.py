@@ -2,11 +2,19 @@
 a varredura que remove streams sem espectador. Usa um FakeResponse para
 simular o go2rtc sem rede.
 
-Confirmado testando o go2rtc real em producao (versao 1.9.14): o parametro
-?name= do GET /api/streams e IGNORADO -- sempre devolve a lista inteira. So
-o DELETE respeita o filtro por nome. O FakeResponse abaixo reproduz esse
-comportamento de proposito, para o teste continuar valendo se alguem tentar
-"otimizar" o registro para filtrar do lado do servidor.
+Confirmado testando o go2rtc real em producao (versao 1.9.14), lendo o
+codigo fonte dele quando precisou:
+- GET /api/streams ignora qualquer parametro -- sempre devolve a lista
+  inteira. O FakeResponse abaixo reproduz isso de proposito, para o teste
+  continuar valendo se alguem tentar "otimizar" o registro para filtrar do
+  lado do servidor.
+- DELETE /api/streams identifica o stream a remover pelo parametro `src`,
+  NAO `name` (apesar do PUT usar `name` para a mesma coisa -- API
+  inconsistente do proprio go2rtc). Mandar `name=` no DELETE nao da erro,
+  so nao remove nada -- foi um bug real desta branch, so descoberto
+  testando contra producao depois do deploy inicial. O fake_delete abaixo
+  so aceita `src=`, de proposito, para pegar uma regressao se alguem
+  voltar a usar `name=`.
 
 Roda direto: python scripts/sightops_live_stream_service_test.py
 """
@@ -49,7 +57,10 @@ def main() -> None:
     def fake_delete(url: str, **kwargs: Any) -> FakeResponse:
         chamadas.append({"metodo": "DELETE", "url": url, **kwargs})
         params = kwargs.get("params") or {}
-        estado_streams.pop(params.get("name"), None)
+        # go2rtc real so remove pelo parametro `src` -- de proposito NAO
+        # olha `name` aqui, pra pegar regressao se o codigo voltar a mandar
+        # o parametro errado.
+        estado_streams.pop(params.get("src"), None)
         return FakeResponse(200, {})
 
     original_get, original_put, original_delete = requests.get, requests.put, requests.delete
@@ -150,7 +161,9 @@ def main() -> None:
         chamadas.clear()
         svc.unregister_stream(ip="10.10.9.85", subtype=1)
         assert len(chamadas) == 1 and chamadas[0]["metodo"] == "DELETE", chamadas
-        assert chamadas[0]["params"] == {"name": "cam_10_10_9_85_1"}, chamadas
+        assert chamadas[0]["params"] == {"src": "cam_10_10_9_85_1"}, (
+            f"DELETE do go2rtc usa o parametro 'src', nao 'name': {chamadas}"
+        )
         assert "cam_10_10_9_85_1" not in estado_streams
         svc.unregister_stream(ip="10.10.9.85", subtype=1)  # de novo, nao pode quebrar
 
