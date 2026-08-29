@@ -73,17 +73,17 @@ function _liveStreamBackoffMs(attempt) {
 }
 
 async function _liveStreamRegister(ip, user, pass, subtype, hint) {
-  const params = new URLSearchParams({
+  const body = {
     user: user || 'admin',
     password: pass || '',
-    subtype: String(subtype),
+    subtype: Number(subtype),
     vendor: hint?.vendor || '',
     model: hint?.model || '',
-  });
-  const resp = await api(`/api/maintenance/stream_register/${ip}?${params.toString()}`, { method: 'POST' });
+  };
+  const resp = await api(`/api/maintenance/stream_register/${ip}`, { method: 'POST', body: JSON.stringify(body) });
   if (!resp || !resp.ok) throw new Error('Falha ao registrar stream');
-  const body = await resp.json();
-  return body?.stream_name || _liveStreamName(ip, subtype);
+  const respBody = await resp.json();
+  return respBody?.stream_name || _liveStreamName(ip, subtype);
 }
 
 /**

@@ -128,8 +128,6 @@ def best_guess_model(ip, user, pwd):
                lambda ip: probe_isapi(ip, user, pwd), lambda ip: probe_onvif(ip, user, pwd)):
         try:
             model = fn(ip)
-        except TypeError:
-            model = fn(ip)
         except Exception:
             model = None
         if model:

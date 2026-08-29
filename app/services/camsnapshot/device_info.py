@@ -25,34 +25,6 @@ def _base_http_url(ip_or_host: str, port: int | None = None, scheme: str = "http
 
 
 
-BRAND_MAP = {
-    "intelbras": "Intelbras",
-    "hikvision": "Hikvision",
-    "hilook": "HiLook",
-    "dahua": "Dahua",
-    "hua": "Dahua",
-    "axis": "Axis",
-    "tp-link": "TP-Link",
-    "tplink": "TP-Link",
-    "unv": "UNV",
-    "uniview": "UNV",
-}
-
-def _clean_brand(s: str):
-    if not s:
-        return None
-    s = s.strip().strip("'\"")
-    s = re.sub(r"[^A-Za-z0-9\- ]+", "", s)
-    s_low = s.lower()
-    for k, v in BRAND_MAP.items():
-        if k in s_low:
-            return v
-    # title-case generic
-    return s.title() if s else None
-
-
-
-
 def _normalize_title(s: str | None) -> str | None:
     if not s:
         return None
@@ -60,44 +32,6 @@ def _normalize_title(s: str | None) -> str | None:
     s = " ".join(str(s).split())
     return s.upper()
 
-def _brand_from_model(model: str | None) -> str | None:
-    if not model:
-        return None
-    m = model.upper()
-    # HiLook: priorizar antes de Dahua/Hikvision, pois muitos modelos sÃ£o OEM
-    if "HILOOK" in m or "HI-LOOK" in m:
-        return "HiLook"
-    # Intelbras: linhas VIP/MIB/VHD/MHD
-    if m.startswith(("VIP", "MIB", "VHD", "MHD")):
-        return "Intelbras"
-    # Dahua e OEMs. Nao usar "IPC" generico: modelos como IPC-B121H-C sao
-    # comuns em Intelbras/UNV OEM e nao devem virar Dahua por chute.
-    if m.startswith(("DHI", "DH-", "HFW", "HDP", "IPC-H", "IPC-D")):
-        return "Dahua"
-    # Hikvision
-    if m.startswith(("DS-", "HWI", "HWP", "HK")) or "HIKVISION" in m:
-        return "Hikvision"
-    return None
-
-
-def _extract_brand_from_text(txt: str) -> str | None:
-    if not txt:
-        return None
-    keys = ["brand", "vendor", "manufacturer", "device.brand", "oem", "DeviceInfo[0].Vendor"]
-    for line in txt.splitlines():
-        low = line.lower()
-        if any(k in low for k in ["brand", "vendor", "manufacturer", "oem"]):
-            # pattern key=value or xml/json-ish
-            # try after '='
-            if '=' in line:
-                val = line.split('=', 1)[1]
-            else:
-                # try after ':'
-                val = line.split(':', 1)[-1]
-            brand = _clean_brand(val)
-            if brand:
-                return brand
-    return None
 MAC_RE = re.compile(r"([0-9A-Fa-f]{2}([-:])){5}[0-9A-Fa-f]{2}")
 MAC_HEX12_RE = re.compile(r"\b[0-9A-Fa-f]{12}\b")
 BRAND_MAP = {

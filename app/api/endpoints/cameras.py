@@ -3,7 +3,6 @@
 from typing import Any, Dict, List
 import asyncio
 import json
-import time
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 from pathlib import Path
@@ -133,6 +132,21 @@ def _apply_recorder_fallback(cam: dict[str, Any], rec: dict[str, Any]) -> dict[s
     cam["recorder_host"] = _txt(rec.get("host") or rec.get("nvr_ip") or rec.get("dvr_ip"))
     cam["recorder_channel"] = _txt(rec.get("channel") or rec.get("ch"))
     return cam
+
+
+def _ip_in_inventory(ip: str) -> bool:
+    """Confere se um IP pertence ao inventario do tenant atual, antes de
+    deixar passar um comando de hardware (reboot, PTZ, renomear, snapshot).
+    Sem isso, qualquer usuario autenticado podia mandar o servidor emitir
+    esses comandos contra qualquer IP que soubesse/adivinhasse -- inclusive
+    de outro cliente, ja que faixas privadas se repetem entre tenants neste
+    sistema.
+    """
+    try:
+        inv = load_inventory_json() or []
+    except Exception:
+        inv = []
+    return any(isinstance(r, dict) and str(r.get("ip") or "").strip() == ip for r in inv)
 
 
 class CameraUpdate(BaseModel):
@@ -266,7 +280,7 @@ def api_cameras(
             quality = r.get("quality")
             try:
                 qv = float(quality) if quality not in (None, "") else None
-            except ValueError:
+            except (ValueError, TypeError):
                 qv = None
             if qv is not None:
                 if qv >= 0.8:
@@ -615,16 +629,6 @@ class SnapshotCaptureRequest(BaseModel):
     mode: str = "olt"
 
 
-class PTZMoveRequest(BaseModel):
-    ip: str
-    user: str
-    password: str
-    direction: str
-    channel: int = 1
-    speed: int = 4
-    duration_ms: int = 350
-
-
 @router.post("/portscan/apply", tags=["cameras"])
 def api_portscan_apply(req: PortscanApplyRequest) -> Dict[str, Any]:
     rows = load_inventory_json() or []
@@ -686,11 +690,13 @@ def api_portscan_apply(req: PortscanApplyRequest) -> Dict[str, Any]:
 
 @router.post("/snapshot/save", tags=["cameras"])
 def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
+    # NUNCA aceitar um caminho absoluto arbitrario aqui -- resolve_snapshot_file
+    # ja procura nos diretorios de snapshot conhecidos, o que basta para o uso
+    # legitimo desta rota. Um fallback para Path(req.path) direto permitia
+    # copiar QUALQUER arquivo legivel pelo processo (inventario de outro
+    # tenant, .env.platform etc.) para dentro do diretorio publico de
+    # snapshots, so por um usuario autenticado mandar o caminho certo.
     src = resolve_snapshot_file(path_hint=req.path, ip=(req.ip or ""))
-    if src is None:
-        cand = Path(req.path)
-        if cand.is_absolute() and cand.exists() and cand.is_file():
-            src = cand
 
     if src is None:
         raise HTTPException(status_code=404, detail=f"Arquivo de snapshot nao encontrado: {req.path}")
@@ -741,6 +747,8 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="ip obrigatorio")
     if not user or not password:
         raise HTTPException(status_code=400, detail="usuario e senha obrigatorios")
+    if not _ip_in_inventory(ip):
+        raise HTTPException(status_code=404, detail="IP nao encontrado no inventario deste cliente")
 
     dst_dir = snapshot_storage_dir()
     dst_dir.mkdir(parents=True, exist_ok=True)
@@ -779,428 +787,7 @@ def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     save_inventory_json(rows, mode=mode)
     return {"ok": True, "url": f"/data/snapshot/{out_name}", "filename": out_name}
 
-@router.get("/cameras/ptz_capability", tags=["cameras"])
-def api_cameras_ptz_capability(
-    ip: str = Query(...),
-    user: str = Query(""),
-    password: str = Query("", alias="pass"),
-    channel: int = Query(1, ge=1, le=32),
-) -> Dict[str, Any]:
-    import requests
-    from requests.auth import HTTPDigestAuth
-
-    ip = (ip or "").strip()
-    user = (user or "").strip()
-    password = (password or "").strip()
-    if not ip:
-        return {"ok": False, "error": "ip obrigatorio"}
-    if not user or not password:
-        return {"ok": False, "error": "usuario/senha obrigatorios"}
-
-    brand = ""
-    model = ""
-    title = ""
-    try:
-        inv = load_inventory_json() or []
-        for r in inv:
-            if str(r.get("ip") or "").strip() == ip:
-                brand = str(r.get("fabricante") or "").strip().lower()
-                model = str(r.get("modelo") or r.get("model") or "").strip().lower()
-                title = str(r.get("titulo") or r.get("title") or "").strip().lower()
-                break
-    except Exception:
-        pass
-
-    hint_text = " ".join([brand, model, title]).lower()
-    hint_is_ptz = any(k in hint_text for k in ["ptz", "speed dome", "speeddome", "sd5", "sd6", "sd49", "sd59"])
-
-    def _try_get(url: str):
-        for auth in (HTTPDigestAuth(user, password), (user, password)):
-            try:
-                r = requests.get(url, auth=auth, timeout=4, verify=False, headers={"Accept": "*/*"})
-                if r.status_code == 200:
-                    return True, r.status_code
-            except Exception:
-                continue
-        return False, None
-
-    probe_ok = False
-    probe_url = ""
-
-    if ("hik" in brand) or ("hilook" in brand):
-        probe_url = f"http://{ip}/ISAPI/PTZCtrl/channels/{int(channel)}/capabilities"
-        probe_ok, _ = _try_get(probe_url)
-    elif ("dahua" in brand) or ("intelbras" in brand):
-        probe_url = f"http://{ip}/cgi-bin/ptz.cgi?action=getStatus&channel={max(0, int(channel)-1)}"
-        probe_ok, _ = _try_get(probe_url)
-    else:
-        # Best effort: testa os dois formatos
-        probe_url = f"http://{ip}/cgi-bin/ptz.cgi?action=getStatus&channel={max(0, int(channel)-1)}"
-        probe_ok, _ = _try_get(probe_url)
-        if not probe_ok:
-            probe_url = f"http://{ip}/ISAPI/PTZCtrl/channels/{int(channel)}/capabilities"
-            probe_ok, _ = _try_get(probe_url)
-
-    capable = bool(probe_ok or hint_is_ptz)
-    return {
-        "ok": True,
-        "capable": capable,
-        "probe_ok": bool(probe_ok),
-        "hint_is_ptz": bool(hint_is_ptz),
-        "brand": brand or "",
-        "model": model or "",
-        "probe_url": probe_url,
-    }
-
-
-@router.post("/cameras/ptz_capability", tags=["cameras"])
-def api_cameras_ptz_capability_post(payload: Dict[str, Any]) -> Dict[str, Any]:
-    return api_cameras_ptz_capability(
-        ip=str(payload.get("ip") or ""),
-        user=str(payload.get("user") or payload.get("username") or ""),
-        password=str(payload.get("pass") or payload.get("password") or ""),
-        channel=int(payload.get("channel") or 1),
-    )
-
-
-@router.post("/cameras/ptz_move", tags=["cameras"])
-def api_cameras_ptz_move(payload: PTZMoveRequest) -> Dict[str, Any]:
-    import requests
-    from requests.auth import HTTPDigestAuth
-
-    ip = (payload.ip or "").strip()
-    user = (payload.user or "").strip()
-    password = (payload.password or "").strip()
-    direction = (payload.direction or "").strip().lower()
-    channel = int(payload.channel or 1)
-    speed = max(1, min(8, int(payload.speed or 4)))
-    duration_ms = max(80, min(5000, int(payload.duration_ms or 350)))
-
-    if not ip or not user or not password:
-        return {"ok": False, "error": "ip/user/password obrigatorios"}
-
-    brand = ""
-    try:
-        inv = load_inventory_json() or []
-        for r in inv:
-            if str(r.get("ip") or "").strip() == ip:
-                brand = str(r.get("fabricante") or "").strip().lower()
-                break
-    except Exception:
-        pass
-
-    if direction in ("left", "right", "up", "down"):
-        dh_code_map = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}
-        hk_vec_map = {
-            "left": (-speed * 10, 0, 0),
-            "right": (speed * 10, 0, 0),
-            "up": (0, speed * 10, 0),
-            "down": (0, -speed * 10, 0),
-        }
-    elif direction in ("zoomin", "zoomout"):
-        dh_code_map = {"zoomin": "ZoomTele", "zoomout": "ZoomWide"}
-        hk_vec_map = {
-            "zoomin": (0, 0, speed * 10),
-            "zoomout": (0, 0, -speed * 10),
-        }
-    elif direction == "stop":
-        dh_code_map = {}
-        hk_vec_map = {}
-    else:
-        return {"ok": False, "error": "direction invalida"}
-
-    def _request(method: str, url: str, data: str | None = None) -> requests.Response | None:
-        for auth in (HTTPDigestAuth(user, password), (user, password)):
-            try:
-                if method == "PUT":
-                    r = requests.put(url, auth=auth, timeout=6, verify=False, data=data, headers={"Content-Type": "application/xml"})
-                else:
-                    r = requests.get(url, auth=auth, timeout=6, verify=False)
-                if r.status_code in (200, 201, 202, 204):
-                    return r
-            except Exception:
-                continue
-        return None
-
-    # Hikvision/HiLook path
-    if ("hik" in brand) or ("hilook" in brand):
-        base = f"http://{ip}/ISAPI/PTZCtrl/channels/{int(channel)}/continuous"
-        if direction == "stop":
-            stop_xml = "<PTZData><pan>0</pan><tilt>0</tilt><zoom>0</zoom></PTZData>"
-            r = _request("PUT", base, stop_xml)
-            return {"ok": bool(r), "brand": "hikvision", "method": "isapi.stop"}
-        pan, tilt, zoom = hk_vec_map.get(direction, (0, 0, 0))
-        move_xml = f"<PTZData><pan>{pan}</pan><tilt>{tilt}</tilt><zoom>{zoom}</zoom></PTZData>"
-        stop_xml = "<PTZData><pan>0</pan><tilt>0</tilt><zoom>0</zoom></PTZData>"
-        r1 = _request("PUT", base, move_xml)
-        if not r1:
-            return {"ok": False, "error": "falha ao iniciar PTZ (Hikvision)"}
-        time.sleep(duration_ms / 1000.0)
-        _request("PUT", base, stop_xml)
-        return {"ok": True, "brand": "hikvision", "method": "isapi.continuous"}
-
-    # Dahua/Intelbras path
-    ch0 = max(0, int(channel) - 1)
-    if direction == "stop":
-        # stop abrangente
-        for code in ("Left", "Right", "Up", "Down", "ZoomTele", "ZoomWide"):
-            stop_url = f"http://{ip}/cgi-bin/ptz.cgi?action=stop&channel={ch0}&code={code}&arg1=0&arg2={speed}&arg3=0"
-            _request("GET", stop_url)
-        return {"ok": True, "brand": "dahua/intelbras", "method": "ptz.stop"}
-
-    code = dh_code_map.get(direction)
-    if not code:
-        return {"ok": False, "error": "direction invalida para dahua/intelbras"}
-
-    start_url = f"http://{ip}/cgi-bin/ptz.cgi?action=start&channel={ch0}&code={code}&arg1=0&arg2={speed}&arg3=0"
-    stop_url = f"http://{ip}/cgi-bin/ptz.cgi?action=stop&channel={ch0}&code={code}&arg1=0&arg2={speed}&arg3=0"
-    r1 = _request("GET", start_url)
-    if not r1:
-        return {"ok": False, "error": "falha ao iniciar PTZ"}
-    time.sleep(duration_ms / 1000.0)
-    _request("GET", stop_url)
-    return {"ok": True, "brand": "dahua/intelbras", "method": "ptz.cgi"}
-
-
-@router.post("/cameras/reboot", tags=["cameras"])
-def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
-    import requests
-    from requests.auth import HTTPDigestAuth
-
-    ip = (payload.get("ip") or "").strip()
-    user = (payload.get("user") or "").strip()
-    password = (payload.get("pass") or payload.get("password") or "").strip()
-
-    if not ip:
-        return {"ok": False, "error": "IP obrigatÃ³rio"}
-    if not user or not password:
-        return {"ok": False, "error": "UsuÃ¡rio e senha obrigatÃ³rios"}
-
-    brand = ""
-    try:
-        inv = load_inventory_json() or []
-        for r in inv:
-            if str(r.get("ip") or "").strip() == ip:
-                brand = str(r.get("fabricante") or "").strip().lower()
-                break
-    except Exception:
-        brand = ""
-
-    attempts: list[tuple[str, str, str]] = []
-
-    def add_attempt(name: str, method: str, url: str):
-        attempts.append((name, method, url))
-        if url.startswith("http://"):
-            attempts.append((name + "_https", method, "https://" + url[len("http://"):]))
-
-    is_hik = ("hik" in brand) or ("hilook" in brand)
-    is_dahua = ("dahua" in brand) or ("intelbras" in brand)
-
-    if is_hik:
-        add_attempt("hikvision_isapi", "PUT", f"http://{ip}/ISAPI/System/reboot")
-    if is_dahua:
-        add_attempt("magicbox", "GET", f"http://{ip}/cgi-bin/magicBox.cgi?action=reboot")
-        add_attempt("configManager", "GET", f"http://{ip}/cgi-bin/configManager.cgi?action=reboot")
-
-    add_attempt("isapi", "PUT", f"http://{ip}/ISAPI/System/reboot")
-    add_attempt("magicbox_fallback", "GET", f"http://{ip}/cgi-bin/magicBox.cgi?action=reboot")
-    add_attempt("configManager_fallback", "GET", f"http://{ip}/cgi-bin/configManager.cgi?action=reboot")
-
-    last_err = ""
-    # Guarda separadamente o ultimo erro que veio de uma resposta HTTP real
-    # (a camera respondeu, so recusou) -- isso e muito mais util pro usuario
-    # do que "Sem resposta" de uma tentativa https tardia numa porta que
-    # nem esta aberta. Sem isso, um 401 real (senha errada/sem permissao no
-    # endpoint certo) podia ficar escondido atras do erro de conexao da
-    # ultima tentativa da lista.
-    best_status_err = ""
-    for name, method, url in attempts:
-        try:
-            auths = [HTTPDigestAuth(user, password), (user, password)]
-            r = None
-            for auth in auths:
-                try:
-                    if method == "PUT":
-                        r = requests.put(url, auth=auth, timeout=5, verify=False, headers={"Accept": "application/xml"}, data=b"")
-                    else:
-                        r = requests.get(url, auth=auth, timeout=5, verify=False, headers={"Accept": "application/xml"})
-                    if r.status_code in (200, 201, 202, 204):
-                        break
-                except Exception:
-                    r = None
-                    continue
-            if r is None:
-                raise Exception("Sem resposta")
-            # 401/403 NAO e sucesso: e a camera recusando o comando por
-            # credencial errada ou usuario sem permissao de "Gerenciamento
-            # do Sistema" no ISAPI (comum na Hikvision) -- contar isso como
-            # "ok" fazia o front mostrar "reboot enviado" mesmo quando a
-            # camera nunca recebeu um comando autenticado e nao reiniciava.
-            if r.status_code in (200, 201, 202, 204):
-                return {"ok": True, "method": name, "status": r.status_code}
-            last_err = f"{name}: HTTP {r.status_code}"
-            if not best_status_err:
-                best_status_err = last_err
-        except Exception as e:
-            last_err = f"{name}: {str(e)}"
-            continue
-
-    return {"ok": False, "error": best_status_err or last_err or "Falha ao reiniciar"}
-
-
-@router.post("/cameras/rename", tags=["cameras"])
-def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
-    import requests
-    import urllib.parse
-    from requests.auth import HTTPDigestAuth
-
-    ip = (payload.get("ip") or "").strip()
-    title = (payload.get("title") or payload.get("titulo") or "").strip()
-    user = (payload.get("user") or payload.get("username") or "").strip()
-    password = (payload.get("pass") or payload.get("password") or "").strip()
-
-    port = payload.get("port", 80)
-    channel = payload.get("channel", 1)
-
-    try:
-        port = int(port) if port is not None else 80
-    except Exception:
-        port = 80
-
-    try:
-        channel = int(channel) if channel is not None else 1
-    except Exception:
-        channel = 1
-
-    if not ip:
-        return {"ok": False, "error": "IP obrigatÃ³rio"}
-    if not title:
-        return {"ok": False, "error": "TÃ­tulo obrigatÃ³rio"}
-    if channel < 1:
-        return {"ok": False, "error": "Channel deve ser >= 1"}
-
-    def _persist_inventory_title() -> bool:
-        try:
-            rows = load_inventory_json() or []
-            changed = False
-            for r in rows:
-                if str(r.get("ip") or "").strip() == ip:
-                    r["titulo"] = title
-                    changed = True
-                    break
-            if changed:
-                save_inventory_json(rows)
-            return changed
-        except Exception:
-            return False
-
-    if not user or not password:
-        return {
-            "ok": False,
-            "error": "Informe usuÃ¡rio e senha no topo da aba ManutenÃ§Ã£o",
-            "ip": ip,
-            "title": title,
-            "inventory_updated": _persist_inventory_title(),
-        }
-
-    # Brand hint from inventory (helps route first attempt for Hikvision/HiLook)
-    brand = ""
-    try:
-        inv = load_inventory_json() or []
-        for r in inv:
-            if str(r.get("ip") or "").strip() == ip:
-                brand = str(r.get("fabricante") or "").strip().lower()
-                break
-    except Exception:
-        brand = ""
-
-    is_hik = ("hik" in brand) or ("hilook" in brand)
-    idx0 = channel - 1
-    q_title = urllib.parse.quote(title)
-
-    # Candidate ports: requested port first, then common management ports.
-    port_candidates: list[int] = []
-    for p in [port, 80, 8000, 443]:
-        try:
-            pp = int(p)
-            if 1 <= pp <= 65535 and pp not in port_candidates:
-                port_candidates.append(pp)
-        except Exception:
-            continue
-
-    attempts: list[dict[str, Any]] = []
-
-    def _add_attempt(name: str, method: str, url: str, data: str | None = None, content_type: str | None = None) -> None:
-        attempts.append({"name": name, "method": method, "url": url, "data": data, "content_type": content_type})
-
-    # Hikvision/HiLook rename via ISAPI (preferred for Hikvision)
-    hik_xml = f"<VideoInputChannel><id>{int(channel)}</id><name>{title}</name></VideoInputChannel>"
-    hik_proxy_xml = f"<InputProxyChannel><id>{int(channel)}</id><name>{title}</name></InputProxyChannel>"
-
-    for p in port_candidates:
-        for scheme in ("http", "https"):
-            # Avoid very common dead combinations that waste time.
-            if scheme == "https" and p == 80:
-                continue
-            if scheme == "http" and p == 443:
-                continue
-
-            base = f"{scheme}://{ip}:{p}"
-            _add_attempt(
-                "hikvision_isapi_videoinput",
-                "PUT",
-                f"{base}/ISAPI/System/Video/inputs/channels/{int(channel)}",
-                hik_xml,
-                "application/xml",
-            )
-            _add_attempt(
-                "hikvision_isapi_inputproxy",
-                "PUT",
-                f"{base}/ISAPI/ContentMgmt/InputProxy/channels/{int(channel)}",
-                hik_proxy_xml,
-                "application/xml",
-            )
-
-            # Dahua/Intelbras style rename (also used as fallback)
-            _add_attempt(
-                "dahua_configmanager",
-                "GET",
-                f"{base}/cgi-bin/configManager.cgi?action=setConfig&ChannelTitle[{idx0}].Name={q_title}",
-            )
-
-    # Try family-specific path first, then generic fallback.
-    if is_hik:
-        attempts.sort(key=lambda a: 0 if str(a.get("name", "")).startswith("hikvision_") else 1)
-    else:
-        attempts.sort(key=lambda a: 0 if str(a.get("name", "")).startswith("dahua_") else 1)
-
-    last_err = ""
-    for at in attempts:
-        method = str(at.get("method") or "GET").upper()
-        url = str(at.get("url") or "")
-        data = at.get("data")
-        ctype = at.get("content_type")
-        name = str(at.get("name") or "rename")
-        headers = {"Accept": "*/*"}
-        if ctype:
-            headers["Content-Type"] = ctype
-
-        for auth in (HTTPDigestAuth(user, password), (user, password)):
-            try:
-                if method == "PUT":
-                    r = requests.put(url, auth=auth, timeout=(2.5, 5.5), verify=False, headers=headers, data=data)
-                else:
-                    r = requests.get(url, auth=auth, timeout=(2.5, 5.5), verify=False, headers=headers)
-
-                if r.status_code in (200, 201, 202, 204):
-                    _persist_inventory_title()
-                    return {"ok": True, "status": r.status_code, "url": url, "method": name}
-                last_err = f"{name}: HTTP {r.status_code}"
-            except requests.exceptions.ReadTimeout:
-                last_err = f"{name}: timeout"
-                continue
-            except Exception as e:
-                last_err = f"{name}: {str(e)}"
-                continue
-
-    return {"ok": False, "error": last_err or "Falha ao renomear", "inventory_updated": False}
+# Endpoints de PTZ/reboot/rename moraram aqui, mas nao sao usados por esta
+# tela (Inventario > Cameras IP) -- so pela tela de Manutencao. Movidos para
+# app/api/endpoints/maintenance.py. O botao "Reboot" desta tela chama
+# /api/maintenance/batch/reboot, nao os endpoints que estavam aqui.

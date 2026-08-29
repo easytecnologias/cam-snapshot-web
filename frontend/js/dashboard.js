@@ -559,32 +559,3 @@ async function loadDashboard() {
   lucide.createIcons();
 }
 
-// Inventario Cameras IP
-const _invCam   = { basico: [], olt: [], switch: [] };
-let _invOltView   = (() => {
-  try { return sessionStorage.getItem('so_cam_view') || 'olt'; } catch { return 'olt'; }
-})();
-let _invOltActive = null;
-let _pingInterval = null;
-let _pendingOpenCamIp = null;
-
-function _invOltAll_get() { return _invCam[_invOltView] || []; }
-
-function _camSessionSave(mode, rows) {
-  try { sessionStorage.setItem(`so_cam_${mode}`, JSON.stringify(rows)); } catch {}
-}
-function _camSessionLoad() {
-  ['basico','olt','switch'].forEach(m => {
-    try {
-      const d = JSON.parse(sessionStorage.getItem(`so_cam_${m}`) || 'null');
-      if (Array.isArray(d)) _invCam[m] = d;
-    } catch {}
-  });
-}
-function _camSessionClear() {
-  ['basico','olt','switch'].forEach(m => {
-    try { sessionStorage.removeItem(`so_cam_${m}`); } catch {}
-    _invCam[m] = [];
-  });
-}
-
