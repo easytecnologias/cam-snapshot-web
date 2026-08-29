@@ -984,7 +984,11 @@ def _set_mirror_one(ip: str, user: str, password: str, mirror: bool, flip: bool)
 
 
 def _set_day_night_one(ip: str, user: str, password: str, mode: int) -> Dict[str, Any]:
-    labels = {0: "Automático", 1: "Colorido", 2: "Preto e branco"}
+    # Valores conforme a API HTTP real da Dahua/Intelbras: 0=sempre colorido,
+    # 1=automatico (decide pela luminosidade), 2=sempre P&B. Confirmado na
+    # documentacao oficial -- nao inventar, o front tinha 0 e 1 invertidos
+    # antes (mandava "automatico" quando o operador pedia "colorido forcado").
+    labels = {0: "Colorido", 1: "Automático", 2: "Preto e branco"}
     r = _set_config_one(ip, user, password, [f"VideoInOptions[0].DayNightColor={int(mode)}"])
     if r.get("ok"):
         r["message"] = labels.get(mode, f"Modo {mode}")
