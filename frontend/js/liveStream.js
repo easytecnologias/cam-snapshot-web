@@ -233,7 +233,17 @@ function mountLiveStream(videoEl, opts) {
           onStatus('');
           videoEl.play().catch(() => {});
         } else if (msg.type === 'error') {
-          onStatus('Erro go2rtc: ' + msg.value);
+          // go2rtc so descobre que a senha esta errada DEPOIS de registrar o
+          // stream e tentar puxar o RTSP de verdade -- isso acontece quando a
+          // camera tem uma senha diferente da salva pro site (a maioria tem a
+          // mesma, mas nem sempre). Trata igual credential_required: limpa o
+          // que tava guardado neste navegador e reabre o formulario, em vez
+          // de deixar a mensagem crua do ffmpeg na tela sem dizer o que fazer.
+          if (/401|unauthorized|authorization failed/i.test(String(msg.value || ''))) {
+            onStatus('credential_required');
+          } else {
+            onStatus('Erro go2rtc: ' + msg.value);
+          }
         }
         return;
       }
