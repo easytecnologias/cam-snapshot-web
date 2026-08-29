@@ -49,6 +49,8 @@ services:
     depends_on:
       cam-snapshot-api:
         condition: service_healthy
+      go2rtc:
+        condition: service_started
     ports:
       - "${SIGHTOPS_HTTP_PORT:-8088}:80"
       - "${SIGHTOPS_PUBLIC_HTTP_PORT:-80}:80"
@@ -81,6 +83,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - sightops-prod
+    restart: unless-stopped
+
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    container_name: sightops-prod-go2rtc
+    volumes:
+      - ./deploy/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:1984/api/streams"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - sightops-prod
     restart: unless-stopped

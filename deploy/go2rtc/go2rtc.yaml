@@ -1,0 +1,13 @@
+# Config do go2rtc para o modulo SightOps de "ver ao vivo".
+#
+# streams comeca vazio de proposito: cada camera e registrada em tempo real
+# via API (app/services/live_stream_service.py) quando alguem abre o "ver
+# ao vivo", nunca pre-cadastrada aqui -- assim este arquivo nunca acumula
+# credencial de cliente nenhum, mesmo com o tempo.
+api:
+  listen: ":1984"
+
+log:
+  level: warn
+
+streams: {}

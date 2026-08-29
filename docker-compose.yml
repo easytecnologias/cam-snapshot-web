@@ -53,6 +53,13 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  go2rtc:
+    image: alexxit/go2rtc:1.9.14
+    container_name: go2rtc
+    volumes:
+      - ./deploy/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: sightops-postgres
