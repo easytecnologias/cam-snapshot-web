@@ -151,13 +151,13 @@ function _mntCamUpdateCount() {
   if (el) el.textContent = n === 0 ? '0 selecionadas' : `${n} selecionada${n !== 1 ? 's' : ''}`;
 }
 
-//  Stream modal — WebRTC via go2rtc
+//  Stream modal — player MSE unico (liveStream.js)
 let _mntStreamIp   = '';
 let _mntStreamUser = '';
 let _mntStreamPass = '';
 let _mntStreamSubtype = 1; // 0=main 1080p  1=sub 480p
 let _mntStreamMuted   = true;
-let _rtcPeer = null;
+let _mntLiveHandle = null;
 let _mntClockTimer = null;
 
 const _DAYS_PT   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -200,114 +200,43 @@ function openMntStream(ip, titulo) {
   clearInterval(_mntClockTimer);
   _mntClockTimer = setInterval(_mntTickClock, 1000);
 
-  _startWebRTC(ip, _mntStreamUser, _mntStreamPass, _mntStreamSubtype);
+  _startLiveView(ip, _mntStreamUser, _mntStreamPass, _mntStreamSubtype);
 }
 
-async function _startWebRTC(ip, user, pass, subtype) {
+function _startLiveView(ip, user, pass, subtype) {
   const video       = document.getElementById('mntStreamVideo');
   const placeholder = document.getElementById('mntStreamPlaceholder');
   const statusEl    = document.getElementById('mntStreamStatus');
 
-  if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
+  if (_mntLiveHandle) { _mntLiveHandle.stop(); _mntLiveHandle = null; }
   video.srcObject = null;
   video.classList.add('hidden');
   video.muted = true;
   if (placeholder) placeholder.style.display = '';
   if (statusEl) statusEl.textContent = 'Conectando...';
 
-  const streamName = `cam_${ip.replace(/\./g, '_')}_${subtype}`;
-  const uEnc = encodeURIComponent(user);
-  const pEnc = encodeURIComponent(pass);
   const hint = cameraStreamHint(ip);
-
-  try {
-    const params = new URLSearchParams({
-      user,
-      password: pass,
-      subtype: String(subtype),
-      vendor: hint.vendor || '',
-      model: hint.model || ''
-    });
-    const regResp = await api(
-      `/api/maintenance/stream_register/${ip}?${params.toString()}`,
-      { method: 'POST' }
-    );
-    if (!regResp || !regResp.ok) {
-      if (statusEl) statusEl.textContent = 'Erro ao registrar stream';
-      return;
-    }
-  } catch (e) {
-    if (statusEl) statusEl.textContent = 'Servidor de stream indisponível';
-    return;
-  }
-
-  if (_mntStreamIp !== ip) return;
-
-  try {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    _rtcPeer = pc;
-
-    pc.ontrack = ({ streams }) => {
-      if (!streams[0] || _mntStreamIp !== ip) return;
-      video.srcObject = streams[0];
-      video.muted = _mntStreamMuted;
-      video.classList.remove('hidden');
-      if (placeholder) placeholder.style.display = 'none';
-      if (statusEl) statusEl.textContent = '';
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      if (['failed','disconnected'].includes(pc.iceConnectionState)) {
-        if (_mntStreamIp === ip && statusEl) statusEl.textContent = 'Stream desconectado';
+  _mntLiveHandle = mountLiveStream(video, {
+    ip, user, pass, subtype,
+    vendor: hint.vendor,
+    model: hint.model,
+    onStatus: (texto) => {
+      if (texto) {
+        if (statusEl) statusEl.textContent = texto;
+      } else {
+        video.muted = _mntStreamMuted;
+        video.classList.remove('hidden');
+        if (placeholder) placeholder.style.display = 'none';
+        if (statusEl) statusEl.textContent = '';
       }
-    };
-
-    pc.addTransceiver('video', { direction: 'recvonly' });
-    pc.addTransceiver('audio', { direction: 'recvonly' });
-
-    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${wsProto}://${location.host}/go2rtc/api/ws?src=${streamName}`);
-
-    ws.onopen = async () => {
-      if (statusEl) statusEl.textContent = 'Aguardando vídeo...';
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate && ws.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ type: 'webrtc/candidate', value: candidate.candidate }));
-      };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
-    };
-
-    ws.onmessage = async ({ data }) => {
-      const msg = JSON.parse(data);
-      if (msg.type === 'webrtc/answer') {
-        await pc.setRemoteDescription({ type: 'answer', sdp: msg.value });
-      } else if (msg.type === 'webrtc/candidate' && msg.value) {
-        await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0', sdpMLineIndex: 0 });
-      } else if (msg.type === 'error') {
-        if (statusEl) statusEl.textContent = 'Erro go2rtc: ' + msg.value;
-      }
-    };
-
-    ws.onerror = () => {
-      if (_mntStreamIp === ip && statusEl) statusEl.textContent = 'Erro de conexão WebSocket';
-    };
-
-    ws.onclose = ({ code }) => {
-      if (_mntStreamIp === ip && statusEl && !video.srcObject)
-        statusEl.textContent = code === 1000 ? 'Stream encerrado' : `WS fechou (${code})`;
-    };
-
-  } catch (e) {
-    if (statusEl) statusEl.textContent = 'Erro: ' + (e.message || e);
-  }
+    },
+  });
 }
 
 function closeMntStream() {
   clearInterval(_mntClockTimer);
   _mntClockTimer = null;
-  if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
+  if (_mntLiveHandle) { _mntLiveHandle.stop(); _mntLiveHandle = null; }
   _mntStreamIp = '';
   const video = document.getElementById('mntStreamVideo');
   if (video) { video.srcObject = null; video.classList.add('hidden'); }
@@ -370,7 +299,7 @@ function _mntStreamToggleQuality() {
   _mntStreamSubtype = _mntStreamSubtype === 1 ? 0 : 1;
   const label = document.getElementById('mntStreamQualLabel');
   if (label) label.textContent = _mntStreamSubtype === 1 ? 'Sub-stream' : 'Principal';
-  _startWebRTC(_mntStreamIp, _mntStreamUser, _mntStreamPass, _mntStreamSubtype);
+  if (_mntLiveHandle) _mntLiveHandle.setSubtype(_mntStreamSubtype);
 }
 
 //  Modals de configuracao
