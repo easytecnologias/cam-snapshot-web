@@ -301,6 +301,25 @@ async def _access_control_sync_loop() -> None:
         await asyncio.sleep(interval)
 
 
+async def _live_stream_cleanup_loop() -> None:
+    from app.services.live_stream_service import reap_idle_streams
+
+    interval = 300  # 5 minutos
+    await asyncio.sleep(30)
+    while True:
+        try:
+            removed = await asyncio.to_thread(reap_idle_streams)
+            app.state.live_stream_cleanup_last = {"ok": True, "interval_s": interval, "removed": removed}
+            if removed:
+                logger.info("live stream cleanup: removidos %s", removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            app.state.live_stream_cleanup_last = {"ok": False, "interval_s": interval, "error": str(exc)}
+            logger.exception("live stream cleanup loop failed")
+        await asyncio.sleep(interval)
+
+
 @app.get("/api/scripts/zabbix/status-sync/auto")
 def zabbix_status_sync_auto_state() -> JSONResponse:
     task = getattr(app.state, "zabbix_status_task", None)
@@ -330,6 +349,9 @@ async def startup_events() -> None:
     app.state.access_control_sync_task = asyncio.create_task(
         _access_control_sync_loop(), name="access-control-sync-loop"
     )
+    app.state.live_stream_cleanup_task = asyncio.create_task(
+        _live_stream_cleanup_loop(), name="live-stream-cleanup-loop"
+    )
 
 
 @app.on_event("shutdown")
@@ -339,6 +361,7 @@ async def shutdown_events() -> None:
         "monitoring_refresh_task",
         "olt_telemetry_task",
         "access_control_sync_task",
+        "live_stream_cleanup_task",
     ):
         task = getattr(app.state, task_name, None)
         if task:
