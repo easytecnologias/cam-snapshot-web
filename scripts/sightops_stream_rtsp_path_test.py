@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.api.endpoints.maintenance import _stream_rtsp_path_for_camera
+from app.services.live_stream_service import _stream_rtsp_path_for_camera
 
 
 def assert_equal(actual: str, expected: str) -> None:

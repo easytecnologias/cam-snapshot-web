@@ -26,6 +26,7 @@ from app.services.inventory_json import load_inventory_json, save_inventory_json
 from app.services.db_store import load_app_settings, save_app_settings, legacy_rows_from_db
 from app.services.windows_inventory_service import load_windows_inventory
 from app.services.ping_service import _do_ping_sync
+from app.services.live_stream_service import register_stream, unregister_stream
 
 router = APIRouter(prefix="/api", tags=["maintenance"])
 
@@ -1223,27 +1224,6 @@ async def maintenance_camera_web_proxy(ip: str, request: Request, path: str = ""
     return Response(content=content, status_code=upstream.status_code, media_type=media_type, headers=resp_headers)
 
 
-def _stream_rtsp_path_for_camera(*, vendor: str = "", model: str = "", subtype: int = 1) -> str:
-    st = 0 if int(subtype or 0) == 0 else 1
-    vendor_l = str(vendor or "").strip().lower()
-    model_l = str(model or "").strip().lower()
-    is_intelbras = "intelbras" in vendor_l or "dahua" in vendor_l or model_l.startswith(("vip-", "vipc-", "vhd-"))
-    is_hikvision = (
-        not is_intelbras
-        and (
-            "hikvision" in vendor_l
-            or "hilook" in vendor_l
-            or model_l.startswith("ds-")
-            or model_l.startswith("ds2")
-            or model_l.startswith("ipc-")
-        )
-    )
-    if is_hikvision:
-        channel = "101" if st == 0 else "102"
-        return f"/Streaming/Channels/{channel}"
-    return f"/cam/realmonitor?channel=1&subtype={st}"
-
-
 @router.post("/maintenance/stream_register/{ip}")
 def maintenance_stream_register(
     ip: str,
@@ -1253,34 +1233,23 @@ def maintenance_stream_register(
     vendor: str = "",
     model: str = "",
 ):
-    """Registra câmera no go2rtc e retorna o nome do stream para WebRTC."""
+    """Registra a camera no go2rtc (idempotente) e devolve o nome do stream
+    para o player MSE conectar em /go2rtc/api/ws?src=<stream_name>."""
     from fastapi.responses import JSONResponse
-    import requests as _req
-    from urllib.parse import quote
-
-    st = 0 if subtype == 0 else 1
-    stream_name = f"cam_{ip.replace('.', '_')}_{st}"
-    user_q = quote(str(user or "admin"), safe="")
-    pass_q = quote(str(password or ""), safe="")
-    rtsp_path = _stream_rtsp_path_for_camera(vendor=vendor, model=model, subtype=st)
-    rtsp_url = f"rtsp://{user_q}:{pass_q}@{ip}:554{rtsp_path}"
-    # ffmpeg: transcodifica H.265 → H.264 para compatibilidade WebRTC (browsers não suportam H.265)
-    source_url = f"ffmpeg:{rtsp_url}#video=h264#audio=opus"
 
     try:
-        # Remove stream anterior para garantir que a nova fonte (ffmpeg) seja usada
-        _req.delete("http://172.28.0.1:1984/api/streams", params={"name": stream_name}, timeout=3)
-        r = _req.put(
-            "http://172.28.0.1:1984/api/streams",
-            params={"name": stream_name, "src": source_url},
-            timeout=5,
-        )
-        if r.status_code not in (200, 201, 204):
-            return JSONResponse({"ok": False, "error": f"go2rtc {r.status_code}"}, status_code=502)
+        stream_name = register_stream(ip=ip, user=user, password=password, subtype=subtype, vendor=vendor, model=model)
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
-
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     return {"ok": True, "stream_name": stream_name}
+
+
+@router.post("/maintenance/stream_unregister/{ip}")
+def maintenance_stream_unregister(ip: str, subtype: int = 1):
+    """Desregistra a camera do go2rtc (chamado ao fechar a tela de live view;
+    a limpeza automatica periodica cobre o caso de aba fechada sem aviso)."""
+    unregister_stream(ip=ip, subtype=subtype)
+    return {"ok": True}
 
 
 # ── Novos endpoints batch ─────────────────────────────────────────────────────
