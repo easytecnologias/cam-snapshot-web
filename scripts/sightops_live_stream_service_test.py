@@ -30,6 +30,7 @@ def main() -> None:
         def __init__(self, status_code: int, body: Any):
             self.status_code = status_code
             self._body = body
+            self.text = body if isinstance(body, str) else ""
 
         def json(self) -> Any:
             return self._body
@@ -85,6 +86,50 @@ def main() -> None:
         assert [c["metodo"] for c in chamadas] == ["GET", "PUT"], (
             f"credencial mudou, deveria ter re-registrado: {chamadas}"
         )
+
+        # --- go2rtc 1.9.14 as vezes cria o stream mas devolve HTTP 400
+        # (bug real confirmado em producao: erro de YAML interno num
+        # round-trip que roda DEPOIS de ja ter salvo) -- register_stream
+        # tem que confirmar pelo estado real antes de desistir ---
+        estado_streams.clear()
+        chamadas.clear()
+
+        def fake_put_go2rtc_bug(url: str, **kwargs: Any) -> FakeResponse:
+            chamadas.append({"metodo": "PUT", "url": url, **kwargs})
+            params = kwargs.get("params") or {}
+            # cria o stream de verdade (como o go2rtc realmente faz)...
+            estado_streams[params["name"]] = {"producers": [{"url": params["src"]}], "consumers": None}
+            # ...mas devolve erro, como o bug real observado
+            return FakeResponse(400, "")
+
+        requests.put = fake_put_go2rtc_bug
+        name_bug = svc.register_stream(
+            ip="10.10.9.99", user="admin", password="segredo999",
+            subtype=1, vendor="Intelbras", model="VIP-1230",
+        )
+        assert name_bug == "cam_10_10_9_99_1", "deveria ter tratado como sucesso mesmo com HTTP 400"
+        assert name_bug in estado_streams, "o stream deveria ter sido criado de verdade"
+        requests.put = fake_put
+
+        # --- PUT que falha DE VERDADE (nao cria nada) continua levantando erro ---
+        chamadas.clear()
+
+        def fake_put_falha_de_verdade(url: str, **kwargs: Any) -> FakeResponse:
+            chamadas.append({"metodo": "PUT", "url": url, **kwargs})
+            return FakeResponse(500, "erro interno de verdade")
+
+        requests.put = fake_put_falha_de_verdade
+        erro_levantado = False
+        try:
+            svc.register_stream(
+                ip="10.10.9.98", user="admin", password="x",
+                subtype=1, vendor="Intelbras", model="VIP-1230",
+            )
+        except RuntimeError:
+            erro_levantado = True
+        assert erro_levantado, "PUT que falha de verdade (sem criar o stream) tem que levantar erro"
+        assert "cam_10_10_9_98_1" not in estado_streams
+        requests.put = fake_put
 
         # --- HD (subtype=0) e SD (subtype=1) da mesma camera sao streams DIFERENTES ---
         name_hd = svc.register_stream(

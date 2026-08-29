@@ -72,6 +72,20 @@ def _source_url(*, ip: str, user: str, password: str, vendor: str, model: str, s
     return f"ffmpeg:{rtsp_url}#video=h264"
 
 
+def _stream_registered_with_source(name: str, source: str) -> bool:
+    """True se o go2rtc ja tem esse stream registrado com essa fonte exata."""
+    resp = requests.get(f"{GO2RTC_BASE_URL}/api/streams", timeout=5)
+    if resp.status_code != 200:
+        return False
+    try:
+        streams: Dict[str, Any] = resp.json() or {}
+    except ValueError:
+        return False
+    producers = (streams.get(name) or {}).get("producers") or []
+    current_source = producers[0].get("url") if producers else None
+    return current_source == source
+
+
 def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vendor: str = "", model: str = "") -> str:
     """Registra a camera no go2rtc se ainda nao estiver com a fonte certa.
 
@@ -84,21 +98,22 @@ def register_stream(*, ip: str, user: str, password: str, subtype: int = 1, vend
     name = _stream_name(ip, st)
     source = _source_url(ip=ip, user=user, password=password, vendor=vendor, model=model, subtype=st)
 
-    resp = requests.get(f"{GO2RTC_BASE_URL}/api/streams", timeout=5)
-    streams: Dict[str, Any] = {}
-    if resp.status_code == 200:
-        try:
-            streams = resp.json() or {}
-        except ValueError:
-            streams = {}
-    producers = (streams.get(name) or {}).get("producers") or []
-    current_source = producers[0].get("url") if producers else None
-    if current_source == source:
+    if _stream_registered_with_source(name, source):
         return name
 
     put = requests.put(f"{GO2RTC_BASE_URL}/api/streams", params={"name": name, "src": source}, timeout=5)
     if put.status_code not in (200, 201, 204):
-        raise RuntimeError(f"go2rtc recusou registrar {name}: HTTP {put.status_code}")
+        # go2rtc 1.9.14 tem um bug conhecido: em parte dos registros de
+        # stream genuinamente novo, ele CRIA o stream (confirmado testando
+        # em producao) mas devolve HTTP 400 com um erro de YAML interno
+        # ("did not find expected key") de um round-trip que roda DEPOIS de
+        # ja ter salvo. Sem essa checagem, toda primeira abertura de cada
+        # camera nova falhava e so funcionava ~4s depois, no reconnect
+        # automatico do frontend -- confirmar pelo estado real antes de
+        # desistir.
+        if _stream_registered_with_source(name, source):
+            return name
+        raise RuntimeError(f"go2rtc recusou registrar {name}: HTTP {put.status_code} {put.text[:200]}")
     return name
 
 
