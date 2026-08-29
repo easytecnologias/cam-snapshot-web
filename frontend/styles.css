@@ -4361,6 +4361,27 @@ a { color: inherit; text-decoration: none; }
 .cam-inline-live.playing .cam-live-quality {
   display: flex;
 }
+.cam-live-change-login {
+  position: absolute;
+  right: 54px;
+  top: 10px;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255,255,255,.14);
+  color: #fff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cam-live-change-login svg { width: 15px; height: 15px; }
+.cam-inline-live.playing .cam-live-change-login,
+.cam-inline-live:not(.playing) #cpLiveStatus:not(.hidden) ~ .cam-live-change-login {
+  display: flex;
+}
 .cam-inline-live:fullscreen {
   width: 100vw;
   height: 100vh;

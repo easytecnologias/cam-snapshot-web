@@ -21,6 +21,7 @@ from app.services.inventory_json import inventory_row_key, load_inventory_json, 
 from app.services.photo_store import attach_snapshot_fields, resolve_snapshot_file, snapshot_storage_dir
 from app.services.scan_service import _enrich_inventory_with_olt, _enrich_inventory_with_switch
 from app.services.camsnapshot.device_info import get_snapshot
+from app.services.camera_credentials import resolve_camera_credential, save_camera_credential
 
 # Requests para dispositivos locais costumam usar HTTPS com certificado self-signed.
 # Evita poluir o console com InsecureRequestWarning em cada tentativa/fallback.
@@ -134,6 +135,17 @@ def _apply_recorder_fallback(cam: dict[str, Any], rec: dict[str, Any]) -> dict[s
     return cam
 
 
+def _camera_row_for_ip(ip: str) -> dict | None:
+    try:
+        inv = load_inventory_json() or []
+    except Exception:
+        inv = []
+    for r in inv:
+        if isinstance(r, dict) and str(r.get("ip") or "").strip() == ip:
+            return r
+    return None
+
+
 def _ip_in_inventory(ip: str) -> bool:
     """Confere se um IP pertence ao inventario do tenant atual, antes de
     deixar passar um comando de hardware (reboot, PTZ, renomear, snapshot).
@@ -142,11 +154,33 @@ def _ip_in_inventory(ip: str) -> bool:
     de outro cliente, ja que faixas privadas se repetem entre tenants neste
     sistema.
     """
-    try:
-        inv = load_inventory_json() or []
-    except Exception:
-        inv = []
-    return any(isinstance(r, dict) and str(r.get("ip") or "").strip() == ip for r in inv)
+    return _camera_row_for_ip(ip) is not None
+
+
+def resolve_camera_password(ip: str, user: str, password: str) -> tuple[str, str]:
+    """Resolve usuario/senha pra falar com a camera deste IP.
+
+    Se `password` veio preenchida (o operador digitou), usa ela e salva
+    (por MAC da camera, e como padrao do site se o site ainda nao tinha
+    senha) pra da proxima vez em diante nao precisar digitar de novo. Se
+    veio vazia, tenta a senha ja salva (da camera, senao a do site). Sem
+    nenhuma das duas, devolve senha vazia -- o chamador decide o que fazer
+    (pedir a senha ao operador).
+    """
+    row = _camera_row_for_ip(ip) or {}
+    mac = str(row.get("mac") or "").strip()
+    site = str(row.get("site") or row.get("site_name") or row.get("local") or "").strip()
+    user = (user or "").strip() or "admin"
+    password = password or ""
+
+    if password:
+        save_camera_credential(mac, site, user, password)
+        return user, password
+
+    cred = resolve_camera_credential(mac, site)
+    if cred:
+        return cred.get("username") or user, cred.get("password") or ""
+    return user, ""
 
 
 class CameraUpdate(BaseModel):
@@ -741,14 +775,16 @@ def api_snapshot_save(req: SnapshotSaveRequest) -> Dict[str, Any]:
 @router.post("/cameras/snapshot/capture", tags=["cameras"])
 def api_cameras_snapshot_capture(req: SnapshotCaptureRequest) -> Dict[str, Any]:
     ip = str(req.ip or "").strip()
-    user = str(req.user or "admin").strip()
-    password = str(req.password or "")
     if not ip:
         raise HTTPException(status_code=400, detail="ip obrigatorio")
-    if not user or not password:
-        raise HTTPException(status_code=400, detail="usuario e senha obrigatorios")
     if not _ip_in_inventory(ip):
         raise HTTPException(status_code=404, detail="IP nao encontrado no inventario deste cliente")
+    user, password = resolve_camera_password(ip, str(req.user or ""), str(req.password or ""))
+    if not password:
+        # 428, nao 401: 401 e o codigo que o frontend trata como "sessao
+        # expirada" e desloga o usuario -- aqui e so a senha DESTA camera
+        # que e desconhecida, nao a sessao do operador.
+        raise HTTPException(status_code=428, detail="credential_required")
 
     dst_dir = snapshot_storage_dir()
     dst_dir.mkdir(parents=True, exist_ok=True)

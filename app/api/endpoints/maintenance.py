@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from app.api.endpoints.cameras import _ip_in_inventory
+from app.api.endpoints.cameras import _ip_in_inventory, resolve_camera_password
 from app.core.paths import BASE_DIR, INVENTORY_JSON_PATH, DVR_INVENTORY_JSON_PATH, NVR_INVENTORY_JSON_PATH, SAIDA_DIR, DATA_DIR
 from app.core.tenant_context import get_current_tenant_slug, tenant_recorder_inventory_path, tenant_scoped_path
 from app.services.inventory_json import load_inventory_json, save_inventory_json
@@ -1236,8 +1236,12 @@ def maintenance_stream_register(ip: str, payload: Dict[str, Any]):
     problema do vazamento de credenciais do go2rtc corrigido antes."""
     from fastapi.responses import JSONResponse
 
-    user = _as_str(payload.get("user")) or "admin"
-    password = _as_str(payload.get("password"))
+    # Nao usar HTTP 401 aqui: e o codigo que o wrapper api() do frontend
+    # (core.js) trata como "sessao expirada" e desloga o usuario -- e um
+    # 401 diferente (senha DESTA camera desconhecida, nao do login).
+    user, password = resolve_camera_password(ip, _as_str(payload.get("user")), _as_str(payload.get("password")))
+    if not password:
+        return {"ok": False, "error": "credential_required"}
     try:
         subtype = int(payload.get("subtype") or 1)
     except (TypeError, ValueError):
@@ -1267,8 +1271,8 @@ def maintenance_stream_unregister(ip: str, subtype: int = 1):
 
 class PTZMoveRequest(BaseModel):
     ip: str
-    user: str
-    password: str
+    user: str = ""
+    password: str = ""
     direction: str
     channel: int = 1
     speed: int = 4
@@ -1286,14 +1290,13 @@ def api_cameras_ptz_capability(
     from requests.auth import HTTPDigestAuth
 
     ip = (ip or "").strip()
-    user = (user or "").strip()
-    password = (password or "").strip()
     if not ip:
         return {"ok": False, "error": "ip obrigatorio"}
-    if not user or not password:
-        return {"ok": False, "error": "usuario/senha obrigatorios"}
     if not _ip_in_inventory(ip):
         return {"ok": False, "error": "IP nao encontrado no inventario deste cliente"}
+    user, password = resolve_camera_password(ip, user, password)
+    if not password:
+        return {"ok": False, "error": "credential_required"}
 
     brand = ""
     model = ""
@@ -1367,17 +1370,18 @@ def api_cameras_ptz_move(payload: PTZMoveRequest) -> Dict[str, Any]:
     from requests.auth import HTTPDigestAuth
 
     ip = (payload.ip or "").strip()
-    user = (payload.user or "").strip()
-    password = (payload.password or "").strip()
     direction = (payload.direction or "").strip().lower()
     channel = int(payload.channel or 1)
     speed = max(1, min(8, int(payload.speed or 4)))
     duration_ms = max(80, min(5000, int(payload.duration_ms or 350)))
 
-    if not ip or not user or not password:
-        return {"ok": False, "error": "ip/user/password obrigatorios"}
+    if not ip:
+        return {"ok": False, "error": "ip obrigatorio"}
     if not _ip_in_inventory(ip):
         return {"ok": False, "error": "IP nao encontrado no inventario deste cliente"}
+    user, password = resolve_camera_password(ip, payload.user, payload.password)
+    if not password:
+        return {"ok": False, "error": "credential_required"}
 
     brand = ""
     try:
@@ -1506,15 +1510,16 @@ def _try_http_with_auth(
 @router.post("/cameras/reboot", tags=["cameras"])
 def api_cameras_reboot(payload: Dict[str, Any]) -> Dict[str, Any]:
     ip = (payload.get("ip") or "").strip()
-    user = (payload.get("user") or "").strip()
-    password = (payload.get("pass") or payload.get("password") or "").strip()
 
     if not ip:
         return {"ok": False, "error": "IP obrigatÃ³rio"}
-    if not user or not password:
-        return {"ok": False, "error": "UsuÃ¡rio e senha obrigatÃ³rios"}
     if not _ip_in_inventory(ip):
         return {"ok": False, "error": "IP nao encontrado no inventario deste cliente"}
+    user, password = resolve_camera_password(
+        ip, str(payload.get("user") or ""), str(payload.get("pass") or payload.get("password") or "")
+    )
+    if not password:
+        return {"ok": False, "error": "credential_required"}
 
     brand = ""
     try:
@@ -1580,8 +1585,6 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     ip = (payload.get("ip") or "").strip()
     title = (payload.get("title") or payload.get("titulo") or "").strip()
-    user = (payload.get("user") or payload.get("username") or "").strip()
-    password = (payload.get("pass") or payload.get("password") or "").strip()
 
     port = payload.get("port", 80)
     channel = payload.get("channel", 1)
@@ -1618,7 +1621,12 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             return False
 
-    if not user or not password:
+    if not _ip_in_inventory(ip):
+        return {"ok": False, "error": "IP nao encontrado no inventario deste cliente", "inventory_updated": False}
+    user, password = resolve_camera_password(
+        ip, str(payload.get("user") or payload.get("username") or ""), str(payload.get("pass") or payload.get("password") or "")
+    )
+    if not password:
         return {
             "ok": False,
             "error": "Informe usuÃ¡rio e senha no topo da aba ManutenÃ§Ã£o",
@@ -1626,8 +1634,6 @@ def api_cameras_rename(payload: Dict[str, Any]) -> Dict[str, Any]:
             "title": title,
             "inventory_updated": _persist_inventory_title(),
         }
-    if not _ip_in_inventory(ip):
-        return {"ok": False, "error": "IP nao encontrado no inventario deste cliente", "inventory_updated": False}
 
     # Brand hint from inventory (helps route first attempt for Hikvision/HiLook)
     brand = ""

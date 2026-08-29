@@ -2134,6 +2134,26 @@ function startPing() {
   openPingTerminal(_invOltActive.ip, _invOltActive.remote_connector_id || '');
 }
 
+// Credencial de camera lembrada pelo resto da sessao (aba do navegador): uma
+// vez digitada em qualquer camera, nao precisa digitar de novo pra ver outra
+// -- a maioria dos clientes usa a mesma senha em todo o parque de cameras.
+// Nunca persiste em disco (sessionStorage, some ao fechar a aba) nem sai pro
+// backend fora do fluxo normal de "ver ao vivo".
+function _camLiveCredGet() {
+  try {
+    return {
+      user: sessionStorage.getItem('so_cam_live_user') || '',
+      pass: sessionStorage.getItem('so_cam_live_pass') || '',
+    };
+  } catch { return { user: '', pass: '' }; }
+}
+function _camLiveCredSave(user, pass) {
+  try {
+    sessionStorage.setItem('so_cam_live_user', user || '');
+    sessionStorage.setItem('so_cam_live_pass', pass || '');
+  } catch {}
+}
+
 function openCamPanelLive() {
   if (!_invOltActive?.ip) return;
   const live = document.getElementById('cpInlineLive');
@@ -2142,21 +2162,36 @@ function openCamPanelLive() {
   const video = document.getElementById('cpLiveVideo');
   if (!live || !auth || !status || !video) return;
   live.classList.remove('hidden');
-  auth.style.display = '';
   status.classList.add('hidden');
   video.classList.add('hidden');
   video.srcObject = null;
   _cpLiveSubtype = 1;
   const qualityLabel = document.querySelector('#cpLiveQuality span');
   if (qualityLabel) qualityLabel.textContent = 'SD';
-  document.getElementById('cpLiveUser').value = document.getElementById('mntCamUser')?.value || 'admin';
-  document.getElementById('cpLivePass').value = document.getElementById('mntCamPass')?.value || '';
+  const remembered = _camLiveCredGet();
+  const user = remembered.user || document.getElementById('mntCamUser')?.value || 'admin';
+  const pass = remembered.pass || document.getElementById('mntCamPass')?.value || '';
+  document.getElementById('cpLiveUser').value = user;
+  document.getElementById('cpLivePass').value = pass;
+  // Sempre tenta conectar primeiro, mesmo sem senha nenhuma conhecida NESTE
+  // navegador: o servidor pode ja saber a senha desta camera/site (salva de
+  // um acesso anterior, de qualquer operador). So mostra o formulario se o
+  // servidor confirmar que realmente nao sabe (sinal 'credential_required'
+  // vindo de startCamPanelLive).
+  auth.style.display = 'none';
+  startCamPanelLive();
+}
+
+function _openCamPanelLiveAuthForm() {
+  const auth = document.getElementById('cpLiveAuth');
+  if (!auth) return;
+  auth.style.display = '';
+  lucide.createIcons();
   setTimeout(() => {
-    const pass = document.getElementById('cpLivePass');
-    if (pass && !pass.value) pass.focus();
+    const passEl = document.getElementById('cpLivePass');
+    if (passEl && !passEl.value) passEl.focus();
     else document.getElementById('cpLiveStart')?.focus();
   }, 60);
-  lucide.createIcons();
 }
 
 let _cpLiveHandle = null;
@@ -2268,11 +2303,11 @@ async function startCamPanelLive() {
   const ip = _invOltActive.ip;
   const user = document.getElementById('cpLiveUser')?.value.trim() || 'admin';
   const pass = document.getElementById('cpLivePass')?.value || '';
-  if (!pass) {
-    showToast('Informe a senha da camera para ver ao vivo.', true);
-    document.getElementById('cpLivePass')?.focus();
-    return;
-  }
+  // Sem senha nao bloqueia mais aqui: manda mesmo assim e deixa o servidor
+  // decidir -- ele pode ja ter a senha desta camera/site salva de uma vez
+  // anterior (de qualquer operador, nao so deste navegador). So volta a
+  // pedir se o servidor confirmar que realmente nao sabe.
+  if (pass) _camLiveCredSave(user, pass);
 
   const auth = document.getElementById('cpLiveAuth');
   const status = document.getElementById('cpLiveStatus');
@@ -2294,6 +2329,13 @@ async function startCamPanelLive() {
     vendor: hint.vendor,
     model: hint.model,
     onStatus: (texto) => {
+      if (texto === 'credential_required') {
+        status.classList.add('hidden');
+        video.classList.add('hidden');
+        _camLiveCredSave('', '');
+        _openCamPanelLiveAuthForm();
+        return;
+      }
       if (texto) {
         if (statusText) statusText.textContent = texto;
         status.classList.remove('hidden');
@@ -2303,6 +2345,23 @@ async function startCamPanelLive() {
       }
     },
   });
+}
+
+function changeCamLiveCredential() {
+  if (_cpLiveHandle) { _cpLiveHandle.stop(); _cpLiveHandle = null; }
+  _camLiveCredSave('', '');
+  const auth = document.getElementById('cpLiveAuth');
+  const status = document.getElementById('cpLiveStatus');
+  const video = document.getElementById('cpLiveVideo');
+  if (!auth || !status || !video) return;
+  video.srcObject = null;
+  video.classList.add('hidden');
+  status.classList.add('hidden');
+  document.getElementById('cpInlineLive')?.classList.remove('playing');
+  document.getElementById('cpLiveUser').value = 'admin';
+  document.getElementById('cpLivePass').value = '';
+  auth.style.display = '';
+  setTimeout(() => document.getElementById('cpLivePass')?.focus(), 60);
 }
 
 function toggleCamPanelLiveQuality() {

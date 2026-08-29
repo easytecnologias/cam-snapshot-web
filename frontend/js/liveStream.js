@@ -72,16 +72,27 @@ function _liveStreamBackoffMs(attempt) {
   return Math.min(4000 * Math.pow(1.6, attempt), 30000);
 }
 
+// Sinaliza que o servidor nao tem (e o operador nao mandou) senha nenhuma
+// pra essa camera/site -- diferente de qualquer outra falha, isso NAO deve
+// entrar no ciclo de reconexao automatica (tentar de novo sem senha nunca
+// vai funcionar sozinho).
+class CredentialRequiredError extends Error {}
+
 async function _liveStreamRegister(ip, user, pass, subtype, hint) {
   const body = {
-    user: user || 'admin',
+    user: user || '',
     password: pass || '',
     subtype: Number(subtype),
     vendor: hint?.vendor || '',
     model: hint?.model || '',
   };
   const resp = await api(`/api/maintenance/stream_register/${ip}`, { method: 'POST', body: JSON.stringify(body) });
-  if (!resp || !resp.ok) throw new Error('Falha ao registrar stream');
+  if (!resp) throw new Error('Falha ao registrar stream');
+  if (resp.status === 401) {
+    const errBody = await resp.json().catch(() => null);
+    if (errBody?.error === 'credential_required') throw new CredentialRequiredError('credential_required');
+  }
+  if (!resp.ok) throw new Error('Falha ao registrar stream');
   const respBody = await resp.json();
   return respBody?.stream_name || _liveStreamName(ip, subtype);
 }
@@ -148,6 +159,13 @@ function mountLiveStream(videoEl, opts) {
       streamName = await _liveStreamRegister(ip, user, pass, subtype, hint);
     } catch (e) {
       if (myGen !== generation || stopped) return;
+      if (e instanceof CredentialRequiredError) {
+        // Nao adianta tentar de novo sem senha -- devolve o sinal pro
+        // chamador (o painel da camera) mostrar o formulario de login,
+        // em vez de ficar reconectando pra sempre.
+        onStatus('credential_required');
+        return;
+      }
       onStatus('Erro ao registrar stream');
       scheduleReconnect();
       return;
