@@ -32,11 +32,26 @@ function _liveStreamName(ip, subtype) {
   return `cam_${ip.replace(/\./g, '_')}_${st}`;
 }
 
-function _liveStreamCodecs() {
+function _liveStreamCodecs(MediaSourceClass) {
   return LIVE_STREAM_CODECS.filter(c => {
-    try { return MediaSource.isTypeSupported(`video/mp4; codecs="${c}"`); }
+    try { return MediaSourceClass.isTypeSupported(`video/mp4; codecs="${c}"`); }
     catch (e) { return false; }
   }).join();
+}
+
+// Safari no iPhone/iPad NAO tem o MediaSource padrao -- so a partir do
+// iOS 17 ele expoe uma versao restrita chamada ManagedMediaSource, com uma
+// API praticamente igual mas anexada via video.srcObject em vez de
+// video.src. Sem essa checagem, todo iPhone (qualquer navegador -- Chrome
+// e Firefox no iOS sao Safari por baixo, exigencia da Apple) ficava preso
+// em "Aguardando video..." com um erro silencioso no console. Confirmado
+// lendo o client oficial do go2rtc (video-rtc.js), que documenta e trata
+// exatamente esse caso. iOS anterior ao 17 nao tem suporte nenhum -- isso
+// e limite da propria Apple, nao tem contorno.
+function _liveStreamMediaSourceClass() {
+  if (typeof ManagedMediaSource !== 'undefined') return ManagedMediaSource;
+  if (typeof MediaSource !== 'undefined') return MediaSource;
+  return null;
 }
 
 function _liveStreamConcat(buffers) {
@@ -84,6 +99,9 @@ function mountLiveStream(videoEl, opts) {
   const hint = { vendor: opts.vendor || '', model: opts.model || '' };
   const onStatus = typeof opts.onStatus === 'function' ? opts.onStatus : () => {};
 
+  const MediaSourceClass = _liveStreamMediaSourceClass();
+  const isManaged = typeof ManagedMediaSource !== 'undefined' && MediaSourceClass === ManagedMediaSource;
+
   let ip = opts.ip;
   let subtype = Number(opts.subtype) === 0 ? 0 : 1;
   let generation = 0; // incrementa a cada connect(); descarta eventos de tentativas antigas
@@ -97,6 +115,7 @@ function mountLiveStream(videoEl, opts) {
     if (ws) { try { ws.close(); } catch (e) {} ws = null; }
     try { videoEl.pause(); } catch (e) {}
     videoEl.removeAttribute('src');
+    videoEl.srcObject = null;
     videoEl.load();
   }
 
@@ -118,6 +137,10 @@ function mountLiveStream(videoEl, opts) {
     const myGen = ++generation;
     teardown();
     if (stopped) return;
+    if (!MediaSourceClass) {
+      onStatus('Navegador sem suporte a video ao vivo');
+      return;
+    }
     onStatus('Conectando...');
 
     let streamName;
@@ -164,12 +187,17 @@ function mountLiveStream(videoEl, opts) {
       if (myGen !== generation) return;
       onStatus('Aguardando video...');
 
-      ms = new MediaSource();
-      videoEl.src = URL.createObjectURL(ms);
+      ms = new MediaSourceClass();
+      if (isManaged) {
+        videoEl.disableRemotePlayback = true;
+        videoEl.srcObject = ms;
+      } else {
+        videoEl.src = URL.createObjectURL(ms);
+      }
       ms.addEventListener('sourceopen', () => {
         if (myGen !== generation) return;
-        URL.revokeObjectURL(videoEl.src);
-        socket.send(JSON.stringify({ type: 'mse', value: _liveStreamCodecs() }));
+        if (!isManaged) URL.revokeObjectURL(videoEl.src);
+        socket.send(JSON.stringify({ type: 'mse', value: _liveStreamCodecs(MediaSourceClass) }));
       }, { once: true });
     };
 
