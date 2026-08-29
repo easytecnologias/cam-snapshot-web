@@ -253,7 +253,7 @@ function _mntStreamCopy(id) {
 
 function _mntStreamSnapshot() {
   const video = document.getElementById('mntStreamVideo');
-  if (!video || !video.srcObject) { showToast('Sem vídeo para capturar', true); return; }
+  if (!video || video.readyState < 2) { showToast('Sem vídeo para capturar', true); return; }
   const canvas = document.createElement('canvas');
   canvas.width  = video.videoWidth  || 1280;
   canvas.height = video.videoHeight || 720;
