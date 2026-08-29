@@ -2,7 +2,6 @@
 
 from .scan import router as scan_router
 from .cameras import router as cameras_router
-from .live import router as live_router
 from .olt import router as olt_router
 from .tools import router as tools_router
 from .maintenance import router as maintenance_router

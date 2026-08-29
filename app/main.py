@@ -31,7 +31,6 @@ from app.api.endpoints import (
     auth_router,
     cameras_router,
     system_router,
-    live_router,
     scan_router,
     olt_router,
     tools_router,
@@ -96,7 +95,6 @@ if allowed_origins:
 app.include_router(auth_router)
 app.include_router(cameras_router)
 app.include_router(system_router)
-app.include_router(live_router)
 app.include_router(scan_router)
 app.include_router(olt_router)
 app.include_router(tools_router)

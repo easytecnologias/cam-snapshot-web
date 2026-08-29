@@ -30,8 +30,6 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             "/api/auth/bootstrap-admin",
             "/api/system/health/live",
             "/api/system/health/ready",
-            "/api/live/jpeg",
-            "/api/live/mjpeg",
             "/api/windows/agent/report",
         }
         self._query_token_paths = (
@@ -73,7 +71,6 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/inventory/import", "operator"),
             (("POST",), "/api/inventory/clear", "operator"),
             (("POST",), "/api/inventory/imgbb/upload", "operator"),
-            (("POST",), "/api/live/session", "operator"),
             (("POST",), "/api/kmz/", "operator"),
             (("POST",), "/api/scan", "operator"),
             (("POST",), "/api/inventory/delete", "operator"),
