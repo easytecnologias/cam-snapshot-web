@@ -414,6 +414,10 @@ document.addEventListener('DOMContentLoaded', () => {
     event.stopPropagation();
     fullscreenCamPanelLive();
   });
+  document.getElementById('cpLiveQuality')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleCamPanelLiveQuality();
+  });
   document.addEventListener('fullscreenchange', () => {
     const btn = document.getElementById('cpLiveFullscreen');
     if (!btn) return;

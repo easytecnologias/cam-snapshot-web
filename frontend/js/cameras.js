@@ -2105,6 +2105,9 @@ function openCamPanelLive() {
   status.classList.add('hidden');
   video.classList.add('hidden');
   video.srcObject = null;
+  _cpLiveSubtype = 1;
+  const qualityLabel = document.querySelector('#cpLiveQuality span');
+  if (qualityLabel) qualityLabel.textContent = 'SD';
   document.getElementById('cpLiveUser').value = document.getElementById('mntCamUser')?.value || 'admin';
   document.getElementById('cpLivePass').value = document.getElementById('mntCamPass')?.value || '';
   setTimeout(() => {
@@ -2115,12 +2118,11 @@ function openCamPanelLive() {
   lucide.createIcons();
 }
 
-let _cpRtcPeer = null;
-let _cpLiveIp = '';
+let _cpLiveHandle = null;
+let _cpLiveSubtype = 1;
 
 function closeCamPanelLive() {
-  if (_cpRtcPeer) { try { _cpRtcPeer.close(); } catch(e){} _cpRtcPeer = null; }
-  _cpLiveIp = '';
+  if (_cpLiveHandle) { _cpLiveHandle.stop(); _cpLiveHandle = null; }
   const video = document.getElementById('cpLiveVideo');
   if (video) { video.srcObject = null; video.classList.add('hidden'); }
   const live = document.getElementById('cpInlineLive');
@@ -2237,102 +2239,37 @@ async function startCamPanelLive() {
   const video = document.getElementById('cpLiveVideo');
   if (!auth || !status || !video) return;
 
-  if (_cpRtcPeer) { try { _cpRtcPeer.close(); } catch(e){} _cpRtcPeer = null; }
-  _cpLiveIp = ip;
+  if (_cpLiveHandle) { _cpLiveHandle.stop(); _cpLiveHandle = null; }
   auth.style.display = 'none';
   status.classList.remove('hidden');
   if (statusText) statusText.textContent = 'Conectando...';
   video.srcObject = null;
-  video.classList.add('hidden');
+  video.classList.remove('hidden');
 
-  const subtype = 1;
-  const streamName = `cam_${ip.replace(/\./g, '_')}_${subtype}`;
   const hint = cameraStreamHint(ip, _invOltActive);
-  try {
-    const params = new URLSearchParams({
-      user,
-      password: pass,
-      subtype: String(subtype),
-      vendor: hint.vendor || '',
-      model: hint.model || ''
-    });
-    const regResp = await api(
-      `/api/maintenance/stream_register/${ip}?${params.toString()}`,
-      { method: 'POST' }
-    );
-    if (!regResp || !regResp.ok) {
-      if (statusText) statusText.textContent = 'Falha ao registrar stream';
-      auth.style.display = '';
-      return;
-    }
-  } catch (e) {
-    if (statusText) statusText.textContent = 'Servidor de stream indisponivel';
-    auth.style.display = '';
-    return;
-  }
-
-  if (_cpLiveIp !== ip) return;
-
-  try {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    _cpRtcPeer = pc;
-
-    pc.ontrack = ({ streams }) => {
-      if (!streams[0] || _cpLiveIp !== ip) return;
-      video.srcObject = streams[0];
-      video.muted = true;
-      video.classList.remove('hidden');
-      document.getElementById('cpInlineLive')?.classList.add('playing');
-      status.classList.add('hidden');
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      if (_cpLiveIp === ip && ['failed','disconnected'].includes(pc.iceConnectionState)) {
-        if (statusText) statusText.textContent = 'Stream desconectado';
+  _cpLiveHandle = mountLiveStream(video, {
+    ip, user, pass,
+    subtype: _cpLiveSubtype,
+    vendor: hint.vendor,
+    model: hint.model,
+    onStatus: (texto) => {
+      if (texto) {
+        if (statusText) statusText.textContent = texto;
         status.classList.remove('hidden');
+      } else {
+        status.classList.add('hidden');
+        document.getElementById('cpInlineLive')?.classList.add('playing');
       }
-    };
+    },
+  });
+}
 
-    pc.addTransceiver('video', { direction: 'recvonly' });
-    pc.addTransceiver('audio', { direction: 'recvonly' });
-
-    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${wsProto}://${location.host}/go2rtc/api/ws?src=${streamName}`);
-
-    ws.onopen = async () => {
-      if (statusText) statusText.textContent = 'Aguardando video...';
-      pc.onicecandidate = ({ candidate }) => {
-        if (candidate && ws.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ type: 'webrtc/candidate', value: candidate.candidate }));
-      };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
-    };
-
-    ws.onmessage = async ({ data }) => {
-      const msg = JSON.parse(data);
-      if (msg.type === 'webrtc/answer') {
-        await pc.setRemoteDescription({ type: 'answer', sdp: msg.value });
-      } else if (msg.type === 'webrtc/candidate' && msg.value) {
-        await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0', sdpMLineIndex: 0 });
-      } else if (msg.type === 'error') {
-        if (statusText) statusText.textContent = 'Erro: ' + msg.value;
-        status.classList.remove('hidden');
-        auth.style.display = '';
-      }
-    };
-
-    ws.onerror = () => {
-      if (_cpLiveIp === ip && statusText) statusText.textContent = 'Erro de conexao WebSocket';
-      status.classList.remove('hidden');
-      auth.style.display = '';
-    };
-  } catch (e) {
-    if (statusText) statusText.textContent = 'Erro: ' + (e.message || e);
-    status.classList.remove('hidden');
-    auth.style.display = '';
-  }
+function toggleCamPanelLiveQuality() {
+  if (!_cpLiveHandle) return;
+  _cpLiveSubtype = _cpLiveSubtype === 0 ? 1 : 0;
+  _cpLiveHandle.setSubtype(_cpLiveSubtype);
+  const label = document.querySelector('#cpLiveQuality span');
+  if (label) label.textContent = _cpLiveSubtype === 0 ? 'HD' : 'SD';
 }
 
 //  Acoes do painel
