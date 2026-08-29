@@ -22,7 +22,11 @@ from app.services.maintenance_ping_service import maintenance_ping_hub
 from app.services.monitoring_service import list_monitoring_tenants, refresh_from_inventory
 from app.services.zabbix_monitoring_service import sync_monitoring_to_zabbix
 from app.services.telegram_notification_service import process_monitoring_notifications
-from app.services.access_control_sync import poll_device_events, retry_pending_provisions
+from app.services.access_control_sync import (
+    list_pending_provisions_for_retry,
+    poll_device_events,
+    retry_one_pending_provision,
+)
 from app.services.access_control_store import list_devices as list_access_devices
 from app.api.endpoints.maintenance import scripts_zabbix_status_sync
 from app.api.endpoints.olt import api_olt_registry_telemetry
@@ -260,6 +264,31 @@ async def _olt_telemetry_loop() -> None:
         await asyncio.sleep(interval)
 
 
+# Quantos dispositivos/retries de controle de acesso rodam ao mesmo tempo por
+# tenant. Antes disso era um de cada vez (await sequencial) -- um unico
+# dispositivo sem resposta (10-75s de timeout) travava a fila inteira atras
+# dele, e com muitos tenants de teste isso segurava o pool de threads do
+# servidor por tempo suficiente pra ate a checagem de saude (que tambem usa
+# esse pool) ficar sem vaga e o container virar "unhealthy" sem estar
+# quebrado de verdade. Limitado (nao ilimitado) pra nao disparar uma rajada
+# de conexoes simultaneas em cima da rede/dos proprios dispositivos.
+_ACCESS_CONTROL_CONCURRENCY = 6
+
+
+async def _run_bounded(coros, limit: int) -> list:
+    """Roda uma lista de corrotinas com no maximo `limit` ao mesmo tempo, em
+    vez de aguardar uma por vez. Exceções voltam na lista (return_exceptions)
+    em vez de interromper as outras -- um dispositivo que falha não deve
+    derrubar a rodada dos demais."""
+    sem = asyncio.Semaphore(limit)
+
+    async def _run_one(coro):
+        async with sem:
+            return await coro
+
+    return await asyncio.gather(*[_run_one(c) for c in coros], return_exceptions=True)
+
+
 async def _access_control_sync_loop() -> None:
     try:
         interval = max(5, min(int(os.getenv("SIGHTOPS_ACCESS_CONTROL_SYNC_INTERVAL", "15")), 900))
@@ -272,19 +301,34 @@ async def _access_control_sync_loop() -> None:
             for tenant_slug in await asyncio.to_thread(list_monitoring_tenants):
                 token = set_current_tenant_slug(tenant_slug)
                 try:
-                    retry_result = await asyncio.to_thread(retry_pending_provisions)
+                    pending, people_by_id = await asyncio.to_thread(list_pending_provisions_for_retry)
+                    if pending:
+                        retry_outcomes = await _run_bounded(
+                            [asyncio.to_thread(retry_one_pending_provision, item, people_by_id) for item in pending],
+                            _ACCESS_CONTROL_CONCURRENCY,
+                        )
+                        retried = sum(1 for r in retry_outcomes if r is True)
+                    else:
+                        retried = 0
+
+                    devices = [d for d in await asyncio.to_thread(list_access_devices) if d.get("active")]
                     events_count = 0
                     device_errors: list[dict[str, object]] = []
-                    for device in await asyncio.to_thread(list_access_devices):
-                        if not device.get("active"):
-                            continue
-                        try:
-                            events_count += await asyncio.to_thread(poll_device_events, device["id"])
-                        except Exception as exc:
-                            device_errors.append({"ok": False, "device_id": device.get("id"), "error": str(exc)})
-                            logger.exception("access control event poll failed for device %s", device.get("id"))
+                    poll_outcomes = await _run_bounded(
+                        [asyncio.to_thread(poll_device_events, d["id"]) for d in devices],
+                        _ACCESS_CONTROL_CONCURRENCY,
+                    )
+                    for device, outcome in zip(devices, poll_outcomes):
+                        if isinstance(outcome, BaseException):
+                            device_errors.append({"ok": False, "device_id": device.get("id"), "error": str(outcome)})
+                            logger.error(
+                                "access control event poll failed for device %s", device.get("id"),
+                                exc_info=outcome,
+                            )
+                        else:
+                            events_count += outcome
                     results[tenant_slug] = {
-                        "retried": retry_result.get("retried", 0),
+                        "retried": retried,
                         "events": events_count,
                         "device_errors": device_errors,
                     }

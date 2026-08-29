@@ -264,43 +264,53 @@ def retry_pending_provisions() -> Dict[str, Any]:
     torna o problema visivel (ex.: na UI da Task 6) sem exigir nenhuma
     tentativa real no dispositivo.
     """
-    from app.services.access_control_store import list_people  # import tardio evita ciclo
-
-    pending = list_pending_provisions()
+    pending, people_by_id = list_pending_provisions_for_retry()
     if not pending:
         return {"ok": True, "retried": 0}
-    people_by_id = {p["id"]: p for p in list_people()}
-    retried = 0
-    for item in pending:
-        person = people_by_id.get(item["person_id"])
-        device = get_device_with_password(item["device_id"])
-        if not person or not device:
-            error_text = (
-                "Pessoa nao encontrada." if not person else "Dispositivo nao encontrado."
-            )
-            upsert_provision_status(item["person_id"], item["device_id"], "failed", error_text)
-            logger.warning(
-                "Provisionamento pendente descartado (pessoa %s, dispositivo %s): %s",
-                item["person_id"], item["device_id"], error_text,
-            )
-            continue
-        try:
-            provision_person(device, person, load_person_face_photo(person))
-            upsert_provision_status(item["person_id"], item["device_id"], "ok")
-        except HTTPException as exc:
-            upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc.detail))
-            logger.warning(
-                "Retry de provisionamento falhou para pessoa %s no dispositivo %s: %s",
-                item["person_id"], item["device_id"], exc.detail,
-            )
-        except Exception as exc:
-            upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc))
-            logger.exception(
-                "Erro inesperado no retry de provisionamento (pessoa %s, dispositivo %s)",
-                item["person_id"], item["device_id"],
-            )
-        retried += 1
+    retried = sum(1 for item in pending if retry_one_pending_provision(item, people_by_id))
     return {"ok": True, "retried": retried}
+
+
+def list_pending_provisions_for_retry() -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Prepara os dados que o retry precisa (leitura, rapido) sem tentar
+    nenhum dispositivo ainda -- separado de retry_one_pending_provision pra
+    o loop assincrono (app/main.py) poder rodar as tentativas em paralelo em
+    vez de uma atras da outra."""
+    pending = list_pending_provisions()
+    people_by_id = {p["id"]: p for p in list_people()} if pending else {}
+    return pending, people_by_id
+
+
+def retry_one_pending_provision(item: Dict[str, Any], people_by_id: Dict[str, Any]) -> bool:
+    """Tenta reprocessar UM provisionamento pendente. Devolve True se contou
+    como tentativa de verdade (pessoa e dispositivo existiam), False se foi
+    descartado por referenciar algo que sumiu."""
+    person = people_by_id.get(item["person_id"])
+    device = get_device_with_password(item["device_id"])
+    if not person or not device:
+        error_text = "Pessoa nao encontrada." if not person else "Dispositivo nao encontrado."
+        upsert_provision_status(item["person_id"], item["device_id"], "failed", error_text)
+        logger.warning(
+            "Provisionamento pendente descartado (pessoa %s, dispositivo %s): %s",
+            item["person_id"], item["device_id"], error_text,
+        )
+        return False
+    try:
+        provision_person(device, person, load_person_face_photo(person))
+        upsert_provision_status(item["person_id"], item["device_id"], "ok")
+    except HTTPException as exc:
+        upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc.detail))
+        logger.warning(
+            "Retry de provisionamento falhou para pessoa %s no dispositivo %s: %s",
+            item["person_id"], item["device_id"], exc.detail,
+        )
+    except Exception as exc:
+        upsert_provision_status(item["person_id"], item["device_id"], "failed", str(exc))
+        logger.exception(
+            "Erro inesperado no retry de provisionamento (pessoa %s, dispositivo %s)",
+            item["person_id"], item["device_id"],
+        )
+    return True
 
 
 def poll_device_events(device_id: str) -> int:
