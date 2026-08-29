@@ -41,6 +41,8 @@ services:
     depends_on:
       cam-snapshot-api:
         condition: service_healthy
+      go2rtc:
+        condition: service_started
     ports:
       - "80:80"
     volumes:

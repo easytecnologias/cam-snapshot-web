@@ -14,6 +14,12 @@
 // Usado tanto pelo painel de detalhe de camera (cameras.js) quanto pelo
 // modal de manutencao (maintenance.js) -- antes cada um tinha sua propria
 // copia da sinalizacao WebRTC.
+//
+// Streams NUNCA sao desregistrados explicitamente por este arquivo (nem em
+// stop() nem ao trocar de qualidade) -- so a tarefa periodica do backend
+// (reap_idle_streams, a cada 5min) remove streams sem espectador. E
+// proposital: desregistrar ao fechar UM espectador derrubava outros que
+// estivessem vendo a MESMA camera/qualidade ao mesmo tempo.
 
 const LIVE_STREAM_CODECS = [
   'avc1.640029', // H.264 high 4.1
@@ -44,6 +50,13 @@ function _liveStreamConcat(buffers) {
   return out;
 }
 
+// Espera crescente entre tentativas de reconexao, com teto de 30s -- evita
+// bater no go2rtc/backend sem parar quando a camera fica offline por muito
+// tempo ou a sessao expira.
+function _liveStreamBackoffMs(attempt) {
+  return Math.min(4000 * Math.pow(1.6, attempt), 30000);
+}
+
 async function _liveStreamRegister(ip, user, pass, subtype, hint) {
   const params = new URLSearchParams({
     user: user || 'admin',
@@ -54,14 +67,8 @@ async function _liveStreamRegister(ip, user, pass, subtype, hint) {
   });
   const resp = await api(`/api/maintenance/stream_register/${ip}?${params.toString()}`, { method: 'POST' });
   if (!resp || !resp.ok) throw new Error('Falha ao registrar stream');
-  return resp.stream_name || _liveStreamName(ip, subtype);
-}
-
-function _liveStreamUnregister(ip, subtype) {
-  if (!ip) return;
-  const params = new URLSearchParams({ subtype: String(subtype) });
-  // best-effort: nao trava o fechamento da tela esperando resposta
-  api(`/api/maintenance/stream_unregister/${ip}?${params.toString()}`, { method: 'POST' }).catch(() => {});
+  const body = await resp.json();
+  return body?.stream_name || _liveStreamName(ip, subtype);
 }
 
 /**
@@ -72,7 +79,6 @@ function _liveStreamUnregister(ip, subtype) {
  * @returns {{setSubtype: (novoSubtype: number) => void, stop: () => void}}
  */
 function mountLiveStream(videoEl, opts) {
-  const RECONNECT_MS = 4000;
   const user = opts.user || 'admin';
   const pass = opts.pass || '';
   const hint = { vendor: opts.vendor || '', model: opts.model || '' };
@@ -83,6 +89,7 @@ function mountLiveStream(videoEl, opts) {
   let generation = 0; // incrementa a cada connect(); descarta eventos de tentativas antigas
   let ws = null;
   let reconnectTimer = null;
+  let reconnectAttempts = 0;
   let stopped = false;
 
   function teardown() {
@@ -92,6 +99,20 @@ function mountLiveStream(videoEl, opts) {
     videoEl.removeAttribute('src');
     videoEl.load();
   }
+
+  function scheduleReconnect() {
+    reconnectTimer = setTimeout(connect, _liveStreamBackoffMs(reconnectAttempts++));
+  }
+
+  function onVisibilityChange() {
+    if (stopped) return;
+    if (document.hidden) {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connect();
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
   async function connect() {
     const myGen = ++generation;
@@ -105,7 +126,7 @@ function mountLiveStream(videoEl, opts) {
     } catch (e) {
       if (myGen !== generation || stopped) return;
       onStatus('Erro ao registrar stream');
-      reconnectTimer = setTimeout(connect, RECONNECT_MS);
+      scheduleReconnect();
       return;
     }
     if (myGen !== generation || stopped) return;
@@ -156,8 +177,10 @@ function mountLiveStream(videoEl, opts) {
       if (myGen !== generation) return;
 
       if (typeof ev.data === 'string') {
-        const msg = JSON.parse(ev.data);
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
         if (msg.type === 'mse') {
+          reconnectAttempts = 0;
           sourceBuffer = ms.addSourceBuffer(msg.value);
           sourceBuffer.mode = 'segments';
           sourceBuffer.addEventListener('updateend', onSourceBufferUpdateEnd);
@@ -181,7 +204,7 @@ function mountLiveStream(videoEl, opts) {
     socket.onclose = () => {
       if (myGen !== generation || stopped) return;
       onStatus('Reconectando...');
-      reconnectTimer = setTimeout(connect, RECONNECT_MS);
+      scheduleReconnect();
     };
 
     socket.onerror = () => {
@@ -196,17 +219,15 @@ function mountLiveStream(videoEl, opts) {
     setSubtype(novoSubtype) {
       const st = Number(novoSubtype) === 0 ? 0 : 1;
       if (st === subtype) return;
-      const oldIp = ip, oldSubtype = subtype;
       subtype = st;
+      reconnectAttempts = 0;
       connect();
-      _liveStreamUnregister(oldIp, oldSubtype);
     },
     stop() {
-      const lastIp = ip, lastSubtype = subtype;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       stopped = true;
       generation++;
       teardown();
-      _liveStreamUnregister(lastIp, lastSubtype);
     },
   };
 }
