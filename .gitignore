@@ -89,3 +89,4 @@ SKILLS.md
 scripts/_*.py
 scripts/_*.sh
 .worktrees/
+.superpowers/
