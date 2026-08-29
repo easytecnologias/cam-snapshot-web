@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from sightops_wireguard_sync import (
+    append_new_peer_block,
     canon_cidr,
     compute_target_state,
     expand_conflicted_lans_with_known_hosts,
@@ -224,11 +225,20 @@ def main() -> None:
     )
     check("192.168.20.0/24" not in perucaba_plan["missing"], "a rede em conflito nao deveria entrar no plano da PERUCABA")
 
-    # peer que nunca instalou a VPN: nao existe no dump -> nada e planejado
-    sem_vpn = {"nunca-instalou-pubkey": {"name": "SEM VPN", "allowed": {"10.9.9.0/24"}}}
+    # peer que o servidor ainda nao conhece (conector novo, primeira sincronizacao):
+    # nao esta no dump -> peer_exists=False, mas o conjunto desejado inteiro entra
+    # em 'missing'/'full_set' pra que o peer seja CRIADO (nao so ignorado).
+    sem_vpn = {"nunca-instalou-pubkey": {"name": "CONECTOR NOVO", "allowed": {"10.9.9.0/24"}}}
     plano_sem_vpn = plan_updates(sem_vpn, dump, {})
     check(plano_sem_vpn["nunca-instalou-pubkey"]["peer_exists"] is False, "peer inexistente no wg deveria ser marcado peer_exists=False")
-    check(plano_sem_vpn["nunca-instalou-pubkey"]["missing"] == set(), "peer inexistente nao deveria gerar plano de aplicacao")
+    check(
+        plano_sem_vpn["nunca-instalou-pubkey"]["missing"] == {"10.9.9.0/24"},
+        f"peer novo deveria ter o conjunto desejado inteiro em 'missing' para ser criado: {plano_sem_vpn['nunca-instalou-pubkey']['missing']}",
+    )
+    check(
+        plano_sem_vpn["nunca-instalou-pubkey"]["full_set"] == {"10.9.9.0/24"},
+        f"full_set do peer novo deveria ser o conjunto desejado: {plano_sem_vpn['nunca-instalou-pubkey']['full_set']}",
+    )
 
     # rede em conflito exato nunca aparece como 'missing' pra nenhum dos dois lados
     plano_conflito = plan_updates(fake_conflict, {"a": set(), "b": set()}, conf2)
@@ -250,6 +260,23 @@ def main() -> None:
     # chave que nao existe no arquivo: devolve o texto original, sem inventar bloco
     sem_mudanca = render_conf_with_updated_peer(CONF_REAL, "chave-que-nao-existe", {"1.2.3.0/24"})
     check(sem_mudanca == CONF_REAL, "chave inexistente no arquivo nao deveria alterar nada")
+
+    # --- append_new_peer_block (caso real: PORTO REAL DO COLEGIO, conector novo
+    # cadastrado no banco mas o servidor nunca tinha visto esse peer) ---
+    NOVO_PUBKEY = "X5x4V1ZluBJoc24korNFCDB8gzbiL58oRy/Nq7rnE2M="
+    com_peer_novo = append_new_peer_block(CONF_REAL, NOVO_PUBKEY, {"10.250.0.9/32", "10.45.0.0/24", "192.168.10.0/24"})
+    check(com_peer_novo.count("[Peer]") == 3, f"deveria ter os 2 blocos originais + 1 novo: {com_peer_novo.count('[Peer]')}")
+    check(f"PublicKey = {NOVO_PUBKEY}" in com_peer_novo, "o bloco novo deveria conter a chave publica do conector novo")
+    check("AllowedIPs = 10.250.0.9/32, 10.45.0.0/24, 192.168.10.0/24" in com_peer_novo, f"AllowedIPs do bloco novo errado: {com_peer_novo}")
+    check("AllowedIPs = 10.250.0.2/32" in com_peer_novo, "bloco da PERUCABA nao deveria mudar ao acrescentar peer novo")
+    check("AllowedIPs = 10.250.0.3/32, 192.168.20.0/24" in com_peer_novo, "bloco da SIERRA nao deveria mudar ao acrescentar peer novo")
+
+    # render_conf_with_updated_peer nao acha a chave nova (ainda nao esta no arquivo)
+    # -- e exatamente o sinal que o loop principal usa para cair no append como fallback
+    check(
+        render_conf_with_updated_peer(CONF_REAL, NOVO_PUBKEY, {"10.45.0.0/24"}) == CONF_REAL,
+        "peer que ainda nao esta no .conf nao deveria ser alterado por render_conf_with_updated_peer",
+    )
 
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")

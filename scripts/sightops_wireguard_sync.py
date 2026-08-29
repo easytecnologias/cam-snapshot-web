@@ -242,8 +242,9 @@ def plan_updates(
 
     {pubkey: {"name", "missing": set, "full_set": set, "peer_exists": bool}}
     `missing` ja exclui CIDRs em conflito exato entre conectores.
-    Peer que nao existe ainda no wg-sightops (nunca instalou a VPN) e listado
-    com peer_exists=False -- nada e aplicado, so reportado.
+    Peer que nao existe ainda no wg-sightops (conector novo, ainda sem peer no
+    servidor) e listado com peer_exists=False e `missing`/`full_set` ja com o
+    conjunto desejado -- o chamador decide se cria o peer do zero.
     """
     conflicted_cidrs = set(conflicts.keys())
     plan: Dict[str, Dict] = {}
@@ -251,7 +252,7 @@ def plan_updates(
         wanted = info["allowed"] - conflicted_cidrs
         current = current_state.get(pubkey)
         if current is None:
-            plan[pubkey] = {"name": info["name"], "missing": set(), "full_set": set(), "peer_exists": False}
+            plan[pubkey] = {"name": info["name"], "missing": set(wanted), "full_set": set(wanted), "peer_exists": False}
             continue
         missing = wanted - current
         plan[pubkey] = {
@@ -298,6 +299,18 @@ def render_conf_with_updated_peer(conf_text: str, pubkey: str, new_allowed_ips: 
                 block = block.rstrip("\n") + f"\nAllowedIPs = {allowed_str}\n"
         out.append("[Peer]" + block)
     return "".join(out) if found else conf_text
+
+
+def append_new_peer_block(conf_text: str, pubkey: str, allowed_ips: Set[str]) -> str:
+    """Acrescenta um bloco [Peer] novo ao final do arquivo de config.
+
+    Usado quando o conector tem chave publica cadastrada mas o servidor
+    ainda nunca viu esse peer (nem no `wg show`, nem no .conf) -- caso do
+    conector recem-criado, antes da primeira sincronizacao.
+    """
+    allowed_str = ", ".join(sorted(allowed_ips, key=lambda s: (":" in s, s)))
+    bloco = f"\n[Peer]\nPublicKey = {pubkey}\nAllowedIPs = {allowed_str}\nPersistentKeepalive = 25\n"
+    return conf_text.rstrip("\n") + "\n" + bloco
 
 
 # --- I/O real (nao coberto por teste automatico -- precisa de wg/ip/root) ----
@@ -438,9 +451,7 @@ def main() -> int:
     applied_any = False
     for pubkey, item in plan.items():
         name = item["name"]
-        if not item["peer_exists"]:
-            _log(f"{name}: peer {pubkey[:16]}... nao existe ainda em {WG_INTERFACE} (VPN nao instalada). Pulando.")
-            continue
+        is_new_peer = not item["peer_exists"]
         if not item["missing"]:
             continue
 
@@ -457,7 +468,8 @@ def main() -> int:
 
         full_set = current_state.get(pubkey, set()) | safe_new
         allowed_str = ",".join(sorted(full_set, key=lambda s: (":" in s, s)))
-        _log(f"{name}: aplicando {sorted(safe_new)} (peer {pubkey[:16]}...)")
+        acao = "criando peer novo" if is_new_peer else "aplicando"
+        _log(f"{name}: {acao} {sorted(safe_new)} (peer {pubkey[:16]}...)")
         applied_any = True
         if dry_run:
             continue
@@ -476,6 +488,8 @@ def main() -> int:
             try:
                 original = WG_CONF_PATH.read_text(encoding="utf-8")
                 updated = render_conf_with_updated_peer(original, pubkey, full_set)
+                if updated == original and is_new_peer:
+                    updated = append_new_peer_block(original, pubkey, full_set)
                 if updated != original:
                     backup = WG_CONF_PATH.with_suffix(
                         f".conf.bak-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
