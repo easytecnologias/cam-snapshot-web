@@ -179,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnOnuAdd')?.addEventListener('click', onuAdd);
   document.getElementById('onuAddTerminal')?.addEventListener('change', onuUpdateTerminalUI);
   document.getElementById('btnOnuAddVlanRow')?.addEventListener('click', onuAddVlanRow);
+  document.getElementById('btnOnuAddPortRowEpon')?.addEventListener('click', onuAddPortRowEpon);
   document.getElementById('btnOnuQuery')?.addEventListener('click', onuQuery);
   document.getElementById('btnOnuReboot')?.addEventListener('click', onuReboot);
   document.getElementById('btnOnuDelete')?.addEventListener('click', onuDelete);

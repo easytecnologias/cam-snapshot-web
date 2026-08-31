@@ -55,6 +55,19 @@ def command_failed(output: str) -> bool:
     return any(marker in low for marker in _FAILURE_MARKERS)
 
 
+_MAC_SHAPE_RE = re.compile(r"^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$")
+
+
+def _validate_mac_shape(mac_norm: str) -> None:
+    """`_norm_mac` (em olt_4840e_collect_macs.py, fora de escopo pra editar
+    aqui) so normaliza separadores/caixa -- nao rejeita lixo. Sem essa
+    checagem, um MAC invalido vira parte literal de um comando CLI
+    (`white-list add mac <mac>` / `show onu-status mac <mac>`), incluindo a
+    possibilidade de newline embutido virando um segundo comando na OLT."""
+    if not _MAC_SHAPE_RE.match(mac_norm):
+        raise ValueError(f"MAC invalido: {mac_norm!r}")
+
+
 class OnuAddError(Exception):
     """Erro ao autorizar/excluir/reiniciar ONU -- carrega o que ja foi
     aplicado. `onu` fica preenchido quando o onu-id ja foi lido de volta
@@ -216,6 +229,7 @@ def find_onu_4840e(
     """Localiza uma ONU ja autorizada pelo MAC ('show onu-status mac <mac>').
     Retorna None se nao achar."""
     mac_norm = _norm_mac(mac)
+    _validate_mac_shape(mac_norm)
     client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
     try:
         _cli(chan, "conf t", timeout=timeout)
@@ -346,6 +360,8 @@ def add_onu_4840e(
     le esse id de volta via 'show white-list' antes de continuar, nunca
     escolhe a posicao manualmente (fora de escopo desta entrega)."""
     mac_norm = _norm_mac(mac)
+    _validate_mac_shape(mac_norm)
+    description = re.sub(r"[\r\n]+", " ", description or "").strip()
     ports = ports or [{"port": 1, "vlan": None}]
     client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
     commands_run: List[str] = []
@@ -469,6 +485,7 @@ def delete_onu_4840e(
     fazer so um deixa a ONU voltando a se registrar sozinha (so tirou a
     whitelist) ou com posicao fantasma (so tirou o binding)."""
     mac_norm = _norm_mac(mac)
+    _validate_mac_shape(mac_norm)
     addr = f"0/{pon}/{onu}"
     client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
     commands_run: List[str] = []

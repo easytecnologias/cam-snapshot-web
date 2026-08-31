@@ -372,6 +372,83 @@ def test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth():
     check("onu-authenticate mode mac-auth white-list" not in result["commands_run"], result["commands_run"])
 
 
+def test_add_onu_4840e_sanitizes_newline_in_description():
+    """Um `description` com newline embutido nao pode virar um segundo
+    comando enviado a OLT -- `_cli` manda `cmd.rstrip() + '\\n'`, que so tira
+    espaco/newline do FIM da string, nao um newline no MEIO dela. Sem
+    sanitizar, uma description tipo 'Cam\\nwhite-list add mac ...' colocaria
+    esse segundo trecho na mesma linha de comando que a OLT real interpreta
+    como um segundo ENTER. Prova que o driver sanitiza ANTES de montar o
+    comando: o comando 'onu-description' realmente enviado (chan.commands)
+    nao pode conter '\\n' embutido, e o texto injetado tem que aparecer
+    como parte literal (inofensiva) da mesma linha, nao como comando
+    separado."""
+    malicious_description = "Camera-Teste\nwrite-list add mac aa:aa:aa:aa:aa:aa"
+    white_list_after_add = (
+        "WHITE LIST:\nPort Index Mac Address\npon-0/4 6 30:e1:f1:73:a7:19\nTotal white-list entries: 1 .\n"
+    )
+    steps = {
+        "conf t": ("", "OLT_RADS(config)#"),
+        "interface pon 0/4": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show onu-authenticate mode": ("pon 0/4 onu-authentication mode: disable", "OLT_RADS(config-if-pon-0/4)#"),
+        "onu-authenticate mode mac-auth white-list": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "white-list add mac 30:e1:f1:73:a7:19": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show white-list": (white_list_after_add, "OLT_RADS(config-if-pon-0/4)#"),
+        "exit": ("", "OLT_RADS(config)#"),
+        "onu 0/4/6": ("", "OLT_RADS(onu-0/4/6)#"),
+        "onu-description Camera-Teste write-list add mac aa:aa:aa:aa:aa:aa": ("", "OLT_RADS(onu-0/4/6)#"),
+        "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
+        "end": ("", "OLT_RADS#"),
+        "copy running-config startup-config": ("Configuration saved.", "OLT_RADS#"),
+    }
+
+    orig_open_shell = _patch_open_shell(_config_script(steps))
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.add_onu_4840e(
+            "100.64.10.5", "admin", "x", pon=4, mac="30:e1:f1:73:a7:19",
+            description=malicious_description,
+        )
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    desc_commands = [c for c in result["commands_run"] if c.startswith("onu-description")]
+    check(len(desc_commands) == 1, f"esperava exatamente 1 comando onu-description, veio {desc_commands}")
+    check("\n" not in desc_commands[0], f"onu-description nao pode conter newline embutido: {desc_commands[0]!r}")
+    check(
+        "write-list add mac aa:aa:aa:aa:aa:aa" in desc_commands[0],
+        f"texto injetado devia virar parte literal (inofensiva) da description, nao um comando separado: {desc_commands[0]!r}",
+    )
+
+
+def test_add_onu_4840e_rejects_invalid_mac():
+    """Um MAC que nao bate com o formato 'aa:bb:cc:dd:ee:ff' depois de
+    normalizado (`_norm_mac` so normaliza separadores/caixa, nao valida
+    formato) tem que falhar com ValueError ANTES de abrir qualquer conexao
+    com a OLT -- senao ele vira parte literal de comandos como 'white-list
+    add mac <mac>' / 'show onu-status mac <mac>'. Prova isso fazendo
+    `_open_shell` explodir se for chamado -- se a validacao nao rodar antes
+    da conexao, o teste falha por causa do AssertionError do fake, nao so
+    por falta do ValueError esperado."""
+    def fake_open_shell(*args, **kwargs):
+        raise AssertionError("nao deveria abrir conexao com a OLT para um MAC invalido")
+
+    orig_open_shell = mod._open_shell
+    orig_login, orig_enable = _patch_login()
+    mod._open_shell = fake_open_shell
+    try:
+        raised = False
+        try:
+            mod.add_onu_4840e("100.64.10.5", "admin", "x", pon=4, mac="not-a-mac")
+        except ValueError as e:
+            raised = True
+            check("MAC invalido" in str(e), str(e))
+        check(raised, "esperava ValueError para MAC invalido, nenhuma excecao foi lancada")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+
 def test_delete_onu_4840e_runs_both_steps_and_saves():
     steps = {
         "conf t": ("", "OLT_RADS(config)#"),
@@ -669,6 +746,8 @@ def main() -> None:
     test_add_onu_4840e_full_flow_success()
     test_add_onu_4840e_does_not_override_existing_loid_auth()
     test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth()
+    test_add_onu_4840e_sanitizes_newline_in_description()
+    test_add_onu_4840e_rejects_invalid_mac()
     test_delete_onu_4840e_runs_both_steps_and_saves()
     test_delete_onu_4840e_reports_failure_when_whitelist_del_fails()
     test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails()

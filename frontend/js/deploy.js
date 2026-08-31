@@ -1961,6 +1961,33 @@ function onuAddVlanRow() {
   });
 }
 
+function onuPortRowEponHtml() {
+  return `
+    <div class="onu-service-row-epon form-row">
+      <label>Porta ethernet
+        <input type="number" min="1" value="1" class="onu-eth-port-epon">
+      </label>
+      <label>VLAN
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" min="1" class="onu-eth-vlan-epon" style="flex:1">
+          <button type="button" class="icon-button onu-service-row-epon-remove" title="Remover porta"><i data-lucide="x"></i></button>
+        </div>
+      </label>
+    </div>`;
+}
+
+function onuAddPortRowEpon() {
+  const container = document.getElementById('onuAddPortRowsEpon');
+  if (!container) return;
+  container.insertAdjacentHTML('beforeend', onuPortRowEponHtml());
+  lucide.createIcons();
+  container.querySelectorAll('.onu-service-row-epon-remove').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => btn.closest('.onu-service-row-epon')?.remove());
+  });
+}
+
 function onuUpdateTerminalUI() {
   const wrap = document.getElementById('onuAddVlanAddWrap');
   if (wrap) wrap.style.display = '';
@@ -2226,6 +2253,7 @@ async function onuAddEpon(olt) {
       olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
       olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
       pon, serno_id: 0, serial: mac, description,
+      vlan: services[0]?.vlan || 0,
       services: services.map(s => ({ service: 'downlink', vlan: s.vlan, port: s.port })),
       site: olt.site || '', olt_name: olt.olt_name || '',
       connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
@@ -2563,13 +2591,18 @@ async function onuDeleteEpon(olt) {
   });
   onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
-  if (confirmBtn) confirmBtn.disabled = false;
   if (!panoramaEl) return;
   if (!res?.ok || data?.ok === false) {
+    // Consulta previa falhou -- o MAC alvo continua desconhecido. NAO
+    // reabilita o botao de confirmar: clicar sem MAC manda `serial: ''`
+    // pro backend, que desvincula a posicao mas falha em tirar da
+    // whitelist (comando incompleto) -- exatamente o meio-estado que
+    // este fluxo de dois passos existe pra evitar.
     panoramaEl.innerHTML = `<p>Sem informacoes para essa ONU (PON ${esc(pon)} / posicao ${esc(onuNum)}) -- ${esc(data?.error || 'nao respondeu')}.</p>`;
     return;
   }
   _onuDeleteTarget.mac = data.mac || '';
+  if (confirmBtn) confirmBtn.disabled = false;
   panoramaEl.innerHTML = `
     <p>Voce esta prestes a excluir:</p>
     <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
