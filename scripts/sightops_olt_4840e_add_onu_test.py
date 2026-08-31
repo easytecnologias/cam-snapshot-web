@@ -207,17 +207,57 @@ def test_connect_and_login_closes_on_ensure_logged_in_failure():
         mod._ensure_enable = orig_enable
 
 
+def test_discover_onus_4840e_finds_unauthorized_mac():
+    status_output = (
+        "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
+        "0/1/1  30:e1:f1:3e:a0:3f 2555   26/08/28 05:45:20 other 1.3-220719 Up\n"
+        "0/1/2  00:0a:5a:ff:ff:69 -      -                 other -          Down\n"
+    )
+    white_output = (
+        "WHITE LIST:\n"
+        "Port Index Mac Address\n"
+        "pon-0/1 1 30:e1:f1:3e:a0:3f\n"
+        "Total white-list entries: 1 .\n"
+    )
+
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "interface pon 0/1":
+            return "", "OLT_RADS(config-if-pon-0/1)#"
+        if cmd == "show onu-status":
+            return status_output, prompt
+        if cmd == "show white-list":
+            return white_output, prompt
+        if cmd == "exit":
+            return "", "OLT_RADS(config)#"
+        return "", prompt
+
+    orig_open_shell = _patch_open_shell(script)
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.discover_onus_4840e("100.64.10.5", "admin", "x", pon="1")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    candidates = result["pons"]["1"]["discovered"]
+    check(len(candidates) == 1, f"esperava 1 candidata, veio {candidates}")
+    check(candidates[0]["mac"] == "00:0a:5a:ff:ff:69", f"mac errado: {candidates}")
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
     test_onu_signal_4840e_combines_status_and_opm()
     test_connect_and_login_closes_on_ensure_logged_in_failure()
+    test_discover_onus_4840e_finds_unauthorized_mac()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:
             print(" -", f)
         raise SystemExit(1)
-    print("OK: sightops_olt_4840e_add_onu_test (find_onu/onu_signal)")
+    print("OK: sightops_olt_4840e_add_onu_test")
 
 
 if __name__ == "__main__":

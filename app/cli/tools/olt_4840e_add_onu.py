@@ -276,3 +276,46 @@ def onu_signal_4840e(
             client.close()
         except Exception:
             pass
+
+
+def _pon_range(pon: str) -> List[int]:
+    p = (pon or "all").strip().lower()
+    if p == "all":
+        return [1, 2, 3, 4]
+    return [int(p)]
+
+
+def discover_onus_4840e(
+    olt_ip: str, user: str, password: str, pon: str = "all", port: int = 22, timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Descobre MACs vistos fisicamente na PON mas ainda fora da whitelist
+    (candidatas a autorizar). Cruza 'show onu-status' (tudo que ja foi
+    visto, autorizado ou nao -- os nao-autorizados aparecem com State=Down
+    e sem RTT) com 'show white-list' (o que ja esta autorizado)."""
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    try:
+        pons_out: Dict[str, Any] = {}
+        for p in _pon_range(pon):
+            _cli(chan, "conf t", timeout=timeout)
+            _cli(chan, f"interface pon 0/{p}", timeout=timeout)
+            status_rows = _parse_onu_status(_cli(chan, "show onu-status", timeout=timeout))
+            white_rows = _parse_white_list(_cli(chan, "show white-list", timeout=timeout))
+            _cli(chan, "exit", timeout=timeout)
+
+            whitelisted_macs = {row["mac"] for row in white_rows if row["pon"] == p}
+            discovered = [
+                {"pon": row["pon"], "mac": row["mac"], "state": row["state"]}
+                for row in status_rows
+                if row["pon"] == p and row["state"] == "Down" and row["mac"] not in whitelisted_macs
+            ]
+            pons_out[str(p)] = {"discovered": discovered}
+        return {"ok": True, "pons": pons_out}
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
