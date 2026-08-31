@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.cli.tools.olt_4840e_collect_macs import (
     _cli,
@@ -525,14 +525,24 @@ _CONFIRM_YN_RE = re.compile(r"\(y/n\)\??\s*\[n\]", re.IGNORECASE)
 _GENERIC_PROMPT_RE = re.compile(r"(?:\r?\n)?[^\n]{0,120}(?:\([^\)]*\))?[>#]\s*$")
 
 
-def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> str:
+def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> Tuple[str, bool]:
     """So usada por reboot_onu_4840e. Manda `cmd`, espera o prompt de
     confirmacao '(y/n)?[n]' aparecer e responde 'y' explicitamente -- nunca
     conta com o proximo comando da fila pra responder (ver restricao de
     seguranca no topo do plano: foi exatamente essa suposicao que quase
-    causou um reboot real da OLT inteira durante a investigacao)."""
+    causou um reboot real da OLT inteira durante a investigacao).
+
+    Devolve (output, answered) -- `answered` so vira True depois de ver o
+    texto real de confirmacao E mandar 'y'. So retorna no prompt generico
+    DEPOIS de confirmar (nunca antes -- um retorno prematuro, por causa de
+    algum texto solto no buffer que bata com o prompt generico antes da
+    confirmacao real aparecer, deixaria a OLT esperando resposta enquanto o
+    driver ja fechou a sessao). Se o comando falhar antes mesmo de pedir
+    confirmacao (erro de sintaxe etc.), retorna cedo com answered=False em
+    vez de esperar o timeout inteiro."""
     while chan.recv_ready():
         chan.recv(65535)
+    time.sleep(0.08)  # mesmo tempo de assentamento que _cli usa
     chan.send(cmd.rstrip() + "\n")
 
     buf = ""
@@ -547,10 +557,12 @@ def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> str:
                 buf = ""
                 time.sleep(0.1)
                 continue
-            if _GENERIC_PROMPT_RE.search(buf):
-                return buf
+            if answered and _GENERIC_PROMPT_RE.search(buf):
+                return buf, True
+            if not answered and command_failed(buf):
+                return buf, False
         time.sleep(0.05)
-    return buf
+    return buf, answered
 
 
 def reboot_onu_4840e(
@@ -575,10 +587,19 @@ def reboot_onu_4840e(
                     "error": f"Falha ao entrar no contexto {addr}: {out.strip()[:300]}"}
 
         cmd = "onu-reboot"
-        out = _cli_confirm_reboot(chan, cmd, timeout=timeout)
+        out, answered = _cli_confirm_reboot(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
+        if answered:
+            commands_run.append("y")
 
-        return {"ok": True, "pon": pon, "onu": onu, "command": cmd, "raw_output": out.strip()[:500], "commands_run": commands_run}
+        ok = answered and not command_failed(out)
+        result: Dict[str, Any] = {"ok": ok, "pon": pon, "onu": onu, "command": cmd, "raw_output": out.strip()[:500], "commands_run": commands_run}
+        if not ok:
+            result["error"] = (
+                f"Comando de reinicio nao foi confirmado pela OLT (sem 'y' de confirmacao): {out.strip()[:300]}"
+                if not answered else f"Falha ao reiniciar a ONU {addr}: {out.strip()[:300]}"
+            )
+        return result
     finally:
         try:
             chan.close()

@@ -537,6 +537,44 @@ def test_reboot_onu_4840e_never_sends_bare_reboot():
     check("onu-reboot" in sent_commands, f"esperava 'onu-reboot' entre os comandos enviados: {sent_commands}")
 
 
+def test_reboot_onu_4840e_never_answers_without_seeing_confirmation():
+    """Prova que o guard do regex de confirmacao (_CONFIRM_YN_RE) e
+    realmente obrigatorio pro resultado do teste: se a OLT responder
+    'onu-reboot' com um prompt comum, SEM pedir confirmacao, o driver
+    NUNCA manda 'y' por conta propria -- e reporta ok=False, nao um falso
+    sucesso. Sem esse teste, remover o guard do regex nao quebraria
+    nenhum teste (os outros dois so cobrem os casos onde a confirmacao
+    aparece)."""
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "onu 0/4/6":
+            return "", "OLT_RADS(onu-0/4/6)#"
+        if cmd == "onu-reboot":
+            # sem texto de confirmacao -- so devolve um prompt comum
+            return "", "OLT_RADS(onu-0/4/6)#"
+        return "", prompt
+
+    chan_holder = {}
+
+    def fake_open_shell(host, user, password, port=22, timeout=12.0):
+        chan = FakeChannel(script, prompt="OLT_RADS(config)#")
+        chan_holder["chan"] = chan
+        return FakeSSHClient(), chan
+
+    orig_open_shell = mod._open_shell
+    orig_login, orig_enable = _patch_login()
+    mod._open_shell = fake_open_shell
+    try:
+        result = mod.reboot_onu_4840e("100.64.10.5", "admin", "x", pon=4, onu=6, timeout=0.5)
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    sent_commands = chan_holder["chan"].commands
+    check("y" not in sent_commands, f"NUNCA deve mandar 'y' sem ver o texto real de confirmacao -- comandos enviados: {sent_commands}")
+    check(result["ok"] is False, f"sem confirmacao real, ok deve ser False (nao um falso sucesso): {result}")
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
@@ -552,6 +590,7 @@ def main() -> None:
     test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails()
     test_reboot_onu_4840e_answers_confirmation_with_y()
     test_reboot_onu_4840e_never_sends_bare_reboot()
+    test_reboot_onu_4840e_never_answers_without_seeing_confirmation()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:
