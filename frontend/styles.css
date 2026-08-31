@@ -4035,7 +4035,7 @@ a { color: inherit; text-decoration: none; }
   .main-area { width: 100%; margin-left: 0; }
   .workspace { padding: 20px 16px; }
   .topbar { padding: 0 16px; }
-  .form-row { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr !important; }
   .metrics { grid-template-columns: 1fr 1fr; }
   .playback-layout { grid-template-columns: 1fr; }
   .playback-actions { justify-content: stretch; }
