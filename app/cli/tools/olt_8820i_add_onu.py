@@ -329,6 +329,21 @@ def resolve_current_serno_id(discovered: List[Dict[str, Any]], serial: str, fall
     )
 
 
+def serial_number_arg(vendor: str, serial: str) -> str:
+    """Monta o argumento de 'onu set ... serial-number <X>' (formato colado
+    VENDOR+SERIAL, ex: ITBS2C96E6A7 -- validado contra OLT real).
+
+    Aceita vendor/serial separados (como vem de discover_onus/onu show) ou um
+    serial ja concatenado (como onu_signal devolve, ex: 'ITBS2C96E6A7') --
+    nesse segundo caso nao duplica o prefixo do fabricante.
+    """
+    v = (vendor or "").strip().upper()
+    s = (serial or "").strip().upper()
+    if v and s.startswith(v):
+        return s
+    return f"{v}{s}"
+
+
 def add_onu(
     olt_ip: str,
     user: str,
@@ -344,20 +359,25 @@ def add_onu(
     tag_mode: str = "tagged",
     terminal: str = "onu",
     serial: str = "",
+    vendor: str = "",
     timeout: float = 15.0,
 ) -> Dict[str, Any]:
-    """Autoriza a ONU descoberta (serno_id) numa posicao livre da PON.
+    """Autoriza a ONU descoberta numa posicao livre da PON.
 
-    Reconfirma a posicao livre bem antes de executar (o serno_id/free_slots
-    podem ter mudado desde a descoberta se outro tecnico mexeu na mesma OLT
-    nesse meio tempo) -- mesma protecao usada no bot de referencia.
+    Reconfirma a posicao livre bem antes de executar (o free_slots pode ter
+    mudado desde a descoberta se outro tecnico mexeu na mesma OLT nesse meio
+    tempo) -- mesma protecao usada no bot de referencia.
 
-    O `serno_id` e um ID de sessao de descoberta da propria OLT -- ela o
-    reenumera toda vez que roda "onu show gpon <pon>" (inclusive por outra
-    consulta concorrente). Se `serial` for informado, ele e usado para
-    reresolver o serno_id atual na lista de descoberta recem-lida antes de
-    autorizar, em vez de confiar num id capturado minutos antes na tela
-    (que pode ter expirado, causando "No such ID in discovered ONUs").
+    Autoriza por SERIAL ("onu set ... serial-number <VENDOR+SERIAL> meprof
+    <perfil>") sempre que `serial` for informado -- validado contra OLT real
+    (comando `onu set gpon <pon> onu <onu> serial-number <X> meprof <perfil>`).
+    O serial nao muda; ja o `serno_id` e um ID de sessao de descoberta que a
+    OLT REENUMERA toda vez que roda "onu show gpon <pon>" (inclusive por
+    outra consulta concorrente) -- se o tecnico demorar entre descobrir e
+    autorizar, o id capturado na tela pode ja ter expirado ("No such ID in
+    discovered ONUs"). Autorizar pelo serial elimina essa corrida por
+    completo. So cai de volta no `id <serno_id>` (reresolvido via
+    `resolve_current_serno_id`) quando nenhum serial e informado.
 
     `services` permite mais de um par servico/VLAN (um "bridge add" por
     entrada) -- so faz sentido em modo ONT/roteador; em modo ONU/bridge
@@ -378,12 +398,15 @@ def add_onu(
                 raise OnuAddError(f"Nenhuma posicao livre na PON {pon}.", "onu show gpon", commands_run)
             chosen_slot = refreshed["free_slots"][0]
 
-        try:
-            current_serno_id = resolve_current_serno_id(refreshed["discovered"], serial, serno_id)
-        except OnuAddError as e:
-            raise OnuAddError(str(e), e.failed_command, commands_run) from e
+        if serial:
+            cmd = f"onu set gpon {pon} onu {chosen_slot} serial-number {serial_number_arg(vendor, serial)} meprof {profile}"
+        else:
+            try:
+                current_serno_id = resolve_current_serno_id(refreshed["discovered"], serial, serno_id)
+            except OnuAddError as e:
+                raise OnuAddError(str(e), e.failed_command, commands_run) from e
+            cmd = f"onu set gpon {pon} onu {chosen_slot} id {current_serno_id} meprof {profile}"
 
-        cmd = f"onu set gpon {pon} onu {chosen_slot} id {current_serno_id} meprof {profile}"
         out = cli_run(chan, cmd, timeout=timeout)
         commands_run.append(cmd)
         if command_failed(out):

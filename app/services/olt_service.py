@@ -1105,6 +1105,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 tag_mode=req.tag_mode,
                 terminal=req.terminal,
                 serial=req.serial,
+                vendor=req.vendor,
                 timeout=req.timeout,
             )
             if result.get("ok"):
