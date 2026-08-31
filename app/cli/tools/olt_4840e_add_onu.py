@@ -519,3 +519,72 @@ def delete_onu_4840e(
             client.close()
         except Exception:
             pass
+
+
+_CONFIRM_YN_RE = re.compile(r"\(y/n\)\??\s*\[n\]", re.IGNORECASE)
+_GENERIC_PROMPT_RE = re.compile(r"(?:\r?\n)?[^\n]{0,120}(?:\([^\)]*\))?[>#]\s*$")
+
+
+def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> str:
+    """So usada por reboot_onu_4840e. Manda `cmd`, espera o prompt de
+    confirmacao '(y/n)?[n]' aparecer e responde 'y' explicitamente -- nunca
+    conta com o proximo comando da fila pra responder (ver restricao de
+    seguranca no topo do plano: foi exatamente essa suposicao que quase
+    causou um reboot real da OLT inteira durante a investigacao)."""
+    while chan.recv_ready():
+        chan.recv(65535)
+    chan.send(cmd.rstrip() + "\n")
+
+    buf = ""
+    answered = False
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if chan.recv_ready():
+            buf += chan.recv(65535).decode("utf-8", errors="ignore")
+            if not answered and _CONFIRM_YN_RE.search(buf):
+                chan.send("y\n")
+                answered = True
+                buf = ""
+                time.sleep(0.1)
+                continue
+            if _GENERIC_PROMPT_RE.search(buf):
+                return buf
+        time.sleep(0.05)
+    return buf
+
+
+def reboot_onu_4840e(
+    olt_ip: str, user: str, password: str, pon: int, onu: int, port: int = 22, timeout: float = 20.0,
+) -> Dict[str, Any]:
+    """Reinicia uma ONU ja autorizada (dentro do contexto 'onu <endereco>',
+    comando 'onu-reboot'). NUNCA envia o comando 'reboot' (sem 'onu-') --
+    esse reinicia a OLT inteira, nao a ONU."""
+    addr = f"0/{pon}/{onu}"
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    commands_run: List[str] = []
+    try:
+        cmd = "conf t"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        cmd = f"onu {addr}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            return {"ok": False, "pon": pon, "onu": onu, "commands_run": commands_run,
+                    "error": f"Falha ao entrar no contexto {addr}: {out.strip()[:300]}"}
+
+        cmd = "onu-reboot"
+        out = _cli_confirm_reboot(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        return {"ok": True, "pon": pon, "onu": onu, "command": cmd, "raw_output": out.strip()[:500], "commands_run": commands_run}
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass

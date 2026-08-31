@@ -439,6 +439,104 @@ def test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails():
     check("copy running-config startup-config" not in result["commands_run"], "nao devia salvar se falhou")
 
 
+def test_reboot_onu_4840e_answers_confirmation_with_y():
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "onu 0/4/6":
+            return "", "OLT_RADS(onu-0/4/6)#"
+        # onu-reboot e tratado dentro do proprio teste via FakeChannel especial abaixo
+        return "", prompt
+
+    class ConfirmChannel(FakeChannel):
+        """Canal especial so pra este teste: simula o prompt de confirmacao
+        real da OLT quando recebe 'onu-reboot', e SO libera o reboot se
+        receber 'y' como proximo envio -- se receber qualquer outra coisa
+        (inclusive um comando novo, simulando o acidente real que
+        aconteceu), marca `self.wrongly_confirmed = True`."""
+
+        def __init__(self, script, prompt="OLT_RADS(onu-0/4/6)#"):
+            super().__init__(script, prompt)
+            self.awaiting_confirm = False
+            self.wrongly_confirmed = False
+            self.confirmed_with_y = False
+
+        def send(self, data):
+            cmd = data.rstrip("\n")
+            self.commands.append(cmd)
+            if self.awaiting_confirm:
+                self.awaiting_confirm = False
+                if cmd == "y":
+                    self.confirmed_with_y = True
+                    self._pending += "\n2016/11/07 17:58:13 EVENT (onu status): reboot ok\nOLT_RADS(onu-0/4/6)#"
+                else:
+                    self.wrongly_confirmed = True
+                return len(data)
+            if cmd == "onu-reboot":
+                self.awaiting_confirm = True
+                self._pending += "Are you sure you want to proceed with the system reboot(y/n)?[n]"
+                return len(data)
+            reply, self._prompt = self._script(cmd, self._prompt)
+            self._pending += reply + "\n" + self._prompt
+            return len(data)
+
+    chan_holder = {}
+
+    def fake_open_shell(host, user, password, port=22, timeout=12.0):
+        chan = ConfirmChannel(script)
+        chan_holder["chan"] = chan
+        return FakeSSHClient(), chan
+
+    orig_open_shell = mod._open_shell
+    orig_login, orig_enable = _patch_login()
+    mod._open_shell = fake_open_shell
+    try:
+        result = mod.reboot_onu_4840e("100.64.10.5", "admin", "x", pon=4, onu=6)
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    check(chan_holder["chan"].confirmed_with_y is True, "esperava confirmar com 'y' explicito")
+    check(chan_holder["chan"].wrongly_confirmed is False, "NUNCA deve confirmar com outra coisa que nao seja 'y'")
+
+
+def test_reboot_onu_4840e_never_sends_bare_reboot():
+    """Garante que nenhum comando REALMENTE ENVIADO a OLT e a string
+    'reboot' isolada (sem o prefixo 'onu-') -- esse comando reinicia a OLT
+    inteira, nao so a ONU. Verifica os comandos que passaram pelo canal
+    (chan.commands), nao o texto-fonte do arquivo -- um scan estatico do
+    codigo-fonte daria falso positivo, porque a palavra 'reboot' tambem
+    aparece em prosa nos docstrings (ex: 'quase causou um reboot real da
+    OLT' no docstring de _cli_confirm_reboot)."""
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "onu 0/4/6":
+            return "", "OLT_RADS(onu-0/4/6)#"
+        if cmd == "onu-reboot":
+            return "Are you sure you want to proceed with the system reboot(y/n)?[n]y", "OLT_RADS(onu-0/4/6)#"
+        return "", prompt
+
+    chan_holder = {}
+
+    def fake_open_shell(host, user, password, port=22, timeout=12.0):
+        chan = FakeChannel(script, prompt="OLT_RADS(config)#")
+        chan_holder["chan"] = chan
+        return FakeSSHClient(), chan
+
+    orig_open_shell = mod._open_shell
+    orig_login, orig_enable = _patch_login()
+    mod._open_shell = fake_open_shell
+    try:
+        mod.reboot_onu_4840e("100.64.10.5", "admin", "x", pon=4, onu=6)
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    sent_commands = chan_holder["chan"].commands
+    check("reboot" not in sent_commands, f"NUNCA deve enviar o comando 'reboot' isolado -- comandos enviados: {sent_commands}")
+    check("onu-reboot" in sent_commands, f"esperava 'onu-reboot' entre os comandos enviados: {sent_commands}")
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
@@ -452,6 +550,8 @@ def main() -> None:
     test_delete_onu_4840e_runs_both_steps_and_saves()
     test_delete_onu_4840e_reports_failure_when_whitelist_del_fails()
     test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails()
+    test_reboot_onu_4840e_answers_confirmation_with_y()
+    test_reboot_onu_4840e_never_sends_bare_reboot()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:
