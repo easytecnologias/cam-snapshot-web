@@ -3683,6 +3683,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepAdd">
               <summary><span class="onu-step-title">2. Autorizar (adicionar) ONU</span></summary>
               <div class="onu-step-body">
+                <div id="onuAddFieldsGpon">
                 <div class="form-row">
                   <div class="form-group">
                     <label for="onuAddSernoId">ID descoberto (serno_id)</label>
@@ -3737,6 +3738,7 @@
                     <input id="onuAddDescription" placeholder="Ex: Cliente X - camera entrada">
                   </div>
                 </div>
+                </div>
                 <p style="font-size:11px;color:var(--amber);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
                   <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
                   Autorizar grava configuracao real na OLT (equipamento em producao).
@@ -3773,7 +3775,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepQuery">
               <summary><span class="onu-step-title">3. Consultar sinal e MACs</span></summary>
               <div class="onu-step-body">
-                <div class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
+                <div id="onuQueryFieldsGpon" class="form-row" style="grid-template-columns:minmax(120px,.55fr) minmax(180px,1fr) minmax(260px,1.25fr)">
                   <div class="form-group">
                     <label for="onuQueryPon">PON</label>
                     <select id="onuQueryPon">
@@ -3811,7 +3813,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepReboot">
               <summary><span class="onu-step-title">4. Reiniciar ONU</span></summary>
               <div class="onu-step-body">
-                <div class="form-row">
+                <div id="onuRebootFieldsGpon" class="form-row">
                   <div class="form-group">
                     <label for="onuRebootPon">PON</label>
                     <select id="onuRebootPon">
@@ -3852,7 +3854,7 @@
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
               <summary><span class="onu-step-title">5. Excluir ONU</span></summary>
               <div class="onu-step-body">
-                <div class="form-row">
+                <div id="onuDeleteFieldsGpon" class="form-row">
                   <div class="form-group">
                     <label for="onuDeletePon">PON</label>
                     <select id="onuDeletePon">

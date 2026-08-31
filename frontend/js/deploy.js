@@ -1676,6 +1676,10 @@ function onuApplyRegisteredOlt() {
   if (password) password.placeholder = row ? 'Credencial salva no servidor' : 'Senha';
   onuUpdatePonSelectors();
   onuUpdateServiceOptions();
+  onuToggleEponFields('onuAddFieldsGpon', 'onuAddFieldsEpon');
+  onuToggleEponFields('onuQueryFieldsGpon', 'onuQueryFieldsEpon');
+  onuToggleEponFields('onuRebootFieldsGpon', 'onuRebootFieldsEpon');
+  onuToggleEponFields('onuDeleteFieldsGpon', 'onuDeleteFieldsEpon');
   updateOnuConnectorStatus();
   onuUpdateCapabilities();
   onuUpdateStepsLock();
@@ -1891,6 +1895,20 @@ const ONU_SERVICE_OPTIONS_8820I = `
   <option value="tls">TLS / transparente</option>
 `;
 
+function onuIsEpon(row) {
+  return String(row?.driver || '').trim().toLowerCase() === 'intelbras_4840e';
+}
+
+function onuToggleEponFields(baseId, eponId) {
+  const row = onuSelectedRegistryRow();
+  const isEpon = onuIsEpon(row);
+  const baseEl = document.getElementById(baseId);
+  const eponEl = document.getElementById(eponId);
+  if (baseEl) baseEl.classList.toggle('hidden', isEpon);
+  if (eponEl) eponEl.classList.toggle('hidden', !isEpon);
+  return isEpon;
+}
+
 function onuServiceOptionsHtmlForDriver(driver) {
   return String(driver || '').trim().toLowerCase() === 'intelbras_8820i'
     ? ONU_SERVICE_OPTIONS_8820I
@@ -2092,12 +2110,48 @@ function onuClear() {
   showToast('Campos da implantacao ONU limpos. O historico foi mantido.');
 }
 
+async function onuDiscoverEpon(olt) {
+  const ticker = onuStartTicker('onuDiscoverResultEpon', 'Consultando OLT');
+  const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuDiscoverResultEpon', esc(data?.detail || 'Falha ao consultar a OLT.'), true);
+    return;
+  }
+  const pons = data.pons || {};
+  const allDiscovered = [];
+  Object.keys(pons).forEach(k => (pons[k]?.discovered || []).forEach(d => allDiscovered.push(d)));
+  if (!allDiscovered.length) {
+    onuSetResult('onuDiscoverResultEpon', 'Nenhuma ONU nao autorizada encontrada.');
+    return;
+  }
+  onuSetResult('onuDiscoverResultEpon', allDiscovered.map(d => `
+    <div class="deploy-match deploy-onu-pick-epon" data-mac="${esc(d.mac)}" data-pon="${esc(d.pon)}" style="cursor:pointer">
+      <b>${esc(d.mac)}</b>
+      <span>PON ${esc(d.pon)}</span>
+      <small>clique para selecionar</small>
+    </div>
+  `).join(''));
+  document.querySelectorAll('#onuDiscoverResultEpon .deploy-onu-pick-epon').forEach(el => {
+    el.addEventListener('click', () => {
+      const macEl = document.getElementById('onuAddMacEpon');
+      const ponEl = document.getElementById('onuOltPon');
+      if (macEl) macEl.value = el.dataset.mac;
+      if (ponEl) ponEl.value = el.dataset.pon || '';
+      showToast(`ONU ${el.dataset.mac} selecionada (PON ${el.dataset.pon}).`);
+      onuAccordionOpen('onuStepAdd');
+    });
+  });
+}
+
 async function onuDiscover() {
   if (!onuHasCapability('discover_onus')) { showToast(onuCapabilityMessage('discover_onus'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
   if (!olt.olt_id && !olt.password) { showToast('Informe a senha da OLT.', true); return; }
   if (!onuConnectorReady(olt)) return;
+  if (onuIsEpon(onuSelectedRegistryRow())) { return onuDiscoverEpon(olt); }
   const ticker = onuStartTicker('onuDiscoverResult', 'Consultando OLT');
   const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
   onuStopTicker(ticker);
@@ -2148,9 +2202,46 @@ async function onuDiscover() {
   });
 }
 
+async function onuAddEpon(olt) {
+  const mac = document.getElementById('onuAddMacEpon')?.value.trim() || '';
+  if (!mac) { showToast('Informe o MAC da ONU.', true); return; }
+  const description = document.getElementById('onuAddDescriptionEpon')?.value.trim() || '';
+  const rows = [...document.querySelectorAll('#onuAddPortRowsEpon .onu-service-row-epon')];
+  const services = rows.map(row => ({
+    port: Number(row.querySelector('.onu-eth-port-epon')?.value || 1),
+    vlan: Number(row.querySelector('.onu-eth-vlan-epon')?.value || 0),
+  })).filter(s => s.vlan > 0);
+  const ponSelect = document.getElementById('onuOltPon');
+  const pon = Number(ponSelect?.value || '0');
+  if (!pon) { showToast('Escolha a PON.', true); return; }
+
+  const ticker = onuStartTicker('onuAddResult', 'Autorizando ONU na OLT');
+  const res = await api('/api/olt/add-onu', {
+    method: 'POST',
+    body: JSON.stringify({
+      olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+      olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
+      pon, serno_id: 0, serial: mac, description,
+      services: services.map(s => ({ service: 'downlink', vlan: s.vlan, port: s.port })),
+      site: olt.site || '', olt_name: olt.olt_name || '',
+      connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
+    }),
+  });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuAddResult', esc(data?.error || data?.detail || 'Falha ao autorizar ONU.'), true);
+    return;
+  }
+  onuSetResult('onuAddResult', `ONU autorizada: PON ${esc(pon)} / posicao ${esc(data.onu)} (MAC ${esc(mac)}).`);
+  showToast('ONU autorizada na OLT.');
+  loadOnuHistory();
+}
+
 async function onuAdd() {
   if (!onuHasCapability('add_onu')) { showToast(onuCapabilityMessage('add_onu'), true); return; }
   const olt = onuOltPayload();
+  if (onuIsEpon(onuSelectedRegistryRow())) { return onuAddEpon(olt); }
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const sernoId = Number(document.getElementById('onuAddSernoId')?.value.trim() || '0');
@@ -2289,11 +2380,41 @@ async function onuRetryBridge() {
   onuAccordionOpen('onuStepQuery');
 }
 
+async function onuQueryEpon(olt) {
+  const pon = Number(document.getElementById('onuQueryPonEpon')?.value || '0');
+  const onuNum = Number(document.getElementById('onuQueryOnuNumEpon')?.value || '0');
+  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+
+  const ticker = onuStartTicker('onuQueryResult', 'Consultando sinal da ONU');
+  const res = await api('/api/olt/onu-signal', {
+    method: 'POST',
+    body: JSON.stringify({
+      olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+      olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
+      pon, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '',
+      connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
+    }),
+  });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuQueryResult', esc(data?.error || 'Falha ao consultar sinal.'), true);
+    return;
+  }
+  onuSetResult('onuQueryResult', `
+    <div><b>PON ${esc(data.pon)} / ONU ${esc(data.onu)}</b> - MAC ${esc(data.mac)}</div>
+    <div>Estado: ${esc(data.state || '-')} / Distancia: ${esc(data.distance_m ?? '-')} m</div>
+    <div>RX: ${esc(data.rx_power_dbm ?? '-')} dBm / TX: ${esc(data.tx_power_dbm ?? '-')} dBm</div>
+    <div>Temperatura: ${esc(data.temperature_c ?? '-')} C / Tensao: ${esc(data.voltage_v ?? '-')} V</div>
+  `);
+}
+
 async function onuQuery() {
   if (!onuHasCapability('onu_signal')) { showToast(onuCapabilityMessage('onu_signal'), true); return; }
   const olt = onuOltPayload();
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
+  if (onuIsEpon(onuSelectedRegistryRow())) { return onuQueryEpon(olt); }
   const onuNum = Number(document.getElementById('onuTargetNum')?.value.trim() || '0');
   const serial = document.getElementById('onuQuerySerial')?.value.trim() || '';
   if (!onuNum && !serial) { showToast('Informe o numero da ONU ou o serial.', true); return; }
@@ -2347,9 +2468,36 @@ async function onuQuery() {
   `);
 }
 
+async function onuRebootEpon(olt) {
+  const pon = Number(document.getElementById('onuRebootPonEpon')?.value || '0');
+  const onuNum = Number(document.getElementById('onuRebootOnuNumEpon')?.value || '0');
+  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+
+  const ticker = onuStartTicker('onuRebootResult', 'Reiniciando ONU na OLT');
+  const res = await api('/api/olt/reboot-onu', {
+    method: 'POST',
+    body: JSON.stringify({
+      olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+      olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
+      pon, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '',
+      connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
+    }),
+  });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuRebootResult', esc(data?.error || data?.detail || 'Falha ao reiniciar ONU.'), true);
+    return;
+  }
+  onuSetResult('onuRebootResult', `ONU da PON ${esc(pon)} / posicao ${esc(onuNum)} reiniciada.`);
+  showToast('Comando de reinicio enviado a ONU.');
+  loadOnuHistory();
+}
+
 async function onuReboot() {
   if (!onuHasCapability('reboot_onu')) { showToast(onuCapabilityMessage('reboot_onu'), true); return; }
   const olt = onuOltPayload();
+  if (onuIsEpon(onuSelectedRegistryRow())) { return onuRebootEpon(olt); }
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const ponNum = Number(document.getElementById('onuRebootPon')?.value.trim() || '0');
@@ -2388,9 +2536,50 @@ let _onuDeleteTarget = null; // {olt, pon, onu}
 function openOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.remove('hidden'); }
 function closeOnuDeleteModal() { document.getElementById('modalOnuDelete')?.classList.add('hidden'); }
 
+async function onuDeleteEpon(olt) {
+  const pon = Number(document.getElementById('onuDeletePonEpon')?.value || '0');
+  const onuNum = Number(document.getElementById('onuDeleteOnuNumEpon')?.value || '0');
+  if (!pon || !onuNum) { showToast('Informe PON e numero da ONU.', true); return; }
+
+  _onuDeleteTarget = { olt, pon, onu: onuNum, vlanHint: '' };
+  const panoramaEl = document.getElementById('onuDeletePanorama');
+  const confirmBtn = document.getElementById('confirmOnuDelete');
+  if (confirmBtn) confirmBtn.disabled = true;
+  openOnuDeleteModal();
+
+  const ticker = onuStartTicker('onuDeletePanorama', 'Consultando dados da ONU na OLT');
+  const res = await api('/api/olt/onu-signal', {
+    method: 'POST',
+    body: JSON.stringify({
+      olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+      olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
+      pon, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '',
+      connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '',
+    }),
+  });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (confirmBtn) confirmBtn.disabled = false;
+  if (!panoramaEl) return;
+  if (!res?.ok || data?.ok === false) {
+    panoramaEl.innerHTML = `<p>Sem informacoes para essa ONU (PON ${esc(pon)} / posicao ${esc(onuNum)}) -- ${esc(data?.error || 'nao respondeu')}.</p>`;
+    return;
+  }
+  _onuDeleteTarget.mac = data.mac || '';
+  panoramaEl.innerHTML = `
+    <p>Voce esta prestes a excluir:</p>
+    <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
+      <div><b>PON ${esc(pon)} / ONU ${esc(onuNum)}</b> - MAC ${esc(data.mac || '-')}</div>
+      <div style="margin-top:4px">Estado: ${esc(data.state || '-')}</div>
+    </div>
+    <p style="color:var(--danger);font-size:13px;margin:0">Isso remove o cadastro e desliga o servico dela AGORA na OLT.</p>
+  `;
+}
+
 async function onuDelete() {
   if (!onuHasCapability('delete_onu')) { showToast(onuCapabilityMessage('delete_onu'), true); return; }
   const olt = onuOltPayload();
+  if (onuIsEpon(onuSelectedRegistryRow())) { return onuDeleteEpon(olt); }
   if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
   if (!onuConnectorReady(olt)) return;
   const ponNum = Number(document.getElementById('onuDeletePon')?.value.trim() || '0');
@@ -2431,7 +2620,7 @@ async function onuDelete() {
 
 async function onuConfirmDelete() {
   if (!_onuDeleteTarget) { closeOnuDeleteModal(); return; }
-  const { olt, pon, onu, vlanHint } = _onuDeleteTarget;
+  const { olt, pon, onu, vlanHint, mac } = _onuDeleteTarget;
   const panoramaEl = document.getElementById('onuDeletePanorama');
   const confirmBtn = document.getElementById('confirmOnuDelete');
   if (confirmBtn) confirmBtn.disabled = true;
@@ -2443,7 +2632,16 @@ async function onuConfirmDelete() {
     if (line) line.textContent = `Excluindo ONU na OLT (equipamento vivo)... (${onuDeleteTick}s)`;
   }, 1000);
 
-  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, vlan_hint: vlanHint || '', site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  const isEpon = onuIsEpon(onuSelectedRegistryRow());
+  const payload = isEpon
+    ? { olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password,
+        olt_vendor: olt.olt_vendor, olt_model: olt.olt_model,
+        pon, onu, serial: mac || '', site: olt.site || '',
+        connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }
+    : { olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu,
+        vlan_hint: vlanHint || '', site: olt.site || '', connector_id: olt.connector_id || '',
+        remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' };
+  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify(payload) });
   clearInterval(onuDeleteTicker);
   const data = await res?.json().catch(() => ({}));
     closeOnuDeleteModal();
