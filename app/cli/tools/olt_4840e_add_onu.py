@@ -459,3 +459,63 @@ def add_onu_4840e(
             client.close()
         except Exception:
             pass
+
+
+def delete_onu_4840e(
+    olt_ip: str, user: str, password: str, pon: int, onu: int, mac: str, port: int = 22, timeout: float = 22.0,
+) -> Dict[str, Any]:
+    """Exclui uma ONU ja autorizada: desvincula a posicao (onu-binding) E
+    tira o MAC da whitelist da PON. Os dois passos sao necessarios --
+    fazer so um deixa a ONU voltando a se registrar sozinha (so tirou a
+    whitelist) ou com posicao fantasma (so tirou o binding)."""
+    mac_norm = _norm_mac(mac)
+    addr = f"0/{pon}/{onu}"
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    commands_run: List[str] = []
+    try:
+        cmd = "conf t"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        cmd = f"no onu-binding onu {addr}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        binding_failed = command_failed(out)
+
+        cmd = f"interface pon 0/{pon}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            return {"ok": False, "pon": pon, "onu": onu, "commands_run": commands_run, "saved": False,
+                    "error": f"Falha ao entrar na PON {pon} pra tirar da whitelist: {out.strip()[:300]}"}
+
+        cmd = f"white-list del mac {mac_norm}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        whitelist_failed = command_failed(out)
+
+        cmd = "exit"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        cmd = "end"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        ok = not (binding_failed or whitelist_failed)
+        saved = False
+        if ok:
+            cmd = "copy running-config startup-config"
+            save_out = _cli(chan, cmd, timeout=max(timeout, 20.0))
+            commands_run.append(cmd)
+            saved = not command_failed(save_out)
+
+        return {"ok": ok, "pon": pon, "onu": onu, "commands_run": commands_run, "saved": saved}
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
