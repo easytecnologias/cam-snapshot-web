@@ -23,6 +23,7 @@ class FakeChannel:
         self._prompt = prompt
         self._pending = ""
         self.commands: list[str] = []
+        self.closed = False
 
     def recv_ready(self) -> bool:
         return bool(self._pending)
@@ -40,19 +41,22 @@ class FakeChannel:
         return len(data)
 
     def close(self) -> None:
-        pass
+        self.closed = True
 
 
 class FakeSSHClient:
+    def __init__(self):
+        self.closed = False
+
     def close(self) -> None:
-        pass
+        self.closed = True
 
 
 def _patch_open_shell(script, prompt="OLT_RADS#"):
     original = mod._open_shell
-    mod._open_shell = lambda host, user, password, port=22, timeout=12.0: (
-        FakeSSHClient(), FakeChannel(script, prompt),
-    )
+    def fake_open(*args, **kwargs):
+        return FakeSSHClient(), FakeChannel(script, prompt)
+    mod._open_shell = fake_open
     return original
 
 
@@ -156,10 +160,58 @@ def test_onu_signal_4840e_combines_status_and_opm():
     check(result["rx_power_dbm"] == -2.40, f"rx power errado: {result}")
 
 
+def test_connect_and_login_closes_on_ensure_logged_in_failure():
+    """Verifica que _connect_and_login fecha a conexao SSH se _ensure_logged_in
+    falhar DEPOIS da abertura do shell -- nenhum chamador recebe a referencia,
+    entao ninguem conseguiria fechar sozinho."""
+    def script(cmd, prompt):
+        return "", prompt
+
+    orig_open_shell = mod._open_shell
+    orig_login = mod._ensure_logged_in
+    orig_enable = mod._ensure_enable
+
+    # Capturar as referencias do client/channel criados
+    captured_client = None
+    captured_chan = None
+
+    def fake_open_shell(host, user, password, port=22, timeout=12.0):
+        nonlocal captured_client, captured_chan
+        captured_client = FakeSSHClient()
+        captured_chan = FakeChannel(script)
+        return captured_client, captured_chan
+
+    # Patch _ensure_logged_in para lancar excecao
+    mod._open_shell = fake_open_shell
+    mod._ensure_logged_in = lambda chan, user, password, timeout=12.0: (
+        (_ for _ in ()).throw(ValueError("credenciais invalidas"))
+    )
+    mod._ensure_enable = lambda chan, password, timeout=12.0: None
+
+    try:
+        exception_caught = False
+        try:
+            mod._connect_and_login("100.64.10.5", "admin", "bad_password", 22, 12.0)
+        except ValueError as e:
+            exception_caught = True
+            check(str(e) == "credenciais invalidas", f"excecao nao propagou corretamente: {e}")
+
+        check(exception_caught is True, "excecao nao foi lancada")
+        check(captured_client is not None, "client nao foi criado")
+        check(captured_chan is not None, "channel nao foi criado")
+        check(captured_chan.closed is True, "channel nao foi fechado ao falhar login")
+        check(captured_client.closed is True, "client nao foi fechado ao falhar login")
+    finally:
+        mod._open_shell = orig_open_shell
+        mod._ensure_logged_in = orig_login
+        mod._ensure_enable = orig_enable
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
     test_onu_signal_4840e_combines_status_and_opm()
+    test_connect_and_login_closes_on_ensure_logged_in_failure()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:

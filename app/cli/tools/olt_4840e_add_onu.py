@@ -189,9 +189,24 @@ def _classify_auth_mode(output: str) -> str:
 
 
 def _connect_and_login(olt_ip: str, user: str, password: str, port: int, timeout: float):
+    """Abre a sessao e loga/eleva privilegio. Se o login ou o 'enable'
+    falharem DEPOIS do socket/shell abrir, fecha a conexao antes de propagar
+    o erro -- senao ela vaza (nenhum chamador tem uma referencia pra fechar,
+    porque a excecao acontece antes do 'return')."""
     client, chan = _open_shell(olt_ip, user, password, port=port, timeout=timeout)
-    _ensure_logged_in(chan, user=user, password=password, timeout=timeout)
-    _ensure_enable(chan, password=password, timeout=timeout)
+    try:
+        _ensure_logged_in(chan, user=user, password=password, timeout=timeout)
+        _ensure_enable(chan, password=password, timeout=timeout)
+    except Exception:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
+        raise
     return client, chan
 
 
