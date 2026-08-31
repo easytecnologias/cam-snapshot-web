@@ -1969,6 +1969,19 @@ function onuHistoryDate(value) {
   try { return new Date(value).toLocaleString('pt-BR'); } catch { return String(value); }
 }
 
+const ONU_ACTION_DONE = {
+  add_onu: 'autorizada',
+  add_onu_bridge: 'com o servico/VLAN reaplicado',
+  delete_onu: 'excluida',
+  onu_signal: 'consultada',
+};
+const ONU_ACTION_VERB = {
+  add_onu: 'autorizar',
+  add_onu_bridge: 'aplicar o servico/VLAN',
+  delete_onu: 'excluir',
+  onu_signal: 'consultar',
+};
+
 async function loadOnuHistory() {
   const box = document.getElementById('onuHistory');
   if (!box) return;
@@ -1982,45 +1995,24 @@ async function loadOnuHistory() {
   }
   box.innerHTML = '<div class="deployment-history-empty">Atualizando historico...</div>';
   try {
-    const data = await apiJson('/api/olt/rows');
     const selectedIp = String(selectedOlt?.host || manualIp).trim();
-    const selectedConnector = String(selectedOlt?.connector_id || '').trim();
-    const rows = (Array.isArray(data?.rows) ? data.rows : []).filter(row => {
-      if (String(row.olt_ip || '').trim() !== selectedIp) return false;
-      if (!selectedConnector) return true;
-      const rowConnector = String(row.remote_connector_id || row.connector_id || '').trim();
-      return !rowConnector || rowConnector === selectedConnector;
-    });
-    const byOnu = new Map();
-    rows.forEach(row => {
-      const pon = String(row.pon || row.PON || '').trim();
-      const onu = String(row.onu_id || row.onu || row.ONU || '').trim();
-      if (!pon || !onu) return;
-      const connector = String(row.remote_connector_id || row.connector_id || '').trim();
-      const key = [connector, row.site || '', row.olt_ip || '', pon, onu].join('|');
-      const previous = byOnu.get(key);
-      const currentTime = Date.parse(row.updated_at || row.created_at || '') || 0;
-      const previousTime = Date.parse(previous?.updated_at || previous?.created_at || '') || 0;
-      if (!previous || currentTime >= previousTime) byOnu.set(key, row);
-    });
-    const recent = [...byOnu.values()].sort((a, b) =>
-      (Date.parse(b.updated_at || b.created_at || '') || 0) - (Date.parse(a.updated_at || a.created_at || '') || 0)
-    ).slice(0, 12);
-    if (!recent.length) {
-      box.innerHTML = '<div class="deployment-history-empty">Nenhuma ONU desta OLT no inventario ainda.</div>';
+    const data = await apiJson(`/api/olt/onu-actions?olt_ip=${encodeURIComponent(selectedIp)}&limit=30`);
+    const actions = Array.isArray(data?.actions) ? data.actions : [];
+    if (!actions.length) {
+      box.innerHTML = '<div class="deployment-history-empty">Nenhuma acao registrada ainda nesta OLT.</div>';
       return;
     }
-    box.innerHTML = recent.map(row => {
-      const pon = row.pon || row.PON || '-';
-      const onu = row.onu_id || row.onu || row.ONU || '-';
-      const olt = row.olt_name || row.olt || row.olt_ip || 'OLT';
-      const serial = row.onu_serial || row.serial || 'sem serial';
-      const model = row.onu_model || row.model || '';
-      const status = row.oper_status || row.status || 'inventariado';
-      return `<div class="deployment-history-item">
-        <b>${esc(olt)} - PON ${esc(pon)} / ONU ${esc(onu)}</b>
-        <span>${esc(serial)}${model ? ` - ${esc(model)}` : ''}</span>
-        <small>${esc(row.site || 'sem site')} - ${esc(status)} - ${esc(onuHistoryDate(row.updated_at || row.created_at))}</small>
+    box.innerHTML = actions.map(a => {
+      const ok = a.ok !== 0 && a.ok !== false;
+      const serial = a.serial ? ` (${esc(a.serial)})` : '';
+      const detail = a.detail ? ` -- ${esc(a.detail)}` : '';
+      const text = ok
+        ? `foi ${ONU_ACTION_DONE[a.action] || esc(a.action)}`
+        : `FALHOU ao ${ONU_ACTION_VERB[a.action] || esc(a.action)}`;
+      return `<div class="deployment-history-item${ok ? '' : ' error'}">
+        <b>PON ${esc(a.pon)} / ONU ${esc(a.onu)}${serial}</b>
+        <span>${text}${detail}</span>
+        <small>${esc(a.site || a.olt_name || 'sem site')} - ${esc(onuHistoryDate(a.created_at))}</small>
       </div>`;
     }).join('');
   } catch (err) {

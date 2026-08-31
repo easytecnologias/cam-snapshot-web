@@ -26,6 +26,7 @@ from app.models.requests import (
 from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu_telemetry_8820i
 from app.services.camera_allowlist import is_allowed as allowlist_is_allowed
 from app.services.olt_ignore_list import is_ignored_olt_row
+from app.services.onu_action_log import log_onu_action
 from app.cli.tools.olt_4840e_collect_macs import (
     collect_macs_4840e,
     collect_onu_telemetry_4840e,
@@ -1113,8 +1114,17 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
             if result.get("ok"):
                 result["inventory"] = _upsert_onu_inventory(req, result)
                 result["device_sync"] = _sync_authorized_onu_devices(req, result)
+                log_onu_action(
+                    "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                    pon=result.get("pon"), onu=result.get("slot"), serial=req.serial, ok=True,
+                    detail=req.onu_model,
+                )
             return result
         except OnuAddError as e:
+            log_onu_action(
+                "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                pon=req.pon, onu=e.slot, serial=req.serial, ok=False, detail=str(e),
+            )
             return {
                 "ok": False,
                 "error": str(e),
@@ -1138,7 +1148,7 @@ def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
     services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
     with perf_step("OLT_add_onu_bridge"):
         try:
-            return _add_onu_bridge_only_8820i(
+            result = _add_onu_bridge_only_8820i(
                 olt_ip=req.olt_ip,
                 user=req.user,
                 password=req.password,
@@ -1151,7 +1161,16 @@ def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
                 terminal=req.terminal,
                 timeout=req.timeout,
             )
+            log_onu_action(
+                "add_onu_bridge", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                pon=req.pon, onu=req.onu, ok=True,
+            )
+            return result
         except OnuAddError as e:
+            log_onu_action(
+                "add_onu_bridge", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                pon=req.pon, onu=req.onu, ok=False, detail=str(e),
+            )
             return {
                 "ok": False,
                 "error": str(e),
@@ -1202,6 +1221,11 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
             )
             if result.get("ok"):
                 result["inventory"] = _remove_onu_inventory(req)
+            log_onu_action(
+                "delete_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, site=req.site,
+                pon=req.pon, onu=req.onu, serial=req.serial, ok=bool(result.get("ok")),
+                detail="" if result.get("ok") else str(result.get("raw_output") or "")[:200],
+            )
             return result
         except HTTPException:
             raise
@@ -1228,6 +1252,12 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
             if result.get("ok"):
                 _enrich_signal_macs_with_ips(result)
                 result["inventory"] = _sync_onu_signal_inventory(req, result)
+            log_onu_action(
+                "onu_signal", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                pon=result.get("pon") or req.pon, onu=result.get("onu") or req.onu,
+                serial=result.get("serial") or req.serial, ok=bool(result.get("ok")),
+                detail="" if result.get("ok") else str(result.get("error") or "")[:200],
+            )
             return result
         except Exception as e:
             logger.error(f"Erro ao consultar sinal da ONU: {e}")

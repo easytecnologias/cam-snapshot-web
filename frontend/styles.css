@@ -5698,6 +5698,12 @@ body.cam-live-lock {
   background: var(--surface);
   font-size: 13px;
 }
+.deployment-history-item.error {
+  border-color: var(--danger);
+}
+.deployment-history-item.error span {
+  color: var(--danger);
+}
 .deployment-history-item span,
 .deployment-history-item small,
 .deployment-history-empty {

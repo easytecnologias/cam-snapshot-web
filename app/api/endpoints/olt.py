@@ -33,6 +33,7 @@ from app.services.olt_service import (
     list_macs,
     onu_signal,
 )
+from app.services.onu_action_log import list_onu_actions
 
 router = APIRouter(prefix="/api", tags=["olt"])
 _olt_sync_jobs: dict[str, dict[str, Any]] = {}
@@ -282,6 +283,11 @@ def api_olt_rows(site: str = "", compact: bool = False) -> Dict[str, Any]:
         if isinstance(row, dict)
     ]
     return {**data, "rows": rows, "count": len(rows), "compact": True}
+
+
+@router.get("/olt/onu-actions")
+def api_olt_onu_actions(olt_ip: str = "", limit: int = 30) -> Dict[str, Any]:
+    return {"ok": True, "actions": list_onu_actions(olt_ip=olt_ip, limit=limit)}
 
 
 @router.post("/olt/discover-onus")
