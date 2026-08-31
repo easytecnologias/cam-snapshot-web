@@ -78,6 +78,16 @@ def _unpatch(orig_open_shell, orig_login, orig_enable):
     mod._ensure_enable = orig_enable
 
 
+def _config_script(steps: dict, default_prompt="OLT_RADS(config)#"):
+    """Helper pra testes: `steps` mapeia comando exato -> (reply, next_prompt).
+    Comandos nao mapeados devolvem string vazia sem trocar o prompt."""
+    def script(cmd, prompt):
+        if cmd in steps:
+            return steps[cmd]
+        return "", prompt
+    return script
+
+
 _STATUS_OUTPUT = (
     "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
     "0/4/6  30:e1:f1:73:a7:19 2654   26/07/29 06:09:43 other 1.3-220719 Up\n"
@@ -279,6 +289,89 @@ def test_discover_onus_4840e_handles_invalid_pon():
     check("show white-list" not in commands_sent, "show white-list foi chamado apos erro na interface")
 
 
+def test_add_onu_4840e_full_flow_success():
+    white_list_after_add = (
+        "WHITE LIST:\nPort Index Mac Address\npon-0/4 6 30:e1:f1:73:a7:19\nTotal white-list entries: 1 .\n"
+    )
+    steps = {
+        "conf t": ("", "OLT_RADS(config)#"),
+        "interface pon 0/4": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show onu-authenticate mode": ("pon 0/4 onu-authentication mode: disable", "OLT_RADS(config-if-pon-0/4)#"),
+        "onu-authenticate mode mac-auth white-list": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "white-list add mac 30:e1:f1:73:a7:19": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show white-list": (white_list_after_add, "OLT_RADS(config-if-pon-0/4)#"),
+        "exit": ("", "OLT_RADS(config)#"),
+        "onu 0/4/6": ("", "OLT_RADS(onu-0/4/6)#"),
+        "onu-description Camera-Teste": ("", "OLT_RADS(onu-0/4/6)#"),
+        "interface ethernet 1": ("", "OLT_RADS(eth-0/4/6/1)#"),
+        "onu-vlan-mode tag vlan 3000": ("", "OLT_RADS(eth-0/4/6/1)#"),
+        "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
+        "end": ("", "OLT_RADS#"),
+        "copy running-config startup-config": ("Configuration saved.", "OLT_RADS#"),
+    }
+
+    orig_open_shell = _patch_open_shell(_config_script(steps))
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.add_onu_4840e(
+            "100.64.10.5", "admin", "x", pon=4, mac="30:e1:f1:73:a7:19",
+            description="Camera-Teste", ports=[{"port": 1, "vlan": 3000}],
+        )
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    check(result["onu"] == 6, f"onu-id lido errado: {result}")
+    check(result["saved"] is True, f"saved devia ser True: {result}")
+    check("white-list add mac 30:e1:f1:73:a7:19" in result["commands_run"], result["commands_run"])
+    check("onu-p2p" in result["commands_run"], result["commands_run"])
+
+
+def test_add_onu_4840e_does_not_override_existing_loid_auth():
+    steps = {
+        "conf t": ("", "OLT_RADS(config)#"),
+        "interface pon 0/4": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show onu-authenticate mode": ("pon 0/4 onu-authentication mode: loid-auth", "OLT_RADS(config-if-pon-0/4)#"),
+    }
+
+    orig_open_shell = _patch_open_shell(_config_script(steps))
+    orig_login, orig_enable = _patch_login()
+    try:
+        try:
+            mod.add_onu_4840e("100.64.10.5", "admin", "x", pon=4, mac="30:e1:f1:73:a7:19")
+            check(False, "esperava OnuAddError")
+        except mod.OnuAddError as e:
+            check("loid-auth" in str(e), str(e))
+            check("white-list add mac 30:e1:f1:73:a7:19" not in e.commands_run, e.commands_run)
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+
+def test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth():
+    steps = {
+        "conf t": ("", "OLT_RADS(config)#"),
+        "interface pon 0/4": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show onu-authenticate mode": ("pon 0/4 onu-authentication mode: mac-auth", "OLT_RADS(config-if-pon-0/4)#"),
+        "white-list add mac 30:e1:f1:73:a7:19": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "show white-list": ("WHITE LIST:\nPort Index Mac Address\npon-0/4 6 30:e1:f1:73:a7:19\nTotal white-list entries: 1 .\n", "OLT_RADS(config-if-pon-0/4)#"),
+        "exit": ("", "OLT_RADS(config)#"),
+        "onu 0/4/6": ("", "OLT_RADS(onu-0/4/6)#"),
+        "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
+        "end": ("", "OLT_RADS#"),
+        "copy running-config startup-config": ("", "OLT_RADS#"),
+    }
+
+    orig_open_shell = _patch_open_shell(_config_script(steps))
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.add_onu_4840e("100.64.10.5", "admin", "x", pon=4, mac="30:e1:f1:73:a7:19")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    check("onu-authenticate mode mac-auth white-list" not in result["commands_run"], result["commands_run"])
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
@@ -286,6 +379,9 @@ def main() -> None:
     test_connect_and_login_closes_on_ensure_logged_in_failure()
     test_discover_onus_4840e_finds_unauthorized_mac()
     test_discover_onus_4840e_handles_invalid_pon()
+    test_add_onu_4840e_full_flow_success()
+    test_add_onu_4840e_does_not_override_existing_loid_auth()
+    test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:

@@ -326,3 +326,136 @@ def discover_onus_4840e(
             client.close()
         except Exception:
             pass
+
+
+def add_onu_4840e(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: int,
+    mac: str,
+    description: str = "",
+    ports: Optional[List[Dict[str, Any]]] = None,
+    port: int = 22,
+    timeout: float = 15.0,
+) -> Dict[str, Any]:
+    """Autoriza uma ONU pelo MAC (whitelist), aplica descricao e VLAN por
+    porta ethernet, libera p2p (camera) e salva a config. Equipamento vivo.
+
+    A OLT auto-atribui o onu-id ao dar 'white-list add mac' -- essa funcao
+    le esse id de volta via 'show white-list' antes de continuar, nunca
+    escolhe a posicao manualmente (fora de escopo desta entrega)."""
+    mac_norm = _norm_mac(mac)
+    ports = ports or [{"port": 1, "vlan": None}]
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    commands_run: List[str] = []
+    try:
+        cmd = "conf t"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        cmd = f"interface pon 0/{pon}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            raise OnuAddError(f"Falha ao entrar na PON {pon}: {out.strip()[:300]}", cmd, commands_run)
+
+        cmd = "show onu-authenticate mode"
+        mode_out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        mode = _classify_auth_mode(mode_out)
+        if mode in ("loid-auth", "hybrid-auth"):
+            raise OnuAddError(
+                f"PON {pon} esta configurada com autenticacao '{mode}', nao mac-auth/white-list. "
+                "Ajuste manual necessario na OLT antes de autorizar por aqui.",
+                cmd, commands_run,
+            )
+        if mode != "mac-auth":
+            cmd = "onu-authenticate mode mac-auth white-list"
+            out = _cli(chan, cmd, timeout=timeout)
+            commands_run.append(cmd)
+            if command_failed(out):
+                raise OnuAddError(f"Falha ao configurar autenticacao MAC/whitelist na PON {pon}: {out.strip()[:300]}", cmd, commands_run)
+
+        cmd = f"white-list add mac {mac_norm}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            raise OnuAddError(f"Falha ao adicionar {mac_norm} na whitelist da PON {pon}: {out.strip()[:300]}", cmd, commands_run)
+
+        cmd = "show white-list"
+        wl_out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        wl_match = next((e for e in _parse_white_list(wl_out) if e["mac"] == mac_norm and e["pon"] == pon), None)
+        if not wl_match:
+            raise OnuAddError(
+                f"MAC {mac_norm} adicionado na whitelist mas nao apareceu em 'show white-list' pra confirmar a posicao.",
+                cmd, commands_run,
+            )
+        onu_id = wl_match["index"]
+
+        cmd = "exit"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        addr = f"0/{pon}/{onu_id}"
+        cmd = f"onu {addr}"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            raise OnuAddError(f"ONU autorizada na whitelist ({addr}) mas falha ao entrar no contexto: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+
+        if description:
+            cmd = f"onu-description {description}"
+            out = _cli(chan, cmd, timeout=timeout)
+            commands_run.append(cmd)
+            if command_failed(out):
+                raise OnuAddError(f"ONU autorizada, mas falha ao gravar descricao: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+
+        for entry in ports:
+            vlan = entry.get("vlan")
+            if not vlan:
+                continue
+            eth_port = int(entry.get("port") or 1)
+            cmd = f"interface ethernet {eth_port}"
+            out = _cli(chan, cmd, timeout=timeout)
+            commands_run.append(cmd)
+            if command_failed(out):
+                raise OnuAddError(f"ONU autorizada, mas falha ao entrar na porta ethernet {eth_port}: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+            cmd = f"onu-vlan-mode tag vlan {vlan}"
+            out = _cli(chan, cmd, timeout=timeout)
+            commands_run.append(cmd)
+            if command_failed(out):
+                raise OnuAddError(f"ONU autorizada, mas falha ao aplicar VLAN {vlan} na porta {eth_port}: {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+            cmd = "exit"
+            _cli(chan, cmd, timeout=timeout)
+            commands_run.append(cmd)
+
+        cmd = "onu-p2p"
+        out = _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if command_failed(out):
+            raise OnuAddError(f"ONU autorizada, mas falha ao liberar p2p (camera pode nao transmitir): {out.strip()[:300]}", cmd, commands_run, onu=onu_id)
+
+        cmd = "exit"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        cmd = "end"
+        _cli(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+
+        cmd = "copy running-config startup-config"
+        save_out = _cli(chan, cmd, timeout=max(timeout, 20.0))
+        commands_run.append(cmd)
+        saved = not command_failed(save_out)
+
+        return {"ok": True, "pon": pon, "onu": onu_id, "mac": mac_norm, "commands_run": commands_run, "saved": saved}
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
