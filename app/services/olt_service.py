@@ -28,13 +28,16 @@ from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu
 from app.services.camera_allowlist import is_allowed as allowlist_is_allowed
 from app.services.olt_ignore_list import is_ignored_olt_row
 from app.services.onu_action_log import log_onu_action
-from app.cli.tools.olt_4840e_collect_macs import (
-    collect_macs_4840e,
+from app.cli.tools.olt_4840e_collect_macs import collect_macs_4840e
+from app.cli.tools.olt_4840e_add_onu import (
+    OnuAddError as Olt4840eAddOnuError,
+    add_onu_4840e,
     collect_onu_telemetry_4840e,
     delete_onu_4840e,
     discover_onus_4840e,
     find_onu_4840e,
     onu_signal_4840e,
+    reboot_onu_4840e,
 )
 from app.cli.tools.olt_vsol_epon import (
     collect_macs_vsol,
@@ -1123,36 +1126,47 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     vlan_summary = _vlan_summary_from_services(req.services, req.vlan)
     with perf_step("OLT_add_onu"):
         try:
-            result = _add_onu_8820i(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon,
-                serno_id=req.serno_id,
-                profile=profile,
-                description=req.description,
-                service=req.service,
-                vlan=req.vlan,
-                services=services,
-                tag_mode=req.tag_mode,
-                terminal=req.terminal,
-                serial=req.serial,
-                vendor=req.vendor,
-                timeout=req.timeout,
-            )
+            if _is_intelbras_4840e(req):
+                ports = [{"port": e.port or 1, "vlan": e.vlan} for e in req.services] if req.services else (
+                    [{"port": 1, "vlan": req.vlan}] if req.vlan else None
+                )
+                result = add_onu_4840e(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, mac=req.serial, description=req.description,
+                    ports=ports, timeout=req.timeout,
+                )
+            else:
+                result = _add_onu_8820i(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon,
+                    serno_id=req.serno_id,
+                    profile=profile,
+                    description=req.description,
+                    service=req.service,
+                    vlan=req.vlan,
+                    services=services,
+                    tag_mode=req.tag_mode,
+                    terminal=req.terminal,
+                    serial=req.serial,
+                    vendor=req.vendor,
+                    timeout=req.timeout,
+                )
             if result.get("ok"):
-                result["inventory"] = _upsert_onu_inventory(req, result)
-                result["device_sync"] = _sync_authorized_onu_devices(req, result)
+                if not _is_intelbras_4840e(req):
+                    result["inventory"] = _upsert_onu_inventory(req, result)
+                    result["device_sync"] = _sync_authorized_onu_devices(req, result)
                 log_onu_action(
                     "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                    pon=result.get("pon"), onu=result.get("slot"), serial=req.serial, vlan=vlan_summary, ok=True,
+                    pon=result.get("pon"), onu=result.get("onu") or result.get("slot"), serial=req.serial, vlan=vlan_summary, ok=True,
                     detail=req.onu_model,
                 )
             return result
-        except OnuAddError as e:
+        except (OnuAddError, Olt4840eAddOnuError) as e:
             log_onu_action(
                 "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                pon=req.pon, onu=e.slot, serial=req.serial, vlan=vlan_summary, ok=False, detail=str(e),
+                pon=req.pon, onu=getattr(e, "onu", None) or getattr(e, "slot", None), serial=req.serial, vlan=vlan_summary, ok=False, detail=str(e),
             )
             return {
                 "ok": False,
@@ -1160,7 +1174,7 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 "failed_at": e.failed_command,
                 "commands_run": e.commands_run,
                 "pon": req.pon,
-                "slot": e.slot,
+                "slot": getattr(e, "onu", None) or getattr(e, "slot", None),
             }
         except Exception as e:
             logger.error(f"Erro ao autorizar ONU na OLT: {e}")
@@ -1215,46 +1229,56 @@ def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
 
 
 def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
-    """Localiza uma ONU ja autorizada pelo serial, na OLT Intelbras 8820i."""
+    """Localiza uma ONU ja autorizada pelo serial (8820i) ou MAC (4840E)."""
     require_olt_capability(req, "find_onu", "localizar ONU")
     with perf_step("OLT_find_onu"):
         try:
-            found = find_onu_by_serial(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                serial=req.serial,
-                timeout=req.timeout,
-            )
+            if _is_intelbras_4840e(req):
+                found = find_onu_4840e(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    mac=req.serial, timeout=req.timeout,
+                )
+            else:
+                found = find_onu_by_serial(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    serial=req.serial,
+                    timeout=req.timeout,
+                )
         except Exception as e:
             logger.error(f"Erro ao localizar ONU na OLT: {e}")
             raise HTTPException(500, f"Erro ao localizar ONU na OLT: {e}") from e
     if not found:
-        return {"ok": False, "error": "ONU nao encontrada para esse serial."}
+        return {"ok": False, "error": "ONU nao encontrada para esse serial/MAC."}
     return {"ok": True, **found}
 
 
 def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
-    """Exclui uma ONU ja autorizada (posicao pon/onu) na OLT Intelbras 8820i.
-
-    Equipamento vivo -- remove o cadastro e desliga o servico da ONU."""
+    """Exclui uma ONU ja autorizada (posicao pon/onu) na OLT 8820i ou 4840E."""
     require_olt_capability(req, "delete_onu", "excluir ONU")
     with perf_step("OLT_delete_onu"):
         try:
-            result = _delete_onu_8820i(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon,
-                onu=req.onu,
-                timeout=req.timeout,
-            )
-            if result.get("ok"):
+            if _is_intelbras_4840e(req):
+                result = delete_onu_4840e(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, onu=req.onu, mac=req.serial, timeout=req.timeout,
+                )
+            else:
+                result = _delete_onu_8820i(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon,
+                    onu=req.onu,
+                    timeout=req.timeout,
+                )
+            if result.get("ok") and not _is_intelbras_4840e(req):
                 result["inventory"] = _remove_onu_inventory(req)
             log_onu_action(
                 "delete_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, site=req.site,
                 pon=req.pon, onu=req.onu, serial=req.serial, vlan=req.vlan_hint, ok=bool(result.get("ok")),
-                detail="" if result.get("ok") else str(result.get("raw_output") or "")[:200],
+                detail="" if result.get("ok") else str(result.get("raw_output") or result.get("error") or "")[:200],
             )
             return result
         except HTTPException:
@@ -1265,19 +1289,24 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
 
 
 def reboot_onu(req: OltRebootOnuRequest) -> Dict[str, Any]:
-    """Reinicia uma ONU/ONT ja autorizada (posicao pon/onu) na OLT Intelbras
-    8820i. Equipamento vivo -- a ONU fica sem servico ate voltar sozinha."""
+    """Reinicia uma ONU/ONT ja autorizada (8820i ou 4840E)."""
     require_olt_capability(req, "reboot_onu", "reiniciar ONU")
     with perf_step("OLT_reboot_onu"):
         try:
-            result = _reboot_onu_8820i(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon,
-                onu=req.onu,
-                timeout=req.timeout,
-            )
+            if _is_intelbras_4840e(req):
+                result = reboot_onu_4840e(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, onu=req.onu, timeout=req.timeout,
+                )
+            else:
+                result = _reboot_onu_8820i(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon,
+                    onu=req.onu,
+                    timeout=req.timeout,
+                )
             log_onu_action(
                 "reboot_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
                 pon=req.pon, onu=req.onu, ok=bool(result.get("ok")),
@@ -1292,31 +1321,38 @@ def reboot_onu(req: OltRebootOnuRequest) -> Dict[str, Any]:
 
 
 def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
-    """Consulta sinal (RX/distancia/status) e MACs aprendidos atras de uma
-    ONU ja autorizada na OLT Intelbras 8820i. Aceita serial OU pon+onu."""
+    """Consulta sinal e MACs de uma ONU ja autorizada (8820i ou 4840E)."""
     require_olt_capability(req, "onu_signal", "consultar sinal/MACs")
     with perf_step("OLT_onu_signal"):
         try:
-            result = _onu_signal_8820i(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon or None,
-                onu=req.onu or None,
-                serial=req.serial,
-                timeout=req.timeout,
-            )
-            if result.get("ok"):
-                _enrich_signal_macs_with_ips(result)
-                result["inventory"] = _sync_onu_signal_inventory(req, result)
+            if _is_intelbras_4840e(req):
+                result = onu_signal_4840e(
+                    olt_ip=req.olt_ip, user=req.user, password=req.password,
+                    pon=req.pon, onu=req.onu, timeout=req.timeout,
+                )
+            else:
+                result = _onu_signal_8820i(
+                    olt_ip=req.olt_ip,
+                    user=req.user,
+                    password=req.password,
+                    pon=req.pon or None,
+                    onu=req.onu or None,
+                    serial=req.serial,
+                    timeout=req.timeout,
+                )
+                if result.get("ok"):
+                    _enrich_signal_macs_with_ips(result)
+                    result["inventory"] = _sync_onu_signal_inventory(req, result)
             log_onu_action(
                 "onu_signal", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
                 pon=result.get("pon") or req.pon, onu=result.get("onu") or req.onu,
-                serial=result.get("serial") or req.serial, vlan=_vlan_summary_from_macs(result.get("macs")),
+                serial=result.get("serial") or result.get("mac") or req.serial, vlan=_vlan_summary_from_macs(result.get("macs")),
                 ok=bool(result.get("ok")),
                 detail="" if result.get("ok") else str(result.get("error") or "")[:200],
             )
             return result
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Erro ao consultar sinal da ONU: {e}")
             raise HTTPException(500, f"Erro ao consultar sinal da ONU: {e}") from e

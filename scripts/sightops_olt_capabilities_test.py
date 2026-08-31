@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.models.requests import OltAddOnuRequest, OltCollectMacsRequest, OltOnuSignalRequest
+from app.models.requests import OltCollectMacsRequest, OltOnuSignalRequest
 from app.cli.tools.olt_4840e_collect_macs import (
     _command_failed_4840e,
     _leave_config_mode_4840e,
@@ -21,7 +21,7 @@ from app.cli.tools.olt_4840e_collect_macs import (
 )
 from app.services.olt_capabilities import normalize_olt_driver, olt_capabilities, require_olt_capability
 from app.services.monitoring_service import _onu_entity_key_variants
-from app.services.olt_service import _same_onu_position, add_onu, onu_signal
+from app.services.olt_service import _same_onu_position, onu_signal
 
 
 def check(cond: bool, msg: str, failures: list[str]) -> None:
@@ -68,14 +68,14 @@ def main() -> int:
     check(caps_4840["capabilities"]["discover_onus"] is True, "4840E deve listar ONUs/posicoes livres", failures)
     check(caps_4840["capabilities"]["find_onu"] is True, "4840E deve localizar ONU autorizada", failures)
     check(caps_4840["capabilities"]["onu_signal"] is True, "4840E deve consultar ONU/MACs", failures)
-    check(caps_4840["capabilities"]["add_onu"] is False, "4840E nao pode autorizar ainda", failures)
+    check(caps_4840["capabilities"]["add_onu"] is True, "4840e devia suportar add_onu apos a implementacao", failures)
     check(caps_4840["capabilities"]["delete_onu"] is True, "4840E deve excluir por whitelist", failures)
 
     caps_8820 = olt_capabilities("Intelbras", "8820i")
     check(caps_8820["capabilities"]["add_onu"] is True, "8820i deve autorizar", failures)
     check(caps_8820["capabilities"]["onu_signal"] is True, "8820i deve consultar sinal", failures)
     check(caps_8820["capabilities"]["reboot_onu"] is True, "8820i deve reiniciar ONU", failures)
-    check(caps_4840["capabilities"].get("reboot_onu") is not True, "4840E nao deve reiniciar ONU (nao homologado)", failures)
+    check(caps_4840["capabilities"]["reboot_onu"] is True, "4840e devia suportar reboot_onu apos a implementacao", failures)
 
     caps_unknown = olt_capabilities("Acme", "XPTO")
     check(caps_unknown["capabilities"]["collect_macs"] is False, "desconhecida nao pode coletar", failures)
@@ -89,17 +89,11 @@ def main() -> int:
     )
     check(require_olt_capability(collect_req, "collect_macs")["driver"] == "intelbras_4840e", "guard 4840E collect falhou", failures)
 
-    add_req = OltAddOnuRequest(
-        olt_ip="192.168.50.2",
-        user="admin",
-        password="secret",
-        olt_vendor="Intelbras",
-        olt_model="4840E",
-        pon=1,
-        serno_id=1,
-        vlan=3000,
-    )
-    expect_422(lambda: add_onu(add_req), "add_onu 4840E", failures)
+    # Nota: add_onu 4840E deixou de ser bloqueada pela capability apos a
+    # implementacao real (Task 8) -- o antigo teste aqui checava um 422 de
+    # capability guard que nao existe mais (add_onu agora chama a OLT de
+    # verdade), entao foi removido em vez de virar uma chamada de rede real
+    # dentro de um teste automatizado.
 
     signal_req = OltOnuSignalRequest(
         olt_ip="192.168.50.2",

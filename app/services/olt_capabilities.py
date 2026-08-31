@@ -72,12 +72,14 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
             "collect_macs": True,
             "telemetry": True,
             "discover_onus": True,
+            "add_onu": True,
             "find_onu": True,
             "delete_onu": True,
             "onu_signal": True,
+            "reboot_onu": True,
         })
         label = "Intelbras 4840E"
-        notes = "Homologada para inventario, telemetria, localizar/consultar ONU, MACs e exclusao por whitelist. Autorizacao ainda bloqueada ate homologacao."
+        notes = "Homologada para inventario, telemetria, autorizar/localizar/excluir/reiniciar ONU e consultar sinal (whitelist por MAC)."
     elif driver == "vsol_epon":
         caps.update({
             "collect_macs": True,
