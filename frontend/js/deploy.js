@@ -1766,7 +1766,26 @@ function bindAccordionExclusive(containerSelector) {
   });
 }
 
+function onuResetTransientResults() {
+  // A tela nunca e recriada ao navegar (navigateTo so esconde/mostra com
+  // CSS) -- sem isso, resultado de consulta/exclusao/etc de uma sessao
+  // anterior, e ate a sanfona aberta, ficavam grudados indefinidamente ate
+  // dar F5. Roda toda vez que a tela e aberta, sem mexer na OLT/conector
+  // selecionados (isso o usuario quer manter).
+  _onuSelectedDiscovered = null;
+  _onuLastAddContext = null;
+  _onuDeleteTarget = null;
+  onuSetResult('onuDiscoverResult', 'Informe IP/PON/usuario/senha da OLT e clique em Descobrir.');
+  onuSetResult('onuAddResult', 'Nenhuma ONU autorizada ainda nesta sessao.');
+  onuSetResult('onuQueryResult', 'Informe a posicao (PON + numero) ou o serial e clique em Consultar.');
+  onuSetResult('onuRebootResult', 'Nenhum reinicio realizado nesta sessao.');
+  onuSetResult('onuDeleteResult', 'Nenhuma exclusao realizada nesta sessao.');
+  document.querySelectorAll('#viewDeployOnu details.onu-step').forEach(d => { d.open = false; });
+  loadOnuHistory();
+}
+
 function loadDeployOnu() {
+  onuResetTransientResults();
   deploymentApplyPreferredInventoryMode();
   populateOltIpDatalist('onuOltIp', 'onuOltIpList', 'onuOltPon');
   Promise.all([refreshOnuConnectors(), refreshOnuRegistry()]).finally(() => {
@@ -2046,9 +2065,6 @@ async function loadOnuHistory() {
 }
 
 function onuClear() {
-  _onuSelectedDiscovered = null;
-  _onuLastAddContext = null;
-  _onuDeleteTarget = null;
   document.querySelectorAll('#viewDeployOnu .onu-accordion input').forEach(input => { input.value = ''; });
   document.querySelectorAll('#viewDeployOnu .onu-accordion select').forEach(select => { select.selectedIndex = 0; });
   document.querySelectorAll('#onuAddServiceRows .onu-service-row').forEach((row, index) => { if (index > 0) row.remove(); });
@@ -2058,11 +2074,7 @@ function onuClear() {
   onuApplyRegisteredOlt();
   deploymentApplyPreferredInventoryMode();
   onuUpdateTerminalUI();
-  onuSetResult('onuDiscoverResult', 'Informe IP/PON/usuario/senha da OLT e clique em Descobrir.');
-  onuSetResult('onuAddResult', 'Nenhuma ONU autorizada ainda nesta sessao.');
-  onuSetResult('onuQueryResult', 'Informe a posicao (PON + numero) ou o serial e clique em Consultar.');
-  onuSetResult('onuRebootResult', 'Nenhum reinicio realizado nesta sessao.');
-  onuSetResult('onuDeleteResult', 'Nenhuma exclusao realizada nesta sessao.');
+  onuResetTransientResults();
   updateOnuConnectorStatus();
   onuUpdateConnectorGate();
   onuAccordionOpen('onuStepConn');
