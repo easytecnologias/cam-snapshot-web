@@ -609,7 +609,13 @@ def test_collect_onu_telemetry_4840e_maps_fields():
 
 def test_collect_onu_telemetry_4840e_skips_pon_with_interface_failure():
     """Se 'interface pon 0/<p>' falhar numa PON, a telemetria das outras
-    PONs nao pode se perder -- pula so a que falhou."""
+    PONs nao pode se perder -- pula so a que falhou. Prova isso olhando
+    os comandos REALMENTE enviados ao canal: depois da falha em
+    'interface pon 0/1', o proximo comando deve ser 'exit' (recuperacao),
+    NUNCA 'show onu-status' -- se fosse, o guard nao estaria funcionando
+    de verdade (um teste anterior que so checava o resultado final
+    passava mesmo sem o guard, porque o filtro 'row["pon"] != p' escondia
+    o problema)."""
     status_output_pon2 = (
         "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
         "0/2/1  30:e1:f1:3e:a0:a3 2896   26/08/28 05:45:19 other 1.3-220719 Up\n"
@@ -620,26 +626,37 @@ def test_collect_onu_telemetry_4840e_skips_pon_with_interface_failure():
             return "", "OLT_RADS(config)#"
         if cmd == "interface pon 0/1":
             return "% Invalid parameter, and error detected at '^' marker.", "OLT_RADS(config)#"
-        if cmd == "interface pon 0/2":
-            return "", "OLT_RADS(config-if-pon-0/2)#"
+        if cmd in ("interface pon 0/2", "interface pon 0/3", "interface pon 0/4"):
+            return "", "OLT_RADS(config-if-pon)#"
         if cmd == "show onu-status":
             return status_output_pon2, prompt
         if cmd == "exit":
             return "", "OLT_RADS(config)#"
         return "", prompt
 
-    orig_open_shell = _patch_open_shell(script)
+    chan_holder = {}
+
+    def fake_open_shell(host, user, password, port=22, timeout=12.0):
+        chan = FakeChannel(script, prompt="OLT_RADS(config)#")
+        chan_holder["chan"] = chan
+        return FakeSSHClient(), chan
+
+    orig_open_shell = mod._open_shell
     orig_login, orig_enable = _patch_login()
+    mod._open_shell = fake_open_shell
     try:
         rows = mod.collect_onu_telemetry_4840e("100.64.10.5", "admin", "x", pon="all")
     finally:
         _unpatch(orig_open_shell, orig_login, orig_enable)
 
-    # _pon_range("all") = [1, 2, 3, 4] -- PON 1 falha e e pulada, PON 2 tem
-    # 1 ONU, PONs 3/4 nao tem script mapeado (script generico devolve vazio,
-    # sem linhas casando o parser).
-    check(len(rows) == 1, f"esperava 1 linha (so da PON 2), veio {rows}")
-    check(rows[0]["pon"] == 2, f"esperava PON 2, veio {rows}")
+    commands = chan_holder["chan"].commands
+    idx_fail = commands.index("interface pon 0/1")
+    check(
+        commands[idx_fail + 1] == "exit",
+        f"esperava 'exit' de recuperacao logo apos a falha em interface pon 0/1, "
+        f"NUNCA 'show onu-status' -- comandos: {commands[idx_fail:idx_fail+3]}",
+    )
+    check(len(rows) >= 1, f"esperava telemetria das outras PONs preservada, veio {rows}")
 
 
 def main() -> None:
