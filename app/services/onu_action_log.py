@@ -31,6 +31,7 @@ def log_onu_action(
     pon: Any = "",
     onu: Any = "",
     serial: str = "",
+    vlan: str = "",
     ok: bool = True,
     detail: str = "",
 ) -> None:
@@ -39,8 +40,8 @@ def log_onu_action(
         with _conn() as c:
             c.execute(
                 "INSERT INTO onu_action_log"
-                "(tenant_slug, olt_id, olt_ip, olt_name, site, pon, onu, serial, action, ok, detail) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(tenant_slug, olt_id, olt_ip, olt_name, site, pon, onu, serial, vlan, action, ok, detail) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     tenant,
                     int(olt_id) if olt_id else None,
@@ -50,6 +51,7 @@ def log_onu_action(
                     str(pon or ""),
                     str(onu or ""),
                     str(serial or ""),
+                    str(vlan or ""),
                     action,
                     1 if ok else 0,
                     str(detail or "")[:500],

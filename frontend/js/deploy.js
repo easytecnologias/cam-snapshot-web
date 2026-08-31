@@ -2006,6 +2006,16 @@ function onuMacLine(m) {
   return `<li><code>${esc(m?.mac || '')}</code>${ip} - ${esc(m?.interface || '')}</li>`;
 }
 
+function onuVlanSummaryFromMacs(macs) {
+  const vlans = [];
+  (macs || []).forEach(m => {
+    const text = String(m?.interface || m?.vlan || '');
+    const match = text.match(/vlan\s+(\d+)/i);
+    if (match && !vlans.includes(match[1])) vlans.push(match[1]);
+  });
+  return vlans.join(',');
+}
+
 function onuHistoryDate(value) {
   if (!value) return 'data nao informada';
   try { return new Date(value).toLocaleString('pt-BR'); } catch { return String(value); }
@@ -2049,13 +2059,14 @@ async function loadOnuHistory() {
     box.innerHTML = actions.map(a => {
       const ok = a.ok !== 0 && a.ok !== false;
       const serial = a.serial ? ` (${esc(a.serial)})` : '';
+      const vlan = a.vlan ? ` - VLAN ${esc(a.vlan)}` : '';
       const detail = a.detail ? ` -- ${esc(a.detail)}` : '';
       const text = ok
         ? `foi ${ONU_ACTION_DONE[a.action] || esc(a.action)}`
         : `FALHOU ao ${ONU_ACTION_VERB[a.action] || esc(a.action)}`;
       return `<div class="deployment-history-item${ok ? '' : ' error'}">
         <b>PON ${esc(a.pon)} / ONU ${esc(a.onu)}${serial}</b>
-        <span>${text}${detail}</span>
+        <span>${text}${vlan}${detail}</span>
         <small>${esc(a.site || a.olt_name || 'sem site')} - ${esc(onuHistoryDate(a.created_at))}</small>
       </div>`;
     }).join('');
@@ -2406,6 +2417,7 @@ async function onuDelete() {
   const macsHtml = (data.macs || []).length
     ? `<ul style="margin:6px 0 0;padding-left:18px">${data.macs.map(onuMacLine).join('')}</ul>`
     : '<p style="margin:6px 0 0">Nenhum MAC aprendido atras dessa ONU.</p>';
+  if (_onuDeleteTarget) _onuDeleteTarget.vlanHint = onuVlanSummaryFromMacs(data.macs);
   panoramaEl.innerHTML = `
     <p>Voce esta prestes a excluir:</p>
     <div style="margin:8px 0;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-soft)">
@@ -2419,7 +2431,7 @@ async function onuDelete() {
 
 async function onuConfirmDelete() {
   if (!_onuDeleteTarget) { closeOnuDeleteModal(); return; }
-  const { olt, pon, onu } = _onuDeleteTarget;
+  const { olt, pon, onu, vlanHint } = _onuDeleteTarget;
   const panoramaEl = document.getElementById('onuDeletePanorama');
   const confirmBtn = document.getElementById('confirmOnuDelete');
   if (confirmBtn) confirmBtn.disabled = true;
@@ -2431,7 +2443,7 @@ async function onuConfirmDelete() {
     if (line) line.textContent = `Excluindo ONU na OLT (equipamento vivo)... (${onuDeleteTick}s)`;
   }, 1000);
 
-  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, vlan_hint: vlanHint || '', site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
   clearInterval(onuDeleteTicker);
   const data = await res?.json().catch(() => ({}));
     closeOnuDeleteModal();

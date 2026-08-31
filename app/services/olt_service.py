@@ -1088,12 +1088,39 @@ def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
             raise HTTPException(500, f"Erro ao descobrir ONUs na OLT: {e}") from e
 
 
+def _vlan_summary_from_services(services: Any, fallback_vlan: Any = None) -> str:
+    """Junta as VLANs de uma lista de servicos (add_onu/add_onu_bridge) num
+    resumo pro log de acoes -- '3000' se uma so, '3000,300' se mais de uma."""
+    vlans: list[str] = []
+    entries = services or ([{"vlan": fallback_vlan}] if fallback_vlan else [])
+    for entry in entries:
+        v = entry.vlan if hasattr(entry, "vlan") else entry.get("vlan")
+        v = str(v or "").strip()
+        if v and v not in vlans:
+            vlans.append(v)
+    return ",".join(vlans)
+
+
+def _vlan_summary_from_macs(macs: Any) -> str:
+    """Junta as VLANs aprendidas atras de uma ONU (onu_signal/delete_onu)
+    num resumo pro log de acoes, lendo do campo 'interface' de cada MAC
+    (ex: 'gpon 7 onu 2 gem 265 - vlan 3000')."""
+    vlans: list[str] = []
+    for m in macs or []:
+        text = str((m or {}).get("interface") or (m or {}).get("vlan") or "")
+        match = re.search(r"vlan\s+(\d+)", text, re.IGNORECASE)
+        if match and match.group(1) not in vlans:
+            vlans.append(match.group(1))
+    return ",".join(vlans)
+
+
 def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     """Autoriza uma ONU descoberta (serno_id) na OLT Intelbras 8820i, com
     servico/VLAN opcional. Equipamento vivo -- ver aviso na UI de Implantacao."""
     require_olt_capability(req, "add_onu", "autorizar ONU")
     profile = (req.profile or "").strip() or profile_for_model(req.onu_model, req.terminal)
     services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
+    vlan_summary = _vlan_summary_from_services(req.services, req.vlan)
     with perf_step("OLT_add_onu"):
         try:
             result = _add_onu_8820i(
@@ -1118,14 +1145,14 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 result["device_sync"] = _sync_authorized_onu_devices(req, result)
                 log_onu_action(
                     "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                    pon=result.get("pon"), onu=result.get("slot"), serial=req.serial, ok=True,
+                    pon=result.get("pon"), onu=result.get("slot"), serial=req.serial, vlan=vlan_summary, ok=True,
                     detail=req.onu_model,
                 )
             return result
         except OnuAddError as e:
             log_onu_action(
                 "add_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                pon=req.pon, onu=e.slot, serial=req.serial, ok=False, detail=str(e),
+                pon=req.pon, onu=e.slot, serial=req.serial, vlan=vlan_summary, ok=False, detail=str(e),
             )
             return {
                 "ok": False,
@@ -1148,6 +1175,7 @@ def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
     dava pra corrigir entrando na OLT direto. Equipamento vivo."""
     require_olt_capability(req, "add_onu", "aplicar servico/VLAN")
     services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
+    vlan_summary = _vlan_summary_from_services(req.services, req.vlan)
     with perf_step("OLT_add_onu_bridge"):
         try:
             result = _add_onu_bridge_only_8820i(
@@ -1165,13 +1193,13 @@ def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
             )
             log_onu_action(
                 "add_onu_bridge", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                pon=req.pon, onu=req.onu, ok=True,
+                pon=req.pon, onu=req.onu, vlan=vlan_summary, ok=True,
             )
             return result
         except OnuAddError as e:
             log_onu_action(
                 "add_onu_bridge", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
-                pon=req.pon, onu=req.onu, ok=False, detail=str(e),
+                pon=req.pon, onu=req.onu, vlan=vlan_summary, ok=False, detail=str(e),
             )
             return {
                 "ok": False,
@@ -1225,7 +1253,7 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
                 result["inventory"] = _remove_onu_inventory(req)
             log_onu_action(
                 "delete_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, site=req.site,
-                pon=req.pon, onu=req.onu, serial=req.serial, ok=bool(result.get("ok")),
+                pon=req.pon, onu=req.onu, serial=req.serial, vlan=req.vlan_hint, ok=bool(result.get("ok")),
                 detail="" if result.get("ok") else str(result.get("raw_output") or "")[:200],
             )
             return result
@@ -1284,7 +1312,8 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
             log_onu_action(
                 "onu_signal", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
                 pon=result.get("pon") or req.pon, onu=result.get("onu") or req.onu,
-                serial=result.get("serial") or req.serial, ok=bool(result.get("ok")),
+                serial=result.get("serial") or req.serial, vlan=_vlan_summary_from_macs(result.get("macs")),
+                ok=bool(result.get("ok")),
                 detail="" if result.get("ok") else str(result.get("error") or "")[:200],
             )
             return result

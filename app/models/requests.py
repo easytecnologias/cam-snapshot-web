@@ -209,6 +209,7 @@ class OltDeleteOnuRequest(BaseModel):
     pon: int
     onu: int
     serial: str = ""
+    vlan_hint: str = ""
     site: str = ""
     connector_id: str = ""
     remote_connector_id: str = ""

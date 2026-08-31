@@ -40,11 +40,11 @@ def main() -> None:
     try:
         onu_action_log.log_onu_action(
             "add_onu", olt_id=2, olt_ip="10.80.80.2", olt_name="JARDINS I", site="JARDINS I",
-            pon=7, onu=2, serial="ITBS2C96E6A7", ok=True, detail="ITBS 110Gb",
+            pon=7, onu=2, serial="ITBS2C96E6A7", vlan="3000", ok=True, detail="ITBS 110Gb",
         )
         onu_action_log.log_onu_action(
             "onu_signal", olt_id=2, olt_ip="10.80.80.2", site="JARDINS I",
-            pon=7, onu=2, serial="ITBS2C96E6A7", ok=True,
+            pon=7, onu=2, serial="ITBS2C96E6A7", vlan="3000", ok=True,
         )
         onu_action_log.log_onu_action(
             "delete_onu", olt_id=2, olt_ip="10.80.80.2", site="JARDINS I",
@@ -62,6 +62,8 @@ def main() -> None:
         check(acoes[1]["action"] == "onu_signal", f"segunda devia ser onu_signal: {acoes[1]}")
         check(acoes[2]["action"] == "add_onu", f"terceira devia ser add_onu: {acoes[2]}")
         check(acoes[0]["ok"] == 1, f"delete_onu devia estar ok=1: {acoes[0]}")
+        check(acoes[2]["vlan"] == "3000", f"add_onu devia ter gravado vlan=3000: {acoes[2]}")
+        check(acoes[0]["vlan"] == "", f"delete_onu sem vlan informada devia gravar vazio: {acoes[0]}")
 
         todas = onu_action_log.list_onu_actions()
         check(len(todas) == 4, f"sem filtro de olt_ip esperava 4 acoes, veio {len(todas)}")
