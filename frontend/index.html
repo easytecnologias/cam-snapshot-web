@@ -3676,6 +3676,7 @@
                   <button class="secondary-action" id="btnOnuDiscover" type="button"><i data-lucide="radar"></i> Descobrir na PON</button>
                 </div>
                 <div id="onuDiscoverResult" class="deploy-result-box">Informe IP/PON/usuario/senha da OLT e clique em Descobrir.</div>
+                <div id="onuDiscoverResultEpon" class="hidden deploy-result"></div>
               </div>
             </details>
 
@@ -3744,6 +3745,28 @@
                   <button class="primary-action" id="btnOnuAdd" type="button"><i data-lucide="wifi"></i> Autorizar ONU</button>
                 </div>
                 <div id="onuAddResult" class="deploy-result-box">Nenhuma ONU autorizada ainda nesta sessao.</div>
+                <div id="onuAddFieldsEpon" class="hidden">
+                  <div class="form-row">
+                    <label>MAC da ONU
+                      <input type="text" id="onuAddMacEpon" placeholder="aa:bb:cc:dd:ee:ff">
+                    </label>
+                    <label>Descricao
+                      <input type="text" id="onuAddDescriptionEpon" placeholder="Ex: Camera-Portaria">
+                    </label>
+                  </div>
+                  <div id="onuAddPortRowsEpon">
+                    <div class="onu-service-row-epon form-row">
+                      <label>Porta ethernet
+                        <input type="number" min="1" value="1" class="onu-eth-port-epon">
+                      </label>
+                      <label>VLAN
+                        <input type="number" min="1" class="onu-eth-vlan-epon">
+                      </label>
+                    </div>
+                  </div>
+                  <button type="button" id="btnOnuAddPortRowEpon" class="btn-secondary">+ adicionar porta</button>
+                  <p class="hint">A ONU sai liberada pra transmitir (camera) automaticamente ao autorizar.</p>
+                </div>
               </div>
             </details>
 
@@ -3774,6 +3797,14 @@
                   <button class="secondary-action" id="btnOnuQuery" type="button"><i data-lucide="activity"></i> Consultar sinal / MACs</button>
                 </div>
                 <div id="onuQueryResult" class="deploy-result-box">Informe a posicao (PON + numero) ou o serial e clique em Consultar.</div>
+                <div id="onuQueryFieldsEpon" class="hidden form-row">
+                  <label>PON
+                    <select id="onuQueryPonEpon"></select>
+                  </label>
+                  <label>ONU (posicao)
+                    <input type="number" min="1" id="onuQueryOnuNumEpon">
+                  </label>
+                </div>
               </div>
             </details>
 
@@ -3807,6 +3838,14 @@
                   <button class="secondary-action" id="btnOnuReboot" type="button"><i data-lucide="power"></i> Reiniciar ONU</button>
                 </div>
                 <div id="onuRebootResult" class="deploy-result-box">Nenhum reinicio realizado nesta sessao.</div>
+                <div id="onuRebootFieldsEpon" class="hidden form-row">
+                  <label>PON
+                    <select id="onuRebootPonEpon"></select>
+                  </label>
+                  <label>ONU (posicao)
+                    <input type="number" min="1" id="onuRebootOnuNumEpon">
+                  </label>
+                </div>
               </div>
             </details>
 
@@ -3840,6 +3879,14 @@
                   <button class="secondary-action" id="btnOnuDelete" type="button" style="border-color:var(--danger);color:var(--danger)"><i data-lucide="trash-2"></i> Excluir ONU</button>
                 </div>
                 <div id="onuDeleteResult" class="deploy-result-box">Nenhuma exclusao realizada nesta sessao.</div>
+                <div id="onuDeleteFieldsEpon" class="hidden form-row">
+                  <label>PON
+                    <select id="onuDeletePonEpon"></select>
+                  </label>
+                  <label>ONU (posicao)
+                    <input type="number" min="1" id="onuDeleteOnuNumEpon">
+                  </label>
+                </div>
               </div>
             </details>
           </div>
@@ -6040,7 +6087,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=144"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=175"></script>
+  <script src="js/deploy.js?v=176"></script>
   <script src="js/deployOlt.js?v=159"></script>
   <script src="js/connectors.js?v=161"></script>
   <script src="js/monitoring.js?v=9"></script>
