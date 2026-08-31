@@ -724,6 +724,34 @@ def delete_onu(
         client.close()
 
 
+def reboot_onu(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: int,
+    onu: int,
+    timeout: float = 20.0,
+) -> Dict[str, Any]:
+    """Reinicia uma ONU/ONT ja autorizada (posicao pon/onu). Equipamento vivo
+    -- a ONU fica sem servico por um tempo ate voltar a subir sozinha.
+
+    Comando informado pelo usuario (nao validado ainda contra OLT real nesta
+    sessao, ao contrario de 'onu set'/'bridge add'): 'onu reboot gpon <pon>
+    onu <onu>'. Usa `cli_run` simples (sem confirmacao interativa) -- se a
+    OLT pedir confirmacao como faz em 'onu delete', ajustar para
+    `cli_run_with_confirmation` depois de validar em campo.
+    """
+    client = _connect(olt_ip, user, password, timeout)
+    try:
+        chan = open_shell(client)
+        cmd = f"onu reboot gpon {pon} onu {onu}"
+        output = cli_run(chan, cmd, timeout=timeout)
+        ok = not command_failed(output)
+        return {"ok": ok, "pon": pon, "onu": onu, "command": cmd, "raw_output": output.strip()[:500]}
+    finally:
+        client.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--olt-ip", required=True)

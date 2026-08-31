@@ -216,6 +216,23 @@ class OltDeleteOnuRequest(BaseModel):
     timeout: float = 22.0
 
 
+class OltRebootOnuRequest(BaseModel):
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
+    pon: int
+    onu: int
+    site: str = ""
+    olt_name: str = ""
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
+    timeout: float = 20.0
+
+
 class OltOnuSignalRequest(BaseModel):
     olt_id: int | None = None
     olt_ip: str = ""

@@ -22,6 +22,7 @@ from app.models.requests import (
     OltDiscoverOnusRequest,
     OltFindOnuRequest,
     OltOnuSignalRequest,
+    OltRebootOnuRequest,
 )
 from app.cli.tools.olt_8820i_collect_macs import collect_macs_8820i, collect_onu_telemetry_8820i
 from app.services.camera_allowlist import is_allowed as allowlist_is_allowed
@@ -50,6 +51,7 @@ from app.cli.tools.olt_8820i_add_onu import (
     discover_unauthorized_onus,
     find_onu_by_serial,
     onu_signal as _onu_signal_8820i,
+    reboot_onu as _reboot_onu_8820i,
     profile_for_model,
 )
 from app.services.db_store import load_olt_cpe_state, save_olt_cpe_state
@@ -1232,6 +1234,33 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"Erro ao excluir ONU na OLT: {e}")
             raise HTTPException(500, f"Erro ao excluir ONU na OLT: {e}") from e
+
+
+def reboot_onu(req: OltRebootOnuRequest) -> Dict[str, Any]:
+    """Reinicia uma ONU/ONT ja autorizada (posicao pon/onu) na OLT Intelbras
+    8820i. Equipamento vivo -- a ONU fica sem servico ate voltar sozinha."""
+    require_olt_capability(req, "reboot_onu", "reiniciar ONU")
+    with perf_step("OLT_reboot_onu"):
+        try:
+            result = _reboot_onu_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                onu=req.onu,
+                timeout=req.timeout,
+            )
+            log_onu_action(
+                "reboot_onu", olt_id=req.olt_id, olt_ip=req.olt_ip, olt_name=req.olt_name, site=req.site,
+                pon=req.pon, onu=req.onu, ok=bool(result.get("ok")),
+                detail="" if result.get("ok") else str(result.get("raw_output") or "")[:200],
+            )
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao reiniciar ONU na OLT: {e}")
+            raise HTTPException(500, f"Erro ao reiniciar ONU na OLT: {e}") from e
 
 
 def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:

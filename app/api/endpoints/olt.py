@@ -16,6 +16,7 @@ from app.models.requests import (
     OltDiscoverOnusRequest,
     OltFindOnuRequest,
     OltOnuSignalRequest,
+    OltRebootOnuRequest,
     OltRegistryRequest,
 )
 from app.services import olt_registry
@@ -32,6 +33,7 @@ from app.services.olt_service import (
     find_onu,
     list_macs,
     onu_signal,
+    reboot_onu,
 )
 from app.services.onu_action_log import list_onu_actions
 
@@ -313,6 +315,11 @@ def api_olt_find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
 @router.post("/olt/delete-onu")
 def api_olt_delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
     return delete_onu(_registered_request(req))
+
+
+@router.post("/olt/reboot-onu")
+def api_olt_reboot_onu(req: OltRebootOnuRequest) -> Dict[str, Any]:
+    return reboot_onu(_registered_request(req))
 
 
 @router.post("/olt/onu-signal")

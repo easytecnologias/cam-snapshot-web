@@ -180,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('onuAddTerminal')?.addEventListener('change', onuUpdateTerminalUI);
   document.getElementById('btnOnuAddVlanRow')?.addEventListener('click', onuAddVlanRow);
   document.getElementById('btnOnuQuery')?.addEventListener('click', onuQuery);
+  document.getElementById('btnOnuReboot')?.addEventListener('click', onuReboot);
   document.getElementById('btnOnuDelete')?.addEventListener('click', onuDelete);
   document.getElementById('btnOnuClear')?.addEventListener('click', onuClear);
   document.getElementById('btnOnuHistoryRefresh')?.addEventListener('click', loadOnuHistory);

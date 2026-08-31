@@ -20,6 +20,7 @@ _CAPABILITY_LABELS = {
     "find_onu": "localizar ONU",
     "delete_onu": "excluir ONU",
     "onu_signal": "consultar sinal/MACs",
+    "reboot_onu": "reiniciar ONU",
 }
 
 
@@ -62,6 +63,7 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
             "find_onu": True,
             "delete_onu": True,
             "onu_signal": True,
+            "reboot_onu": True,
         })
         label = "Intelbras 8820i"
         notes = "Provisionamento e consulta homologados para o fluxo Intelbras 8820i."

@@ -1511,6 +1511,7 @@ const ONU_CAPABILITY_BUTTONS = {
   discover_onus: ['btnOnuDiscover'],
   add_onu: ['btnOnuAdd', 'btnOnuAddVlanRow'],
   onu_signal: ['btnOnuQuery'],
+  reboot_onu: ['btnOnuReboot'],
   delete_onu: ['btnOnuDelete', 'confirmOnuDelete'],
 };
 
@@ -1518,6 +1519,7 @@ const ONU_CAPABILITY_STEPS = {
   discover_onus: 'onuStepDiscover',
   add_onu: 'onuStepAdd',
   onu_signal: 'onuStepQuery',
+  reboot_onu: 'onuStepReboot',
   delete_onu: 'onuStepDelete',
 };
 
@@ -1575,6 +1577,7 @@ function onuUpdatePonSelectors() {
   const count = onuPonCountForRow(row);
   onuRenderPonSelectOptions(document.getElementById('onuOltPon'), count, true);
   onuRenderPonSelectOptions(document.getElementById('onuQueryPon'), count, false);
+  onuRenderPonSelectOptions(document.getElementById('onuRebootPon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuDeletePon'), count, false);
 }
 
@@ -1590,6 +1593,7 @@ function onuUpdateCapabilities() {
         info.caps.discover_onus ? 'descobrir' : '',
         info.caps.add_onu ? 'autorizar' : '',
         info.caps.onu_signal ? 'consultar sinal/MACs' : '',
+        info.caps.reboot_onu ? 'reiniciar' : '',
         info.caps.delete_onu ? 'excluir' : '',
         info.caps.collect_macs ? 'sincronizar inventario' : '',
       ].filter(Boolean).join(', ') || 'nenhuma acao operacional';
@@ -1597,6 +1601,7 @@ function onuUpdateCapabilities() {
         !info.caps.discover_onus ? 'descoberta' : '',
         !info.caps.add_onu ? 'autorizacao' : '',
         !info.caps.onu_signal ? 'sinal/MACs' : '',
+        !info.caps.reboot_onu ? 'reinicio' : '',
         !info.caps.delete_onu ? 'exclusao' : '',
       ].filter(Boolean).join(', ');
       status.innerHTML = `<b style="color:var(--primary)">${esc(info.label)}</b> -- suporta: ${esc(supported)}.${blocked ? ` Bloqueado: ${esc(blocked)}.` : ''} ${esc(info.notes || '')}`;
@@ -1990,12 +1995,14 @@ function onuHistoryDate(value) {
 const ONU_ACTION_DONE = {
   add_onu: 'autorizada',
   add_onu_bridge: 'com o servico/VLAN reaplicado',
+  reboot_onu: 'reiniciada',
   delete_onu: 'excluida',
   onu_signal: 'consultada',
 };
 const ONU_ACTION_VERB = {
   add_onu: 'autorizar',
   add_onu_bridge: 'aplicar o servico/VLAN',
+  reboot_onu: 'reiniciar',
   delete_onu: 'excluir',
   onu_signal: 'consultar',
 };
@@ -2054,6 +2061,7 @@ function onuClear() {
   onuSetResult('onuDiscoverResult', 'Informe IP/PON/usuario/senha da OLT e clique em Descobrir.');
   onuSetResult('onuAddResult', 'Nenhuma ONU autorizada ainda nesta sessao.');
   onuSetResult('onuQueryResult', 'Informe a posicao (PON + numero) ou o serial e clique em Consultar.');
+  onuSetResult('onuRebootResult', 'Nenhum reinicio realizado nesta sessao.');
   onuSetResult('onuDeleteResult', 'Nenhuma exclusao realizada nesta sessao.');
   updateOnuConnectorStatus();
   onuUpdateConnectorGate();
@@ -2314,6 +2322,42 @@ async function onuQuery() {
     <div style="margin-top:6px"><b>MACs aprendidos:</b>${macsHtml}</div>
     ${invSync}
   `);
+}
+
+async function onuReboot() {
+  if (!onuHasCapability('reboot_onu')) { showToast(onuCapabilityMessage('reboot_onu'), true); return; }
+  const olt = onuOltPayload();
+  if (!olt.olt_ip || (!olt.olt_id && !olt.password)) { showToast('Escolha uma OLT cadastrada ou informe IP e senha.', true); return; }
+  if (!onuConnectorReady(olt)) return;
+  const ponNum = Number(document.getElementById('onuRebootPon')?.value.trim() || '0');
+  if (!ponNum) { showToast('Escolha a PON da ONU a reiniciar.', true); return; }
+  const onuNum = Number(document.getElementById('onuRebootOnuNum')?.value.trim() || '0');
+  if (!onuNum) { showToast('Informe o numero da ONU (posicao) a reiniciar.', true); return; }
+
+  const payload = {
+    olt_id: olt.olt_id || null,
+    olt_ip: olt.olt_ip,
+    user: olt.user,
+    password: olt.password,
+    pon: ponNum,
+    onu: onuNum,
+    site: olt.site || '',
+    olt_name: olt.olt_name || '',
+    connector_id: olt.connector_id || '',
+    remote_connector_id: olt.remote_connector_id || '',
+    connector_name: olt.connector_name || '',
+  };
+  const ticker = onuStartTicker('onuRebootResult', 'Reiniciando ONU na OLT (equipamento vivo)');
+  const res = await api('/api/olt/reboot-onu', { method: 'POST', body: JSON.stringify(payload) });
+  onuStopTicker(ticker);
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuRebootResult', esc(data?.detail || data?.error || 'Falha ao reiniciar ONU (confira se a posicao esta correta).'), true);
+    return;
+  }
+  onuSetResult('onuRebootResult', `ONU da PON ${esc(data.pon)} / posicao ${esc(data.onu)} reiniciada. Aguarde alguns instantes para ela voltar a responder.`);
+  showToast('Comando de reinicio enviado a ONU.');
+  loadOnuHistory();
 }
 
 let _onuDeleteTarget = null; // {olt, pon, onu}

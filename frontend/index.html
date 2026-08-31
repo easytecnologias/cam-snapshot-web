@@ -3777,8 +3777,41 @@
               </div>
             </details>
 
+            <details class="onu-step" name="onuAccordion" id="onuStepReboot">
+              <summary><span class="onu-step-title">4. Reiniciar ONU</span></summary>
+              <div class="onu-step-body">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="onuRebootPon">PON</label>
+                    <select id="onuRebootPon">
+                      <option value="1">PON 1</option>
+                      <option value="2">PON 2</option>
+                      <option value="3">PON 3</option>
+                      <option value="4">PON 4</option>
+                      <option value="5">PON 5</option>
+                      <option value="6">PON 6</option>
+                      <option value="7">PON 7</option>
+                      <option value="8">PON 8</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="onuRebootOnuNum">Numero da ONU (posicao)</label>
+                    <input id="onuRebootOnuNum" type="number" placeholder="Ex: 4">
+                  </div>
+                </div>
+                <p style="font-size:11px;color:var(--amber);margin:2px 0 10px;display:flex;align-items:center;gap:5px">
+                  <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0"></i>
+                  Equipamento vivo: a ONU fica sem servico por um tempo ate voltar a subir sozinha.
+                </p>
+                <div class="deploy-inline-button" style="margin:2px 0 10px">
+                  <button class="secondary-action" id="btnOnuReboot" type="button"><i data-lucide="power"></i> Reiniciar ONU</button>
+                </div>
+                <div id="onuRebootResult" class="deploy-result-box">Nenhum reinicio realizado nesta sessao.</div>
+              </div>
+            </details>
+
             <details class="onu-step" name="onuAccordion" id="onuStepDelete">
-              <summary><span class="onu-step-title">4. Excluir ONU</span></summary>
+              <summary><span class="onu-step-title">5. Excluir ONU</span></summary>
               <div class="onu-step-body">
                 <div class="form-row">
                   <div class="form-group">
@@ -6007,7 +6040,7 @@
   <script src="js/maintenance.js?v=146"></script>
   <script src="js/analysis.js?v=144"></script>
   <script src="js/network.js?v=158"></script>
-  <script src="js/deploy.js?v=171"></script>
+  <script src="js/deploy.js?v=172"></script>
   <script src="js/deployOlt.js?v=159"></script>
   <script src="js/connectors.js?v=161"></script>
   <script src="js/monitoring.js?v=9"></script>
@@ -6016,6 +6049,6 @@
   <script src="js/accessControl.js?v=88"></script>
   <script src="js/accessLive.js?v=4"></script>
   <script src="js/accessWhatsappTriage.js?v=3"></script>
-  <script src="js/bootstrap.js?v=268"></script>
+  <script src="js/bootstrap.js?v=269"></script>
 </body>
 </html>

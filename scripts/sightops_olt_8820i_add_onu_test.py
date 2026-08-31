@@ -289,6 +289,36 @@ def test_add_bridge_only_recovers_authorized_onu_without_reauthorizing():
     assert calls == ["bridge add gpon 7 onu 2 tls vlan 3000 tagged eth 1"], calls
 
 
+def test_reboot_onu_sends_expected_command_and_reports_ok():
+    calls = []
+
+    def script(cmd):
+        calls.append(cmd)
+        return "Rebooting ONU gpon 7 onu 2 ..."
+
+    original = _patch_client(lambda: FakeSSHClient(script))
+    try:
+        result = mod.reboot_onu("10.80.80.2", "admin", "admin", pon=7, onu=2)
+    finally:
+        mod.paramiko.SSHClient = original
+
+    assert calls == ["onu reboot gpon 7 onu 2"], calls
+    assert result["ok"] is True, result
+
+
+def test_reboot_onu_reports_failure_when_olt_rejects():
+    def script(cmd):
+        return "% Invalid input detected"
+
+    original = _patch_client(lambda: FakeSSHClient(script))
+    try:
+        result = mod.reboot_onu("10.80.80.2", "admin", "admin", pon=7, onu=2)
+    finally:
+        mod.paramiko.SSHClient = original
+
+    assert result["ok"] is False, result
+
+
 def main() -> None:
     test_uses_fresh_serno_id_when_serial_matches()
     test_falls_back_to_serno_id_when_no_serial_given()
@@ -303,6 +333,8 @@ def main() -> None:
     test_bridge_add_retries_after_onu_not_ready()
     test_bridge_add_does_not_retry_on_unrelated_failure()
     test_add_bridge_only_recovers_authorized_onu_without_reauthorizing()
+    test_reboot_onu_sends_expected_command_and_reports_ok()
+    test_reboot_onu_reports_failure_when_olt_rejects()
     print("OK: sightops_olt_8820i_add_onu_test")
 
 

@@ -74,6 +74,8 @@ def main() -> int:
     caps_8820 = olt_capabilities("Intelbras", "8820i")
     check(caps_8820["capabilities"]["add_onu"] is True, "8820i deve autorizar", failures)
     check(caps_8820["capabilities"]["onu_signal"] is True, "8820i deve consultar sinal", failures)
+    check(caps_8820["capabilities"]["reboot_onu"] is True, "8820i deve reiniciar ONU", failures)
+    check(caps_4840["capabilities"].get("reboot_onu") is not True, "4840E nao deve reiniciar ONU (nao homologado)", failures)
 
     caps_unknown = olt_capabilities("Acme", "XPTO")
     check(caps_unknown["capabilities"]["collect_macs"] is False, "desconhecida nao pode coletar", failures)

@@ -20,13 +20,6 @@ from app.services.db_store import _conn, _current_tenant_slug
 
 logger = logging.getLogger("cam-snapshot")
 
-ACTION_LABELS = {
-    "add_onu": "autorizada",
-    "add_onu_bridge": "servico/VLAN reaplicado",
-    "delete_onu": "excluida",
-    "onu_signal": "consultada",
-}
-
 
 def log_onu_action(
     action: str,
