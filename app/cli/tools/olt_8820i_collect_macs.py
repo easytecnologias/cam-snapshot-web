@@ -29,7 +29,7 @@ import os
 import re
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import paramiko  # type: ignore[import]
 
@@ -339,6 +339,54 @@ def get_macs_for_onu(chan, pon: int, onu_id: int) -> List[Dict]:
     return macs
 
 
+def _open_connection(olt_ip: str, user: str, password: str, timeout: float) -> paramiko.SSHClient:
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        olt_ip,
+        username=user,
+        password=password,
+        look_for_keys=False,
+        allow_agent=False,
+        timeout=timeout,
+        banner_timeout=timeout,
+        auth_timeout=timeout,
+    )
+    return client
+
+
+_BULK_MAC_RE = re.compile(
+    r"^([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\s+gpon\s+(\d+)\s+onu\s+(\d+)\b.*?vlan\s+(\S+)",
+    re.IGNORECASE,
+)
+
+
+def parse_bulk_macs_all(output: str) -> Dict[Tuple[int, int], List[Dict]]:
+    """Parseia a saida de 'bridge show mac all' -- UM comando so que traz
+    todos os MACs aprendidos pela OLT inteira (todas as PONs, todas as
+    ONUs), em vez de um comando 'bridge show mac gpon <pon> onu <onu>' por
+    ONU. So os registros com interface 'gpon <pon> onu <onu>' interessam
+    aqui; os de 'eth <n>' sao MACs do lado de uplink, fora do escopo desta
+    coleta (o comando antigo, por ONU, nunca os incluia).
+
+    Retorna {(pon, onu_id): [{"cpe_mac": ..., "vlan": ...}, ...]}.
+    """
+    by_onu: Dict[Tuple[int, int], List[Dict]] = {}
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = _BULK_MAC_RE.match(line)
+        if not m:
+            continue
+        mac = normalize_mac(m.group(1))
+        if not mac:
+            continue
+        pon_id, onu_id, vlan = int(m.group(2)), int(m.group(3)), m.group(4)
+        by_onu.setdefault((pon_id, onu_id), []).append({"cpe_mac": mac, "vlan": vlan})
+    return by_onu
+
+
 # ============
 # FUNÃ‡ÃƒO P/ BACKEND (FastAPI)
 # ============
@@ -354,21 +402,25 @@ def collect_macs_8820i(
     """
     Coleta MACs por ONU na OLT Intelbras 8820i e retorna lista de dicts.
     Pode receber PON especÃ­fica (ex: "1") ou "all".
-    """
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+    Antes, os MACs de cada ONU eram lidos com um comando por ONU
+    ('bridge show mac gpon <pon> onu <onu>' repetido em serie para cada ONU
+    autorizada) -- numa OLT com ~230 ONUs isso da ~230 idas-e-voltas SSH
+    sequenciais. Tentativa de paralelizar essas chamadas (varios channels ou
+    varias conexoes SSH simultaneas) foi testada contra uma OLT 8820i real e
+    NAO funciona: essa OLT so sustenta uma sessao SSH por vez -- varias
+    conexoes ao mesmo tempo travam ou derrubam a sessao.
+
+    A coleta agora usa 'bridge show mac all', que traz a tabela de MACs da
+    OLT INTEIRA (todas as PONs, todas as ONUs) num unico comando -- testado
+    contra OLT real: coleta completa de ~230 ONUs caiu de ~134s para ~15s,
+    tudo numa sessao so (compativel com a limitacao acima). Se o comando nao
+    existir ou nao devolver nada reconhecivel (firmware diferente), a coleta
+    cai de volta no modo antigo, um comando por ONU, para nao perder
+    compatibilidade com outras versoes de firmware da 8820i.
+    """
     sys.stderr.write(f"[INFO] Conectando em {olt_ip}...\n")
-    client.connect(
-        olt_ip,
-        username=user,
-        password=password,
-        look_for_keys=False,
-        allow_agent=False,
-        timeout=timeout,
-        banner_timeout=timeout,
-        auth_timeout=timeout,
-    )
+    client = _open_connection(olt_ip, user, password, timeout)
 
     try:
         chan = open_shell(client)
@@ -378,8 +430,11 @@ def collect_macs_8820i(
         if pon.lower() == "all":
             sys.stderr.write("[INFO] Varredura automÃ¡tica de PONs usando 'onu status gpon <pon>'...\n")
             pons: List[int] = []
+            any_output = False
             for p in range(1, 9):
                 out_status = cli_run(chan, f"onu status gpon {p}", timeout=10.0)
+                if out_status.strip():
+                    any_output = True
                 if "Configured ONUs" in out_status:
                     sys.stderr.write(f"[INFO] PON {p} encontrada (Configured ONUs).\n")
                     pons.append(p)
@@ -388,6 +443,19 @@ def collect_macs_8820i(
                 sys.stderr.write(
                     "[WARN] Nenhuma PON encontrada entre 1 e 8 com 'onu status gpon <pon>'.\n"
                 )
+                # As 8 consultas devolveram vazio/em branco -- diferente de
+                # "a OLT respondeu e nao tem PON configurada", isso indica
+                # sessao/prompt quebrado (CLI mudou, comando nao reconhecido,
+                # conexao instavel). Sem essa distincao, esse caso virava uma
+                # lista vazia silenciosa igual a uma OLT genuinamente sem
+                # PON -- e uma coleta "vazia" apagava inventario existente.
+                if not any_output:
+                    raise RuntimeError(
+                        "Nenhuma resposta reconhecivel da OLT em nenhuma das 8 consultas de "
+                        "PON (sessao/prompt pode estar quebrado, ou o comando 'onu status gpon' "
+                        "nao e reconhecido neste firmware) -- diferente de uma OLT que respondeu "
+                        "e genuinamente nao tem PON configurada."
+                    )
         else:
             try:
                 pons = [int(pon)]
@@ -401,8 +469,7 @@ def collect_macs_8820i(
             sys.stderr.write("[ERRO] Nenhuma PON para processar.\n")
             return []
 
-        rows: List[Dict] = []
-
+        onus_by_pon: Dict[int, List[Dict]] = {}
         for p in pons:
             sys.stderr.write(f"[INFO] Lendo ONUs da gpon {p} com 'onu status gpon {p}'...\n")
             out_onu = onu_status_cache.get(p) or cli_run(chan, f"onu status gpon {p}", timeout=15.0)
@@ -413,14 +480,37 @@ def collect_macs_8820i(
                     "Verifique se o comando e o parser estÃ£o corretos.\n"
                 )
                 continue
+            onus_by_pon[p] = onus
 
+        rows: List[Dict] = []
+        if not onus_by_pon:
+            return rows
+
+        total_onus = sum(len(v) for v in onus_by_pon.values())
+        sys.stderr.write(
+            f"[INFO] Coletando MACs de {total_onus} ONU(s) via 'bridge show mac all'...\n"
+        )
+        bulk_macs: Dict[Tuple[int, int], List[Dict]] = {}
+        try:
+            bulk_out = cli_run(chan, "bridge show mac all", timeout=max(timeout, 30.0))
+            bulk_macs = parse_bulk_macs_all(bulk_out)
+        except Exception as exc:
+            sys.stderr.write(f"[WARN] 'bridge show mac all' falhou ({exc}), usando modo antigo.\n")
+        if not bulk_macs:
+            sys.stderr.write(
+                "[WARN] 'bridge show mac all' nao trouxe MACs reconheciveis -- "
+                "caindo no modo antigo (um comando por ONU).\n"
+            )
+
+        for p, onus in onus_by_pon.items():
             for onu in onus:
                 onu_id = int(onu["onu_id"])
                 onu = enrich_onu_signal(chan, onu, p, onu_id)
-                sys.stderr.write(
-                    f"[INFO] Coletando MACs de gpon {p} onu {onu_id}...\n"
-                )
-                macs = get_macs_for_onu(chan, p, onu_id)
+                if bulk_macs:
+                    macs = bulk_macs.get((p, onu_id), [])
+                else:
+                    sys.stderr.write(f"[INFO] Coletando MACs de gpon {p} onu {onu_id}...\n")
+                    macs = get_macs_for_onu(chan, p, onu_id)
                 for m in macs:
                     rows.append(
                         {
