@@ -1579,6 +1579,9 @@ function onuUpdatePonSelectors() {
   onuRenderPonSelectOptions(document.getElementById('onuQueryPon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuRebootPon'), count, false);
   onuRenderPonSelectOptions(document.getElementById('onuDeletePon'), count, false);
+  onuRenderPonSelectOptions(document.getElementById('onuQueryPonEpon'), count, false);
+  onuRenderPonSelectOptions(document.getElementById('onuRebootPonEpon'), count, false);
+  onuRenderPonSelectOptions(document.getElementById('onuDeletePonEpon'), count, false);
 }
 
 function onuUpdateCapabilities() {
@@ -1680,6 +1683,7 @@ function onuApplyRegisteredOlt() {
   onuToggleEponFields('onuQueryFieldsGpon', 'onuQueryFieldsEpon');
   onuToggleEponFields('onuRebootFieldsGpon', 'onuRebootFieldsEpon');
   onuToggleEponFields('onuDeleteFieldsGpon', 'onuDeleteFieldsEpon');
+  onuToggleEponFields('onuDiscoverResult', 'onuDiscoverResultEpon');
   updateOnuConnectorStatus();
   onuUpdateCapabilities();
   onuUpdateStepsLock();
