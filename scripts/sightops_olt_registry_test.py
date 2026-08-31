@@ -46,14 +46,14 @@ def main() -> None:
     try:
         salvo = olt_registry.save_olt({
             "name": "OLT Centro", "host": "10.0.0.10",
-            "vendor": "Fiberhome", "model": "8820i",
+            "vendor": "Intelbras", "model": "8820i",
             "username": "admin", "password": SENHA,
         })
         olt_id = salvo["id"]
         check("password" not in salvo, f"save_olt vazou a senha: {salvo}")
         check("password_enc" not in salvo, f"save_olt vazou o texto cifrado: {salvo}")
         check(salvo.get("has_password") is True, "has_password deveria ser True")
-        check(salvo.get("vendor") == "Fiberhome", "fabricante nao foi gravado")
+        check(salvo.get("vendor") == "Intelbras", "fabricante nao foi gravado")
 
         lista = olt_registry.list_olts()
         check(len(lista) == 1, f"tenant A deveria ver 1 OLT: {lista}")

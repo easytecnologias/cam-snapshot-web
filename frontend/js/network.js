@@ -107,29 +107,18 @@ async function oltCollect() {
     };
   } catch {}
 
-  // Sequencia de logs animados (refletem o que o servico realmente faz)
+  // Mensagem inicial honesta -- nao ha como saber de verdade em que ponto da
+  // coleta a OLT esta (nenhum log real chega em tempo real, so o ticker de
+  // tempo decorrido abaixo). Antes disso havia uma sequencia de mensagens
+  // com tempos fixos ("PON 2 encontrada...") que disparava sozinha via
+  // setTimeout, sem relacao nenhuma com o que a OLT estava realmente
+  // fazendo -- inclusive continuava "progredindo" se a OLT tivesse travado.
   const ponLabel = pon === 'all' ? 'TODAS as PONs' : `PON ${pon}`;
-  const steps = [
-    [0,    'info', `[INFO] Conectando em ${ip}${site ? ` [site: ${site}]` : ''}${origin === 'connector' ? ' via VPN do conector' : ''}...`],
-    [600,  'info', `[INFO] Autenticando como "${user}"...`],
-    [1100, 'info', `[INFO] Varredura automatica de PONs usando 'onu status gpon <pon>'`],
-    [1800, 'info', `[INFO] Descobrindo PONs configuradas em ${ip}...`],
-    [2500, 'info', pon === 'all'
-      ? '[INFO] PON 1 encontrada (Configured ONUs).'
-      : `[INFO] PON ${pon} encontrada (Configured ONUs).`],
-  ];
-  if (pon === 'all') {
-    const ponTotal = _oltPonCountForModel(model);
-    for (let p = 2; p <= ponTotal; p++) {
-      steps.push([2500 + p * 200, 'info', `[INFO] PON ${p} encontrada (Configured ONUs).`]);
-    }
-  }
-  steps.push([3200, 'info', `[INFO] Lendo ONUs da ${ponLabel} com 'onu status gpon'...`]);
-  steps.push([3800, 'info', `[INFO] Coletando MACs de ${ponLabel}...`]);
-
-  const timers = steps.map(([delay, cls, msg]) =>
-    setTimeout(() => oltConsoleLog(msg, cls), delay)
+  oltConsoleLog(
+    `[INFO] Conectando em ${ip}${site ? ` [site: ${site}]` : ''}${origin === 'connector' ? ' via VPN do conector' : ''}, coletando ${ponLabel}...`,
+    'info',
   );
+  const timers = [];
 
   // Ticker "ainda trabalhando"
   let tick = 0;

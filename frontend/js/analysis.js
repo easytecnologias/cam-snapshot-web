@@ -376,18 +376,11 @@ async function loadOlt() {
 
 function populateOltMacSiteFilter() {
   const sites = [...new Set(_oltRows.map(r => r.site).filter(Boolean))].sort();
-  const olts  = [...new Set(_oltRows.map(r => r.olt_ip || r.olt_name).filter(Boolean))].sort();
   const selSite = document.getElementById('oltFilterSite');
-  const selOlt  = document.getElementById('oltFilterOlt');
   if (selSite) {
     const cur = selSite.value;
     selSite.innerHTML = '<option value="">Todos os sites</option>' +
       sites.map(s => `<option${s === cur ? ' selected' : ''}>${esc(s)}</option>`).join('');
-  }
-  if (selOlt) {
-    const cur = selOlt.value;
-    selOlt.innerHTML = '<option value="">Todas as OLTs</option>' +
-      olts.map(o => `<option${o === cur ? ' selected' : ''}>${esc(o)}</option>`).join('');
   }
 }
 
@@ -409,11 +402,22 @@ function renderOltTable(rows) {
     if (mac) deviceKeys.add(mac);
   });
   const monitoredOnus = _oltOnuMonitoringRows.filter(row => !siteFilter || String(row.site || '').trim() === siteFilter);
+  // Duas fontes diferentes: com busca ativa, conta so o que apareceu na
+  // ultima coleta (onuKeys); sem busca, prioriza a contagem de monitoramento
+  // (fonte separada, atualizada por outro fluxo) -- podem nao bater se
+  // estiverem dessincronizadas. O title explica isso ao passar o mouse.
+  const usingMonitoringCount = !query && monitoredOnus.length > 0;
   const onuTotal = query ? onuKeys.size : (monitoredOnus.length || onuKeys.size);
   const deviceTotal = deviceKeys.size;
   const sites = new Set(rows.map(r => String(r.site || '').trim()).filter(Boolean));
   const olts = new Set(rows.map(r => String(r.olt_ip || r.olt_name || '').trim()).filter(Boolean));
   setText('oltOnuTotal', onuTotal);
+  const onuTotalEl = document.getElementById('oltOnuTotal');
+  if (onuTotalEl) {
+    onuTotalEl.title = usingMonitoringCount
+      ? 'Total de ONUs monitoradas (pode diferir da ultima coleta se estiver dessincronizado)'
+      : 'Total de ONUs na ultima coleta desta tela';
+  }
   setText('oltDeviceTotal', deviceTotal);
   setText('oltSiteCount', sites.size);
   setText('oltCount', olts.size);

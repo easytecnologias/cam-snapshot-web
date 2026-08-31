@@ -28,7 +28,6 @@ KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     },
     "onu": {
         "Intelbras": ["R1", "R1v2", "110Gi", "121W"],
-        "FiberHome": ["AN5506-01-A", "AN5506-02-B", "HG6143D"],
         "Huawei": ["EG8010H", "EG8120L", "HG8245H"],
         "ZTE": ["F601", "F660", "F670L"],
     },
@@ -39,7 +38,6 @@ KNOWN_CATALOG: Dict[str, Dict[str, List[str]]] = {
     },
     "olt": {
         "Intelbras": ["8820i", "4840E"],
-        "FiberHome": ["AN5516-01", "AN5516-04"],
         "Huawei": ["MA5608T", "MA5800-X7"],
         "ZTE": ["C320", "C600"],
     },

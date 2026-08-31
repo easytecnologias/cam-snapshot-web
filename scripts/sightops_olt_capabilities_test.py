@@ -75,10 +75,6 @@ def main() -> int:
     check(caps_8820["capabilities"]["add_onu"] is True, "8820i deve autorizar", failures)
     check(caps_8820["capabilities"]["onu_signal"] is True, "8820i deve consultar sinal", failures)
 
-    caps_fiberhome = olt_capabilities("FiberHome", "AN5516-06")
-    check(caps_fiberhome["driver"] == "fiberhome", f"driver FiberHome errado: {caps_fiberhome}", failures)
-    check(caps_fiberhome["capabilities"]["offline_audit"] is True, "FiberHome deve auditar offline", failures)
-
     caps_unknown = olt_capabilities("Acme", "XPTO")
     check(caps_unknown["capabilities"]["collect_macs"] is False, "desconhecida nao pode coletar", failures)
 

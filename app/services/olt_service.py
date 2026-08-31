@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from app.core.paths import SAIDA_DIR
 from app.core.perf import perf_step
+from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import (
     OltAddOnuRequest,
     OltCollectMacsRequest,
@@ -39,13 +40,6 @@ from app.cli.tools.olt_vsol_epon import (
     find_onu_vsol,
     onu_signal_vsol,
 )
-from app.cli.tools.olt_fiberhome import (
-    add_onu_fiberhome,
-    collect_fiberhome,
-    delete_onu_fiberhome,
-    discover_unauthorized_fiberhome,
-    onu_signal_fiberhome,
-)
 from app.cli.tools.olt_8820i_add_onu import (
     OnuAddError,
     add_onu as _add_onu_8820i,
@@ -62,11 +56,6 @@ from app.services.olt_capabilities import require_olt_capability
 
 logger = logging.getLogger("cam-snapshot")
 
-
-def _is_fiberhome(req: Any) -> bool:
-    vendor = _norm_text(getattr(req, "olt_vendor", "")).lower()
-    model = _norm_text(getattr(req, "olt_model", "")).lower()
-    return vendor == "fiberhome" or model.startswith(("an5516", "an6000", "fiberhome"))
 
 def _is_vsol(req: Any) -> bool:
     """OLT VSOL EPON -- identificada pelo fabricante ou pelo modelo."""
@@ -123,6 +112,18 @@ def _validate_olt_target_connector(req: Any) -> None:
 def _validate_olt_network_context(req: OltCollectMacsRequest) -> dict[str, Any] | None:
     origin = str(getattr(req, "scan_origin", "") or "local").strip().lower()
     if origin not in {"connector", "remote"}:
+        # Coleta "local": o servidor abre SSH direto pro host que o operador
+        # digitou, sem checagem de faixa/allowlist (diferente do fluxo via
+        # conector, que passa por ensure_connector_targets_allowed). Sem
+        # trilha de auditoria nenhuma, nao daria pra investigar depois se
+        # essa via foi usada como pivo pra alcançar algo que nao e uma OLT.
+        # NUNCA logar req.password aqui.
+        logger.info(
+            "coleta OLT local: tenant=%s host=%s usuario=%s",
+            get_current_tenant_slug() or "default",
+            getattr(req, "olt_ip", ""),
+            getattr(req, "user", ""),
+        )
         return None
 
     connector_id = str(
@@ -443,25 +444,15 @@ def _sync_authorized_onu_devices(
         if attempt:
             time.sleep(2.0 * attempt)
         try:
-            if _is_fiberhome(req):
-                signal = onu_signal_fiberhome(
-                    olt_ip=signal_req.olt_ip,
-                    user=signal_req.user,
-                    password=signal_req.password,
-                    pon=pon,
-                    onu=onu,
-                    timeout=signal_req.timeout,
-                )
-            else:
-                signal = _onu_signal_8820i(
-                    olt_ip=signal_req.olt_ip,
-                    user=signal_req.user,
-                    password=signal_req.password,
-                    pon=pon,
-                    onu=onu,
-                    serial=signal_req.serial,
-                    timeout=signal_req.timeout,
-                )
+            signal = _onu_signal_8820i(
+                olt_ip=signal_req.olt_ip,
+                user=signal_req.user,
+                password=signal_req.password,
+                pon=pon,
+                onu=onu,
+                serial=signal_req.serial,
+                timeout=signal_req.timeout,
+            )
             if not signal.get("ok"):
                 last_result = {"ok": False, "updated": False, "reason": signal.get("error") or "consulta sem resposta"}
                 continue
@@ -618,9 +609,7 @@ def _sync_onu_signal_inventory(req: OltOnuSignalRequest, result: dict[str, Any])
             "site": inferred_site,
             "olt_ip": _norm_text(req.olt_ip),
             "olt_name": inferred_olt_name,
-            "olt_model": _norm_text(getattr(req, "olt_model", "")) or (
-                "FiberHome" if _is_fiberhome(req) else "8820i"
-            ),
+            "olt_model": _norm_text(getattr(req, "olt_model", "")) or "8820i",
             "pon": pon,
             "onu_id": onu,
             "onu_name": base_onu_name,
@@ -670,17 +659,7 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
             with redirect_stderr(stderr_buf):
                 with perf_step("OLT_collect_macs_driver"):
                     model = ((req.olt_model or "8820i").strip().lower())
-                    if _is_fiberhome(req):
-                        rows = collect_fiberhome(
-                            olt_ip=req.olt_ip,
-                            user=req.user,
-                            password=req.password,
-                            pon=req.pon,
-                            olt_name=req.olt_name or "OLT-FiberHome",
-                            timeout=12.0,
-                            include_macs=True,
-                        )
-                    elif _is_vsol(req):
+                    if _is_vsol(req):
                         rows = collect_macs_vsol(
                             olt_ip=req.olt_ip,
                             user=req.user,
@@ -790,6 +769,20 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
                         )
 
                     kept = [x for x in existing_cpes if isinstance(x, dict) and not _same_scope(x)]
+                    # Coleta que nao achou NADA (PON vazia, OLT lenta, saida de
+                    # CLI que mudou de formato -- o parser devolve lista vazia
+                    # sem lancar excecao nesses casos) nao pode apagar
+                    # silenciosamente um inventario que ja existia pra este
+                    # site/OLT. Sem essa checagem, uma coleta "vazia" por
+                    # engano substituia o escopo inteiro por nada.
+                    existing_in_scope = len(existing_cpes) - len(kept)
+                    if not new_cpes and existing_in_scope > 0:
+                        raise RuntimeError(
+                            f"A coleta nao retornou nenhum registro para {req.olt_ip} / {site}, "
+                            f"mas ja existiam {existing_in_scope} registro(s) salvos para este "
+                            "OLT/site. Nada foi apagado -- confirme se a OLT respondeu "
+                            "corretamente (PON, ONUs cadastradas) antes de tentar de novo."
+                        )
                     all_cpes = kept + new_cpes
                 all_cpes = _dedup_cpes_by_key(all_cpes)
 
@@ -813,6 +806,13 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
             logger.error(f"Erro ao salvar JSON da OLT: {e}")
             raise HTTPException(500, f"Erro ao salvar JSON da OLT: {e}") from e
 
+        # cli_log fica so no log do servidor, nao na resposta HTTP -- o
+        # frontend desta tela nunca leu esse campo, e sao so mensagens de
+        # debug ([INFO]/[WARN] de cada PON varrida) sem motivo pra sair pro
+        # navegador em toda coleta.
+        if cli_log:
+            logger.debug(cli_log)
+
         return {
             "ok": True,
             "rows": new_cpes,
@@ -820,7 +820,6 @@ def collect_macs(req: OltCollectMacsRequest) -> Dict[str, Any]:
             "count": len(list(rows or [])),
             "count_all": len(list(all_cpes or [])),
             "json_path": str(json_path) if json_path else None,
-            "cli_log": cli_log,
             "camera_sync": camera_sync,
         }
 
@@ -830,40 +829,7 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
     require_olt_capability(req, "telemetry", "coletar telemetria")
     connector = _validate_olt_network_context(req)
     model = _norm_text(req.olt_model or "8820i").lower()
-    if _is_fiberhome(req):
-        try:
-            raw_rows = collect_fiberhome(
-                olt_ip=req.olt_ip,
-                user=req.user,
-                password=req.password,
-                pon=req.pon or "all",
-                olt_name=req.olt_name or "OLT-FiberHome",
-                timeout=12.0,
-                include_macs=False,
-                # A varredura periodica deve ocupar a sessao administrativa
-                # pelo menor tempo possivel. Sinal/distancia detalhados ficam
-                # para a consulta individual e os valores existentes sao
-                # preservados abaixo quando esta coleta vier vazia.
-                include_signal=False,
-            )
-            telemetry = [
-                {
-                    "pon": row.get("pon"),
-                    "onu_id": row.get("onu_id"),
-                    "serial": row.get("onu_serial"),
-                    "name": row.get("onu_name"),
-                    "oper_status": row.get("oper_status"),
-                    "omci_status": row.get("omci_status"),
-                    "rx_olt": row.get("rx_olt"),
-                    "rx_onu": row.get("rx_onu"),
-                    "distance_km": row.get("distance_km"),
-                }
-                for row in raw_rows
-            ]
-        except Exception as exc:
-            logger.exception("Erro ao coletar telemetria FiberHome da OLT %s", req.olt_ip)
-            raise HTTPException(500, f"Erro ao coletar telemetria FiberHome: {exc}") from exc
-    elif _is_vsol(req):
+    if _is_vsol(req):
         telemetry = collect_onu_telemetry_vsol(
             olt_ip=req.olt_ip, user=req.user, password=req.password, pon=req.pon,
         )
@@ -987,6 +953,15 @@ def collect_onu_telemetry(req: OltCollectMacsRequest) -> Dict[str, Any]:
 
 def clear_macs(site: str = "") -> Dict[str, Any]:
     """Apaga dados OLT persistidos (DB-first) e fallback JSON legado."""
+    # Acao destrutiva e irreversivel -- a unica confirmacao antes disso e um
+    # showConfirm() no navegador (contornavel). Sem log nenhum aqui, um clique
+    # duplo ou um token comprometido apagava tudo sem deixar rastro nenhum
+    # investigavel depois.
+    logger.warning(
+        "clear_macs chamado: tenant=%s escopo=%s",
+        get_current_tenant_slug() or "default",
+        site.strip() or "todos os sites",
+    )
     site_norm = str(site or "").strip().lower()
     before = 0
     removed_rows = 0
@@ -1019,6 +994,8 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
             "cpes": kept_rows,
         }
         save_olt_cpe_state(out_obj)
+        logger.warning("clear_macs concluido: tenant=%s escopo=site removidos=%d restantes=%d",
+                        get_current_tenant_slug() or "default", removed_rows, len(kept_rows))
         return {
             "ok": True,
             "cleared": True,
@@ -1040,6 +1017,8 @@ def clear_macs(site: str = "") -> Dict[str, Any]:
     except Exception:
         removed_file = False
 
+    logger.warning("clear_macs concluido: tenant=%s escopo=todos removidos=%d",
+                    get_current_tenant_slug() or "default", before)
     return {"ok": True, "cleared": True, "scope": "all", "removed_rows": int(before), "removed_file": removed_file}
 
 
@@ -1082,14 +1061,6 @@ def discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
     _validate_olt_target_connector(req)
     with perf_step("OLT_discover_onus"):
         try:
-            if _is_fiberhome(req):
-                return discover_unauthorized_fiberhome(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=req.pon,
-                    timeout=req.timeout,
-                )
             if _is_vsol(req):
                 return _discover_vsol_por_pon(req)
             if _is_intelbras_4840e(req):
@@ -1116,29 +1087,6 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     """Autoriza uma ONU descoberta (serno_id) na OLT Intelbras 8820i, com
     servico/VLAN opcional. Equipamento vivo -- ver aviso na UI de Implantacao."""
     require_olt_capability(req, "add_onu", "autorizar ONU")
-    if _is_fiberhome(req):
-        with perf_step("OLT_add_onu_fiberhome"):
-            try:
-                result = add_onu_fiberhome(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=req.pon,
-                    serial=req.serial,
-                    onu_model=req.onu_model,
-                    services=[entry.model_dump() for entry in req.services],
-                    terminal=req.terminal,
-                    tag_mode=req.tag_mode,
-                    serial_raw=req.serial_raw,
-                    timeout=req.timeout,
-                )
-                if result.get("ok"):
-                    result["inventory"] = _upsert_onu_inventory(req, result)
-                    result["device_sync"] = _sync_authorized_onu_devices(req, result)
-                return result
-            except Exception as exc:
-                logger.error("Erro ao autorizar ONU FiberHome: %s", exc)
-                raise HTTPException(500, f"Erro ao autorizar ONU FiberHome: {exc}") from exc
     profile = (req.profile or "").strip() or profile_for_model(req.onu_model, req.terminal)
     services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
     with perf_step("OLT_add_onu"):
@@ -1180,35 +1128,13 @@ def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:
     require_olt_capability(req, "find_onu", "localizar ONU")
     with perf_step("OLT_find_onu"):
         try:
-            if _is_fiberhome(req):
-                rows = collect_fiberhome(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon="all",
-                    timeout=req.timeout,
-                    include_macs=False,
-                )
-                wanted = _norm_onu_serial(req.serial)
-                row = next(
-                    (item for item in rows if _norm_onu_serial(item.get("onu_serial")) == wanted),
-                    None,
-                )
-                found = ({
-                    "pon": row.get("pon"),
-                    "onu": row.get("onu_id"),
-                    "serial": row.get("onu_serial"),
-                    "model": row.get("onu_model"),
-                    "slot": row.get("slot"),
-                } if row else None)
-            else:
-                found = find_onu_by_serial(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    serial=req.serial,
-                    timeout=req.timeout,
-                )
+            found = find_onu_by_serial(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                serial=req.serial,
+                timeout=req.timeout,
+            )
         except Exception as e:
             logger.error(f"Erro ao localizar ONU na OLT: {e}")
             raise HTTPException(500, f"Erro ao localizar ONU na OLT: {e}") from e
@@ -1224,25 +1150,14 @@ def delete_onu(req: OltDeleteOnuRequest) -> Dict[str, Any]:
     require_olt_capability(req, "delete_onu", "excluir ONU")
     with perf_step("OLT_delete_onu"):
         try:
-            if _is_fiberhome(req):
-                result = delete_onu_fiberhome(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=req.pon,
-                    onu=req.onu,
-                    serial=req.serial,
-                    timeout=req.timeout,
-                )
-            else:
-                result = _delete_onu_8820i(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=req.pon,
-                    onu=req.onu,
-                    timeout=req.timeout,
-                )
+            result = _delete_onu_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                onu=req.onu,
+                timeout=req.timeout,
+            )
             if result.get("ok"):
                 result["inventory"] = _remove_onu_inventory(req)
             return result
@@ -1259,33 +1174,15 @@ def onu_signal(req: OltOnuSignalRequest) -> Dict[str, Any]:
     require_olt_capability(req, "onu_signal", "consultar sinal/MACs")
     with perf_step("OLT_onu_signal"):
         try:
-            if _is_fiberhome(req):
-                pon_id = int(req.pon or 0)
-                onu_id = int(req.onu or 0)
-                if (not pon_id or not onu_id) and req.serial:
-                    found = find_onu(req.model_copy(update={"serial": req.serial}) if hasattr(req, "model_copy") else req)
-                    pon_id = int(found.get("pon") or 0)
-                    onu_id = int(found.get("onu") or 0)
-                if not pon_id or not onu_id:
-                    return {"ok": False, "error": "Informe PON + ONU ou um serial valido."}
-                result = onu_signal_fiberhome(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=pon_id,
-                    onu=onu_id,
-                    timeout=req.timeout,
-                )
-            else:
-                result = _onu_signal_8820i(
-                    olt_ip=req.olt_ip,
-                    user=req.user,
-                    password=req.password,
-                    pon=req.pon or None,
-                    onu=req.onu or None,
-                    serial=req.serial,
-                    timeout=req.timeout,
-                )
+            result = _onu_signal_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon or None,
+                onu=req.onu or None,
+                serial=req.serial,
+                timeout=req.timeout,
+            )
             if result.get("ok"):
                 _enrich_signal_macs_with_ips(result)
                 result["inventory"] = _sync_onu_signal_inventory(req, result)

@@ -20,8 +20,6 @@ _CAPABILITY_LABELS = {
     "find_onu": "localizar ONU",
     "delete_onu": "excluir ONU",
     "onu_signal": "consultar sinal/MACs",
-    "offline_audit": "auditar ONUs offline",
-    "purge": "remover ONUs offline",
 }
 
 
@@ -32,8 +30,6 @@ def _norm(value: Any) -> str:
 def normalize_olt_driver(vendor: Any = "", model: Any = "") -> str:
     vendor_key = _norm(vendor)
     model_key = _norm(model)
-    if vendor_key == "fiberhome" or model_key.startswith(("an5516", "an6000", "fiberhome")):
-        return "fiberhome"
     if vendor_key in ("vsol", "v-sol", "vsolution") or model_key.startswith(("vsol", "v1600", "epon-olt")):
         return "vsol_epon"
     if vendor_key == "intelbras":
@@ -93,20 +89,6 @@ def olt_capabilities(vendor: Any = "", model: Any = "") -> Dict[str, Any]:
             "Homologada para inventario, telemetria, descoberta e consulta de ONU. "
             "Autorizar e excluir ONU seguem bloqueados ate homologacao do provisionamento."
         )
-    elif driver == "fiberhome":
-        caps.update({
-            "collect_macs": True,
-            "telemetry": True,
-            "discover_onus": True,
-            "add_onu": True,
-            "find_onu": True,
-            "delete_onu": True,
-            "onu_signal": True,
-            "offline_audit": True,
-            "purge": True,
-        })
-        label = "FiberHome AN5516/AN6000"
-        notes = "Provisionamento, consulta e auditoria homologados para FiberHome."
     else:
         label = "OLT nao homologada"
         notes = "Cadastre o modelo para inventario, mas comandos na OLT ficam bloqueados ate homologacao."

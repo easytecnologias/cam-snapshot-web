@@ -76,6 +76,7 @@ class ApiAuthMiddleware(BaseHTTPMiddleware):
             (("POST",), "/api/inventory/delete", "operator"),
             (("POST",), "/api/rescan-single-ip", "operator"),
             (("POST",), "/api/olt/", "operator"),
+            (("GET",), "/api/olt/", "viewer"),
             (("POST",), "/api/switch/", "operator"),
             (("POST",), "/api/windows/", "operator"),
             (("GET",), "/api/connectors", "operator"),

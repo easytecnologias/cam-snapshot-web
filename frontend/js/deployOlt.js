@@ -12,12 +12,8 @@ const _oltRegTestStates = new Map();
 const _oltRegSyncStates = new Map();
 let _oltRegSyncTimer = null;
 let _oltRegSyncPanelDismissed = false;
-let _oltOfflineAuditOlt = null;
-let _oltOfflineAuditRows = [];
-const _oltOfflineAuditSelected = new Set();
 const OLT_MODELS_BY_VENDOR = {
   Intelbras: ['8820i', '4840E'],
-  FiberHome: ['AN5516-04', 'AN5516-06', 'AN6000-15', 'AN6000-17'],
   Huawei: ['MA5608T', 'MA5680T', 'MA5800-X2', 'MA5800-X7', 'MA5800-X15', 'MA5800-X17'],
   ZTE: ['C300', 'C320', 'C600'],
   Parks: ['Fiberlink 1100', 'Fiberlink 2000'],
@@ -239,20 +235,15 @@ function oltRegOpenMenu(event, id, trigger) {
   const menu = document.createElement('div');
   menu.id = 'oltRegFloatingMenu';
   menu.className = 'olt-reg-floating-menu';
-  const olt = _oltRegRows.find(item => Number(item.id) === Number(id));
-  const auditAction = String(olt?.vendor || '').toLowerCase() === 'fiberhome'
-    ? '<button type="button" data-action="audit"><i data-lucide="clipboard-check"></i><span>Auditar ONUs offline</span></button>'
-    : '';
   menu.innerHTML = `
     <button type="button" data-action="test"><i data-lucide="plug-zap"></i><span>Testar conexao</span></button>
     <button type="button" data-action="sync"><i data-lucide="refresh-cw"></i><span>Sincronizar inventario</span></button>
-    ${auditAction}
     <button type="button" data-action="edit"><i data-lucide="pencil"></i><span>Editar</span></button>
     <button type="button" class="danger" data-action="delete"><i data-lucide="trash-2"></i><span>Excluir</span></button>`;
   document.body.appendChild(menu);
   const rect = trigger.getBoundingClientRect();
   const menuWidth = 220;
-  const menuHeight = auditAction ? 226 : 184;
+  const menuHeight = 184;
   const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
   const top = rect.bottom + menuHeight + 8 <= window.innerHeight
     ? rect.bottom + 6
@@ -265,355 +256,10 @@ function oltRegOpenMenu(event, id, trigger) {
     oltRegCloseMenus();
     if (action === 'test') oltRegTest(id);
     if (action === 'sync') oltRegSync(id);
-    if (action === 'audit') oltOfflineAuditOpen(id);
     if (action === 'edit') oltRegEdit(id);
     if (action === 'delete') oltRegDelete(id);
   });
   lucide.createIcons();
-}
-
-function oltOfflineAuditOpen(id) {
-  const olt = _oltRegRows.find(item => Number(item.id) === Number(id));
-  if (!olt) return;
-  _oltOfflineAuditOlt = olt;
-  _oltOfflineAuditRows = [];
-  _oltOfflineAuditSelected.clear();
-  const modal = document.getElementById('modalOltOfflineAudit');
-  const title = document.getElementById('oltOfflineAuditTitle');
-  const rows = document.getElementById('oltOfflineAuditRows');
-  if (title) title.textContent = `ONUs offline - ${olt.name}`;
-  if (rows) rows.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty">Clique em Consultar OLT para carregar os dados atuais.</td></tr>';
-  _oltOfflineAuditRenderSummary();
-  _oltOfflineAuditUpdateSelection();
-  modal?.classList.remove('hidden');
-  document.body.classList.add('modal-open');
-  lucide.createIcons();
-}
-
-function oltOfflineAuditClose() {
-  document.getElementById('modalOltOfflineAudit')?.classList.add('hidden');
-  document.body.classList.remove('modal-open');
-}
-
-function _oltOfflineAuditRenderSummary(data = null) {
-  const box = document.getElementById('oltOfflineAuditSummary');
-  if (!box) return;
-  const values = data
-    ? [
-        [Number(data.offline_total || 0), 'ONUs inativas agora'],
-        [Number(data.review_total || 0), `offline ha ${Number(data.minimum_days || 0)}+ dias`],
-        [Number(data.without_history_total || 0), 'a OLT nao guardou a data'],
-        [Number(data.clock_warning_total || 0), 'data antiga ou relogio incorreto'],
-      ]
-    : [['--', 'aguardando consulta'], ['--', 'com data confiavel'], ['--', 'a OLT devolveu 0000-00-00'], ['--', 'revisar relogio da OLT']];
-  box.innerHTML = ['Offline', 'Acima do limite', 'Sem historico', 'Data suspeita'].map((label, index) =>
-    `<div><span>${label}</span><strong>${values[index][0]}</strong><small>${esc(values[index][1])}</small></div>`
-  ).join('');
-}
-
-function _oltOfflineAuditFilteredRows() {
-  const term = (document.getElementById('oltOfflineAuditSearch')?.value || '').trim().toLowerCase();
-  const filter = document.getElementById('oltOfflineAuditFilter')?.value || 'all';
-  return _oltOfflineAuditRows.filter(row => {
-    if (filter === 'review' && !row.meets_threshold) return false;
-    if (filter === 'unknown' && row.history_available) return false;
-    if (filter === 'clock' && !row.clock_warning) return false;
-    return !term || [row.pon, row.onu_id, row.onu_name, row.onu_serial, row.onu_model, row.vlan_label]
-      .some(value => String(value || '').toLowerCase().includes(term));
-  });
-}
-
-function _oltOfflineAuditRenderRows() {
-  const body = document.getElementById('oltOfflineAuditRows');
-  if (!body) return;
-  const rows = _oltOfflineAuditFilteredRows();
-  if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty">Nenhuma ONU corresponde ao filtro.</td></tr>';
-    return;
-  }
-  body.innerHTML = rows.map(row => {
-    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
-    const age = row.offline_days == null ? 'Nao calculavel' : `${Number(row.offline_days)} dias`;
-    const history = row.last_off_at || 'Nao registrada';
-    const confidence = row.clock_warning
-      ? '<span class="badge badge-amber">Data suspeita</span>'
-      : row.history_available
-        ? (row.meets_threshold ? '<span class="badge badge-green">Confirmada</span>' : '<span class="badge badge-gray">Recente</span>')
-        : '<span class="badge badge-gray">Sem historico</span>';
-    return `<tr class="${row.meets_threshold ? 'is-review-candidate' : ''}">
-      <td><input class="olt-offline-audit-check" type="checkbox" data-key="${esc(key)}" ${_oltOfflineAuditSelected.has(key) ? 'checked' : ''} ${row.meets_threshold ? '' : 'title="Selecao manual: confira esta ONU antes de decidir"'}></td>
-      <td><strong>PON ${Number(row.pon)}</strong><small>ONU ${Number(row.onu_id)}</small></td>
-      <td class="monospace">${esc(row.onu_serial || '--')}</td>
-      <td>${esc(row.onu_model || '--')}</td>
-      <td title="${row.vlan_source === 'inventory_history' ? 'VLAN observada anteriormente no inventario OLT' : 'Nenhuma VLAN conhecida no inventario'}"><strong>${esc(row.vlan_label || '--')}</strong><small>${row.known_devices ? `${Number(row.known_devices)} MAC(s)` : 'sem MAC conhecido'}</small></td>
-      <td>${esc(history)}</td>
-      <td><strong>${esc(age)}</strong></td>
-      <td>${confidence}</td>
-      <td><button class="olt-offline-audit-delete-row" type="button" data-key="${esc(key)}" title="Excluir esta ONU da OLT"><i data-lucide="trash-2"></i></button></td>
-    </tr>`;
-  }).join('');
-  body.querySelectorAll('.olt-offline-audit-check').forEach(check => {
-    check.addEventListener('change', () => {
-      if (check.checked) _oltOfflineAuditSelected.add(check.dataset.key);
-      else _oltOfflineAuditSelected.delete(check.dataset.key);
-      _oltOfflineAuditUpdateSelection();
-    });
-  });
-  body.querySelectorAll('.olt-offline-audit-delete-row').forEach(button => {
-    button.addEventListener('click', () => oltOfflineAuditDelete([button.dataset.key]));
-  });
-  lucide.createIcons();
-}
-
-function _oltOfflineAuditUpdateSelection() {
-  const label = document.getElementById('oltOfflineAuditSelection');
-  const csv = document.getElementById('btnOltOfflineAuditCsv');
-  const remove = document.getElementById('btnOltOfflineAuditDeleteSelected');
-  if (label) label.textContent = `${_oltOfflineAuditSelected.size} selecionada(s) para revisao`;
-  if (csv) csv.disabled = !_oltOfflineAuditRows.length;
-  if (remove) remove.disabled = !_oltOfflineAuditSelected.size;
-}
-
-async function oltOfflineAuditRun() {
-  if (!_oltOfflineAuditOlt?.id) return;
-  const button = document.getElementById('btnOltOfflineAuditRun');
-  const body = document.getElementById('oltOfflineAuditRows');
-  const note = document.getElementById('oltOfflineAuditNote');
-  const days = Number(document.getElementById('oltOfflineAuditDays')?.value || 30);
-  if (button) {
-    button.disabled = true;
-    button.innerHTML = '<i data-lucide="loader-circle"></i> Consultando...';
-  }
-  if (body) body.innerHTML = '<tr><td colspan="9" class="olt-offline-audit-empty"><span class="olt-offline-audit-loading"><i data-lucide="loader-circle"></i> Lendo ONUs, VLANs e datas diretamente da OLT...</span></td></tr>';
-  if (note) note.textContent = 'Consulta somente de leitura em andamento. Isso pode levar alguns segundos.';
-  lucide.createIcons();
-  try {
-    const oltId = Number(_oltOfflineAuditOlt.id);
-    const initial = await jsonOrReadableError(
-      await api(`/api/olt/registry/${oltId}/offline-audit?minimum_days=${days}`, { method: 'POST' }),
-      'Nao foi possivel iniciar a auditoria da OLT.'
-    );
-    let state = initial;
-    const started = Date.now();
-    while (state?.status === 'running' && Date.now() - started < 20 * 60 * 1000) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      state = await jsonOrReadableError(
-        await api(`/api/olt/registry/${oltId}/offline-audit-status`),
-        'Nao foi possivel acompanhar a auditoria da OLT.'
-      );
-      const elapsed = Number(state?.elapsed_s || Math.floor((Date.now() - started) / 1000));
-      if (note) note.textContent = `Lendo o historico diretamente da FiberHome... ${elapsed}s. Esta consulta nao altera a OLT.`;
-    }
-    if (state?.status === 'error') throw new Error(state?.error || 'A auditoria da OLT falhou.');
-    if (state?.status !== 'done') throw new Error('A auditoria continua em segundo plano, mas excedeu o tempo de acompanhamento da tela.');
-    const data = state?.result || {};
-    _oltOfflineAuditRows = Array.isArray(data?.rows) ? data.rows : [];
-    _oltOfflineAuditSelected.clear();
-    _oltOfflineAuditRows.filter(row => row.meets_threshold).forEach(row => {
-      _oltOfflineAuditSelected.add(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`);
-    });
-    _oltOfflineAuditRenderSummary(data);
-    _oltOfflineAuditRenderRows();
-    _oltOfflineAuditUpdateSelection();
-    if (note) note.innerHTML = data.without_history_total
-      ? `<strong>Atencao:</strong> ${Number(data.without_history_total)} ONU(s) nao possuem data de queda na FiberHome e exigem verificacao manual. VLANs conhecidas aparecem a partir do historico do inventario.`
-      : 'Todas as ONUs offline retornaram uma data de queda. VLANs conhecidas aparecem a partir do historico do inventario.';
-  } catch (err) {
-    if (body) body.innerHTML = `<tr><td colspan="9" class="olt-offline-audit-empty error">Falha na consulta: ${esc(err?.message || err)}</td></tr>`;
-    if (note) note.textContent = 'A auditoria nao alterou nenhum equipamento.';
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.innerHTML = '<i data-lucide="scan-search"></i> Consultar OLT';
-    }
-    lucide.createIcons();
-  }
-}
-
-function oltOfflineAuditSelectCandidates() {
-  // Marca/desmarca TODAS as linhas do filtro atual -- nao so as de data
-  // confirmada. Assim "Todas as offline" + marcar-todas seleciona tudo que
-  // esta offline (inclusive as de data suspeita, que o operador quer limpar).
-  // O filtro no topo (Todas / Com idade confirmada / Sem data / Data suspeita)
-  // e quem controla o alcance. A trava de seguranca real (serial obrigatorio)
-  // fica no backend, nao aqui.
-  const checked = !!document.getElementById('oltOfflineAuditSelectAll')?.checked;
-  _oltOfflineAuditFilteredRows().forEach(row => {
-    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
-    if (checked) _oltOfflineAuditSelected.add(key);
-    else _oltOfflineAuditSelected.delete(key);
-  });
-  _oltOfflineAuditRenderRows();
-  _oltOfflineAuditUpdateSelection();
-}
-
-function oltOfflineAuditDownloadCsv() {
-  if (!_oltOfflineAuditRows.length) return;
-  const selectedOnly = _oltOfflineAuditSelected.size > 0;
-  const rows = _oltOfflineAuditRows.filter(row => {
-    const key = `${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`;
-    return !selectedOnly || _oltOfflineAuditSelected.has(key);
-  });
-  const cells = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const header = ['olt', 'site', 'pon', 'onu', 'serial', 'modelo', 'vlans_conhecidas', 'macs_conhecidos', 'ultima_queda', 'ultimo_online', 'dias_offline', 'confianca'];
-  const lines = [header.join(';'), ...rows.map(row => [
-    _oltOfflineAuditOlt?.name, _oltOfflineAuditOlt?.site, row.pon, row.onu_id,
-    row.onu_serial, row.onu_model, row.vlan_label, (row.known_macs || []).join(', '), row.last_off_at, row.last_on_at,
-    row.offline_days == null ? '' : row.offline_days,
-    row.clock_warning ? 'data_suspeita' : row.history_available ? 'confirmada' : 'sem_historico',
-  ].map(cells).join(';'))];
-  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `${String(_oltOfflineAuditOlt?.name || 'OLT').replaceAll(' ', '-')}-onus-offline.csv`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-// A exclusao NAO roda mais em loop no navegador (a OLT so aceita uma sessao por
-// vez, e as chamadas seguintes falhavam em silencio). Agora manda o lote pro
-// servidor, que enfileira e exclui uma por vez, e a tela acompanha por um card
-// de progresso -- como o Sincronizar inventario.
-async function oltOfflineAuditDelete(keys = null) {
-  const wanted = Array.isArray(keys) && keys.length ? keys : [..._oltOfflineAuditSelected];
-  const rows = _oltOfflineAuditRows.filter(row =>
-    wanted.includes(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`)
-  );
-  if (!rows.length || !_oltOfflineAuditOlt?.id) return;
-
-  const semSerial = rows.filter(r => !String(r.onu_serial || '').trim()).length;
-  const comSerial = rows.filter(r => String(r.onu_serial || '').trim());
-  if (!comSerial.length) {
-    showToast('Nenhuma das ONUs tem serial. Exclusao bloqueada por seguranca.', true);
-    return;
-  }
-
-  const ok = await showConfirm({
-    eyebrow: 'Equipamento real',
-    title: comSerial.length === 1 ? 'Excluir esta ONU da FiberHome?' : `Excluir ${comSerial.length} ONUs da FiberHome?`,
-    msg: `A OLT aceita uma exclusao por vez, entao elas entram numa fila e sao removidas em ordem. Nao pode ser desfeito.`
-       + (semSerial ? ` ${semSerial} sem serial serao ignoradas por seguranca.` : ''),
-    label: comSerial.length === 1 ? 'Excluir ONU' : 'Excluir na fila',
-  });
-  if (!ok) return;
-
-  const items = comSerial.map(r => ({ pon: Number(r.pon), onu: Number(r.onu_id), serial: String(r.onu_serial || '') }));
-  const oltId = Number(_oltOfflineAuditOlt.id);
-  _oltOfflineAuditSetBusy(true);
-  try {
-    await jsonOrReadableError(
-      await api(`/api/olt/registry/${oltId}/purge`, { method: 'POST', body: JSON.stringify({ items }) }),
-      'Nao foi possivel iniciar a fila de exclusao.'
-    );
-  } catch (err) {
-    _oltOfflineAuditSetBusy(false);
-    showToast(`Nao foi possivel iniciar: ${err?.message || err}`, true);
-    return;
-  }
-  await _oltOfflineAuditPollPurge(oltId);
-}
-
-function _oltOfflineAuditSetBusy(busy) {
-  ['btnOltOfflineAuditRun', 'btnOltOfflineAuditDeleteSelected', 'btnOltOfflineAuditCsv', 'oltOfflineAuditSelectAll']
-    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = busy; });
-}
-
-async function _oltOfflineAuditPollPurge(oltId) {
-  const card = document.getElementById('oltOfflineAuditProgress');
-  if (card) card.classList.remove('hidden');
-  const started = Date.now();
-  try {
-    while (Date.now() - started < 60 * 60 * 1000) {
-      const state = await jsonOrReadableError(
-        await api(`/api/olt/registry/${oltId}/purge-status`),
-        'Nao foi possivel acompanhar a fila de exclusao.'
-      );
-      _oltOfflineAuditRenderProgress(state);
-      _oltOfflineAuditApplyPurgeResults(state);
-      if (state?.status === 'done' || state?.status === 'error' || state?.status === 'idle') break;
-      await new Promise(resolve => setTimeout(resolve, 1500));
-    }
-  } catch (err) {
-    _oltOfflineAuditRenderProgress({ status: 'error', error: err?.message || String(err) });
-  } finally {
-    _oltOfflineAuditSetBusy(false);
-    _oltOfflineAuditUpdateSelection();
-    lucide.createIcons();
-  }
-}
-
-function _oltOfflineAuditRenderProgress(state) {
-  const card = document.getElementById('oltOfflineAuditProgress');
-  if (!card) return;
-  const total = Number(state?.total || 0);
-  const processed = Number(state?.processed || 0);
-  const done = Number(state?.done || 0);
-  const failed = Number(state?.failed || 0);
-  const pending = Math.max(0, total - processed);
-  const pct = total ? Math.round((processed / total) * 100) : (state?.status === 'done' ? 100 : 0);
-  const running = state?.status === 'running';
-  const cur = state?.current;
-
-  let head, sub;
-  if (state?.status === 'error') {
-    head = 'A fila de exclusao falhou';
-    sub = state?.error || 'Erro desconhecido.';
-  } else if (running) {
-    head = `Excluindo ONUs offline... ${processed} de ${total}`;
-    sub = cur ? `Agora: PON ${Number(cur.pon)} / ONU ${Number(cur.onu)} - ${cur.serial || ''}` : 'Preparando a fila...';
-  } else {
-    head = `Fila concluida: ${done} excluida(s), ${failed} falha(s)`;
-    sub = `${total} ONU(s) processada(s).`;
-  }
-  const fails = (state?.results || []).filter(r => r && r.ok === false);
-
-  card.innerHTML = `
-    <div class="olt-purge-head">
-      <div class="olt-purge-title">
-        <strong>${esc(head)}</strong>
-        <span>${esc(sub)}</span>
-      </div>
-      ${running
-        ? '<i data-lucide="loader-circle" class="olt-purge-spin"></i>'
-        : `<button class="ghost-action" type="button" title="Fechar" onclick="document.getElementById('oltOfflineAuditProgress').classList.add('hidden')"><i data-lucide="x"></i></button>`}
-    </div>
-    <div class="olt-purge-bar"><span class="${failed && !running ? 'has-fail' : ''}" style="width:${pct}%"></span></div>
-    <div class="olt-purge-legend">
-      <span class="ok">${done} excluida(s)</span>
-      <span class="fail">${failed} falha(s)</span>
-      <span>${pending} na fila</span>
-    </div>
-    ${fails.length ? `<details class="olt-purge-fails"><summary>Ver ${fails.length} falha(s)</summary>${
-      fails.map(f => `<div>PON ${Number(f.pon)}/ONU ${Number(f.onu)}${f.serial ? ' - ' + esc(f.serial) : ''}: ${esc(f.message || '')}</div>`).join('')
-    }</details>` : ''}
-  `;
-  lucide.createIcons();
-}
-
-// Remove da tabela as ONUs que a fila ja confirmou excluidas, para a lista
-// refletir o estado real da OLT sem precisar reconsultar.
-function _oltOfflineAuditApplyPurgeResults(state) {
-  const oks = (state?.results || []).filter(r => r && r.ok === true);
-  if (!oks.length) return;
-  const okKeys = new Set(oks.map(r => `${Number(r.pon)}:${Number(r.onu)}:${String(r.serial || '')}`));
-  const before = _oltOfflineAuditRows.length;
-  _oltOfflineAuditRows = _oltOfflineAuditRows.filter(row => {
-    const purgeKey = `${Number(row.pon)}:${Number(row.onu_id)}:${String(row.onu_serial || '')}`;
-    if (okKeys.has(purgeKey)) {
-      _oltOfflineAuditSelected.delete(`${row.slot}:${row.pon}:${row.onu_id}:${row.onu_serial}`);
-      return false;
-    }
-    return true;
-  });
-  if (_oltOfflineAuditRows.length === before) return;
-  _oltOfflineAuditRenderRows();
-  _oltOfflineAuditRenderSummary({
-    offline_total: _oltOfflineAuditRows.length,
-    review_total: _oltOfflineAuditRows.filter(row => row.meets_threshold).length,
-    without_history_total: _oltOfflineAuditRows.filter(row => !row.history_available).length,
-    clock_warning_total: _oltOfflineAuditRows.filter(row => row.clock_warning).length,
-    minimum_days: Number(document.getElementById('oltOfflineAuditDays')?.value || 30),
-  });
 }
 
 function _oltRegPayload() {
@@ -888,14 +534,6 @@ function bindDeployOlt() {
   document.getElementById('btnOltRegModalClose')?.addEventListener('click', oltRegCloseModal);
   document.getElementById('btnOltRegClear')?.addEventListener('click', () => { oltRegCloseModal(); oltRegResetForm(); });
   document.getElementById('oltRegSearch')?.addEventListener('input', _oltRegApplyFilter);
-  document.getElementById('btnOltOfflineAuditClose')?.addEventListener('click', oltOfflineAuditClose);
-  document.getElementById('btnOltOfflineAuditDone')?.addEventListener('click', oltOfflineAuditClose);
-  document.getElementById('btnOltOfflineAuditRun')?.addEventListener('click', oltOfflineAuditRun);
-  document.getElementById('btnOltOfflineAuditCsv')?.addEventListener('click', oltOfflineAuditDownloadCsv);
-  document.getElementById('btnOltOfflineAuditDeleteSelected')?.addEventListener('click', () => oltOfflineAuditDelete());
-  document.getElementById('oltOfflineAuditSearch')?.addEventListener('input', _oltOfflineAuditRenderRows);
-  document.getElementById('oltOfflineAuditFilter')?.addEventListener('change', _oltOfflineAuditRenderRows);
-  document.getElementById('oltOfflineAuditSelectAll')?.addEventListener('change', oltOfflineAuditSelectCandidates);
   if (!document.body.dataset.oltActionMenuBound) {
     document.body.dataset.oltActionMenuBound = '1';
     document.addEventListener('click', () => oltRegCloseMenus());

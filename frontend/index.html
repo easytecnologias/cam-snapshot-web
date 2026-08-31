@@ -3505,7 +3505,6 @@
                 <select id="oltRegVendor">
                   <option value="">Escolha o fabricante</option>
                   <option value="Intelbras">Intelbras</option>
-                  <option value="FiberHome">FiberHome</option>
                   <option value="Huawei">Huawei</option>
                   <option value="ZTE">ZTE</option>
                   <option value="Parks">Parks</option>
@@ -4284,77 +4283,6 @@
       </section>
 
     </main>
-  </div>
-
-  <!-- --- MODAL: IMPLANTACAO OLT - AUDITORIA DE ONUs OFFLINE --- -->
-  <!-- Fica FORA de #appShell/.main-area de proposito: dentro do main-area (que
-       tem margin-left do sidebar) o modal-backdrop nao cobria a tela toda e o
-       modal nascia deslocado pra cima do sidebar. Os demais modais do sistema
-       tambem vivem aqui, no nivel do body. -->
-  <div id="modalOltOfflineAudit" class="modal-backdrop hidden" onclick="if(event.target===this)oltOfflineAuditClose()">
-    <div class="modal olt-offline-audit-modal">
-      <div class="modal-header">
-        <div>
-          <p class="eyebrow">Auditoria FiberHome</p>
-          <h2 id="oltOfflineAuditTitle">ONUs offline</h2>
-          <p>Revisao somente de leitura. Nenhuma ONU sera excluida nesta tela.</p>
-        </div>
-        <button class="icon-button" id="btnOltOfflineAuditClose" type="button" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button>
-      </div>
-      <div class="olt-offline-audit-toolbar">
-        <label>
-          <span>Considerar antiga após</span>
-          <select id="oltOfflineAuditDays">
-            <option value="7">7 dias</option>
-            <option value="15">15 dias</option>
-            <option value="30" selected>30 dias</option>
-            <option value="60">60 dias</option>
-            <option value="90">90 dias</option>
-            <option value="180">180 dias</option>
-          </select>
-        </label>
-        <label class="search-box">
-          <i data-lucide="search"></i>
-          <input id="oltOfflineAuditSearch" placeholder="Buscar PON, ONU, serial ou modelo">
-        </label>
-        <select id="oltOfflineAuditFilter" aria-label="Filtrar auditoria">
-          <option value="all">Todas as offline</option>
-          <option value="review">Com idade confirmada</option>
-          <option value="unknown">Sem data na OLT</option>
-          <option value="clock">Data suspeita</option>
-        </select>
-        <button class="primary-action" id="btnOltOfflineAuditRun" type="button"><i data-lucide="scan-search"></i> Consultar OLT</button>
-      </div>
-      <div class="olt-offline-audit-summary" id="oltOfflineAuditSummary">
-        <div><span>Offline</span><strong>--</strong><small>aguardando consulta</small></div>
-        <div><span>Acima do limite</span><strong>--</strong><small>com data confiavel</small></div>
-        <div><span>Sem historico</span><strong>--</strong><small>a OLT devolveu 0000-00-00</small></div>
-        <div><span>Data suspeita</span><strong>--</strong><small>revisar relogio da OLT</small></div>
-      </div>
-      <div class="olt-offline-audit-note" id="oltOfflineAuditNote">
-        Escolha o periodo e clique em Consultar OLT. ONUs sem data nunca sao marcadas automaticamente.
-      </div>
-      <!-- Card de progresso da fila de exclusao (aparece so durante/apos a fila) -->
-      <div class="olt-offline-audit-progress hidden" id="oltOfflineAuditProgress"></div>
-      <div class="olt-offline-audit-table-wrap">
-        <table class="data-table olt-offline-audit-table">
-          <thead><tr>
-            <th><input id="oltOfflineAuditSelectAll" type="checkbox" aria-label="Selecionar candidatos confirmados"></th>
-            <th>PON / ONU</th><th>Serial</th><th>Modelo</th><th>VLANs conhecidas</th>
-            <th>Ultima queda</th><th>Tempo offline</th><th>Confianca</th><th>Acoes</th>
-          </tr></thead>
-          <tbody id="oltOfflineAuditRows">
-            <tr><td colspan="9" class="olt-offline-audit-empty">Nenhuma consulta realizada.</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="modal-actions olt-offline-audit-actions">
-        <span id="oltOfflineAuditSelection">0 selecionada(s) para revisao</span>
-        <button class="secondary-action" id="btnOltOfflineAuditCsv" type="button" disabled><i data-lucide="download"></i> Baixar lista CSV</button>
-        <button class="secondary-action danger" id="btnOltOfflineAuditDeleteSelected" type="button" disabled><i data-lucide="trash-2"></i> Excluir selecionadas</button>
-        <button class="primary-action" id="btnOltOfflineAuditDone" type="button"><i data-lucide="check"></i> Concluir revisao</button>
-      </div>
-    </div>
   </div>
 
   <!-- --- MODAL: DETALHES DA CAMADA DO MAPA --- -->

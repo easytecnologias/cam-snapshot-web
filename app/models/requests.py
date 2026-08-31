@@ -143,7 +143,6 @@ class OltAddOnuRequest(BaseModel):
     serno_id: int
     onu_model: str = ""
     serial: str = ""
-    serial_raw: str = ""
     vendor: str = ""
     site: str = ""
     olt_name: str = ""
@@ -172,24 +171,6 @@ class OltFindOnuRequest(BaseModel):
     remote_connector_id: str = ""
     connector_name: str = ""
     timeout: float = 10.0
-
-
-class OltPurgeOnuItem(BaseModel):
-    pon: int
-    onu: int
-    serial: str = ""
-
-
-class OltPurgeRequest(BaseModel):
-    """Lote de ONUs offline para excluir em fila (uma por vez na OLT).
-
-    Cada item precisa de PON + ONU + serial: o serial e a trava de seguranca --
-    a exclusao so e enviada ao equipamento se ele bater, e itens sem serial sao
-    recusados no enfileiramento.
-    """
-
-    items: list[OltPurgeOnuItem]
-    minimum_days: int = 30
 
 
 class OltDeleteOnuRequest(BaseModel):

@@ -43,7 +43,7 @@ with TestClient(m.app) as c:
     # criar
     r = c.post("/api/olt/registry", json={
         "name": "OLT Centro", "host": "10.0.0.10",
-        "vendor": "Fiberhome", "model": "8820i",
+        "vendor": "Intelbras", "model": "8820i",
         "username": "admin", "password": SENHA, "site": "Centro",
     })
     check(r.status_code == 200, f"criar falhou: {r.status_code} {r.text[:200]}")
@@ -56,7 +56,7 @@ with TestClient(m.app) as c:
     # repetir a mesma identidade deve atualizar, nao tentar duplicar
     r = c.post("/api/olt/registry", json={
         "name": "OLT Centro atualizada", "host": "10.0.0.10", "site": "Centro",
-        "vendor": "Fiberhome", "model": "8820i", "username": "admin",
+        "vendor": "Intelbras", "model": "8820i", "username": "admin",
     })
     check(r.status_code == 200, f"salvar identidade repetida falhou: {r.status_code} {r.text[:200]}")
     check(r.json()["item"]["id"] == olt_id, "identidade repetida criou outra OLT")
