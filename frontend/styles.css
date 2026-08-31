@@ -5379,6 +5379,27 @@ body.cam-live-lock {
   border-top: 1px solid var(--border);
   padding-top: 14px;
 }
+/* Os wrappers #onuAddFieldsGpon/#onuAddFieldsEpon agrupam varios campos que
+   antes eram filhos diretos da grade acima (cada um com seu proprio espaco
+   de 12px) -- sem "display: contents" eles viram UM item so da grade, e os
+   campos por dentro colam uns nos outros sem o espacamento esperado. */
+#onuAddFieldsGpon:not(.hidden), #onuAddFieldsEpon:not(.hidden) {
+  display: contents;
+}
+.onu-service-row-epon.form-row {
+  display: grid;
+  grid-template-columns: minmax(120px, .55fr) minmax(180px, 1fr);
+  gap: 12px;
+  align-items: end;
+}
+.onu-eth-port-epon, .onu-eth-vlan-epon {
+  width: 100%;
+}
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
 .onu-step.onu-step-ready {
   border-color: rgba(8, 136, 93, .38);
   box-shadow: inset 3px 0 0 var(--primary);
