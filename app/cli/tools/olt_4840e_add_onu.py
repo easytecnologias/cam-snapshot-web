@@ -68,6 +68,40 @@ def _validate_mac_shape(mac_norm: str) -> None:
         raise ValueError(f"MAC invalido: {mac_norm!r}")
 
 
+_CONFIRM_YN_RE = re.compile(r"\(y/n\)\??\s*\[n\]", re.IGNORECASE)
+_GENERIC_PROMPT_RE = re.compile(r"(?:\r?\n)?[^\n]{0,120}(?:\([^\)]*\))?[>#]\s*$")
+
+
+def _cli_confirm_save(chan, timeout: float = 25.0) -> bool:
+    """Salva a config ('copy running-config startup-config'), respondendo
+    a confirmacao y/n que esta OLT pede -- validado ao vivo (equipamento
+    real, OLT BARRA DE SAO MIGUEL): sem responder essa confirmacao, o
+    comando fica pendurado esperando resposta, a sessao SSH fecha antes
+    dela chegar, a OLT assume o default '[n]' (nao salva), e a config
+    NUNCA e persistida na flash -- mesmo que o driver reporte 'saved:
+    True' (o texto de confirmacao nao bate com nenhum _FAILURE_MARKERS,
+    entao 'command_failed()' nao pegava esse caso)."""
+    while chan.recv_ready():
+        chan.recv(65535)
+    chan.send("copy running-config startup-config\n")
+    buf = ""
+    answered = False
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if chan.recv_ready():
+            buf += chan.recv(65535).decode("utf-8", errors="ignore")
+            if not answered and _CONFIRM_YN_RE.search(buf):
+                chan.send("y\n")
+                answered = True
+                buf = ""
+                time.sleep(0.2)
+                continue
+            if answered and _GENERIC_PROMPT_RE.search(buf):
+                return not command_failed(buf)
+        time.sleep(0.05)
+    return False
+
+
 class OnuAddError(Exception):
     """Erro ao autorizar/excluir/reiniciar ONU -- carrega o que ja foi
     aplicado. `onu` fica preenchido quando o onu-id ja foi lido de volta
@@ -433,7 +467,7 @@ def add_onu_4840e(
             if not vlan:
                 continue
             eth_port = int(entry.get("port") or 1)
-            cmd = f"interface ethernet {eth_port}"
+            cmd = f"interface ethernet 0/{eth_port}"
             out = _cli(chan, cmd, timeout=timeout)
             commands_run.append(cmd)
             if command_failed(out):
@@ -461,9 +495,10 @@ def add_onu_4840e(
         commands_run.append(cmd)
 
         cmd = "copy running-config startup-config"
-        save_out = _cli(chan, cmd, timeout=max(timeout, 20.0))
+        saved = _cli_confirm_save(chan, timeout=max(timeout, 25.0))
         commands_run.append(cmd)
-        saved = not command_failed(save_out)
+        if saved:
+            commands_run.append("y")
 
         return {"ok": True, "pon": pon, "onu": onu_id, "mac": mac_norm, "commands_run": commands_run, "saved": saved}
     finally:
@@ -522,9 +557,10 @@ def delete_onu_4840e(
         saved = False
         if ok:
             cmd = "copy running-config startup-config"
-            save_out = _cli(chan, cmd, timeout=max(timeout, 20.0))
+            saved = _cli_confirm_save(chan, timeout=max(timeout, 25.0))
             commands_run.append(cmd)
-            saved = not command_failed(save_out)
+            if saved:
+                commands_run.append("y")
 
         return {"ok": ok, "pon": pon, "onu": onu, "commands_run": commands_run, "saved": saved}
     finally:
@@ -536,10 +572,6 @@ def delete_onu_4840e(
             client.close()
         except Exception:
             pass
-
-
-_CONFIRM_YN_RE = re.compile(r"\(y/n\)\??\s*\[n\]", re.IGNORECASE)
-_GENERIC_PROMPT_RE = re.compile(r"(?:\r?\n)?[^\n]{0,120}(?:\([^\)]*\))?[>#]\s*$")
 
 
 def _cli_confirm_reboot(chan, cmd: str, timeout: float) -> Tuple[str, bool]:

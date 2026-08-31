@@ -88,6 +88,17 @@ def _config_script(steps: dict, default_prompt="OLT_RADS(config)#"):
     return script
 
 
+# Confirmado ao vivo (equipamento real, OLT BARRA DE SAO MIGUEL): esta OLT
+# pede confirmacao y/n pra 'copy running-config startup-config', igual ao
+# 'onu-reboot'. Mesclar isso no dict de steps de um teste faz o cenario de
+# salvar/confirmar batendo com o comportamento real -- sem isso, os testes
+# ficariam esperando a confirmacao ate estourar o timeout.
+_SAVE_CONFIRM_STEPS = {
+    "copy running-config startup-config": ("Startup config in flash will be updated, are you sure(y/n)? [n]", "OLT_RADS#"),
+    "y": ("\nBuilding, please wait...\nUpdate startup config successfully.", "OLT_RADS#"),
+}
+
+
 _STATUS_OUTPUT = (
     "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
     "0/4/6  30:e1:f1:73:a7:19 2654   26/07/29 06:09:43 other 1.3-220719 Up\n"
@@ -303,11 +314,11 @@ def test_add_onu_4840e_full_flow_success():
         "exit": ("", "OLT_RADS(config)#"),
         "onu 0/4/6": ("", "OLT_RADS(onu-0/4/6)#"),
         "onu-description Camera-Teste": ("", "OLT_RADS(onu-0/4/6)#"),
-        "interface ethernet 1": ("", "OLT_RADS(eth-0/4/6/1)#"),
+        "interface ethernet 0/1": ("", "OLT_RADS(eth-0/4/6/1)#"),
         "onu-vlan-mode tag vlan 3000": ("", "OLT_RADS(eth-0/4/6/1)#"),
         "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
         "end": ("", "OLT_RADS#"),
-        "copy running-config startup-config": ("Configuration saved.", "OLT_RADS#"),
+        **_SAVE_CONFIRM_STEPS,
     }
 
     orig_open_shell = _patch_open_shell(_config_script(steps))
@@ -323,6 +334,7 @@ def test_add_onu_4840e_full_flow_success():
     check(result["ok"] is True, result)
     check(result["onu"] == 6, f"onu-id lido errado: {result}")
     check(result["saved"] is True, f"saved devia ser True: {result}")
+    check("y" in result["commands_run"], f"devia ter confirmado o save com 'y' explicito: {result['commands_run']}")
     check("white-list add mac 30:e1:f1:73:a7:19" in result["commands_run"], result["commands_run"])
     check("onu-p2p" in result["commands_run"], result["commands_run"])
 
@@ -358,7 +370,7 @@ def test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth():
         "onu 0/4/6": ("", "OLT_RADS(onu-0/4/6)#"),
         "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
         "end": ("", "OLT_RADS#"),
-        "copy running-config startup-config": ("", "OLT_RADS#"),
+        **_SAVE_CONFIRM_STEPS,
     }
 
     orig_open_shell = _patch_open_shell(_config_script(steps))
@@ -399,7 +411,7 @@ def test_add_onu_4840e_sanitizes_newline_in_description():
         "onu-description Camera-Teste write-list add mac aa:aa:aa:aa:aa:aa": ("", "OLT_RADS(onu-0/4/6)#"),
         "onu-p2p": ("", "OLT_RADS(onu-0/4/6)#"),
         "end": ("", "OLT_RADS#"),
-        "copy running-config startup-config": ("Configuration saved.", "OLT_RADS#"),
+        **_SAVE_CONFIRM_STEPS,
     }
 
     orig_open_shell = _patch_open_shell(_config_script(steps))
@@ -457,7 +469,7 @@ def test_delete_onu_4840e_runs_both_steps_and_saves():
         "white-list del mac 30:e1:f1:73:a7:19": ("", "OLT_RADS(config-if-pon-0/4)#"),
         "exit": ("", "OLT_RADS(config)#"),
         "end": ("", "OLT_RADS#"),
-        "copy running-config startup-config": ("", "OLT_RADS#"),
+        **_SAVE_CONFIRM_STEPS,
     }
 
     orig_open_shell = _patch_open_shell(_config_script(steps))
@@ -469,6 +481,7 @@ def test_delete_onu_4840e_runs_both_steps_and_saves():
 
     check(result["ok"] is True, result)
     check(result["saved"] is True, result)
+    check("y" in result["commands_run"], f"devia ter confirmado o save com 'y' explicito: {result['commands_run']}")
     check("no onu-binding onu 0/4/6" in result["commands_run"], result["commands_run"])
     check("white-list del mac 30:e1:f1:73:a7:19" in result["commands_run"], result["commands_run"])
 
