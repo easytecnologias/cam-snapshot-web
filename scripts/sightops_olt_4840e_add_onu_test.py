@@ -417,6 +417,28 @@ def test_delete_onu_4840e_reports_failure_when_whitelist_del_fails():
     check("copy running-config startup-config" not in result["commands_run"], "nao devia salvar se falhou")
 
 
+def test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails():
+    steps = {
+        "conf t": ("", "OLT_RADS(config)#"),
+        "no onu-binding onu 0/4/6": ("% Invalid parameter, and error detected at '^' marker.", "OLT_RADS(config)#"),
+        "interface pon 0/4": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "white-list del mac 30:e1:f1:73:a7:19": ("", "OLT_RADS(config-if-pon-0/4)#"),
+        "exit": ("", "OLT_RADS(config)#"),
+        "end": ("", "OLT_RADS#"),
+    }
+
+    orig_open_shell = _patch_open_shell(_config_script(steps))
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.delete_onu_4840e("100.64.10.5", "admin", "x", pon=4, onu=6, mac="30:e1:f1:73:a7:19")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is False, result)
+    check("white-list del mac 30:e1:f1:73:a7:19" in result["commands_run"], "white-list del devia ser tentado mesmo com onu-binding falhando")
+    check("copy running-config startup-config" not in result["commands_run"], "nao devia salvar se falhou")
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
@@ -429,6 +451,7 @@ def main() -> None:
     test_add_onu_4840e_does_not_reset_auth_mode_when_already_mac_auth()
     test_delete_onu_4840e_runs_both_steps_and_saves()
     test_delete_onu_4840e_reports_failure_when_whitelist_del_fails()
+    test_delete_onu_4840e_still_attempts_whitelist_del_when_binding_fails()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:
