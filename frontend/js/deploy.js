@@ -1836,7 +1836,7 @@ function onuAccordionOpen(stepId) {
 
 // Etapas abaixo da conexao ficam travadas ate IP + senha da OLT serem preenchidos.
 function onuLockedStepIds() {
-  return ['onuStepDiscover', 'onuStepAdd', 'onuStepQuery', 'onuStepDelete'];
+  return ['onuStepDiscover', 'onuStepAdd', 'onuStepQuery', 'onuStepReboot', 'onuStepDelete'];
 }
 
 function onuUpdateStepsLock() {
