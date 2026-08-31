@@ -212,12 +212,14 @@ def test_discover_onus_4840e_finds_unauthorized_mac():
         "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
         "0/1/1  30:e1:f1:3e:a0:3f 2555   26/08/28 05:45:20 other 1.3-220719 Up\n"
         "0/1/2  00:0a:5a:ff:ff:69 -      -                 other -          Down\n"
+        "0/1/3  30:e1:f1:3e:a0:99 -      -                 other -          Down\n"
     )
     white_output = (
         "WHITE LIST:\n"
         "Port Index Mac Address\n"
         "pon-0/1 1 30:e1:f1:3e:a0:3f\n"
-        "Total white-list entries: 1 .\n"
+        "pon-0/1 2 30:e1:f1:3e:a0:99\n"
+        "Total white-list entries: 2 .\n"
     )
 
     def script(cmd, prompt):
@@ -242,8 +244,39 @@ def test_discover_onus_4840e_finds_unauthorized_mac():
 
     check(result["ok"] is True, result)
     candidates = result["pons"]["1"]["discovered"]
-    check(len(candidates) == 1, f"esperava 1 candidata, veio {candidates}")
+    check(len(candidates) == 1, f"esperava 1 candidata, veio {len(candidates)} ({candidates})")
     check(candidates[0]["mac"] == "00:0a:5a:ff:ff:69", f"mac errado: {candidates}")
+
+
+def test_discover_onus_4840e_handles_invalid_pon():
+    """Testa que o codigo falha gracefully quando interface pon nao existe"""
+    commands_sent = []
+
+    def script(cmd, prompt):
+        commands_sent.append(cmd)
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "interface pon 0/1":
+            return "% Invalid parameter, error detected at '^' marker.", "OLT_RADS(config)#"
+        if cmd == "exit":
+            return "", "OLT_RADS(config)#"
+        return "", prompt
+
+    orig_open_shell = _patch_open_shell(script)
+    orig_login, orig_enable = _patch_login()
+    try:
+        result = mod.discover_onus_4840e("100.64.10.5", "admin", "x", pon="1")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(result["ok"] is True, result)
+    pon_result = result["pons"]["1"]
+    check("error" in pon_result, f"esperava 'error' na PON 1, veio {pon_result}")
+    check("Falha ao entrar na PON 1" in pon_result["error"], f"error message errada: {pon_result['error']}")
+    check(pon_result["discovered"] == [], f"esperava discovered vazio, veio {pon_result['discovered']}")
+    # Verifica que show onu-status e show white-list nunca foram chamados
+    check("show onu-status" not in commands_sent, "show onu-status foi chamado apos erro na interface")
+    check("show white-list" not in commands_sent, "show white-list foi chamado apos erro na interface")
 
 
 def main() -> None:
@@ -252,6 +285,7 @@ def main() -> None:
     test_onu_signal_4840e_combines_status_and_opm()
     test_connect_and_login_closes_on_ensure_logged_in_failure()
     test_discover_onus_4840e_finds_unauthorized_mac()
+    test_discover_onus_4840e_handles_invalid_pon()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:

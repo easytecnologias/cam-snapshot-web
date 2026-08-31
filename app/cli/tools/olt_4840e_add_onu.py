@@ -297,7 +297,14 @@ def discover_onus_4840e(
         pons_out: Dict[str, Any] = {}
         for p in _pon_range(pon):
             _cli(chan, "conf t", timeout=timeout)
-            _cli(chan, f"interface pon 0/{p}", timeout=timeout)
+            iface_out = _cli(chan, f"interface pon 0/{p}", timeout=timeout)
+            if command_failed(iface_out):
+                pons_out[str(p)] = {"discovered": [], "error": f"Falha ao entrar na PON {p}: {iface_out.strip()[:200]}"}
+                try:
+                    _cli(chan, "exit", timeout=timeout)
+                except Exception:
+                    pass
+                continue
             status_rows = _parse_onu_status(_cli(chan, "show onu-status", timeout=timeout))
             white_rows = _parse_white_list(_cli(chan, "show white-list", timeout=timeout))
             _cli(chan, "exit", timeout=timeout)
