@@ -609,3 +609,52 @@ def reboot_onu_4840e(
             client.close()
         except Exception:
             pass
+
+
+def collect_onu_telemetry_4840e(
+    olt_ip: str, user: str, password: str, pon: str = "all", port: int = 22, timeout: float = 12.0,
+) -> List[Dict[str, Any]]:
+    """Telemetria leve por ONU ja autorizada: 'show onu-status' pra todas as
+    ONUs da(s) PON(s), sem diagnostico optico individual (isso ficaria caro
+    -- uma sessao por ONU -- e nao e o que a coleta periodica precisa;
+    'onu_signal_4840e' continua sendo o jeito de pedir RX/TX power de UMA
+    ONU especifica sob demanda)."""
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    out: List[Dict[str, Any]] = []
+    try:
+        for p in _pon_range(pon):
+            _cli(chan, "conf t", timeout=timeout)
+            iface_out = _cli(chan, f"interface pon 0/{p}", timeout=timeout)
+            if command_failed(iface_out):
+                # PON com problema (numero invalido etc.) -- pula pra
+                # proxima em vez de perder a telemetria das outras.
+                try:
+                    _cli(chan, "exit", timeout=timeout)
+                except Exception:
+                    pass
+                continue
+            rows = _parse_onu_status(_cli(chan, "show onu-status", timeout=timeout))
+            _cli(chan, "exit", timeout=timeout)
+            for row in rows:
+                if row["pon"] != p:
+                    continue
+                out.append({
+                    "pon": row["pon"],
+                    "onu_id": row["onu"],
+                    "serial": row["mac"],
+                    "oper_status": row["state"],
+                    "omci_status": "" ,
+                    "rx_olt": "",
+                    "rx_onu": "",
+                    "distance_km": (round(row["distance_m"] / 1000.0, 3) if row["distance_m"] else ""),
+                })
+        return out
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass

@@ -575,6 +575,73 @@ def test_reboot_onu_4840e_never_answers_without_seeing_confirmation():
     check(result["ok"] is False, f"sem confirmacao real, ok deve ser False (nao um falso sucesso): {result}")
 
 
+def test_collect_onu_telemetry_4840e_maps_fields():
+    status_output = (
+        "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
+        "0/1/1  30:e1:f1:3e:a0:3f 2555   26/08/28 05:45:20 other 1.3-220719 Up\n"
+    )
+
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "interface pon 0/1":
+            return "", "OLT_RADS(config-if-pon-0/1)#"
+        if cmd == "show onu-status":
+            return status_output, prompt
+        if cmd == "exit":
+            return "", "OLT_RADS(config)#"
+        return "", prompt
+
+    orig_open_shell = _patch_open_shell(script)
+    orig_login, orig_enable = _patch_login()
+    try:
+        rows = mod.collect_onu_telemetry_4840e("100.64.10.5", "admin", "x", pon="1")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    check(len(rows) == 1, f"esperava 1 linha, veio {rows}")
+    row = rows[0]
+    check(row["pon"] == 1 and row["onu_id"] == 1, f"pon/onu_id errados: {row}")
+    check(row["serial"] == "30:e1:f1:3e:a0:3f", f"serial errado: {row}")
+    check(row["oper_status"] == "Up", f"oper_status errado: {row}")
+    check(row["distance_km"] == 2.555, f"distance_km errado: {row}")
+
+
+def test_collect_onu_telemetry_4840e_skips_pon_with_interface_failure():
+    """Se 'interface pon 0/<p>' falhar numa PON, a telemetria das outras
+    PONs nao pode se perder -- pula so a que falhou."""
+    status_output_pon2 = (
+        "ONU    Mac Address       Dis(m) RegisterTime      Type  Software   State\n"
+        "0/2/1  30:e1:f1:3e:a0:a3 2896   26/08/28 05:45:19 other 1.3-220719 Up\n"
+    )
+
+    def script(cmd, prompt):
+        if cmd == "conf t":
+            return "", "OLT_RADS(config)#"
+        if cmd == "interface pon 0/1":
+            return "% Invalid parameter, and error detected at '^' marker.", "OLT_RADS(config)#"
+        if cmd == "interface pon 0/2":
+            return "", "OLT_RADS(config-if-pon-0/2)#"
+        if cmd == "show onu-status":
+            return status_output_pon2, prompt
+        if cmd == "exit":
+            return "", "OLT_RADS(config)#"
+        return "", prompt
+
+    orig_open_shell = _patch_open_shell(script)
+    orig_login, orig_enable = _patch_login()
+    try:
+        rows = mod.collect_onu_telemetry_4840e("100.64.10.5", "admin", "x", pon="all")
+    finally:
+        _unpatch(orig_open_shell, orig_login, orig_enable)
+
+    # _pon_range("all") = [1, 2, 3, 4] -- PON 1 falha e e pulada, PON 2 tem
+    # 1 ONU, PONs 3/4 nao tem script mapeado (script generico devolve vazio,
+    # sem linhas casando o parser).
+    check(len(rows) == 1, f"esperava 1 linha (so da PON 2), veio {rows}")
+    check(rows[0]["pon"] == 2, f"esperava PON 2, veio {rows}")
+
+
 def main() -> None:
     test_find_onu_4840e_finds_by_mac()
     test_find_onu_4840e_returns_none_when_not_found()
@@ -591,6 +658,8 @@ def main() -> None:
     test_reboot_onu_4840e_answers_confirmation_with_y()
     test_reboot_onu_4840e_never_sends_bare_reboot()
     test_reboot_onu_4840e_never_answers_without_seeing_confirmation()
+    test_collect_onu_telemetry_4840e_maps_fields()
+    test_collect_onu_telemetry_4840e_skips_pon_with_interface_failure()
     if FALHAS:
         print(f"FALHOU ({len(FALHAS)}):")
         for f in FALHAS:
