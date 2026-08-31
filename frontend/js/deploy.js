@@ -1959,6 +1959,24 @@ function onuSetResult(boxId, html, isError = false) {
   box.classList.toggle('error', !!isError);
 }
 
+// Contador de segundos "ainda trabalhando" para as chamadas na OLT (7-20s+
+// cada, sem log em tempo real possivel) -- mesma ideia ja usada no Coletar
+// MACs do Inventario > OLT: nao inventa progresso falso, so mostra que o
+// pedido continua vivo enquanto espera.
+function onuStartTicker(boxId, baseText) {
+  let tick = 0;
+  const paint = () => {
+    const el = document.getElementById(boxId);
+    if (el) el.textContent = `${baseText}... (${tick}s)`;
+  };
+  paint();
+  return setInterval(() => { tick += 1; paint(); }, 1000);
+}
+
+function onuStopTicker(timer) {
+  if (timer) clearInterval(timer);
+}
+
 function onuMacLine(m) {
   const ip = m?.ip ? ` - <b>${esc(m.ip)}</b>` : '';
   return `<li><code>${esc(m?.mac || '')}</code>${ip} - ${esc(m?.interface || '')}</li>`;
@@ -2049,8 +2067,9 @@ async function onuDiscover() {
   if (!olt.olt_ip) { showToast('Informe o IP da OLT.', true); return; }
   if (!olt.olt_id && !olt.password) { showToast('Informe a senha da OLT.', true); return; }
   if (!onuConnectorReady(olt)) return;
-  onuSetResult('onuDiscoverResult', 'Consultando OLT (pode levar alguns segundos)...');
+  const ticker = onuStartTicker('onuDiscoverResult', 'Consultando OLT');
   const res = await api('/api/olt/discover-onus', { method: 'POST', body: JSON.stringify(olt) });
+  onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
     onuSetResult('onuDiscoverResult', esc(data?.detail || 'Falha ao consultar a OLT.'), true);
@@ -2149,8 +2168,9 @@ async function onuAdd() {
     remote_connector_id: olt.remote_connector_id || '',
     connector_name: olt.connector_name || '',
   };
-  onuSetResult('onuAddResult', 'Autorizando ONU na OLT (equipamento vivo, aguarde)...');
+  const ticker = onuStartTicker('onuAddResult', 'Autorizando ONU na OLT (equipamento vivo)');
   const res = await api('/api/olt/add-onu', { method: 'POST', body: JSON.stringify(payload) });
+  onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok) {
     onuSetResult('onuAddResult', esc(data?.detail || 'Falha ao autorizar ONU.'), true);
@@ -2217,8 +2237,9 @@ async function onuRetryBridge() {
     remote_connector_id: olt.remote_connector_id || '',
     connector_name: olt.connector_name || '',
   };
-  onuSetResult('onuAddResult', 'Tentando aplicar servico/VLAN de novo (equipamento vivo, aguarde)...');
+  const ticker = onuStartTicker('onuAddResult', 'Tentando aplicar servico/VLAN de novo (equipamento vivo)');
   const res = await api('/api/olt/add-onu-bridge', { method: 'POST', body: JSON.stringify(payload) });
+  onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
     onuSetResult('onuAddResult', `Falhou de novo em: <code>${esc(data?.failed_at || '-')}</code><br>${esc(data?.detail || data?.error || 'Falha ao aplicar servico/VLAN.')}`, true);
@@ -2263,8 +2284,9 @@ async function onuQuery() {
     remote_connector_id: olt.remote_connector_id || '',
     connector_name: olt.connector_name || '',
   };
-  onuSetResult('onuQueryResult', 'Consultando sinal e MACs na OLT...');
+  const ticker = onuStartTicker('onuQueryResult', 'Consultando sinal e MACs na OLT');
   const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify(payload) });
+  onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
   if (!res?.ok || data?.ok === false) {
     onuSetResult('onuQueryResult', esc(data?.detail || data?.error || 'Falha ao consultar a ONU.'), true);
@@ -2313,10 +2335,11 @@ async function onuDelete() {
   const panoramaEl = document.getElementById('onuDeletePanorama');
   const confirmBtn = document.getElementById('confirmOnuDelete');
   if (confirmBtn) confirmBtn.disabled = true;
-  if (panoramaEl) panoramaEl.innerHTML = 'Consultando dados da ONU na OLT...';
   openOnuDeleteModal();
 
+  const ticker = onuStartTicker('onuDeletePanorama', 'Consultando dados da ONU na OLT');
   const res = await api('/api/olt/onu-signal', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon: ponNum, onu: onuNum, site: olt.site || '', olt_name: olt.olt_name || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  onuStopTicker(ticker);
   const data = await res?.json().catch(() => ({}));
   if (confirmBtn) confirmBtn.disabled = false;
   if (!panoramaEl) return;
@@ -2344,9 +2367,16 @@ async function onuConfirmDelete() {
   const panoramaEl = document.getElementById('onuDeletePanorama');
   const confirmBtn = document.getElementById('confirmOnuDelete');
   if (confirmBtn) confirmBtn.disabled = true;
-  if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo, aguarde)...</p>');
+  if (panoramaEl) panoramaEl.insertAdjacentHTML('beforeend', '<p id="onuDeleteTickerLine" style="margin-top:10px">Excluindo ONU na OLT (equipamento vivo)... (0s)</p>');
+  let onuDeleteTick = 0;
+  const onuDeleteTicker = setInterval(() => {
+    onuDeleteTick += 1;
+    const line = document.getElementById('onuDeleteTickerLine');
+    if (line) line.textContent = `Excluindo ONU na OLT (equipamento vivo)... (${onuDeleteTick}s)`;
+  }, 1000);
 
   const res = await api('/api/olt/delete-onu', { method: 'POST', body: JSON.stringify({ olt_id: olt.olt_id || null, olt_ip: olt.olt_ip, user: olt.user, password: olt.password, pon, onu, site: olt.site || '', connector_id: olt.connector_id || '', remote_connector_id: olt.remote_connector_id || '', connector_name: olt.connector_name || '' }) });
+  clearInterval(onuDeleteTicker);
   const data = await res?.json().catch(() => ({}));
     closeOnuDeleteModal();
     _onuDeleteTarget = null;
