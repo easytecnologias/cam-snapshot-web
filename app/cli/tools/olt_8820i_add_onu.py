@@ -29,7 +29,7 @@ import re
 import socket
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import paramiko  # type: ignore[import]
 
@@ -61,12 +61,67 @@ _FAILURE_MARKERS = (
 
 
 class OnuAddError(Exception):
-    """Erro ao autorizar ONU -- carrega quais comandos ja foram aplicados."""
+    """Erro ao autorizar ONU -- carrega quais comandos ja foram aplicados.
 
-    def __init__(self, message: str, failed_command: str, commands_run: List[str]) -> None:
+    `slot` fica preenchido quando o 'onu set' ja tinha sido concluido com
+    sucesso e so o passo de bridge/servico falhou -- e o sinal de que da pra
+    tentar recuperar so a bridge (ver `add_bridge_only`) em vez de refazer a
+    autorizacao inteira.
+    """
+
+    def __init__(self, message: str, failed_command: str, commands_run: List[str], slot: Optional[int] = None) -> None:
         super().__init__(message)
         self.failed_command = failed_command
         self.commands_run = commands_run
+        self.slot = slot
+
+
+# A OLT so aceita UM tipo de bridge por VLAN -- quem chegou primeiro decide
+# (validado contra OLT real: VLAN 3000 travada em 'tls', VLAN 300 travada em
+# 'downlink', cada uma com varias ONUs diferentes usando o mesmo tipo). Se a
+# OLT recusar por a VLAN ja ter o outro tipo, tenta uma vez com o oposto em
+# vez de obrigar o tecnico a descobrir isso na mao.
+_BRIDGE_TYPE_CONFLICT_RE = re.compile(r"cannot add .*bridge.*already has a.*bridge", re.IGNORECASE)
+_OTHER_BRIDGE_TYPE = {"downlink": "tls", "tls": "downlink"}
+
+# A OLT leva um instante depois do 'onu set' pra terminar de reconhecer a
+# ONU (OMCI) -- se o 'bridge add' vier logo em seguida, ela recusa com essa
+# mensagem (validado contra OLT real). Vale tentar de novo apos uma pausa.
+_ONU_NOT_READY_RE = re.compile(r"please set onu first", re.IGNORECASE)
+
+
+def _bridge_add_resilient(
+    chan, pon: int, slot: int, service: str, vlan: int, tag: str, bridge_port: str, timeout: float,
+    commands_run: List[str],
+) -> Tuple[str, str]:
+    """Aplica 'bridge add', absorvendo duas falhas conhecidas (validadas
+    contra OLT real) antes de desistir:
+
+    1. Tipo de bridge errado pra essa VLAN -- tenta uma vez com o tipo oposto.
+    2. ONU ainda nao assentou na OLT ("Please set ONU first") -- espera um
+       pouco e tenta de novo, ate 3 vezes no total.
+
+    Devolve (ultimo_comando, ultima_saida); quem chama decide se a ultima
+    saida ainda representa falha.
+    """
+    attempted_services = {service}
+    cmd = out = ""
+    for attempt in range(3):
+        cmd = f"bridge add gpon {pon} onu {slot} {service} vlan {vlan} {tag} {bridge_port}"
+        out = cli_run(chan, cmd, timeout=timeout)
+        commands_run.append(cmd)
+        if not command_failed(out):
+            return cmd, out
+        if _ONU_NOT_READY_RE.search(out) and attempt < 2:
+            time.sleep(2.0)
+            continue
+        alt = _OTHER_BRIDGE_TYPE.get(service)
+        if _BRIDGE_TYPE_CONFLICT_RE.search(out) and alt and alt not in attempted_services:
+            service = alt
+            attempted_services.add(service)
+            continue
+        break
+    return cmd, out
 
 
 def profile_for_model(model: str, terminal: str = "onu") -> str:
@@ -430,17 +485,70 @@ def add_onu(
             tag = "untagged" if str(tag_mode).strip().lower() == "untagged" else "tagged"
             bridge_port = "router" if is_ont else "eth 1"
             for entry in entries:
-                cmd = f"bridge add gpon {pon} onu {chosen_slot} {entry['service']} vlan {entry['vlan']} {tag} {bridge_port}"
-                out = cli_run(chan, cmd, timeout=timeout)
-                commands_run.append(cmd)
+                cmd, out = _bridge_add_resilient(
+                    chan, pon, chosen_slot, entry["service"], entry["vlan"], tag, bridge_port, timeout, commands_run
+                )
                 if command_failed(out):
                     raise OnuAddError(
                         f"ONU autorizada, mas falha ao aplicar servico/VLAN ({entry['service']} vlan {entry['vlan']}): {out.strip()[:300]}",
                         cmd,
                         commands_run,
+                        slot=chosen_slot,
                     )
 
         return {"ok": True, "pon": pon, "slot": chosen_slot, "commands_run": commands_run}
+    finally:
+        client.close()
+
+
+def add_bridge_only(
+    olt_ip: str,
+    user: str,
+    password: str,
+    pon: int,
+    slot: int,
+    service: str = "",
+    vlan: Optional[int] = None,
+    services: Optional[List[Dict[str, Any]]] = None,
+    tag_mode: str = "tagged",
+    terminal: str = "onu",
+    timeout: float = 15.0,
+) -> Dict[str, Any]:
+    """Aplica SO o passo de bridge/servico/VLAN numa ONU JA autorizada (o
+    'onu set' ja foi feito, com sucesso, em outra chamada). Recuperacao para
+    quando `add_onu` autoriza a ONU mas o `bridge add` falha -- ate agora nao
+    havia como retomar so essa parte pela tela, o tecnico tinha que entrar
+    na OLT direto. Nao roda 'onu set' de novo -- so a bridge.
+    """
+    client = _connect(olt_ip, user, password, timeout)
+    commands_run: List[str] = []
+    try:
+        chan = open_shell(client)
+
+        entries = [e for e in (services or []) if e.get("service") and e.get("vlan")]
+        if not entries and service and vlan:
+            entries = [{"service": service, "vlan": vlan}]
+        is_ont = str(terminal).strip().lower() == "ont"
+        if not is_ont:
+            entries = entries[:1]
+        if not entries:
+            raise OnuAddError("Nenhum servico/VLAN informado.", "", commands_run, slot=slot)
+
+        tag = "untagged" if str(tag_mode).strip().lower() == "untagged" else "tagged"
+        bridge_port = "router" if is_ont else "eth 1"
+        for entry in entries:
+            cmd, out = _bridge_add_resilient(
+                chan, pon, slot, entry["service"], entry["vlan"], tag, bridge_port, timeout, commands_run
+            )
+            if command_failed(out):
+                raise OnuAddError(
+                    f"Falha ao aplicar servico/VLAN ({entry['service']} vlan {entry['vlan']}): {out.strip()[:300]}",
+                    cmd,
+                    commands_run,
+                    slot=slot,
+                )
+
+        return {"ok": True, "pon": pon, "slot": slot, "commands_run": commands_run}
     finally:
         client.close()
 

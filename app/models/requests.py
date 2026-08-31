@@ -159,6 +159,32 @@ class OltAddOnuRequest(BaseModel):
     timeout: float = 15.0
 
 
+class OltAddOnuBridgeRequest(BaseModel):
+    """Retoma so o passo de bridge/servico/VLAN numa ONU 8820i ja autorizada
+    (posicao pon/onu ja tem 'onu set' feito) -- recuperacao para quando
+    `add_onu` autorizou mas o `bridge add` falhou."""
+
+    olt_id: int | None = None
+    olt_ip: str = ""
+    user: str = ""
+    password: str = ""
+    olt_vendor: str = ""
+    olt_model: str = ""
+    pon: int
+    onu: int
+    site: str = ""
+    olt_name: str = ""
+    service: str = "downlink"
+    vlan: int
+    services: List[OnuServiceEntry] = []
+    tag_mode: str = "tagged"
+    terminal: str = "onu"
+    connector_id: str = ""
+    remote_connector_id: str = ""
+    connector_name: str = ""
+    timeout: float = 15.0
+
+
 class OltFindOnuRequest(BaseModel):
     olt_id: int | None = None
     olt_ip: str = ""

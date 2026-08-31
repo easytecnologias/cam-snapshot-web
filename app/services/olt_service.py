@@ -15,6 +15,7 @@ from app.core.paths import SAIDA_DIR
 from app.core.perf import perf_step
 from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import (
+    OltAddOnuBridgeRequest,
     OltAddOnuRequest,
     OltCollectMacsRequest,
     OltDeleteOnuRequest,
@@ -42,6 +43,7 @@ from app.cli.tools.olt_vsol_epon import (
 )
 from app.cli.tools.olt_8820i_add_onu import (
     OnuAddError,
+    add_bridge_only as _add_onu_bridge_only_8820i,
     add_onu as _add_onu_8820i,
     delete_onu as _delete_onu_8820i,
     discover_unauthorized_onus,
@@ -1118,10 +1120,49 @@ def add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
                 "error": str(e),
                 "failed_at": e.failed_command,
                 "commands_run": e.commands_run,
+                "pon": req.pon,
+                "slot": e.slot,
             }
         except Exception as e:
             logger.error(f"Erro ao autorizar ONU na OLT: {e}")
             raise HTTPException(500, f"Erro ao autorizar ONU na OLT: {e}") from e
+
+
+def add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
+    """Retoma SO o passo de bridge/servico/VLAN numa ONU 8820i ja autorizada
+    (posicao pon/onu ja tem 'onu set' feito). Recuperacao para quando
+    `add_onu` autorizou a ONU mas o `bridge add` falhou (tipo de bridge
+    errado pra VLAN, ou a ONU ainda nao tinha assentado) -- antes disso so
+    dava pra corrigir entrando na OLT direto. Equipamento vivo."""
+    require_olt_capability(req, "add_onu", "aplicar servico/VLAN")
+    services = [{"service": e.service, "vlan": e.vlan} for e in req.services] if req.services else None
+    with perf_step("OLT_add_onu_bridge"):
+        try:
+            return _add_onu_bridge_only_8820i(
+                olt_ip=req.olt_ip,
+                user=req.user,
+                password=req.password,
+                pon=req.pon,
+                slot=req.onu,
+                service=req.service,
+                vlan=req.vlan,
+                services=services,
+                tag_mode=req.tag_mode,
+                terminal=req.terminal,
+                timeout=req.timeout,
+            )
+        except OnuAddError as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "failed_at": e.failed_command,
+                "commands_run": e.commands_run,
+                "pon": req.pon,
+                "slot": req.onu,
+            }
+        except Exception as e:
+            logger.error(f"Erro ao aplicar servico/VLAN na ONU: {e}")
+            raise HTTPException(500, f"Erro ao aplicar servico/VLAN na ONU: {e}") from e
 
 
 def find_onu(req: OltFindOnuRequest) -> Dict[str, Any]:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.core.tenant_context import get_current_tenant_slug
 from app.models.requests import (
+    OltAddOnuBridgeRequest,
     OltAddOnuRequest,
     OltCollectMacsRequest,
     OltDeleteOnuRequest,
@@ -22,6 +23,7 @@ from app.services.connector_service import get_connector
 from app.services.olt_capabilities import olt_capabilities, require_olt_capability
 from app.services.olt_service import (
     add_onu,
+    add_onu_bridge,
     collect_macs,
     collect_onu_telemetry,
     clear_macs,
@@ -290,6 +292,11 @@ def api_olt_discover_onus(req: OltDiscoverOnusRequest) -> Dict[str, Any]:
 @router.post("/olt/add-onu")
 def api_olt_add_onu(req: OltAddOnuRequest) -> Dict[str, Any]:
     return add_onu(_registered_request(req))
+
+
+@router.post("/olt/add-onu-bridge")
+def api_olt_add_onu_bridge(req: OltAddOnuBridgeRequest) -> Dict[str, Any]:
+    return add_onu_bridge(_registered_request(req))
 
 
 @router.post("/olt/find-onu")

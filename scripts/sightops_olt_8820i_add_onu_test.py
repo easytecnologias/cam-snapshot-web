@@ -166,6 +166,129 @@ def test_add_onu_falls_back_to_id_when_no_serial_given():
     assert set_cmds == ["onu set gpon 7 onu 2 id 3 meprof intelbras-110b"], set_cmds
 
 
+def test_bridge_add_falls_back_to_other_type_on_vlan_conflict():
+    # Validado contra OLT real: VLAN 3000 travada em 'tls' -- tentar
+    # 'downlink' nela e recusado, e o sistema deve tentar 'tls' sozinho.
+    calls = []
+
+    def script(cmd):
+        if cmd.startswith("onu show gpon"):
+            return _ONU_SHOW_OUTPUT
+        if cmd.startswith("onu set gpon"):
+            return "Onu 2 successfully enabled"
+        if cmd.startswith("bridge add"):
+            calls.append(cmd)
+            if "downlink" in cmd:
+                return "% Cannot add Asymmetric bridge to VLAN that already has a TLS bridge\nAdding bridge gpon 7 onu 2 vlan 3000 ....................... FAILED"
+            return "Adding bridge gpon 7 onu 2 vlan 3000 ....................... Ok"
+        return ""
+
+    original = _patch_client(lambda: FakeSSHClient(script))
+    try:
+        result = mod.add_onu(
+            "10.80.80.2", "admin", "admin",
+            pon=7, serno_id=3, profile="intelbras-110b",
+            slot=2, service="downlink", vlan=3000,
+        )
+    finally:
+        mod.paramiko.SSHClient = original
+
+    assert result["ok"] is True, result
+    assert len(calls) == 2, calls
+    assert "downlink" in calls[0] and "tls" in calls[1], calls
+
+
+def test_bridge_add_retries_after_onu_not_ready():
+    # Validado contra OLT real: logo apos o 'onu set', a OLT as vezes ainda
+    # nao terminou o OMCI e recusa a bridge com "Please set ONU first".
+    calls = []
+    original_sleep = mod.time.sleep
+    mod.time.sleep = lambda *_a, **_kw: None  # nao esperar de verdade no teste
+    try:
+        def script(cmd):
+            if cmd.startswith("onu show gpon"):
+                return _ONU_SHOW_OUTPUT
+            if cmd.startswith("onu set gpon"):
+                return "Onu 2 successfully enabled"
+            if cmd.startswith("bridge add"):
+                calls.append(cmd)
+                if len(calls) == 1:
+                    return "% Please set ONU first\nAdding bridge gpon 7 onu 2 vlan 3000 ....................... FAILED"
+                return "Adding bridge gpon 7 onu 2 vlan 3000 ....................... Ok"
+            return ""
+
+        original = _patch_client(lambda: FakeSSHClient(script))
+        try:
+            result = mod.add_onu(
+                "10.80.80.2", "admin", "admin",
+                pon=7, serno_id=3, profile="intelbras-110b",
+                slot=2, service="tls", vlan=3000,
+            )
+        finally:
+            mod.paramiko.SSHClient = original
+    finally:
+        mod.time.sleep = original_sleep
+
+    assert result["ok"] is True, result
+    assert len(calls) == 2, calls
+
+
+def test_bridge_add_does_not_retry_on_unrelated_failure():
+    # Um erro que nao e nem "tipo errado" nem "ainda nao assentou" deve
+    # falhar direto, sem tentar de novo e sem trocar o tipo de servico.
+    calls = []
+
+    def script(cmd):
+        if cmd.startswith("onu show gpon"):
+            return _ONU_SHOW_OUTPUT
+        if cmd.startswith("onu set gpon"):
+            return "Onu 2 successfully enabled"
+        if cmd.startswith("bridge add"):
+            calls.append(cmd)
+            return "% Invalid input detected\nAdding bridge gpon 7 onu 2 vlan 3000 ....................... FAILED"
+        return ""
+
+    original = _patch_client(lambda: FakeSSHClient(script))
+    try:
+        try:
+            mod.add_onu(
+                "10.80.80.2", "admin", "admin",
+                pon=7, serno_id=3, profile="intelbras-110b",
+                slot=2, service="tls", vlan=3000,
+            )
+            assert False, "esperava OnuAddError"
+        except OnuAddError as e:
+            assert e.slot == 2, e.slot
+    finally:
+        mod.paramiko.SSHClient = original
+
+    assert len(calls) == 1, calls
+
+
+def test_add_bridge_only_recovers_authorized_onu_without_reauthorizing():
+    # Recuperacao: ONU ja autorizada (onu set ja feito antes), so falta a
+    # bridge -- add_bridge_only nao deve mandar 'onu set' de novo.
+    calls = []
+
+    def script(cmd):
+        calls.append(cmd)
+        if cmd.startswith("bridge add"):
+            return "Adding bridge gpon 7 onu 2 vlan 3000 ....................... Ok"
+        return ""
+
+    original = _patch_client(lambda: FakeSSHClient(script))
+    try:
+        result = mod.add_bridge_only(
+            "10.80.80.2", "admin", "admin",
+            pon=7, slot=2, service="tls", vlan=3000,
+        )
+    finally:
+        mod.paramiko.SSHClient = original
+
+    assert result["ok"] is True, result
+    assert calls == ["bridge add gpon 7 onu 2 tls vlan 3000 tagged eth 1"], calls
+
+
 def main() -> None:
     test_uses_fresh_serno_id_when_serial_matches()
     test_falls_back_to_serno_id_when_no_serial_given()
@@ -176,6 +299,10 @@ def main() -> None:
     test_serial_number_arg_without_vendor()
     test_add_onu_authorizes_by_serial_when_serial_informed()
     test_add_onu_falls_back_to_id_when_no_serial_given()
+    test_bridge_add_falls_back_to_other_type_on_vlan_conflict()
+    test_bridge_add_retries_after_onu_not_ready()
+    test_bridge_add_does_not_retry_on_unrelated_failure()
+    test_add_bridge_only_recovers_authorized_onu_without_reauthorizing()
     print("OK: sightops_olt_8820i_add_onu_test")
 
 

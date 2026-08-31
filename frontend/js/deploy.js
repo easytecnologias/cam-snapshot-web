@@ -1429,6 +1429,7 @@ async function deployStandaloneRecorderReboot() {
 
 //  Implantacao - ONU (pagina dedicada: descobrir/autorizar/consultar/excluir)
 let _onuSelectedDiscovered = null; // {pon, serno_id, serial, model, vendor}
+let _onuLastAddContext = null; // {olt, pon, slot, services, tagMode, terminal} -- p/ "tentar bridge de novo"
 let _oltInventoryRows = null; // cache: linhas de /api/olt/rows (IP/site/PON ja conhecidos)
 
 function onuInferOltContext(oltIp) {
@@ -1669,6 +1670,7 @@ function onuApplyRegisteredOlt() {
   const password = document.getElementById('onuOltPassword');
   if (password) password.placeholder = row ? 'Credencial salva no servidor' : 'Senha';
   onuUpdatePonSelectors();
+  onuUpdateServiceOptions();
   updateOnuConnectorStatus();
   onuUpdateCapabilities();
   onuUpdateStepsLock();
@@ -1848,18 +1850,47 @@ function bindOnuStepLockGuards() {
 }
 
 // Etapa "Autorizar" -- ONT permite mais de uma VLAN, ONU fica com uma so.
+const ONU_SERVICE_OPTIONS_DEFAULT = `
+  <option value="downlink">Internet / dados</option>
+  <option value="iptv">IPTV / multicast</option>
+  <option value="tls">TLS / transparente</option>
+  <option value="management">Gerencia</option>
+  <option value="voice">Voz</option>
+  <option value="other">Outro servico</option>
+`;
+
+// A 8820i so aceita 'downlink' ou 'tls' no 'bridge add' (confirmado contra
+// OLT real com 'bridge add gpon <pon> onu <onu> ?') -- as outras opcoes do
+// dropdown generico (iptv/management/voice/other) nem existem nesse CLI.
+const ONU_SERVICE_OPTIONS_8820I = `
+  <option value="downlink">Downlink</option>
+  <option value="tls">TLS / transparente</option>
+`;
+
+function onuServiceOptionsHtmlForDriver(driver) {
+  return String(driver || '').trim().toLowerCase() === 'intelbras_8820i'
+    ? ONU_SERVICE_OPTIONS_8820I
+    : ONU_SERVICE_OPTIONS_DEFAULT;
+}
+
+function onuUpdateServiceOptions() {
+  const row = onuSelectedRegistryRow();
+  const optionsHtml = onuServiceOptionsHtmlForDriver(row?.driver);
+  document.querySelectorAll('#onuAddServiceRows .onuAddServiceSel').forEach(sel => {
+    const previous = sel.value;
+    sel.innerHTML = optionsHtml;
+    if ([...sel.options].some(opt => opt.value === previous)) sel.value = previous;
+  });
+}
+
 function onuServiceRowHtml() {
+  const row = onuSelectedRegistryRow();
   return `
     <div class="form-row onu-service-row">
       <div class="form-group">
         <label>Servico</label>
         <select class="onuAddServiceSel">
-          <option value="downlink">Internet / dados</option>
-          <option value="iptv">IPTV / multicast</option>
-          <option value="tls">TLS / transparente</option>
-          <option value="management">Gerencia</option>
-          <option value="voice">Voz</option>
-          <option value="other">Outro servico</option>
+          ${onuServiceOptionsHtmlForDriver(row?.driver)}
         </select>
       </div>
       <div class="form-group">
@@ -1999,6 +2030,7 @@ async function loadOnuHistory() {
 
 function onuClear() {
   _onuSelectedDiscovered = null;
+  _onuLastAddContext = null;
   _onuDeleteTarget = null;
   document.querySelectorAll('#viewDeployOnu .onu-accordion input').forEach(input => { input.value = ''; });
   document.querySelectorAll('#viewDeployOnu .onu-accordion select').forEach(select => { select.selectedIndex = 0; });
@@ -2133,7 +2165,25 @@ async function onuAdd() {
     return;
   }
   if (data.ok === false) {
-    onuSetResult('onuAddResult', `Falhou em: <code>${esc(data.failed_at || '-')}</code><br>${esc(data.error || '')}<br>Comandos ja aplicados: ${data.commands_run?.length || 0}`, true);
+    // A ONU pode ja ter sido autorizada na OLT mesmo com o resto falhando
+    // (o 'onu set' e o primeiro passo) -- se `slot` veio preenchido, so o
+    // servico/VLAN falhou, e da pra tentar de novo SO essa parte (sem
+    // reautorizar) em vez de o tecnico ter que ir na OLT direto.
+    const canRetryBridge = Number.isInteger(data.slot);
+    _onuLastAddContext = canRetryBridge
+      ? { olt, pon: data.pon || pon, slot: data.slot, services, tagMode, terminal }
+      : null;
+    const retryNote = canRetryBridge
+      ? '<br><small>A ONU ja foi autorizada na OLT -- so falta o servico/VLAN.</small>'
+      : '';
+    const retryBtn = canRetryBridge
+      ? '<div class="deploy-inline-button" style="margin-top:8px"><button class="secondary-action" id="btnOnuRetryBridge" type="button"><i data-lucide="refresh-cw"></i> Tentar aplicar servico/VLAN de novo</button></div>'
+      : '';
+    onuSetResult('onuAddResult', `Falhou em: <code>${esc(data.failed_at || '-')}</code><br>${esc(data.error || '')}<br>Comandos ja aplicados: ${data.commands_run?.length || 0}${retryNote}${retryBtn}`, true);
+    if (canRetryBridge) {
+      lucide.createIcons();
+      document.getElementById('btnOnuRetryBridge')?.addEventListener('click', onuRetryBridge);
+    }
     showToast('Falha ao autorizar ONU -- confira o detalhe.', true);
     return;
   }
@@ -2146,6 +2196,47 @@ async function onuAdd() {
   showToast(syncedMacs > 0
     ? `ONU autorizada e ${syncedMacs} dispositivo${syncedMacs !== 1 ? 's' : ''} sincronizado${syncedMacs !== 1 ? 's' : ''}.`
     : 'ONU autorizada. Ainda nao havia MAC aprendido; use Consultar sinal / MACs para atualizar.');
+  const targetEl = document.getElementById('onuTargetNum');
+  if (targetEl) targetEl.value = data.slot;
+  const queryPonEl = document.getElementById('onuQueryPon');
+  if (queryPonEl) queryPonEl.value = String(data.pon || pon || '');
+  loadOnuHistory();
+  onuAccordionOpen('onuStepQuery');
+}
+
+async function onuRetryBridge() {
+  if (!_onuLastAddContext) return;
+  const { olt, pon, slot, services, tagMode, terminal } = _onuLastAddContext;
+  const payload = {
+    olt_id: olt.olt_id || null,
+    olt_ip: olt.olt_ip,
+    user: olt.user,
+    password: olt.password,
+    pon,
+    onu: slot,
+    site: olt.site || '',
+    olt_name: olt.olt_name || '',
+    service: services[0].service,
+    vlan: services[0].vlan,
+    services,
+    tag_mode: tagMode,
+    terminal,
+    connector_id: olt.connector_id || '',
+    remote_connector_id: olt.remote_connector_id || '',
+    connector_name: olt.connector_name || '',
+  };
+  onuSetResult('onuAddResult', 'Tentando aplicar servico/VLAN de novo (equipamento vivo, aguarde)...');
+  const res = await api('/api/olt/add-onu-bridge', { method: 'POST', body: JSON.stringify(payload) });
+  const data = await res?.json().catch(() => ({}));
+  if (!res?.ok || data?.ok === false) {
+    onuSetResult('onuAddResult', `Falhou de novo em: <code>${esc(data?.failed_at || '-')}</code><br>${esc(data?.detail || data?.error || 'Falha ao aplicar servico/VLAN.')}`, true);
+    showToast('Ainda nao consegui aplicar o servico/VLAN.', true);
+    return;
+  }
+  _onuLastAddContext = null;
+  _oltInventoryRows = null;
+  onuSetResult('onuAddResult', `Servico/VLAN aplicado na PON ${esc(data.pon)}, posicao ${esc(data.slot)}.`);
+  showToast('Servico/VLAN aplicado -- ONU deve voltar a passar trafego.');
   const targetEl = document.getElementById('onuTargetNum');
   if (targetEl) targetEl.value = data.slot;
   const queryPonEl = document.getElementById('onuQueryPon');
