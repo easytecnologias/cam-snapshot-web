@@ -186,3 +186,78 @@ def _classify_auth_mode(output: str) -> str:
     if "hybrid-auth" in low:
         return "hybrid-auth"
     return "disable"
+
+
+def _connect_and_login(olt_ip: str, user: str, password: str, port: int, timeout: float):
+    client, chan = _open_shell(olt_ip, user, password, port=port, timeout=timeout)
+    _ensure_logged_in(chan, user=user, password=password, timeout=timeout)
+    _ensure_enable(chan, password=password, timeout=timeout)
+    return client, chan
+
+
+def find_onu_4840e(
+    olt_ip: str, user: str, password: str, mac: str, port: int = 22, timeout: float = 12.0,
+) -> Optional[Dict[str, Any]]:
+    """Localiza uma ONU ja autorizada pelo MAC ('show onu-status mac <mac>').
+    Retorna None se nao achar."""
+    mac_norm = _norm_mac(mac)
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    try:
+        _cli(chan, "conf t", timeout=timeout)
+        out = _cli(chan, f"show onu-status mac {mac_norm}", timeout=timeout)
+        rows = _parse_onu_status(out)
+        return rows[0] if rows else None
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def onu_signal_4840e(
+    olt_ip: str, user: str, password: str, pon: int, onu: int, port: int = 22, timeout: float = 12.0,
+) -> Dict[str, Any]:
+    """Consulta status (Rtt/distancia/estado) + diagnostico optico
+    (RX/TX power/temperatura/tensao) de uma ONU ja autorizada."""
+    addr = f"0/{pon}/{onu}"
+    client, chan = _connect_and_login(olt_ip, user, password, port, timeout)
+    try:
+        _cli(chan, "conf t", timeout=timeout)
+        status_out = _cli(chan, "show onu-status", timeout=timeout)
+        rows = _parse_onu_status(status_out)
+        match = next((r for r in rows if r["pon"] == pon and r["onu"] == onu), None)
+        if not match:
+            return {"ok": False, "error": f"ONU {addr} nao encontrada em 'show onu-status'."}
+
+        cmd = f"onu {addr}"
+        out = _cli(chan, cmd, timeout=timeout)
+        if command_failed(out):
+            return {"ok": False, "error": f"Falha ao entrar no contexto {addr}: {out.strip()[:300]}"}
+        diag_out = _cli(chan, "show onu-opm-diagnosis", timeout=timeout)
+        diag = _parse_opm_diagnosis(diag_out)
+        _cli(chan, "exit", timeout=timeout)
+
+        return {
+            "ok": True,
+            "pon": pon,
+            "onu": onu,
+            "mac": match["mac"],
+            "distance_m": match["distance_m"],
+            "register_time": match["register_time"],
+            "state": match["state"],
+            "software": match["software"],
+            **diag,
+        }
+    finally:
+        try:
+            chan.close()
+        except Exception:
+            pass
+        try:
+            client.close()
+        except Exception:
+            pass
